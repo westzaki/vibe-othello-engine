@@ -53,6 +53,19 @@ TEST_CASE("Fixed-depth search is deterministic", "[search]") {
     CHECK(first.nodes == second.nodes);
 }
 
+TEST_CASE("Fixed-depth search remains deterministic at deeper depths", "[search]") {
+    const auto board = othello::apply_move(Board::initial(), othello::test::square("d3"));
+    REQUIRE(board.has_value());
+
+    const othello::SearchResult first = othello::search_fixed_depth(*board, 4);
+    const othello::SearchResult second = othello::search_fixed_depth(*board, 4);
+
+    CHECK(first.best_move == second.best_move);
+    CHECK(first.score == second.score);
+    CHECK(first.depth == second.depth);
+    CHECK(first.nodes == second.nodes);
+}
+
 TEST_CASE("Fixed-depth search handles terminal boards", "[search]") {
     const Board board{
         .black = ~Bitboard{0},
