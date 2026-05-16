@@ -5,6 +5,7 @@
 #include <optional>
 #include <othello/board.hpp>
 #include <othello/square.hpp>
+#include <vector>
 
 namespace othello {
 
@@ -13,6 +14,7 @@ struct SearchResult {
     int score = 0;
     int depth = 0;
     std::uint64_t nodes = 0;
+    std::vector<Square> principal_variation;
 };
 
 struct SearchOptions {
