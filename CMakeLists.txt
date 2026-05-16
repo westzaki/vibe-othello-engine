@@ -68,8 +68,15 @@ target_link_libraries(othello_rule_core_tests PRIVATE othello)
 target_link_libraries(othello_rule_core_tests PRIVATE Catch2::Catch2WithMain)
 othello_enable_sanitizers(othello_rule_core_tests)
 
+add_executable(othello_rule_core_bench
+    tools/bench_rule_core.cpp
+)
+
+target_link_libraries(othello_rule_core_bench PRIVATE othello)
+othello_enable_sanitizers(othello_rule_core_bench)
+
 if(OTHELLO_ENABLE_CLANG_TIDY)
-    set_target_properties(othello othello_rule_core_tests
+    set_target_properties(othello othello_rule_core_tests othello_rule_core_bench
         PROPERTIES
             CXX_CLANG_TIDY "${CLANG_TIDY_EXE}"
     )
