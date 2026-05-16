@@ -46,6 +46,7 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(Catch2)
 
 add_library(othello STATIC
+    src/evaluation.cpp
     src/notation.cpp
     src/player.cpp
     src/rules.cpp
