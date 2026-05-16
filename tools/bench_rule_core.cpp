@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <charconv>
 #include <chrono>
@@ -37,6 +38,16 @@ struct BenchmarkResult {
     std::uint64_t checksum;
 };
 
+struct SearchBenchmarkResult {
+    std::string_view name;
+    std::uint64_t position_count;
+    int depth;
+    std::uint64_t searches;
+    std::chrono::nanoseconds elapsed;
+    std::uint64_t total_nodes;
+    std::uint64_t checksum;
+};
+
 [[nodiscard]] std::uint64_t mix_checksum(std::uint64_t checksum, std::uint64_t value) noexcept {
     return std::rotl(checksum ^ value, 7) + 0x9E3779B97F4A7C15ULL;
 }
@@ -49,6 +60,17 @@ struct BenchmarkResult {
     auto checksum = mix_checksum(0, board.black);
     checksum = mix_checksum(checksum, board.white);
     return mix_checksum(checksum, side_checksum(board.side_to_move));
+}
+
+[[nodiscard]] std::uint64_t search_result_checksum(const othello::SearchResult& result) noexcept {
+    auto checksum = mix_checksum(0, static_cast<std::uint64_t>(result.score));
+    checksum = mix_checksum(checksum, static_cast<std::uint64_t>(result.depth));
+    checksum = mix_checksum(checksum, result.nodes);
+
+    const auto move_value = result.best_move.has_value()
+                                ? static_cast<std::uint64_t>(result.best_move->index() + 1)
+                                : 0;
+    return mix_checksum(checksum, move_value);
 }
 
 [[nodiscard]] std::optional<std::uint64_t> parse_positive_count(std::string_view text) noexcept {
@@ -343,6 +365,36 @@ benchmark_apply_move(const std::vector<LegalMoveSet>& move_sets, std::uint64_t i
                            .checksum = checksum};
 }
 
+[[nodiscard]] SearchBenchmarkResult
+benchmark_search_fixed_depth(const std::vector<Position>& positions, int depth,
+                             std::uint64_t repetitions) {
+    std::uint64_t checksum = 0;
+    std::uint64_t searches = 0;
+    std::uint64_t total_nodes = 0;
+
+    const auto start = Clock::now();
+    for (std::uint64_t repetition = 0; repetition < repetitions; ++repetition) {
+        for (const auto& position : positions) {
+            const auto result = othello::search_fixed_depth(position.board, depth);
+            checksum = mix_checksum(checksum, search_result_checksum(result));
+            checksum = mix_checksum(checksum, board_checksum(position.board));
+            total_nodes += result.nodes;
+            ++searches;
+        }
+    }
+    const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - start);
+
+    return SearchBenchmarkResult{
+        .name = "search_fixed_depth",
+        .position_count = positions.size(),
+        .depth = depth,
+        .searches = searches,
+        .elapsed = elapsed,
+        .total_nodes = total_nodes,
+        .checksum = checksum,
+    };
+}
+
 void print_result(const BenchmarkResult& result) {
     const auto elapsed_count = result.elapsed.count();
     const auto elapsed_ms = static_cast<double>(elapsed_count) / 1'000'000.0;
@@ -362,8 +414,30 @@ void print_result(const BenchmarkResult& result) {
               << "/s  checksum=" << result.checksum << '\n';
 }
 
+void print_search_result(const SearchBenchmarkResult& result) {
+    const auto elapsed_count = result.elapsed.count();
+    const auto elapsed_ms = static_cast<double>(elapsed_count) / 1'000'000.0;
+    const auto searches_per_second =
+        elapsed_count == 0 ? 0.0
+                           : (static_cast<double>(result.searches) * 1'000'000'000.0) /
+                                 static_cast<double>(elapsed_count);
+    const auto nodes_per_second =
+        elapsed_count == 0 ? 0.0
+                           : (static_cast<double>(result.total_nodes) * 1'000'000'000.0) /
+                                 static_cast<double>(elapsed_count);
+
+    std::cout << std::left << std::setw(32) << result.name << "  positions=" << std::right
+              << std::setw(2) << result.position_count << "  depth=" << std::setw(2) << result.depth
+              << "  " << std::setw(10) << result.searches << " searches  " << std::fixed
+              << std::setprecision(3) << std::setw(10) << elapsed_ms << " ms  " << std::setw(14)
+              << searches_per_second << " searches/s  nodes=" << result.total_nodes << "  "
+              << std::setw(14) << nodes_per_second << " nodes/s  checksum=" << result.checksum
+              << '\n';
+}
+
 int run_benchmark(std::span<char* const> args) {
     constexpr std::uint64_t default_iterations = 20'000;
+    constexpr std::array search_depths{1, 2, 3};
 
     if (args.size() > 2) {
         std::cerr << "usage: " << args.front() << " [fixed-position-iterations]\n";
@@ -387,6 +461,7 @@ int run_benchmark(std::span<char* const> args) {
 
     const auto move_sets = make_legal_move_sets(*positions);
     const auto playout_games = std::max<std::uint64_t>(1, iterations / 200);
+    const auto search_repetitions = std::max<std::uint64_t>(1, iterations / 2'000);
 
     std::cout << "Othello rule-core benchmark\n";
     std::cout << "fixed positions: " << positions->size() << '\n';
@@ -407,6 +482,12 @@ int run_benchmark(std::span<char* const> args) {
         return 1;
     }
     print_result(*playout_result);
+
+    std::cout << '\n';
+    std::cout << "search repetitions: " << search_repetitions << '\n';
+    for (const int depth : search_depths) {
+        print_search_result(benchmark_search_fixed_depth(*positions, depth, search_repetitions));
+    }
 
     return 0;
 }
