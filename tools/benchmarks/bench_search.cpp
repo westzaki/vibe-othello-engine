@@ -43,6 +43,8 @@ struct SearchBenchmarkResult {
     std::size_t transposition_table_entries;
     std::uint64_t position_count;
     int depth;
+    std::optional<othello::Square> sample_best_move;
+    int sample_score;
     std::uint64_t searches;
     std::chrono::nanoseconds elapsed;
     std::uint64_t total_nodes;
@@ -291,6 +293,8 @@ benchmark_search(const std::vector<othello::benchmarks::Position>& positions, in
     std::uint64_t work_checksum = 0;
     std::uint64_t searches = 0;
     std::uint64_t total_nodes = 0;
+    std::optional<othello::Square> sample_best_move;
+    int sample_score = 0;
 
     const auto start = Clock::now();
     for (std::uint64_t repetition = 0; repetition < repetitions; ++repetition) {
@@ -308,6 +312,10 @@ benchmark_search(const std::vector<othello::benchmarks::Position>& positions, in
                 othello::benchmarks::mix_checksum(work_checksum, stable_result_checksum);
             work_checksum = othello::benchmarks::mix_checksum(work_checksum, result.nodes);
 
+            if (searches == 0) {
+                sample_best_move = result.best_move;
+                sample_score = result.score;
+            }
             total_nodes += result.nodes;
             ++searches;
         }
@@ -321,6 +329,8 @@ benchmark_search(const std::vector<othello::benchmarks::Position>& positions, in
         .transposition_table_entries = search_options.transposition_table_entries,
         .position_count = positions.size(),
         .depth = depth,
+        .sample_best_move = sample_best_move,
+        .sample_score = sample_score,
         .searches = searches,
         .elapsed = elapsed,
         .total_nodes = total_nodes,
@@ -332,8 +342,8 @@ benchmark_search(const std::vector<othello::benchmarks::Position>& positions, in
 void print_search_result_header() {
     std::cout << std::left << std::setw(12) << "benchmark" << "  " << std::setw(10) << "mode"
               << "  " << std::setw(3) << "tt" << "  " << std::setw(10) << "tt_entries"
-              << "  positions  depth  searches  elapsed_ms      searches/s  total_nodes"
-                 "         nodes/s  nodes/search  result_checksum  work_checksum\n";
+              << "  positions  depth  best_move  score  searches  elapsed_ms      searches/s"
+                 "  total_nodes         nodes/s  nodes/search  result_checksum  work_checksum\n";
 }
 
 void print_search_result(const SearchBenchmarkResult& result) {
@@ -355,11 +365,15 @@ void print_search_result(const SearchBenchmarkResult& result) {
               << mode_name(result.mode) << "  " << std::setw(3)
               << (result.use_transposition_table ? "on" : "off") << "  " << std::right
               << std::setw(10) << result.transposition_table_entries << "  " << std::setw(9)
-              << result.position_count << "  " << std::setw(5) << result.depth << "  "
-              << std::setw(8) << result.searches << "  " << std::fixed << std::setprecision(3)
-              << std::setw(10) << elapsed_ms << "  " << std::setw(14) << searches_per_second << "  "
-              << std::setw(11) << result.total_nodes << "  " << std::setw(14) << nodes_per_second
-              << "  " << std::setw(12) << nodes_per_search << "  " << result.result_checksum << "  "
+              << result.position_count << "  " << std::setw(5) << result.depth << "  " << std::left
+              << std::setw(9)
+              << (result.sample_best_move.has_value() ? othello::to_string(*result.sample_best_move)
+                                                      : "-")
+              << "  " << std::right << std::setw(5) << result.sample_score << "  " << std::setw(8)
+              << result.searches << "  " << std::fixed << std::setprecision(3) << std::setw(10)
+              << elapsed_ms << "  " << std::setw(14) << searches_per_second << "  " << std::setw(11)
+              << result.total_nodes << "  " << std::setw(14) << nodes_per_second << "  "
+              << std::setw(12) << nodes_per_search << "  " << result.result_checksum << "  "
               << result.work_checksum << '\n';
 }
 
@@ -419,6 +433,7 @@ int run_benchmark(std::span<char* const> args) {
                       : "off")
               << '\n';
     std::cout << "tt entries: " << options.transposition_table_entries << '\n';
+    std::cout << "best_move/score: first sampled result\n";
     std::cout << "depths:";
     for (const int depth : options.depths) {
         std::cout << ' ' << depth;
