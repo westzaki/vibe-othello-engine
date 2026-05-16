@@ -1,7 +1,14 @@
+#include "hash_detail.hpp"
+
 #include <algorithm>
 #include <array>
+#include <bit>
+#include <cassert>
 #include <cstddef>
+#include <memory>
+#include <new>
 #include <othello/evaluation.hpp>
+#include <othello/hash.hpp>
 #include <othello/rules.hpp>
 #include <othello/search.hpp>
 
@@ -16,6 +23,105 @@ struct NodeResult {
 struct OrderedMoveIndexes {
     std::array<int, 64> indexes{};
     std::size_t size = 0;
+};
+
+enum class TranspositionBound {
+    Exact,
+    Lower,
+    Upper,
+};
+
+struct TranspositionEntry {
+    ZobristHash hash = 0;
+    int depth = -1;
+    int score = 0;
+    int best_move_index = -1;
+    TranspositionBound bound = TranspositionBound::Exact;
+    bool occupied = false;
+};
+
+class TranspositionTable {
+public:
+    TranspositionTable() noexcept : entries_{new (std::nothrow) TranspositionEntry[entry_count]} {}
+
+    [[nodiscard]] std::optional<NodeResult> lookup(ZobristHash hash, int depth, int alpha,
+                                                   int beta) const noexcept {
+        if (entries_ == nullptr) {
+            return std::nullopt;
+        }
+
+        const TranspositionEntry& entry = entries_[entry_index(hash)];
+        if (!entry.occupied || entry.hash != hash || entry.depth < depth) {
+            return std::nullopt;
+        }
+
+        if (entry.bound == TranspositionBound::Exact) {
+            return node_result_from_entry(entry);
+        }
+        if (entry.bound == TranspositionBound::Lower && entry.score >= beta) {
+            return node_result_from_entry(entry);
+        }
+        if (entry.bound == TranspositionBound::Upper && entry.score <= alpha) {
+            return node_result_from_entry(entry);
+        }
+
+        return std::nullopt;
+    }
+
+    void store(ZobristHash hash, int depth, int score, int original_alpha, int beta,
+               const std::optional<Square>& best_move) noexcept {
+        if (entries_ == nullptr) {
+            return;
+        }
+
+        TranspositionBound bound = TranspositionBound::Exact;
+        if (score <= original_alpha) {
+            bound = TranspositionBound::Upper;
+        } else if (score >= beta) {
+            bound = TranspositionBound::Lower;
+        }
+
+        entries_[entry_index(hash)] = TranspositionEntry{
+            .hash = hash,
+            .depth = depth,
+            .score = score,
+            .best_move_index = best_move.has_value() ? best_move->index() : -1,
+            .bound = bound,
+            .occupied = true,
+        };
+    }
+
+private:
+    static constexpr std::size_t entry_count = 1 << 18;
+
+    std::unique_ptr<TranspositionEntry[]> entries_; // NOLINT(cppcoreguidelines-avoid-c-arrays,
+                                                    // modernize-avoid-c-arrays)
+
+    [[nodiscard]] static constexpr std::size_t entry_index(ZobristHash hash) noexcept {
+        return static_cast<std::size_t>(hash) & (entry_count - 1);
+    }
+
+    [[nodiscard]] static std::optional<Square>
+    square_from_entry(const TranspositionEntry& entry) noexcept {
+        if (entry.best_move_index < Square::min_index ||
+            entry.best_move_index > Square::max_index) {
+            return std::nullopt;
+        }
+        return Square::from_index(entry.best_move_index);
+    }
+
+    [[nodiscard]] static NodeResult
+    node_result_from_entry(const TranspositionEntry& entry) noexcept {
+        return NodeResult{
+            .best_move = square_from_entry(entry),
+            .score = entry.score,
+        };
+    }
+};
+
+struct SearchContext {
+    std::uint64_t nodes = 0;
+    TranspositionTable transpositions;
 };
 
 constexpr int search_score_min = -1'000'000'000;
@@ -84,25 +190,85 @@ constexpr int search_score_max = 1'000'000'000;
     return !best_move.has_value() || candidate.index() < best_move->index();
 }
 
+[[nodiscard]] Board board_after_move(const Board& board, Square square, Bitboard flips) noexcept {
+    const Bitboard move_bit = square.bit();
+
+    Board next = board;
+    if (board.side_to_move == Side::Black) {
+        next.black = board.black | move_bit | flips;
+        next.white = board.white & ~flips;
+    } else {
+        next.white = board.white | move_bit | flips;
+        next.black = board.black & ~flips;
+    }
+    next.side_to_move = opponent(board.side_to_move);
+
+    return next;
+}
+
+[[nodiscard]] ZobristHash hash_after_pass(ZobristHash hash, Side side_to_move) noexcept {
+    hash ^= detail::zobrist_side_hash(side_to_move);
+    hash ^= detail::zobrist_side_hash(opponent(side_to_move));
+    return hash;
+}
+
+[[nodiscard]] ZobristHash hash_after_move(ZobristHash hash, Side side_to_move, Square square,
+                                          Bitboard flips) noexcept {
+    const Side next_side = opponent(side_to_move);
+
+    hash ^= detail::zobrist_side_hash(side_to_move);
+    hash ^= detail::zobrist_side_hash(next_side);
+    hash ^= detail::zobrist_piece_hash(side_to_move, square.index());
+
+    while (flips != 0) {
+        const int square_index = std::countr_zero(flips);
+        hash ^= detail::zobrist_piece_hash(next_side, square_index);
+        hash ^= detail::zobrist_piece_hash(side_to_move, square_index);
+        flips &= flips - 1;
+    }
+
+    return hash;
+}
+
 // Fixed-depth negamax is easiest to audit as direct recursion at this stage.
 // NOLINTNEXTLINE(misc-no-recursion)
-[[nodiscard]] NodeResult search_node(const Board& board, int depth, int alpha, int beta,
-                                     std::uint64_t& nodes) noexcept {
-    ++nodes;
+[[nodiscard]] NodeResult search_node(const Board& board, ZobristHash hash, int depth, int alpha,
+                                     int beta, SearchContext& context) noexcept {
+    ++context.nodes;
+
+    const int original_alpha = alpha;
+
+    const std::optional<NodeResult> cached =
+        context.transpositions.lookup(hash, depth, alpha, beta);
+    if (cached.has_value()) {
+        return *cached;
+    }
 
     if (depth <= 0 || is_game_over(board)) {
-        return NodeResult{.score = evaluate_basic(board, board.side_to_move)};
+        const NodeResult result{.score = evaluate_basic(board, board.side_to_move)};
+        context.transpositions.store(hash, depth, result.score, original_alpha, beta,
+                                     result.best_move);
+        return result;
     }
 
     const Bitboard moves = legal_moves(board);
     if (moves == 0) {
         const std::optional<Board> next = pass_turn(board);
         if (!next.has_value()) {
-            return NodeResult{.score = evaluate_basic(board, board.side_to_move)};
+            const NodeResult result{.score = evaluate_basic(board, board.side_to_move)};
+            context.transpositions.store(hash, depth, result.score, original_alpha, beta,
+                                         result.best_move);
+            return result;
         }
 
-        const NodeResult child = search_node(*next, depth - 1, -beta, -alpha, nodes);
-        return NodeResult{.score = -child.score};
+        const ZobristHash next_hash = hash_after_pass(hash, board.side_to_move);
+        assert(next_hash == zobrist_hash(*next));
+
+        const NodeResult child = search_node(*next, next_hash, depth - 1, -beta, -alpha, context);
+        const NodeResult result{.score = -child.score};
+        context.transpositions.store(hash, depth, result.score, original_alpha, beta,
+                                     result.best_move);
+        return result;
     }
 
     std::optional<int> best_score;
@@ -115,12 +281,16 @@ constexpr int search_score_max = 1'000'000'000;
             continue;
         }
 
-        const std::optional<Board> next = apply_move(board, *square);
-        if (!next.has_value()) {
+        const Bitboard flips = flips_for_move(board, *square);
+        if (flips == 0) {
             continue;
         }
 
-        const NodeResult child = search_node(*next, depth - 1, -beta, -alpha, nodes);
+        const Board next = board_after_move(board, *square, flips);
+        const ZobristHash next_hash = hash_after_move(hash, board.side_to_move, *square, flips);
+        assert(next_hash == zobrist_hash(next));
+
+        const NodeResult child = search_node(next, next_hash, depth - 1, -beta, -alpha, context);
         const int candidate_score = -child.score;
         if (is_better_best_move(candidate_score, *square, best_score, best_move)) {
             best_score = candidate_score;
@@ -133,25 +303,27 @@ constexpr int search_score_max = 1'000'000'000;
         }
     }
 
-    return NodeResult{
+    const NodeResult result{
         .best_move = best_move,
         .score = best_score.value_or(evaluate_basic(board, board.side_to_move)),
     };
+    context.transpositions.store(hash, depth, result.score, original_alpha, beta, result.best_move);
+    return result;
 }
 
 } // namespace
 
 SearchResult search_fixed_depth(const Board& board, int depth) noexcept {
     const int search_depth = depth < 0 ? 0 : depth;
-    std::uint64_t nodes = 0;
-    const NodeResult result =
-        search_node(board, search_depth, search_score_min, search_score_max, nodes);
+    SearchContext context;
+    const NodeResult result = search_node(board, zobrist_hash(board), search_depth,
+                                          search_score_min, search_score_max, context);
 
     return SearchResult{
         .best_move = result.best_move,
         .score = result.score,
         .depth = search_depth,
-        .nodes = nodes,
+        .nodes = context.nodes,
     };
 }
 

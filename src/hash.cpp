@@ -1,4 +1,7 @@
+#include "hash_detail.hpp"
+
 #include <array>
+#include <bit>
 #include <cstddef>
 #include <othello/hash.hpp>
 
@@ -46,32 +49,43 @@ using PieceHashTable = std::array<std::array<othello::ZobristHash, square_count>
     return side == othello::Side::Black ? black_index : white_index;
 }
 
-[[nodiscard]] constexpr othello::Bitboard bit_at(int square_index) noexcept {
-    return othello::Bitboard{1} << square_index;
-}
-
 constexpr auto piece_hashes = make_piece_hashes();
 constexpr auto side_hashes = make_side_hashes();
+
+[[nodiscard]] othello::ZobristHash piece_hash(othello::Bitboard bits,
+                                              std::size_t color_index) noexcept {
+    othello::ZobristHash hash = 0;
+
+    while (bits != 0) {
+        const auto square_index = static_cast<std::size_t>(std::countr_zero(bits));
+        hash ^= piece_hashes[color_index][square_index];
+        bits &= bits - 1;
+    }
+
+    return hash;
+}
 
 } // namespace
 
 namespace othello {
 
 ZobristHash zobrist_hash(const Board& board) noexcept {
-    ZobristHash hash = 0;
-
-    for (int square_index = 0; square_index < square_count; ++square_index) {
-        const Bitboard square_bit = bit_at(square_index);
-        if ((board.black & square_bit) != 0) {
-            hash ^= piece_hashes[black_index][static_cast<std::size_t>(square_index)];
-        }
-        if ((board.white & square_bit) != 0) {
-            hash ^= piece_hashes[white_index][static_cast<std::size_t>(square_index)];
-        }
-    }
-
+    ZobristHash hash = piece_hash(board.black, black_index);
+    hash ^= piece_hash(board.white, white_index);
     hash ^= side_hashes[side_index(board.side_to_move)];
     return hash;
 }
 
 } // namespace othello
+
+namespace othello::detail {
+
+ZobristHash zobrist_piece_hash(Side side, int square_index) noexcept {
+    return piece_hashes[side_index(side)][static_cast<std::size_t>(square_index)];
+}
+
+ZobristHash zobrist_side_hash(Side side) noexcept {
+    return side_hashes[side_index(side)];
+}
+
+} // namespace othello::detail
