@@ -10,6 +10,11 @@ struct Direction {
     int rank_delta;
 };
 
+constexpr Bitboard a_file = 0x0101010101010101ULL;
+constexpr Bitboard h_file = 0x8080808080808080ULL;
+constexpr Bitboard not_a_file = ~a_file;
+constexpr Bitboard not_h_file = ~h_file;
+
 constexpr std::array<Direction, 8> directions{{
     {.file_delta = -1, .rank_delta = -1},
     {.file_delta = 0, .rank_delta = -1},
@@ -31,6 +36,50 @@ constexpr std::array<Direction, 8> directions{{
 
 [[nodiscard]] constexpr Bitboard bit_at(int file, int rank) noexcept {
     return Bitboard{1} << square_index(file, rank);
+}
+
+[[nodiscard]] constexpr Bitboard shift_east(Bitboard bits) noexcept {
+    return (bits & not_h_file) << 1;
+}
+
+[[nodiscard]] constexpr Bitboard shift_west(Bitboard bits) noexcept {
+    return (bits & not_a_file) >> 1;
+}
+
+[[nodiscard]] constexpr Bitboard shift_north(Bitboard bits) noexcept {
+    return bits << 8;
+}
+
+[[nodiscard]] constexpr Bitboard shift_south(Bitboard bits) noexcept {
+    return bits >> 8;
+}
+
+[[nodiscard]] constexpr Bitboard shift_northeast(Bitboard bits) noexcept {
+    return (bits & not_h_file) << 9;
+}
+
+[[nodiscard]] constexpr Bitboard shift_northwest(Bitboard bits) noexcept {
+    return (bits & not_a_file) << 7;
+}
+
+[[nodiscard]] constexpr Bitboard shift_southeast(Bitboard bits) noexcept {
+    return (bits & not_h_file) >> 7;
+}
+
+[[nodiscard]] constexpr Bitboard shift_southwest(Bitboard bits) noexcept {
+    return (bits & not_a_file) >> 9;
+}
+
+template <Bitboard (*Shift)(Bitboard) noexcept>
+[[nodiscard]] Bitboard legal_moves_in_direction(Bitboard own_discs, Bitboard opponent_discs,
+                                                Bitboard empty_squares) noexcept {
+    Bitboard captured = Shift(own_discs) & opponent_discs;
+
+    for (int step = 0; step < 5; ++step) {
+        captured |= Shift(captured) & opponent_discs;
+    }
+
+    return Shift(captured) & empty_squares;
 }
 
 [[nodiscard]] Bitboard flips_in_direction(Square square, Direction direction, Bitboard own_discs,
@@ -62,18 +111,18 @@ constexpr std::array<Direction, 8> directions{{
 } // namespace
 
 Bitboard legal_moves(const Board& board) noexcept {
-    Bitboard moves = 0;
+    const Bitboard own_discs = board.discs(board.side_to_move);
+    const Bitboard opponent_discs = board.discs(opponent(board.side_to_move));
+    const Bitboard empty_squares = ~board.occupied();
 
-    for (int index = Square::min_index; index <= Square::max_index; ++index) {
-        const auto square = Square::from_index(index);
-        const Bitboard bit = square->bit();
-
-        if (flips_for_move(board, *square) != 0) {
-            moves |= bit;
-        }
-    }
-
-    return moves;
+    return legal_moves_in_direction<shift_east>(own_discs, opponent_discs, empty_squares) |
+           legal_moves_in_direction<shift_west>(own_discs, opponent_discs, empty_squares) |
+           legal_moves_in_direction<shift_north>(own_discs, opponent_discs, empty_squares) |
+           legal_moves_in_direction<shift_south>(own_discs, opponent_discs, empty_squares) |
+           legal_moves_in_direction<shift_northeast>(own_discs, opponent_discs, empty_squares) |
+           legal_moves_in_direction<shift_northwest>(own_discs, opponent_discs, empty_squares) |
+           legal_moves_in_direction<shift_southeast>(own_discs, opponent_discs, empty_squares) |
+           legal_moves_in_direction<shift_southwest>(own_discs, opponent_discs, empty_squares);
 }
 
 bool has_legal_move(const Board& board) noexcept {
