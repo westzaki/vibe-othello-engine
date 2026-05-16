@@ -1,6 +1,5 @@
-#include <othello/board.hpp>
-
 #include <array>
+#include <othello/board.hpp>
 
 namespace othello {
 namespace {
@@ -21,27 +20,21 @@ constexpr std::array<Direction, 8> directions{{
     {1, 1},
 }};
 
-[[nodiscard]] constexpr bool on_board(int file, int rank) noexcept
-{
+[[nodiscard]] constexpr bool on_board(int file, int rank) noexcept {
     return file >= 0 && file < 8 && rank >= 0 && rank < 8;
 }
 
-[[nodiscard]] constexpr int square_index(int file, int rank) noexcept
-{
+[[nodiscard]] constexpr int square_index(int file, int rank) noexcept {
     return rank * 8 + file;
 }
 
-[[nodiscard]] constexpr Bitboard bit_at(int file, int rank) noexcept
-{
+[[nodiscard]] constexpr Bitboard bit_at(int file, int rank) noexcept {
     return Bitboard{1} << square_index(file, rank);
 }
 
-[[nodiscard]] bool is_legal_move_in_direction(
-    Square square,
-    Direction direction,
-    Bitboard own_discs,
-    Bitboard opponent_discs) noexcept
-{
+[[nodiscard]] bool is_legal_move_in_direction(Square square, Direction direction,
+                                              Bitboard own_discs,
+                                              Bitboard opponent_discs) noexcept {
     int file = square.file() + direction.file_delta;
     int rank = square.rank() + direction.rank_delta;
     bool saw_opponent_disc = false;
@@ -64,8 +57,7 @@ constexpr std::array<Direction, 8> directions{{
 
 } // namespace
 
-std::optional<Square> square_from_string(std::string_view coordinate) noexcept
-{
+std::optional<Square> square_from_string(std::string_view coordinate) noexcept {
     if (coordinate.size() != 2) {
         return std::nullopt;
     }
@@ -82,16 +74,14 @@ std::optional<Square> square_from_string(std::string_view coordinate) noexcept
     return Square::from_index(square_index(file, rank));
 }
 
-std::string to_string(Square square)
-{
+std::string to_string(Square square) {
     std::string coordinate;
     coordinate += static_cast<char>('a' + square.file());
     coordinate += static_cast<char>('1' + square.rank());
     return coordinate;
 }
 
-Bitboard legal_moves(const Board& board) noexcept
-{
+Bitboard legal_moves(const Board& board) noexcept {
     const Bitboard own_discs = board.discs(board.side_to_move);
     const Bitboard opponent_discs = board.discs(opponent(board.side_to_move));
     const Bitboard empty_squares = ~(own_discs | opponent_discs);

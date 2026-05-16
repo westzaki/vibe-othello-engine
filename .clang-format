@@ -1,0 +1,15 @@
+BasedOnStyle: LLVM
+Language: Cpp
+# clang-format 22 does not accept c++23 here; Latest supports the repository's C++23 code.
+Standard: Latest
+ColumnLimit: 100
+IndentWidth: 4
+ContinuationIndentWidth: 4
+UseTab: Never
+PointerAlignment: Left
+ReferenceAlignment: Left
+IncludeBlocks: Regroup
+SortIncludes: CaseSensitive
+FixNamespaceComments: true
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: Never
