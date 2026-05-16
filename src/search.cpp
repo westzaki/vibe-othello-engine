@@ -5,6 +5,7 @@
 #include <bit>
 #include <cassert>
 #include <cstddef>
+#include <limits>
 #include <memory>
 #include <new>
 #include <othello/evaluation.hpp>
@@ -42,7 +43,10 @@ struct TranspositionEntry {
 
 class TranspositionTable {
 public:
-    TranspositionTable() noexcept : entries_{new (std::nothrow) TranspositionEntry[entry_count]} {}
+    explicit TranspositionTable(const SearchOptions& options) noexcept
+        : entry_count_{normalized_entry_count(options)},
+          entries_{entry_count_ == 0 ? nullptr
+                                     : new (std::nothrow) TranspositionEntry[entry_count_]} {}
 
     [[nodiscard]] std::optional<NodeResult> lookup(ZobristHash hash, int depth, int alpha,
                                                    int beta) const noexcept {
@@ -92,13 +96,40 @@ public:
     }
 
 private:
-    static constexpr std::size_t entry_count = 1 << 18;
+    static constexpr std::size_t default_entry_count = 1 << 18;
 
+    // Direct-mapped indexing uses a bit mask, so non-power-of-two requests are
+    // rounded up to the next power of two. Oversized requests fall back to the default.
+    [[nodiscard]] static constexpr std::size_t
+    normalized_entry_count(const SearchOptions& options) noexcept {
+        if (!options.use_transposition_table || options.transposition_table_entries == 0) {
+            return 0;
+        }
+
+        const std::size_t requested = options.transposition_table_entries;
+        if (std::has_single_bit(requested)) {
+            return requested;
+        }
+
+        constexpr std::size_t max_power_of_two = std::size_t{1}
+                                                 << (std::numeric_limits<std::size_t>::digits - 1);
+        if (requested > max_power_of_two) {
+            return default_entry_count;
+        }
+
+        std::size_t normalized = 1;
+        while (normalized < requested) {
+            normalized <<= 1;
+        }
+        return normalized;
+    }
+
+    std::size_t entry_count_ = 0;
     std::unique_ptr<TranspositionEntry[]> entries_; // NOLINT(cppcoreguidelines-avoid-c-arrays,
                                                     // modernize-avoid-c-arrays)
 
-    [[nodiscard]] static constexpr std::size_t entry_index(ZobristHash hash) noexcept {
-        return static_cast<std::size_t>(hash) & (entry_count - 1);
+    [[nodiscard]] std::size_t entry_index(ZobristHash hash) const noexcept {
+        return static_cast<std::size_t>(hash) & (entry_count_ - 1);
     }
 
     [[nodiscard]] static std::optional<Square>
@@ -120,6 +151,8 @@ private:
 };
 
 struct SearchContext {
+    explicit SearchContext(const SearchOptions& options) noexcept : transpositions{options} {}
+
     std::uint64_t nodes = 0;
     TranspositionTable transpositions;
 };
@@ -313,9 +346,9 @@ constexpr int search_score_max = 1'000'000'000;
 
 } // namespace
 
-SearchResult search_fixed_depth(const Board& board, int depth) noexcept {
-    const int search_depth = depth < 0 ? 0 : depth;
-    SearchContext context;
+SearchResult search(const Board& board, const SearchOptions& options) noexcept {
+    const int search_depth = options.max_depth < 0 ? 0 : options.max_depth;
+    SearchContext context{options};
     const NodeResult result = search_node(board, zobrist_hash(board), search_depth,
                                           search_score_min, search_score_max, context);
 
@@ -325,6 +358,10 @@ SearchResult search_fixed_depth(const Board& board, int depth) noexcept {
         .depth = search_depth,
         .nodes = context.nodes,
     };
+}
+
+SearchResult search_fixed_depth(const Board& board, int depth) noexcept {
+    return search(board, SearchOptions{.max_depth = depth});
 }
 
 } // namespace othello
