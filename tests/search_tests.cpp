@@ -89,28 +89,30 @@ TEST_CASE("Fixed-depth search is deterministic", "[search]") {
     CHECK(first.nodes == second.nodes);
 }
 
-TEST_CASE("Search options can disable the transposition table", "[search]") {
+TEST_CASE("Search options can enable the transposition table", "[search]") {
     const auto board = othello::apply_move(Board::initial(), othello::test::square("d3"));
     REQUIRE(board.has_value());
 
-    const othello::SearchResult with_tt =
+    const othello::SearchResult default_without_tt =
         othello::search(*board, othello::SearchOptions{.max_depth = 4});
-    const othello::SearchResult without_tt = othello::search(
-        *board, othello::SearchOptions{.max_depth = 4, .use_transposition_table = false});
+    const othello::SearchResult with_tt = othello::search(
+        *board, othello::SearchOptions{.max_depth = 4, .use_transposition_table = true});
 
-    CHECK(with_tt.best_move == without_tt.best_move);
-    CHECK(with_tt.score == without_tt.score);
-    CHECK(with_tt.depth == without_tt.depth);
+    CHECK(default_without_tt.best_move == with_tt.best_move);
+    CHECK(default_without_tt.score == with_tt.score);
+    CHECK(default_without_tt.depth == with_tt.depth);
 }
 
 TEST_CASE("Search options accept small transposition table sizes", "[search]") {
     const auto board = othello::apply_move(Board::initial(), othello::test::square("d3"));
     REQUIRE(board.has_value());
 
-    const othello::SearchResult default_size =
-        othello::search(*board, othello::SearchOptions{.max_depth = 4});
-    const othello::SearchResult small_size = othello::search(
-        *board, othello::SearchOptions{.max_depth = 4, .transposition_table_entries = 16});
+    const othello::SearchResult default_size = othello::search(
+        *board, othello::SearchOptions{.max_depth = 4, .use_transposition_table = true});
+    const othello::SearchResult small_size =
+        othello::search(*board, othello::SearchOptions{.max_depth = 4,
+                                                       .use_transposition_table = true,
+                                                       .transposition_table_entries = 16});
 
     CHECK(default_size.best_move == small_size.best_move);
     CHECK(default_size.score == small_size.score);
@@ -121,10 +123,12 @@ TEST_CASE("Non-power-of-two transposition table sizes are accepted", "[search]")
     const auto board = othello::apply_move(Board::initial(), othello::test::square("d3"));
     REQUIRE(board.has_value());
 
-    const othello::SearchResult default_size =
-        othello::search(*board, othello::SearchOptions{.max_depth = 4});
-    const othello::SearchResult non_power_of_two = othello::search(
-        *board, othello::SearchOptions{.max_depth = 4, .transposition_table_entries = 17});
+    const othello::SearchResult default_size = othello::search(
+        *board, othello::SearchOptions{.max_depth = 4, .use_transposition_table = true});
+    const othello::SearchResult non_power_of_two =
+        othello::search(*board, othello::SearchOptions{.max_depth = 4,
+                                                       .use_transposition_table = true,
+                                                       .transposition_table_entries = 17});
 
     CHECK(default_size.best_move == non_power_of_two.best_move);
     CHECK(default_size.score == non_power_of_two.score);

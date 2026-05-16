@@ -17,7 +17,7 @@ struct SearchResult {
 
 struct SearchOptions {
     int max_depth = 5;
-    bool use_transposition_table = true;
+    bool use_transposition_table = false;
     std::size_t transposition_table_entries = 1 << 18;
 };
 
