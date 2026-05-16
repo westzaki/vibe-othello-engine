@@ -1,5 +1,6 @@
 #include "search_positions.hpp"
 
+#include <algorithm>
 #include <bit>
 #include <charconv>
 #include <chrono>
@@ -43,6 +44,7 @@ struct BenchmarkOptions {
     SearchBenchmarkMode mode = SearchBenchmarkMode::Fixed;
     PositionSet position_set = PositionSet::Smoke;
     bool describe_positions = false;
+    bool by_position = false;
     std::optional<bool> use_transposition_table;
     std::size_t transposition_table_entries = othello::SearchOptions{}.transposition_table_entries;
 };
@@ -64,11 +66,27 @@ struct SearchBenchmarkResult {
     std::uint64_t work_checksum;
 };
 
+struct PositionBenchmarkResult {
+    std::string_view position_name;
+    std::string_view phase;
+    std::string_view tags;
+    SearchRunMode mode;
+    bool use_transposition_table;
+    std::size_t transposition_table_entries;
+    int depth;
+    std::optional<othello::Square> sample_best_move;
+    int sample_score;
+    std::vector<othello::Square> sample_principal_variation;
+    std::uint64_t searches;
+    std::chrono::nanoseconds elapsed;
+    std::uint64_t total_nodes;
+};
+
 void print_usage(std::string_view program_name) {
     std::cout << "usage: " << program_name
               << " [--mode fixed|iterative|both] [--depths 1,2,3,4,5]"
                  " [--repetitions N] [--positions smoke|suite]"
-                 " [--describe-positions] [--tt on|off] [--tt-entries N]\n"
+                 " [--describe-positions] [--by-position] [--tt on|off] [--tt-entries N]\n"
               << '\n'
               << "Options:\n"
               << "  --depths LIST       comma-separated positive search depths\n"
@@ -77,6 +95,7 @@ void print_usage(std::string_view program_name) {
               << "  --positions SET     smoke or suite (default: smoke)\n"
               << "  --describe-positions\n"
               << "                      print selected position metadata and metrics only\n"
+              << "  --by-position       print per-position benchmark rows and summaries\n"
               << "  --tt on|off         override the SearchOptions TT default\n"
               << "  --tt-entries N      requested transposition table entry count\n"
               << "  --help              show this help text\n";
@@ -214,6 +233,11 @@ void print_usage(std::string_view program_name) {
 
         if (option == "--describe-positions") {
             options.describe_positions = true;
+            continue;
+        }
+
+        if (option == "--by-position") {
+            options.by_position = true;
             continue;
         }
 
@@ -652,6 +676,66 @@ benchmark_search(const std::vector<othello::benchmarks::Position>& positions, in
     };
 }
 
+[[nodiscard]] PositionBenchmarkResult
+benchmark_position(const othello::benchmarks::Position& position, int depth,
+                   std::uint64_t repetitions, const BenchmarkOptions& benchmark_options,
+                   SearchRunMode mode) {
+    const auto search_options = make_search_options(benchmark_options, depth);
+    std::uint64_t searches = 0;
+    std::uint64_t total_nodes = 0;
+    std::optional<othello::Square> sample_best_move;
+    int sample_score = 0;
+    std::vector<othello::Square> sample_principal_variation;
+
+    const auto start = Clock::now();
+    for (std::uint64_t repetition = 0; repetition < repetitions; ++repetition) {
+        const auto result = run_search(position.board, search_options, mode);
+        if (searches == 0) {
+            sample_best_move = result.best_move;
+            sample_score = result.score;
+            sample_principal_variation = result.principal_variation;
+        }
+        total_nodes += result.nodes;
+        ++searches;
+    }
+    const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - start);
+
+    return PositionBenchmarkResult{
+        .position_name = position.name,
+        .phase = position.phase,
+        .tags = position.tags,
+        .mode = mode,
+        .use_transposition_table = search_options.use_transposition_table,
+        .transposition_table_entries = search_options.transposition_table_entries,
+        .depth = depth,
+        .sample_best_move = sample_best_move,
+        .sample_score = sample_score,
+        .sample_principal_variation = sample_principal_variation,
+        .searches = searches,
+        .elapsed = elapsed,
+        .total_nodes = total_nodes,
+    };
+}
+
+[[nodiscard]] double elapsed_ms(std::chrono::nanoseconds elapsed) noexcept {
+    return static_cast<double>(elapsed.count()) / 1'000'000.0;
+}
+
+[[nodiscard]] double nodes_per_search(const PositionBenchmarkResult& result) noexcept {
+    if (result.searches == 0) {
+        return 0.0;
+    }
+    return static_cast<double>(result.total_nodes) / static_cast<double>(result.searches);
+}
+
+[[nodiscard]] double nodes_per_second(const PositionBenchmarkResult& result) noexcept {
+    if (result.elapsed.count() == 0) {
+        return 0.0;
+    }
+    return (static_cast<double>(result.total_nodes) * 1'000'000'000.0) /
+           static_cast<double>(result.elapsed.count());
+}
+
 void print_search_result_header() {
     std::cout << std::left << std::setw(12) << "benchmark" << "  " << std::setw(10) << "mode"
               << "  " << std::setw(3) << "tt" << "  " << std::setw(10) << "tt_entries"
@@ -694,6 +778,111 @@ void print_search_result(const SearchBenchmarkResult& result) {
               << result.work_checksum << '\n';
 }
 
+void print_position_result_header() {
+    std::cout << std::left << std::setw(28) << "position" << "  " << std::setw(14) << "phase"
+              << "  " << std::setw(44) << "tags" << "  " << std::setw(10) << "mode"
+              << "  " << std::setw(3) << "tt" << "  " << std::setw(10) << "tt_entries"
+              << "  depth  best_move  score  " << std::setw(28) << "pv"
+              << "  searches  elapsed_ms       nodes  nodes/search         nodes/s\n";
+}
+
+void print_position_result(const PositionBenchmarkResult& result) {
+    const std::string principal_variation_text =
+        format_principal_variation(result.sample_principal_variation);
+
+    std::cout << std::left << std::setw(28) << result.position_name << "  " << std::setw(14)
+              << result.phase << "  " << std::setw(44) << (result.tags.empty() ? "-" : result.tags)
+              << "  " << std::setw(10) << mode_name(result.mode) << "  " << std::setw(3)
+              << (result.use_transposition_table ? "on" : "off") << "  " << std::right
+              << std::setw(10) << result.transposition_table_entries << "  " << std::setw(5)
+              << result.depth << "  " << std::left << std::setw(9)
+              << (result.sample_best_move.has_value() ? othello::to_string(*result.sample_best_move)
+                                                      : "-")
+              << "  " << std::right << std::setw(5) << result.sample_score << "  " << std::left
+              << std::setw(28) << principal_variation_text << "  " << std::right << std::setw(8)
+              << result.searches << "  " << std::fixed << std::setprecision(3) << std::setw(10)
+              << elapsed_ms(result.elapsed) << "  " << std::setw(10) << result.total_nodes << "  "
+              << std::setw(12) << nodes_per_search(result) << "  " << std::setw(14)
+              << nodes_per_second(result) << '\n';
+}
+
+[[nodiscard]] std::size_t nearest_rank_index(std::size_t count, int percentile) noexcept {
+    if (count == 0) {
+        return 0;
+    }
+    return ((static_cast<std::size_t>(percentile) * count + 99) / 100) - 1;
+}
+
+[[nodiscard]] double percentile_value(std::vector<double> values, int percentile) {
+    if (values.empty()) {
+        return 0.0;
+    }
+    std::sort(values.begin(), values.end());
+    return values[nearest_rank_index(values.size(), percentile)];
+}
+
+[[nodiscard]] std::uint64_t percentile_value(std::vector<std::uint64_t> values, int percentile) {
+    if (values.empty()) {
+        return 0;
+    }
+    std::sort(values.begin(), values.end());
+    return values[nearest_rank_index(values.size(), percentile)];
+}
+
+void print_position_summary_header() {
+    std::cout << std::left << std::setw(10) << "mode" << "  " << std::setw(3) << "tt"
+              << "  depth  positions  total_elapsed_ms  avg_ms_per_position"
+                 "  p50_ms_per_position  p95_ms_per_position  max_ms_per_position"
+                 "  avg_nodes_per_position  p50_nodes_per_position  p95_nodes_per_position"
+                 "  max_nodes_per_position\n";
+}
+
+void print_position_summary(std::span<const PositionBenchmarkResult> results, SearchRunMode mode,
+                            int depth) {
+    std::vector<double> per_position_ms;
+    std::vector<std::uint64_t> per_position_nodes;
+    per_position_ms.reserve(results.size());
+    per_position_nodes.reserve(results.size());
+
+    std::chrono::nanoseconds total_elapsed{0};
+    std::uint64_t total_nodes = 0;
+    bool use_transposition_table = false;
+
+    for (const auto& result : results) {
+        per_position_ms.push_back(elapsed_ms(result.elapsed));
+        per_position_nodes.push_back(result.total_nodes);
+        total_elapsed += result.elapsed;
+        total_nodes += result.total_nodes;
+        use_transposition_table = result.use_transposition_table;
+    }
+
+    const auto position_count = results.size();
+    const auto avg_ms =
+        position_count == 0 ? 0.0 : elapsed_ms(total_elapsed) / static_cast<double>(position_count);
+    const auto avg_nodes = position_count == 0 ? 0.0
+                                               : static_cast<double>(total_nodes) /
+                                                     static_cast<double>(position_count);
+    const auto max_ms = per_position_ms.empty()
+                            ? 0.0
+                            : *std::max_element(per_position_ms.begin(), per_position_ms.end());
+    const auto max_nodes =
+        per_position_nodes.empty()
+            ? std::uint64_t{0}
+            : *std::max_element(per_position_nodes.begin(), per_position_nodes.end());
+
+    std::cout << std::left << std::setw(10) << mode_name(mode) << "  " << std::setw(3)
+              << (use_transposition_table ? "on" : "off") << "  " << std::right << std::setw(5)
+              << depth << "  " << std::setw(9) << position_count << "  " << std::fixed
+              << std::setprecision(3) << std::setw(16) << elapsed_ms(total_elapsed) << "  "
+              << std::setw(19) << avg_ms << "  " << std::setw(20)
+              << percentile_value(per_position_ms, 50) << "  " << std::setw(20)
+              << percentile_value(per_position_ms, 95) << "  " << std::setw(19) << max_ms << "  "
+              << std::setw(22) << avg_nodes << "  " << std::setw(22)
+              << percentile_value(per_position_nodes, 50) << "  " << std::setw(22)
+              << percentile_value(per_position_nodes, 95) << "  " << std::setw(22) << max_nodes
+              << '\n';
+}
+
 void run_requested_benchmarks(const std::vector<othello::benchmarks::Position>& positions,
                               const BenchmarkOptions& options, int depth) {
     if (options.mode == SearchBenchmarkMode::Fixed || options.mode == SearchBenchmarkMode::Both) {
@@ -705,6 +894,58 @@ void run_requested_benchmarks(const std::vector<othello::benchmarks::Position>& 
         options.mode == SearchBenchmarkMode::Both) {
         print_search_result(benchmark_search(positions, depth, options.repetitions, options,
                                              SearchRunMode::Iterative));
+    }
+}
+
+void run_requested_position_benchmarks(const std::vector<othello::benchmarks::Position>& positions,
+                                       const BenchmarkOptions& options, int depth,
+                                       std::vector<PositionBenchmarkResult>& results) {
+    const auto run_mode = [&](SearchRunMode mode) {
+        for (const auto& position : positions) {
+            auto result = benchmark_position(position, depth, options.repetitions, options, mode);
+            print_position_result(result);
+            results.push_back(std::move(result));
+        }
+    };
+
+    if (options.mode == SearchBenchmarkMode::Fixed || options.mode == SearchBenchmarkMode::Both) {
+        run_mode(SearchRunMode::Fixed);
+    }
+
+    if (options.mode == SearchBenchmarkMode::Iterative ||
+        options.mode == SearchBenchmarkMode::Both) {
+        run_mode(SearchRunMode::Iterative);
+    }
+}
+
+void print_requested_position_summaries(const std::vector<PositionBenchmarkResult>& results,
+                                        const BenchmarkOptions& options) {
+    std::cout << "\nPer-position summary\n";
+    std::cout << "elapsed and node percentiles use per-position totals across all repetitions\n";
+    print_position_summary_header();
+
+    for (const int depth : options.depths) {
+        const auto print_mode = [&](SearchRunMode mode) {
+            std::vector<PositionBenchmarkResult> group;
+            for (const auto& result : results) {
+                if (result.depth == depth && result.mode == mode) {
+                    group.push_back(result);
+                }
+            }
+            if (!group.empty()) {
+                print_position_summary(group, mode, depth);
+            }
+        };
+
+        if (options.mode == SearchBenchmarkMode::Fixed ||
+            options.mode == SearchBenchmarkMode::Both) {
+            print_mode(SearchRunMode::Fixed);
+        }
+
+        if (options.mode == SearchBenchmarkMode::Iterative ||
+            options.mode == SearchBenchmarkMode::Both) {
+            print_mode(SearchRunMode::Iterative);
+        }
     }
 }
 
@@ -755,12 +996,30 @@ int run_benchmark(std::span<char* const> args) {
                       : "off")
               << '\n';
     std::cout << "tt entries: " << options.transposition_table_entries << '\n';
-    std::cout << "best_move/score/pv: first sampled result\n";
+    if (options.by_position) {
+        std::cout << "best_move/score/pv: first sampled result per position\n";
+    } else {
+        std::cout << "best_move/score/pv: first sampled result\n";
+    }
     std::cout << "depths:";
     for (const int depth : options.depths) {
         std::cout << ' ' << depth;
     }
     std::cout << "\n\n";
+
+    if (options.by_position) {
+        std::cout << "by-position: on\n";
+        std::cout << "per-position elapsed_ms and nodes are totals across repetitions\n\n";
+
+        std::vector<PositionBenchmarkResult> position_results;
+        position_results.reserve(positions->size() * options.depths.size() * 2);
+        print_position_result_header();
+        for (const int depth : options.depths) {
+            run_requested_position_benchmarks(*positions, options, depth, position_results);
+        }
+        print_requested_position_summaries(position_results, options);
+        return 0;
+    }
 
     print_search_result_header();
     for (const int depth : options.depths) {
