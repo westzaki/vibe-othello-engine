@@ -1,6 +1,7 @@
 #include <bit>
-#include <iostream>
+#include <catch2/catch_test_macros.hpp>
 #include <othello/othello.hpp>
+#include <string>
 #include <string_view>
 
 namespace {
@@ -8,36 +9,24 @@ namespace {
 using othello::Bitboard;
 using othello::Board;
 using othello::Side;
-using othello::Square;
 
 [[nodiscard]] Bitboard bit(std::string_view coordinate) {
     const auto square = othello::square_from_string(coordinate);
-    if (!square.has_value()) {
-        std::cerr << "Invalid test coordinate: " << coordinate << '\n';
-        return 0;
-    }
-
+    REQUIRE(square.has_value());
     return square->bit();
 }
 
-int failures = 0;
+} // namespace
 
-void check(bool condition, std::string_view message) {
-    if (!condition) {
-        std::cerr << "FAIL: " << message << '\n';
-        ++failures;
-    }
-}
-
-void test_initial_board() {
+TEST_CASE("Initial board has starting discs and black to move", "[rule-core]") {
     const Board board = Board::initial();
 
-    check(std::popcount(board.black) == 2, "initial board has 2 black discs");
-    check(std::popcount(board.white) == 2, "initial board has 2 white discs");
-    check(board.side_to_move == Side::Black, "initial side to move is black");
+    CHECK(std::popcount(board.black) == 2);
+    CHECK(std::popcount(board.white) == 2);
+    CHECK(board.side_to_move == Side::Black);
 }
 
-void test_coordinate_conversion() {
+TEST_CASE("Coordinates convert to and from square indexes", "[rule-core]") {
     struct Example {
         std::string_view coordinate;
         int index;
@@ -48,35 +37,26 @@ void test_coordinate_conversion() {
     };
 
     for (const Example example : examples) {
+        CAPTURE(std::string{example.coordinate});
+
         const auto square = othello::square_from_string(example.coordinate);
 
-        check(square.has_value(), "coordinate parses");
-        if (square.has_value()) {
-            check(square->index() == example.index, "coordinate maps to expected square index");
-            check(othello::to_string(*square) == example.coordinate,
-                  "square converts back to coordinate");
-        }
+        REQUIRE(square.has_value());
+        CHECK(square->index() == example.index);
+        CHECK(othello::to_string(*square) == std::string{example.coordinate});
     }
-
-    check(!othello::square_from_string(""), "empty coordinate is invalid");
-    check(!othello::square_from_string("i1"), "file past h is invalid");
-    check(!othello::square_from_string("a9"), "rank past 8 is invalid");
-    check(!othello::square_from_string("D3"), "uppercase coordinate is invalid");
 }
 
-void test_initial_legal_moves_for_black() {
+TEST_CASE("Invalid coordinates are rejected", "[rule-core]") {
+    CHECK_FALSE(othello::square_from_string("").has_value());
+    CHECK_FALSE(othello::square_from_string("i1").has_value());
+    CHECK_FALSE(othello::square_from_string("a9").has_value());
+    CHECK_FALSE(othello::square_from_string("D3").has_value());
+}
+
+TEST_CASE("Initial black legal moves are d3 c4 f5 e6", "[rule-core]") {
     const Board board = Board::initial();
     const Bitboard expected = bit("d3") | bit("c4") | bit("f5") | bit("e6");
 
-    check(othello::legal_moves(board) == expected, "initial black legal moves are d3, c4, f5, e6");
-}
-
-} // namespace
-
-int main() {
-    test_initial_board();
-    test_coordinate_conversion();
-    test_initial_legal_moves_for_black();
-
-    return failures == 0 ? 0 : 1;
+    CHECK(othello::legal_moves(board) == expected);
 }
