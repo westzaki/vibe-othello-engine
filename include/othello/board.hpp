@@ -87,5 +87,8 @@ struct Board {
 [[nodiscard]] std::optional<Board> pass_turn(const Board& board) noexcept;
 [[nodiscard]] bool is_game_over(const Board& board) noexcept;
 [[nodiscard]] int disc_count(const Board& board, Side side) noexcept;
+[[nodiscard]] int score(const Board& board, Side side) noexcept;
+[[nodiscard]] std::optional<Board> board_from_string(std::string_view text) noexcept;
+[[nodiscard]] std::string to_string(const Board& board);
 
 } // namespace othello
