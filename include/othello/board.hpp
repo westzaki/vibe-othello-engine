@@ -14,8 +14,7 @@ enum class Side {
     White,
 };
 
-[[nodiscard]] constexpr Side opponent(Side side) noexcept
-{
+[[nodiscard]] constexpr Side opponent(Side side) noexcept {
     return side == Side::Black ? Side::White : Side::Black;
 }
 
@@ -24,8 +23,7 @@ public:
     static constexpr int min_index = 0;
     static constexpr int max_index = 63;
 
-    [[nodiscard]] static constexpr std::optional<Square> from_index(int index) noexcept
-    {
+    [[nodiscard]] static constexpr std::optional<Square> from_index(int index) noexcept {
         if (index < min_index || index > max_index) {
             return std::nullopt;
         }
@@ -33,18 +31,23 @@ public:
         return Square(index);
     }
 
-    [[nodiscard]] constexpr int index() const noexcept { return index_; }
-    [[nodiscard]] constexpr int file() const noexcept { return index_ % 8; }
-    [[nodiscard]] constexpr int rank() const noexcept { return index_ / 8; }
-    [[nodiscard]] constexpr Bitboard bit() const noexcept { return Bitboard{1} << index_; }
+    [[nodiscard]] constexpr int index() const noexcept {
+        return index_;
+    }
+    [[nodiscard]] constexpr int file() const noexcept {
+        return index_ % 8;
+    }
+    [[nodiscard]] constexpr int rank() const noexcept {
+        return index_ / 8;
+    }
+    [[nodiscard]] constexpr Bitboard bit() const noexcept {
+        return Bitboard{1} << index_;
+    }
 
     [[nodiscard]] friend constexpr bool operator==(Square lhs, Square rhs) noexcept = default;
 
 private:
-    explicit constexpr Square(int index) noexcept
-        : index_(index)
-    {
-    }
+    explicit constexpr Square(int index) noexcept : index_(index) {}
 
     int index_;
 };
@@ -57,8 +60,7 @@ struct Board {
     Bitboard white = 0;
     Side side_to_move = Side::Black;
 
-    [[nodiscard]] static constexpr Board initial() noexcept
-    {
+    [[nodiscard]] static constexpr Board initial() noexcept {
         return Board{
             .black = (Bitboard{1} << 28) | (Bitboard{1} << 35),
             .white = (Bitboard{1} << 27) | (Bitboard{1} << 36),
@@ -66,13 +68,16 @@ struct Board {
         };
     }
 
-    [[nodiscard]] constexpr Bitboard discs(Side side) const noexcept
-    {
+    [[nodiscard]] constexpr Bitboard discs(Side side) const noexcept {
         return side == Side::Black ? black : white;
     }
 
-    [[nodiscard]] constexpr Bitboard occupied() const noexcept { return black | white; }
-    [[nodiscard]] constexpr Bitboard empty() const noexcept { return ~occupied(); }
+    [[nodiscard]] constexpr Bitboard occupied() const noexcept {
+        return black | white;
+    }
+    [[nodiscard]] constexpr Bitboard empty() const noexcept {
+        return ~occupied();
+    }
 };
 
 [[nodiscard]] Bitboard legal_moves(const Board& board) noexcept;

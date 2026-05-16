@@ -1,7 +1,6 @@
-#include <othello/othello.hpp>
-
 #include <bit>
 #include <iostream>
+#include <othello/othello.hpp>
 #include <string_view>
 
 namespace {
@@ -11,8 +10,7 @@ using othello::Board;
 using othello::Side;
 using othello::Square;
 
-[[nodiscard]] Bitboard bit(std::string_view coordinate)
-{
+[[nodiscard]] Bitboard bit(std::string_view coordinate) {
     const auto square = othello::square_from_string(coordinate);
     if (!square.has_value()) {
         std::cerr << "Invalid test coordinate: " << coordinate << '\n';
@@ -24,16 +22,14 @@ using othello::Square;
 
 int failures = 0;
 
-void check(bool condition, std::string_view message)
-{
+void check(bool condition, std::string_view message) {
     if (!condition) {
         std::cerr << "FAIL: " << message << '\n';
         ++failures;
     }
 }
 
-void test_initial_board()
-{
+void test_initial_board() {
     const Board board = Board::initial();
 
     check(std::popcount(board.black) == 2, "initial board has 2 black discs");
@@ -41,20 +37,14 @@ void test_initial_board()
     check(board.side_to_move == Side::Black, "initial side to move is black");
 }
 
-void test_coordinate_conversion()
-{
+void test_coordinate_conversion() {
     struct Example {
         std::string_view coordinate;
         int index;
     };
 
     constexpr Example examples[] = {
-        {"a1", 0},
-        {"h1", 7},
-        {"a8", 56},
-        {"h8", 63},
-        {"d3", 19},
-        {"c4", 26},
+        {"a1", 0}, {"h1", 7}, {"a8", 56}, {"h8", 63}, {"d3", 19}, {"c4", 26},
     };
 
     for (const Example example : examples) {
@@ -63,7 +53,8 @@ void test_coordinate_conversion()
         check(square.has_value(), "coordinate parses");
         if (square.has_value()) {
             check(square->index() == example.index, "coordinate maps to expected square index");
-            check(othello::to_string(*square) == example.coordinate, "square converts back to coordinate");
+            check(othello::to_string(*square) == example.coordinate,
+                  "square converts back to coordinate");
         }
     }
 
@@ -73,8 +64,7 @@ void test_coordinate_conversion()
     check(!othello::square_from_string("D3"), "uppercase coordinate is invalid");
 }
 
-void test_initial_legal_moves_for_black()
-{
+void test_initial_legal_moves_for_black() {
     const Board board = Board::initial();
     const Bitboard expected = bit("d3") | bit("c4") | bit("f5") | bit("e6");
 
@@ -83,8 +73,7 @@ void test_initial_legal_moves_for_black()
 
 } // namespace
 
-int main()
-{
+int main() {
     test_initial_board();
     test_coordinate_conversion();
     test_initial_legal_moves_for_black();
