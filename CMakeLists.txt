@@ -22,7 +22,9 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(Catch2)
 
 add_library(othello STATIC
-    src/board.cpp
+    src/notation.cpp
+    src/rules.cpp
+    src/square.cpp
 )
 
 target_compile_features(othello PUBLIC cxx_std_23)
