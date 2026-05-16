@@ -19,7 +19,7 @@ enum class Side {
 }
 
 class Square {
-  public:
+public:
     static constexpr int min_index = 0;
     static constexpr int max_index = 63;
 
@@ -46,7 +46,7 @@ class Square {
 
     [[nodiscard]] friend constexpr bool operator==(Square lhs, Square rhs) noexcept = default;
 
-  private:
+private:
     explicit constexpr Square(int index) noexcept : index_(index) {}
 
     int index_;
