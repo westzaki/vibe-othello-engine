@@ -29,6 +29,6 @@ ctest --test-dir build --output-on-failure
 
 ## Development Notes
 
-Read [AGENTS.md](AGENTS.md) for repository rules and coding guidance.
+Read [AGENTS.md](AGENTS.md) for Codex/agent instructions and repository conventions.
 
 Read [docs/ROADMAP.md](docs/ROADMAP.md) for the staged engine development plan.
