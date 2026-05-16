@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <othello/board.hpp>
@@ -14,6 +15,13 @@ struct SearchResult {
     std::uint64_t nodes = 0;
 };
 
+struct SearchOptions {
+    int max_depth = 5;
+    bool use_transposition_table = true;
+    std::size_t transposition_table_entries = 1 << 18;
+};
+
+[[nodiscard]] SearchResult search(const Board& board, const SearchOptions& options) noexcept;
 [[nodiscard]] SearchResult search_fixed_depth(const Board& board, int depth) noexcept;
 
 } // namespace othello
