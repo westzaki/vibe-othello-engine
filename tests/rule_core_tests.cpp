@@ -1,8 +1,10 @@
 #include <array>
 #include <catch2/catch_test_macros.hpp>
 #include <othello/othello.hpp>
+#include <random>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
 
@@ -33,6 +35,32 @@ using othello::Square;
 
 [[nodiscard]] bool same_board(const Board& lhs, const Board& rhs) noexcept {
     return lhs.black == rhs.black && lhs.white == rhs.white && lhs.side_to_move == rhs.side_to_move;
+}
+
+[[nodiscard]] std::vector<Square> squares_from_bitboard(Bitboard bits) {
+    std::vector<Square> squares;
+
+    for (int index = Square::min_index; index <= Square::max_index; ++index) {
+        const auto square = Square::from_index(index);
+        REQUIRE(square.has_value());
+
+        if ((bits & square->bit()) != 0) {
+            squares.push_back(*square);
+        }
+    }
+
+    return squares;
+}
+
+void require_board_invariants(const Board& board) {
+    CHECK((board.black & board.white) == 0);
+    CHECK(othello::disc_count(board, Side::Black) + othello::disc_count(board, Side::White) <= 64);
+
+    const std::string text = othello::to_string(board);
+    const auto parsed = othello::board_from_string(text);
+
+    REQUIRE(parsed.has_value());
+    CHECK(same_board(*parsed, board));
 }
 
 constexpr std::string_view initial_board_text = R"(........
@@ -282,5 +310,63 @@ side=Black)",
     for (const std::string_view text : malformed) {
         CAPTURE(std::string{text});
         CHECK_FALSE(othello::board_from_string(text).has_value());
+    }
+}
+
+TEST_CASE("Random legal playouts preserve rule-core invariants", "[rule-core]") {
+    constexpr int playout_count = 10;
+    constexpr int max_steps = 200;
+
+    // Fixed seed keeps the smoke test deterministic in CI.
+    // NOLINTNEXTLINE(bugprone-random-generator-seed)
+    std::mt19937 random_engine{20260516};
+
+    for (int playout = 0; playout < playout_count; ++playout) {
+        Board board = Board::initial();
+
+        for (int step = 0; !othello::is_game_over(board); ++step) {
+            const std::string board_text = othello::to_string(board);
+            CAPTURE(playout, step, board_text);
+
+            REQUIRE(step < max_steps);
+            require_board_invariants(board);
+
+            const Bitboard moves = othello::legal_moves(board);
+            if (moves != 0) {
+                const std::vector<Square> legal_squares = squares_from_bitboard(moves);
+                REQUIRE_FALSE(legal_squares.empty());
+
+                std::uniform_int_distribution<std::size_t> distribution{0,
+                                                                        legal_squares.size() - 1};
+                const Square move = legal_squares[distribution(random_engine)];
+                const auto next = othello::apply_move(board, move);
+
+                REQUIRE(next.has_value());
+                board = *next;
+            } else {
+                const auto next = othello::pass_turn(board);
+
+                REQUIRE(next.has_value());
+                CHECK(next->black == board.black);
+                CHECK(next->white == board.white);
+                CHECK(next->side_to_move == othello::opponent(board.side_to_move));
+                board = *next;
+            }
+
+            require_board_invariants(board);
+        }
+
+        const std::string final_board_text = othello::to_string(board);
+        CAPTURE(playout, final_board_text);
+
+        Board opponent_board = board;
+        opponent_board.side_to_move = othello::opponent(board.side_to_move);
+
+        CHECK(othello::is_game_over(board));
+        CHECK(othello::legal_moves(board) == 0);
+        CHECK(othello::legal_moves(opponent_board) == 0);
+        CHECK(othello::disc_count(board, Side::Black) + othello::disc_count(board, Side::White) <=
+              64);
+        CHECK(othello::score(board, Side::Black) == -othello::score(board, Side::White));
     }
 }
