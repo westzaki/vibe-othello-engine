@@ -1,4 +1,5 @@
 #include <array>
+#include <bit>
 #include <othello/board.hpp>
 
 namespace othello {
@@ -99,6 +100,10 @@ Bitboard legal_moves(const Board& board) noexcept {
     return moves;
 }
 
+bool has_legal_move(const Board& board) noexcept {
+    return legal_moves(board) != 0;
+}
+
 Bitboard flips_for_move(const Board& board, Square square) noexcept {
     const Bitboard move_bit = square.bit();
     const Bitboard own_discs = board.discs(board.side_to_move);
@@ -135,6 +140,34 @@ std::optional<Board> apply_move(const Board& board, Square square) noexcept {
 
     next.side_to_move = opponent(board.side_to_move);
     return next;
+}
+
+std::optional<Board> pass_turn(const Board& board) noexcept {
+    if (has_legal_move(board)) {
+        return std::nullopt;
+    }
+
+    Board next = board;
+    next.side_to_move = opponent(board.side_to_move);
+    if (!has_legal_move(next)) {
+        return std::nullopt;
+    }
+
+    return next;
+}
+
+bool is_game_over(const Board& board) noexcept {
+    if (has_legal_move(board)) {
+        return false;
+    }
+
+    Board opponent_board = board;
+    opponent_board.side_to_move = opponent(board.side_to_move);
+    return !has_legal_move(opponent_board);
+}
+
+int disc_count(const Board& board, Side side) noexcept {
+    return std::popcount(board.discs(side));
 }
 
 } // namespace othello

@@ -1,5 +1,4 @@
 #include <array>
-#include <bit>
 #include <catch2/catch_test_macros.hpp>
 #include <othello/othello.hpp>
 #include <string>
@@ -24,13 +23,21 @@ using othello::Square;
     return *parsed;
 }
 
+[[nodiscard]] Board black_must_pass_board() {
+    return Board{
+        .black = bit("d4"),
+        .white = bit("e4") | bit("f4") | bit("g4") | bit("h4"),
+        .side_to_move = Side::Black,
+    };
+}
+
 } // namespace
 
 TEST_CASE("Initial board has starting discs and black to move", "[rule-core]") {
     const Board board = Board::initial();
 
-    CHECK(std::popcount(board.black) == 2);
-    CHECK(std::popcount(board.white) == 2);
+    CHECK(othello::disc_count(board, Side::Black) == 2);
+    CHECK(othello::disc_count(board, Side::White) == 2);
     CHECK(board.side_to_move == Side::Black);
 }
 
@@ -68,6 +75,7 @@ TEST_CASE("Initial black legal moves are d3 c4 f5 e6", "[rule-core]") {
     const Board board = Board::initial();
     const Bitboard expected = bit("d3") | bit("c4") | bit("f5") | bit("e6");
 
+    CHECK(othello::has_legal_move(board));
     CHECK(othello::legal_moves(board) == expected);
 }
 
@@ -77,8 +85,8 @@ TEST_CASE("Initial black move d3 places and flips discs", "[rule-core]") {
     REQUIRE(next.has_value());
     CHECK((next->black & bit("d3")) != 0);
     CHECK((next->black & bit("d4")) != 0);
-    CHECK(std::popcount(next->black) == 4);
-    CHECK(std::popcount(next->white) == 1);
+    CHECK(othello::disc_count(*next, Side::Black) == 4);
+    CHECK(othello::disc_count(*next, Side::White) == 1);
     CHECK(next->side_to_move == Side::White);
 }
 
@@ -92,8 +100,8 @@ TEST_CASE("Each initial black legal move leaves four black discs and one white d
         const auto next = othello::apply_move(Board::initial(), square(move));
 
         REQUIRE(next.has_value());
-        CHECK(std::popcount(next->black) == 4);
-        CHECK(std::popcount(next->white) == 1);
+        CHECK(othello::disc_count(*next, Side::Black) == 4);
+        CHECK(othello::disc_count(*next, Side::White) == 1);
         CHECK(next->side_to_move == Side::White);
     }
 }
@@ -121,7 +129,44 @@ TEST_CASE("Move application flips discs in multiple directions", "[rule-core]") 
     REQUIRE(next.has_value());
     CHECK((next->black & bit("d4")) != 0);
     CHECK((next->black & expected_flips) == expected_flips);
-    CHECK(std::popcount(next->black) == 9);
-    CHECK(std::popcount(next->white) == 0);
+    CHECK(othello::disc_count(*next, Side::Black) == 9);
+    CHECK(othello::disc_count(*next, Side::White) == 0);
     CHECK(next->side_to_move == Side::White);
+}
+
+TEST_CASE("Passing is rejected while the current side has legal moves", "[rule-core]") {
+    const Board board = Board::initial();
+
+    CHECK(othello::has_legal_move(board));
+    CHECK_FALSE(othello::pass_turn(board).has_value());
+}
+
+TEST_CASE("A side with no legal move can pass to the opponent", "[rule-core]") {
+    const Board board = black_must_pass_board();
+
+    REQUIRE_FALSE(othello::has_legal_move(board));
+
+    const auto next = othello::pass_turn(board);
+
+    REQUIRE(next.has_value());
+    CHECK(next->black == board.black);
+    CHECK(next->white == board.white);
+    CHECK(next->side_to_move == Side::White);
+    CHECK(othello::has_legal_move(*next));
+    CHECK((othello::legal_moves(*next) & bit("c4")) != 0);
+}
+
+TEST_CASE("Game over requires neither side to have a legal move", "[rule-core]") {
+    const Board initial = Board::initial();
+    const Board terminal{
+        .black = ~Bitboard{0},
+        .white = 0,
+        .side_to_move = Side::Black,
+    };
+
+    CHECK_FALSE(othello::is_game_over(initial));
+    CHECK(othello::is_game_over(terminal));
+    CHECK_FALSE(othello::pass_turn(terminal).has_value());
+    CHECK(othello::disc_count(terminal, Side::Black) == 64);
+    CHECK(othello::disc_count(terminal, Side::White) == 0);
 }
