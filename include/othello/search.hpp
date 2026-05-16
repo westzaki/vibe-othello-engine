@@ -23,5 +23,7 @@ struct SearchOptions {
 
 [[nodiscard]] SearchResult search(const Board& board, const SearchOptions& options) noexcept;
 [[nodiscard]] SearchResult search_fixed_depth(const Board& board, int depth) noexcept;
+[[nodiscard]] SearchResult search_iterative(const Board& board,
+                                            const SearchOptions& options) noexcept;
 
 } // namespace othello
