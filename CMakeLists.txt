@@ -63,14 +63,18 @@ othello_enable_sanitizers(othello)
 
 enable_testing()
 
-add_executable(othello_rule_core_tests
-    tests/rule_core_tests.cpp
+add_executable(othello_tests
+    tests/evaluation_tests.cpp
+    tests/notation_tests.cpp
+    tests/player_tests.cpp
+    tests/rules_tests.cpp
     tests/search_tests.cpp
+    tests/square_tests.cpp
 )
 
-target_link_libraries(othello_rule_core_tests PRIVATE othello)
-target_link_libraries(othello_rule_core_tests PRIVATE Catch2::Catch2WithMain)
-othello_enable_sanitizers(othello_rule_core_tests)
+target_link_libraries(othello_tests PRIVATE othello)
+target_link_libraries(othello_tests PRIVATE Catch2::Catch2WithMain)
+othello_enable_sanitizers(othello_tests)
 
 add_executable(othello_rule_core_bench
     tools/bench_rule_core.cpp
@@ -80,7 +84,7 @@ target_link_libraries(othello_rule_core_bench PRIVATE othello)
 othello_enable_sanitizers(othello_rule_core_bench)
 
 if(OTHELLO_ENABLE_CLANG_TIDY)
-    set_target_properties(othello othello_rule_core_tests othello_rule_core_bench
+    set_target_properties(othello othello_tests othello_rule_core_bench
         PROPERTIES
             CXX_CLANG_TIDY "${CLANG_TIDY_EXE}"
     )
@@ -88,4 +92,4 @@ endif()
 
 list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
 include(Catch)
-catch_discover_tests(othello_rule_core_tests)
+catch_discover_tests(othello_tests)

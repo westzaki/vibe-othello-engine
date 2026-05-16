@@ -1,28 +1,11 @@
+#include "test_helpers.hpp"
+
 #include <catch2/catch_test_macros.hpp>
 #include <othello/othello.hpp>
-
-namespace {
 
 using othello::Bitboard;
 using othello::Board;
 using othello::Side;
-using othello::Square;
-
-[[nodiscard]] Bitboard bit(const char* coordinate) {
-    const auto square = othello::square_from_string(coordinate);
-    REQUIRE(square.has_value());
-    return square->bit();
-}
-
-[[nodiscard]] Board black_must_pass_board() {
-    return Board{
-        .black = bit("d4"),
-        .white = bit("e4") | bit("f4") | bit("g4") | bit("h4"),
-        .side_to_move = Side::Black,
-    };
-}
-
-} // namespace
 
 TEST_CASE("Fixed-depth search at depth zero returns an evaluation-only result", "[search]") {
     const Board board = Board::initial();
@@ -86,7 +69,7 @@ TEST_CASE("Fixed-depth search handles terminal boards", "[search]") {
 }
 
 TEST_CASE("Fixed-depth search handles pass positions", "[search]") {
-    const Board board = black_must_pass_board();
+    const Board board = othello::test::black_must_pass_board();
 
     REQUIRE(othello::legal_moves(board) == 0);
     REQUIRE_FALSE(othello::is_game_over(board));
