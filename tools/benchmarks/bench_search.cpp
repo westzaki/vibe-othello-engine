@@ -1,12 +1,12 @@
 #include "bench_common.hpp"
 
-#include <algorithm>
 #include <charconv>
 #include <chrono>
 #include <cstdint>
 #include <exception>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <optional>
 #include <span>
 #include <string_view>
@@ -17,13 +17,30 @@ namespace {
 
 using Clock = std::chrono::steady_clock;
 
-struct SearchOptions {
+enum class SearchBenchmarkMode {
+    Fixed,
+    Iterative,
+    Both,
+};
+
+enum class SearchRunMode {
+    Fixed,
+    Iterative,
+};
+
+struct BenchmarkOptions {
     std::vector<int> depths{1, 2, 3, 4, 5};
     std::uint64_t repetitions = 3;
+    SearchBenchmarkMode mode = SearchBenchmarkMode::Fixed;
+    std::optional<bool> use_transposition_table;
+    std::size_t transposition_table_entries = othello::SearchOptions{}.transposition_table_entries;
 };
 
 struct SearchBenchmarkResult {
     std::string_view name;
+    SearchRunMode mode;
+    bool use_transposition_table;
+    std::size_t transposition_table_entries;
     std::uint64_t position_count;
     int depth;
     std::uint64_t searches;
@@ -34,12 +51,39 @@ struct SearchBenchmarkResult {
 };
 
 void print_usage(std::string_view program_name) {
-    std::cout << "usage: " << program_name << " [--depths 1,2,3,4,5] [--repetitions N]\n"
+    std::cout << "usage: " << program_name
+              << " [--mode fixed|iterative|both] [--depths 1,2,3,4,5]"
+                 " [--repetitions N] [--tt on|off] [--tt-entries N]\n"
               << '\n'
               << "Options:\n"
               << "  --depths LIST       comma-separated positive search depths\n"
               << "  --repetitions N     positive repetition count per depth\n"
+              << "  --mode MODE         fixed, iterative, or both (default: fixed)\n"
+              << "  --tt on|off         override the SearchOptions TT default\n"
+              << "  --tt-entries N      requested transposition table entry count\n"
               << "  --help              show this help text\n";
+}
+
+[[nodiscard]] std::string_view mode_name(SearchRunMode mode) noexcept {
+    switch (mode) {
+    case SearchRunMode::Fixed:
+        return "fixed";
+    case SearchRunMode::Iterative:
+        return "iterative";
+    }
+
+    return "unknown";
+}
+
+[[nodiscard]] std::uint64_t mode_checksum(SearchRunMode mode) noexcept {
+    switch (mode) {
+    case SearchRunMode::Fixed:
+        return 1;
+    case SearchRunMode::Iterative:
+        return 2;
+    }
+
+    return 0;
 }
 
 [[nodiscard]] std::optional<int> parse_positive_depth(std::string_view text) noexcept {
@@ -80,8 +124,46 @@ void print_usage(std::string_view program_name) {
     return depths;
 }
 
-[[nodiscard]] std::optional<SearchOptions> parse_options(std::span<char* const> args) {
-    SearchOptions options;
+[[nodiscard]] std::optional<SearchBenchmarkMode> parse_benchmark_mode(std::string_view text) {
+    if (text == "fixed") {
+        return SearchBenchmarkMode::Fixed;
+    }
+    if (text == "iterative") {
+        return SearchBenchmarkMode::Iterative;
+    }
+    if (text == "both") {
+        return SearchBenchmarkMode::Both;
+    }
+
+    return std::nullopt;
+}
+
+[[nodiscard]] std::optional<bool> parse_tt_setting(std::string_view text) {
+    if (text == "on") {
+        return true;
+    }
+    if (text == "off") {
+        return false;
+    }
+
+    return std::nullopt;
+}
+
+[[nodiscard]] std::optional<std::size_t> parse_entry_count(std::string_view text) noexcept {
+    std::uint64_t value = 0;
+    const auto* begin = text.data();
+    const auto* end = text.data() + text.size();
+    const auto result = std::from_chars(begin, end, value);
+    if (result.ec != std::errc{} || result.ptr != end ||
+        value > std::numeric_limits<std::size_t>::max()) {
+        return std::nullopt;
+    }
+
+    return static_cast<std::size_t>(value);
+}
+
+[[nodiscard]] std::optional<BenchmarkOptions> parse_options(std::span<char* const> args) {
+    BenchmarkOptions options;
 
     for (std::size_t index = 1; index < args.size(); ++index) {
         const std::string_view option = args[index];
@@ -103,6 +185,54 @@ void print_usage(std::string_view program_name) {
                 return std::nullopt;
             }
             options.depths = *depths;
+            continue;
+        }
+
+        if (option == "--mode") {
+            ++index;
+            if (index >= args.size()) {
+                std::cerr << "--mode requires fixed, iterative, or both\n";
+                return std::nullopt;
+            }
+
+            const auto mode = parse_benchmark_mode(args[index]);
+            if (!mode.has_value()) {
+                std::cerr << "--mode must be fixed, iterative, or both\n";
+                return std::nullopt;
+            }
+            options.mode = *mode;
+            continue;
+        }
+
+        if (option == "--tt") {
+            ++index;
+            if (index >= args.size()) {
+                std::cerr << "--tt requires on or off\n";
+                return std::nullopt;
+            }
+
+            const auto tt_setting = parse_tt_setting(args[index]);
+            if (!tt_setting.has_value()) {
+                std::cerr << "--tt must be on or off\n";
+                return std::nullopt;
+            }
+            options.use_transposition_table = tt_setting;
+            continue;
+        }
+
+        if (option == "--tt-entries") {
+            ++index;
+            if (index >= args.size()) {
+                std::cerr << "--tt-entries requires a non-negative integer\n";
+                return std::nullopt;
+            }
+
+            const auto entry_count = parse_entry_count(args[index]);
+            if (!entry_count.has_value()) {
+                std::cerr << "--tt-entries must be a non-negative integer\n";
+                return std::nullopt;
+            }
+            options.transposition_table_entries = *entry_count;
             continue;
         }
 
@@ -129,9 +259,34 @@ void print_usage(std::string_view program_name) {
     return options;
 }
 
+[[nodiscard]] othello::SearchOptions make_search_options(const BenchmarkOptions& options,
+                                                         int depth) noexcept {
+    auto search_options = othello::SearchOptions{.max_depth = depth};
+    if (options.use_transposition_table.has_value()) {
+        search_options.use_transposition_table = *options.use_transposition_table;
+    }
+    search_options.transposition_table_entries = options.transposition_table_entries;
+    return search_options;
+}
+
+[[nodiscard]] othello::SearchResult run_search(const othello::Board& board,
+                                               const othello::SearchOptions& options,
+                                               SearchRunMode mode) noexcept {
+    switch (mode) {
+    case SearchRunMode::Fixed:
+        return othello::search(board, options);
+    case SearchRunMode::Iterative:
+        return othello::search_iterative(board, options);
+    }
+
+    return othello::SearchResult{};
+}
+
 [[nodiscard]] SearchBenchmarkResult
-benchmark_search_fixed_depth(const std::vector<othello::benchmarks::Position>& positions, int depth,
-                             std::uint64_t repetitions) {
+benchmark_search(const std::vector<othello::benchmarks::Position>& positions, int depth,
+                 std::uint64_t repetitions, const BenchmarkOptions& benchmark_options,
+                 SearchRunMode mode) {
+    const auto search_options = make_search_options(benchmark_options, depth);
     std::uint64_t result_checksum = 0;
     std::uint64_t work_checksum = 0;
     std::uint64_t searches = 0;
@@ -140,10 +295,12 @@ benchmark_search_fixed_depth(const std::vector<othello::benchmarks::Position>& p
     const auto start = Clock::now();
     for (std::uint64_t repetition = 0; repetition < repetitions; ++repetition) {
         for (const auto& position : positions) {
-            const auto result = othello::search_fixed_depth(position.board, depth);
-            const auto stable_result_checksum = othello::benchmarks::mix_checksum(
+            const auto result = run_search(position.board, search_options, mode);
+            auto stable_result_checksum = othello::benchmarks::mix_checksum(
                 othello::benchmarks::search_result_checksum(result),
                 othello::benchmarks::board_checksum(position.board));
+            stable_result_checksum =
+                othello::benchmarks::mix_checksum(stable_result_checksum, mode_checksum(mode));
 
             result_checksum =
                 othello::benchmarks::mix_checksum(result_checksum, stable_result_checksum);
@@ -158,7 +315,10 @@ benchmark_search_fixed_depth(const std::vector<othello::benchmarks::Position>& p
     const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - start);
 
     return SearchBenchmarkResult{
-        .name = "search_fixed_depth",
+        .name = "search",
+        .mode = mode,
+        .use_transposition_table = search_options.use_transposition_table,
+        .transposition_table_entries = search_options.transposition_table_entries,
         .position_count = positions.size(),
         .depth = depth,
         .searches = searches,
@@ -167,6 +327,13 @@ benchmark_search_fixed_depth(const std::vector<othello::benchmarks::Position>& p
         .result_checksum = result_checksum,
         .work_checksum = work_checksum,
     };
+}
+
+void print_search_result_header() {
+    std::cout << std::left << std::setw(12) << "benchmark" << "  " << std::setw(10) << "mode"
+              << "  " << std::setw(3) << "tt" << "  " << std::setw(10) << "tt_entries"
+              << "  positions  depth  searches  elapsed_ms      searches/s  total_nodes"
+                 "         nodes/s  nodes/search  result_checksum  work_checksum\n";
 }
 
 void print_search_result(const SearchBenchmarkResult& result) {
@@ -184,14 +351,30 @@ void print_search_result(const SearchBenchmarkResult& result) {
                                                        : static_cast<double>(result.total_nodes) /
                                                              static_cast<double>(result.searches);
 
-    std::cout << std::left << std::setw(32) << result.name << "  positions=" << std::right
-              << std::setw(2) << result.position_count << "  depth=" << std::setw(2) << result.depth
-              << "  searches=" << std::setw(8) << result.searches << "  " << std::fixed
-              << std::setprecision(3) << std::setw(10) << elapsed_ms << " ms  " << std::setw(14)
-              << searches_per_second << " searches/s  nodes=" << result.total_nodes << "  "
-              << std::setw(14) << nodes_per_second << " nodes/s  " << std::setw(10)
-              << nodes_per_search << " nodes/search  result_checksum=" << result.result_checksum
-              << "  work_checksum=" << result.work_checksum << '\n';
+    std::cout << std::left << std::setw(12) << result.name << "  " << std::setw(10)
+              << mode_name(result.mode) << "  " << std::setw(3)
+              << (result.use_transposition_table ? "on" : "off") << "  " << std::right
+              << std::setw(10) << result.transposition_table_entries << "  " << std::setw(9)
+              << result.position_count << "  " << std::setw(5) << result.depth << "  "
+              << std::setw(8) << result.searches << "  " << std::fixed << std::setprecision(3)
+              << std::setw(10) << elapsed_ms << "  " << std::setw(14) << searches_per_second << "  "
+              << std::setw(11) << result.total_nodes << "  " << std::setw(14) << nodes_per_second
+              << "  " << std::setw(12) << nodes_per_search << "  " << result.result_checksum << "  "
+              << result.work_checksum << '\n';
+}
+
+void run_requested_benchmarks(const std::vector<othello::benchmarks::Position>& positions,
+                              const BenchmarkOptions& options, int depth) {
+    if (options.mode == SearchBenchmarkMode::Fixed || options.mode == SearchBenchmarkMode::Both) {
+        print_search_result(
+            benchmark_search(positions, depth, options.repetitions, options, SearchRunMode::Fixed));
+    }
+
+    if (options.mode == SearchBenchmarkMode::Iterative ||
+        options.mode == SearchBenchmarkMode::Both) {
+        print_search_result(benchmark_search(positions, depth, options.repetitions, options,
+                                             SearchRunMode::Iterative));
+    }
 }
 
 int run_benchmark(std::span<char* const> args) {
@@ -215,14 +398,36 @@ int run_benchmark(std::span<char* const> args) {
     std::cout << "Othello search benchmark\n";
     std::cout << "fixed positions: " << positions->size() << '\n';
     std::cout << "repetitions: " << options.repetitions << '\n';
+    std::cout << "mode: ";
+    switch (options.mode) {
+    case SearchBenchmarkMode::Fixed:
+        std::cout << "fixed";
+        break;
+    case SearchBenchmarkMode::Iterative:
+        std::cout << "iterative";
+        break;
+    case SearchBenchmarkMode::Both:
+        std::cout << "both";
+        break;
+    }
+    std::cout << '\n';
+    const auto default_search_options = othello::SearchOptions{};
+    std::cout << "tt: "
+              << (options.use_transposition_table.value_or(
+                      default_search_options.use_transposition_table)
+                      ? "on"
+                      : "off")
+              << '\n';
+    std::cout << "tt entries: " << options.transposition_table_entries << '\n';
     std::cout << "depths:";
     for (const int depth : options.depths) {
         std::cout << ' ' << depth;
     }
     std::cout << "\n\n";
 
+    print_search_result_header();
     for (const int depth : options.depths) {
-        print_search_result(benchmark_search_fixed_depth(*positions, depth, options.repetitions));
+        run_requested_benchmarks(*positions, options, depth);
     }
 
     return 0;
