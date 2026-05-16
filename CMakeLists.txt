@@ -47,6 +47,7 @@ FetchContent_MakeAvailable(Catch2)
 
 add_library(othello STATIC
     src/notation.cpp
+    src/player.cpp
     src/rules.cpp
     src/square.cpp
 )
