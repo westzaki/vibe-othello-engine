@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.20)
 project(vibe_othello_engine LANGUAGES CXX)
 
 option(OTHELLO_ENABLE_CLANG_TIDY "Enable clang-tidy checks" OFF)
+option(OTHELLO_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 
 if(OTHELLO_ENABLE_CLANG_TIDY)
     find_program(CLANG_TIDY_EXE NAMES clang-tidy)
@@ -10,6 +11,29 @@ if(OTHELLO_ENABLE_CLANG_TIDY)
         message(FATAL_ERROR "OTHELLO_ENABLE_CLANG_TIDY is ON, but clang-tidy was not found")
     endif()
 endif()
+
+if(OTHELLO_ENABLE_SANITIZERS AND NOT CMAKE_CXX_COMPILER_ID MATCHES "AppleClang|Clang|GNU")
+    message(FATAL_ERROR "OTHELLO_ENABLE_SANITIZERS is ON, but the compiler is not Clang or GCC")
+endif()
+
+function(othello_enable_sanitizers target)
+    if(NOT OTHELLO_ENABLE_SANITIZERS)
+        return()
+    endif()
+
+    set(sanitizer_options
+        -fsanitize=address,undefined
+        -fno-omit-frame-pointer
+        -fno-sanitize-recover=all
+    )
+
+    target_compile_options(${target} PRIVATE ${sanitizer_options})
+
+    get_target_property(target_type ${target} TYPE)
+    if(NOT target_type STREQUAL "STATIC_LIBRARY")
+        target_link_options(${target} PRIVATE ${sanitizer_options})
+    endif()
+endfunction()
 
 include(FetchContent)
 
@@ -32,6 +56,7 @@ target_include_directories(othello
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
+othello_enable_sanitizers(othello)
 
 enable_testing()
 
@@ -41,6 +66,7 @@ add_executable(othello_rule_core_tests
 
 target_link_libraries(othello_rule_core_tests PRIVATE othello)
 target_link_libraries(othello_rule_core_tests PRIVATE Catch2::Catch2WithMain)
+othello_enable_sanitizers(othello_rule_core_tests)
 
 if(OTHELLO_ENABLE_CLANG_TIDY)
     set_target_properties(othello othello_rule_core_tests
