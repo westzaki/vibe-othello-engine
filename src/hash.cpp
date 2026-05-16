@@ -1,3 +1,5 @@
+#include "hash_detail.hpp"
+
 #include <array>
 #include <bit>
 #include <cstddef>
@@ -78,12 +80,10 @@ ZobristHash zobrist_hash(const Board& board) noexcept {
 
 namespace othello::detail {
 
-// NOLINTNEXTLINE(misc-use-internal-linkage)
 ZobristHash zobrist_piece_hash(Side side, int square_index) noexcept {
     return piece_hashes[side_index(side)][static_cast<std::size_t>(square_index)];
 }
 
-// NOLINTNEXTLINE(misc-use-internal-linkage)
 ZobristHash zobrist_side_hash(Side side) noexcept {
     return side_hashes[side_index(side)];
 }

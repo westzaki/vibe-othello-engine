@@ -1,6 +1,9 @@
+#include "hash_detail.hpp"
+
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <cassert>
 #include <cstddef>
 #include <memory>
 #include <new>
@@ -8,13 +11,6 @@
 #include <othello/hash.hpp>
 #include <othello/rules.hpp>
 #include <othello/search.hpp>
-
-namespace othello::detail {
-
-[[nodiscard]] ZobristHash zobrist_piece_hash(Side side, int square_index) noexcept;
-[[nodiscard]] ZobristHash zobrist_side_hash(Side side) noexcept;
-
-} // namespace othello::detail
 
 namespace othello {
 namespace {
@@ -46,8 +42,7 @@ struct TranspositionEntry {
 
 class TranspositionTable {
 public:
-    explicit TranspositionTable(bool enabled) noexcept
-        : entries_{enabled ? new (std::nothrow) TranspositionEntry[entry_count] : nullptr} {}
+    TranspositionTable() noexcept : entries_{new (std::nothrow) TranspositionEntry[entry_count]} {}
 
     [[nodiscard]] std::optional<NodeResult> lookup(ZobristHash hash, int depth, int alpha,
                                                    int beta) const noexcept {
@@ -125,16 +120,12 @@ private:
 };
 
 struct SearchContext {
-    explicit SearchContext(bool enable_transpositions) noexcept
-        : transpositions{enable_transpositions} {}
-
     std::uint64_t nodes = 0;
     TranspositionTable transpositions;
 };
 
 constexpr int search_score_min = -1'000'000'000;
 constexpr int search_score_max = 1'000'000'000;
-constexpr int minimum_transposition_depth = 15;
 
 [[nodiscard]] constexpr bool is_corner(int index) noexcept {
     return index == 0 || index == 7 || index == 56 || index == 63;
@@ -270,8 +261,10 @@ constexpr int minimum_transposition_depth = 15;
             return result;
         }
 
-        const NodeResult child = search_node(*next, hash_after_pass(hash, board.side_to_move),
-                                             depth - 1, -beta, -alpha, context);
+        const ZobristHash next_hash = hash_after_pass(hash, board.side_to_move);
+        assert(next_hash == zobrist_hash(*next));
+
+        const NodeResult child = search_node(*next, next_hash, depth - 1, -beta, -alpha, context);
         const NodeResult result{.score = -child.score};
         context.transpositions.store(hash, depth, result.score, original_alpha, beta,
                                      result.best_move);
@@ -295,6 +288,8 @@ constexpr int minimum_transposition_depth = 15;
 
         const Board next = board_after_move(board, *square, flips);
         const ZobristHash next_hash = hash_after_move(hash, board.side_to_move, *square, flips);
+        assert(next_hash == zobrist_hash(next));
+
         const NodeResult child = search_node(next, next_hash, depth - 1, -beta, -alpha, context);
         const int candidate_score = -child.score;
         if (is_better_best_move(candidate_score, *square, best_score, best_move)) {
@@ -320,7 +315,7 @@ constexpr int minimum_transposition_depth = 15;
 
 SearchResult search_fixed_depth(const Board& board, int depth) noexcept {
     const int search_depth = depth < 0 ? 0 : depth;
-    SearchContext context{search_depth >= minimum_transposition_depth};
+    SearchContext context;
     const NodeResult result = search_node(board, zobrist_hash(board), search_depth,
                                           search_score_min, search_score_max, context);
 
