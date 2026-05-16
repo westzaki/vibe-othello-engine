@@ -81,5 +81,7 @@ struct Board {
 };
 
 [[nodiscard]] Bitboard legal_moves(const Board& board) noexcept;
+[[nodiscard]] Bitboard flips_for_move(const Board& board, Square square) noexcept;
+[[nodiscard]] std::optional<Board> apply_move(const Board& board, Square square) noexcept;
 
 } // namespace othello

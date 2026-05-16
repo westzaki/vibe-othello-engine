@@ -32,27 +32,30 @@ constexpr std::array<Direction, 8> directions{{
     return Bitboard{1} << square_index(file, rank);
 }
 
-[[nodiscard]] bool is_legal_move_in_direction(Square square, Direction direction,
-                                              Bitboard own_discs,
-                                              Bitboard opponent_discs) noexcept {
+[[nodiscard]] Bitboard flips_in_direction(Square square, Direction direction, Bitboard own_discs,
+                                          Bitboard opponent_discs) noexcept {
     int file = square.file() + direction.file_delta;
     int rank = square.rank() + direction.rank_delta;
-    bool saw_opponent_disc = false;
+    Bitboard flips = 0;
 
     while (on_board(file, rank)) {
         const Bitboard bit = bit_at(file, rank);
 
         if ((opponent_discs & bit) != 0) {
-            saw_opponent_disc = true;
+            flips |= bit;
             file += direction.file_delta;
             rank += direction.rank_delta;
             continue;
         }
 
-        return saw_opponent_disc && (own_discs & bit) != 0;
+        if ((own_discs & bit) != 0) {
+            return flips;
+        }
+
+        return 0;
     }
 
-    return false;
+    return 0;
 }
 
 } // namespace
@@ -82,28 +85,56 @@ std::string to_string(Square square) {
 }
 
 Bitboard legal_moves(const Board& board) noexcept {
-    const Bitboard own_discs = board.discs(board.side_to_move);
-    const Bitboard opponent_discs = board.discs(opponent(board.side_to_move));
-    const Bitboard empty_squares = ~(own_discs | opponent_discs);
     Bitboard moves = 0;
 
     for (int index = Square::min_index; index <= Square::max_index; ++index) {
         const auto square = Square::from_index(index);
         const Bitboard bit = square->bit();
 
-        if ((empty_squares & bit) == 0) {
-            continue;
-        }
-
-        for (const Direction direction : directions) {
-            if (is_legal_move_in_direction(*square, direction, own_discs, opponent_discs)) {
-                moves |= bit;
-                break;
-            }
+        if (flips_for_move(board, *square) != 0) {
+            moves |= bit;
         }
     }
 
     return moves;
+}
+
+Bitboard flips_for_move(const Board& board, Square square) noexcept {
+    const Bitboard move_bit = square.bit();
+    const Bitboard own_discs = board.discs(board.side_to_move);
+    const Bitboard opponent_discs = board.discs(opponent(board.side_to_move));
+
+    if ((board.occupied() & move_bit) != 0) {
+        return 0;
+    }
+
+    Bitboard flips = 0;
+    for (const Direction direction : directions) {
+        flips |= flips_in_direction(square, direction, own_discs, opponent_discs);
+    }
+
+    return flips;
+}
+
+std::optional<Board> apply_move(const Board& board, Square square) noexcept {
+    const Bitboard flips = flips_for_move(board, square);
+    if (flips == 0) {
+        return std::nullopt;
+    }
+
+    const Bitboard move_bit = square.bit();
+    Board next = board;
+
+    if (board.side_to_move == Side::Black) {
+        next.black |= move_bit | flips;
+        next.white &= ~flips;
+    } else {
+        next.white |= move_bit | flips;
+        next.black &= ~flips;
+    }
+
+    next.side_to_move = opponent(board.side_to_move);
+    return next;
 }
 
 } // namespace othello
