@@ -1,42 +1,13 @@
-#include <array>
 #include <bit>
 #include <othello/rules.hpp>
 
 namespace othello {
 namespace {
 
-struct Direction {
-    int file_delta;
-    int rank_delta;
-};
-
 constexpr Bitboard a_file = 0x0101010101010101ULL;
 constexpr Bitboard h_file = 0x8080808080808080ULL;
 constexpr Bitboard not_a_file = ~a_file;
 constexpr Bitboard not_h_file = ~h_file;
-
-constexpr std::array<Direction, 8> directions{{
-    {.file_delta = -1, .rank_delta = -1},
-    {.file_delta = 0, .rank_delta = -1},
-    {.file_delta = 1, .rank_delta = -1},
-    {.file_delta = -1, .rank_delta = 0},
-    {.file_delta = 1, .rank_delta = 0},
-    {.file_delta = -1, .rank_delta = 1},
-    {.file_delta = 0, .rank_delta = 1},
-    {.file_delta = 1, .rank_delta = 1},
-}};
-
-[[nodiscard]] constexpr bool on_board(int file, int rank) noexcept {
-    return file >= 0 && file < 8 && rank >= 0 && rank < 8;
-}
-
-[[nodiscard]] constexpr int square_index(int file, int rank) noexcept {
-    return (rank * 8) + file;
-}
-
-[[nodiscard]] constexpr Bitboard bit_at(int file, int rank) noexcept {
-    return Bitboard{1} << square_index(file, rank);
-}
 
 [[nodiscard]] constexpr Bitboard shift_east(Bitboard bits) noexcept {
     return (bits & not_h_file) << 1;
@@ -82,27 +53,20 @@ template <Bitboard (*Shift)(Bitboard) noexcept>
     return Shift(captured) & empty_squares;
 }
 
-[[nodiscard]] Bitboard flips_in_direction(Square square, Direction direction, Bitboard own_discs,
+template <Bitboard (*Shift)(Bitboard) noexcept>
+[[nodiscard]] Bitboard flips_in_direction(Bitboard move_bit, Bitboard own_discs,
                                           Bitboard opponent_discs) noexcept {
-    int file = square.file() + direction.file_delta;
-    int rank = square.rank() + direction.rank_delta;
     Bitboard flips = 0;
+    Bitboard captured = Shift(move_bit) & opponent_discs;
 
-    while (on_board(file, rank)) {
-        const Bitboard bit = bit_at(file, rank);
-
-        if ((opponent_discs & bit) != 0) {
-            flips |= bit;
-            file += direction.file_delta;
-            rank += direction.rank_delta;
-            continue;
-        }
-
-        if ((own_discs & bit) != 0) {
+    while (captured != 0) {
+        flips |= captured;
+        const Bitboard next = Shift(captured);
+        if ((next & own_discs) != 0) {
             return flips;
         }
 
-        return 0;
+        captured = next & opponent_discs;
     }
 
     return 0;
@@ -138,12 +102,14 @@ Bitboard flips_for_move(const Board& board, Square square) noexcept {
         return 0;
     }
 
-    Bitboard flips = 0;
-    for (const Direction direction : directions) {
-        flips |= flips_in_direction(square, direction, own_discs, opponent_discs);
-    }
-
-    return flips;
+    return flips_in_direction<shift_east>(move_bit, own_discs, opponent_discs) |
+           flips_in_direction<shift_west>(move_bit, own_discs, opponent_discs) |
+           flips_in_direction<shift_north>(move_bit, own_discs, opponent_discs) |
+           flips_in_direction<shift_south>(move_bit, own_discs, opponent_discs) |
+           flips_in_direction<shift_northeast>(move_bit, own_discs, opponent_discs) |
+           flips_in_direction<shift_northwest>(move_bit, own_discs, opponent_discs) |
+           flips_in_direction<shift_southeast>(move_bit, own_discs, opponent_discs) |
+           flips_in_direction<shift_southwest>(move_bit, own_discs, opponent_discs);
 }
 
 std::optional<Board> apply_move(const Board& board, Square square) noexcept {
