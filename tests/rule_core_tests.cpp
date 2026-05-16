@@ -25,6 +25,12 @@ using othello::Square;
     return *parsed;
 }
 
+[[nodiscard]] Board board_from_text(std::string_view text) {
+    const auto board = othello::board_from_string(text);
+    REQUIRE(board.has_value());
+    return *board;
+}
+
 [[nodiscard]] Board black_must_pass_board() {
     return Board{
         .black = bit("d4"),
@@ -174,6 +180,132 @@ TEST_CASE("Move application flips discs in multiple directions", "[rule-core]") 
     CHECK(othello::disc_count(*next, Side::Black) == 9);
     CHECK(othello::disc_count(*next, Side::White) == 0);
     CHECK(next->side_to_move == Side::White);
+}
+
+TEST_CASE("White can apply a legal move after the initial black move", "[rule-core]") {
+    const auto after_black = othello::apply_move(Board::initial(), square("d3"));
+
+    REQUIRE(after_black.has_value());
+    REQUIRE(after_black->side_to_move == Side::White);
+    CHECK(othello::legal_moves(*after_black) != 0);
+    CHECK((othello::legal_moves(*after_black) & bit("c3")) != 0);
+
+    const auto after_white = othello::apply_move(*after_black, square("c3"));
+
+    REQUIRE(after_white.has_value());
+    CHECK(after_white->side_to_move == Side::Black);
+    CHECK((after_white->black & after_white->white) == 0);
+}
+
+TEST_CASE("Edge horizontal move flips discs along an edge row", "[rule-core]") {
+    const Board board = board_from_text(R"(........
+........
+........
+........
+........
+........
+........
+.WWWWWWB
+side=B)");
+    const Square move = square("a1");
+    const Bitboard expected_flips =
+        bit("b1") | bit("c1") | bit("d1") | bit("e1") | bit("f1") | bit("g1");
+
+    CAPTURE(othello::to_string(board), othello::to_string(move));
+
+    CHECK(othello::flips_for_move(board, move) == expected_flips);
+
+    const auto next = othello::apply_move(board, move);
+
+    REQUIRE(next.has_value());
+    CHECK(othello::disc_count(*next, Side::Black) == 8);
+    CHECK(othello::disc_count(*next, Side::White) == 0);
+    CHECK(next->side_to_move == Side::White);
+}
+
+TEST_CASE("Edge vertical move flips discs along an edge file", "[rule-core]") {
+    const Board board = board_from_text(R"(B.......
+W.......
+W.......
+W.......
+W.......
+W.......
+W.......
+........
+side=B)");
+    const Square move = square("a1");
+    const Bitboard expected_flips =
+        bit("a2") | bit("a3") | bit("a4") | bit("a5") | bit("a6") | bit("a7");
+
+    CAPTURE(othello::to_string(board), othello::to_string(move));
+
+    CHECK(othello::flips_for_move(board, move) == expected_flips);
+
+    const auto next = othello::apply_move(board, move);
+
+    REQUIRE(next.has_value());
+    CHECK(othello::disc_count(*next, Side::Black) == 8);
+    CHECK(othello::disc_count(*next, Side::White) == 0);
+    CHECK(next->side_to_move == Side::White);
+}
+
+TEST_CASE("Corner move flips diagonally into the board", "[rule-core]") {
+    const Board board = board_from_text(R"(........
+......W.
+.....B..
+........
+........
+........
+........
+........
+side=B)");
+    const Square move = square("h8");
+    const Bitboard expected_flips = bit("g7");
+
+    CAPTURE(othello::to_string(board), othello::to_string(move));
+
+    CHECK((othello::legal_moves(board) & move.bit()) != 0);
+    CHECK(othello::flips_for_move(board, move) == expected_flips);
+
+    const auto next = othello::apply_move(board, move);
+
+    REQUIRE(next.has_value());
+    CHECK((next->black & bit("h8")) != 0);
+    CHECK((next->black & expected_flips) == expected_flips);
+    CHECK(othello::disc_count(*next, Side::Black) == 3);
+    CHECK(othello::disc_count(*next, Side::White) == 0);
+}
+
+TEST_CASE("Legal moves do not wrap around between h-file and a-file", "[rule-core]") {
+    const Board h_to_a_board = board_from_text(R"(........
+........
+........
+........
+........
+........
+........
+WB......
+side=B)");
+    const Board a_to_h_board = board_from_text(R"(........
+........
+........
+........
+........
+........
+........
+......BW
+side=B)");
+    constexpr Bitboard expected_moves = 0;
+
+    CAPTURE(othello::to_string(h_to_a_board));
+
+    CHECK(othello::legal_moves(h_to_a_board) == expected_moves);
+    CHECK(othello::flips_for_move(h_to_a_board, square("h1")) == 0);
+
+    CAPTURE(othello::to_string(a_to_h_board));
+
+    CHECK(othello::legal_moves(a_to_h_board) == expected_moves);
+    CHECK(othello::flips_for_move(a_to_h_board, square("a1")) == 0);
 }
 
 TEST_CASE("Passing is rejected while the current side has legal moves", "[rule-core]") {
