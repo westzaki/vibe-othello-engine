@@ -4,6 +4,7 @@
 #include <othello/types.hpp>
 #include <othello/square.hpp>
 #include <othello/board.hpp>
+#include <othello/hash.hpp>
 #include <othello/rules.hpp>
 #include <othello/evaluation.hpp>
 #include <othello/search.hpp>
