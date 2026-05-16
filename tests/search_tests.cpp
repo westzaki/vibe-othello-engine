@@ -53,6 +53,30 @@ TEST_CASE("Search options treat negative depth as depth zero", "[search]") {
     CHECK(result.nodes > 0);
 }
 
+TEST_CASE("Iterative search depth zero returns an evaluation-only result", "[search]") {
+    const Board board = Board::initial();
+
+    const othello::SearchResult result =
+        othello::search_iterative(board, othello::SearchOptions{.max_depth = 0});
+
+    CHECK_FALSE(result.best_move.has_value());
+    CHECK(result.score == othello::evaluate_basic(board, board.side_to_move));
+    CHECK(result.depth == 0);
+    CHECK(result.nodes > 0);
+}
+
+TEST_CASE("Iterative search treats negative depth as depth zero", "[search]") {
+    const Board board = Board::initial();
+
+    const othello::SearchResult result =
+        othello::search_iterative(board, othello::SearchOptions{.max_depth = -1});
+
+    CHECK_FALSE(result.best_move.has_value());
+    CHECK(result.score == othello::evaluate_basic(board, board.side_to_move));
+    CHECK(result.depth == 0);
+    CHECK(result.nodes > 0);
+}
+
 TEST_CASE("Fixed-depth search returns a legal move from the initial board", "[search]") {
     const Board board = Board::initial();
     const Bitboard legal_moves = othello::legal_moves(board);
@@ -77,6 +101,20 @@ TEST_CASE("Fixed-depth compatibility delegates to options-based search", "[searc
     CHECK(fixed_depth.depth == options.depth);
 }
 
+TEST_CASE("Iterative search at depth one matches fixed-depth search", "[search]") {
+    const Board board = Board::initial();
+
+    const othello::SearchResult fixed_depth =
+        othello::search(board, othello::SearchOptions{.max_depth = 1});
+    const othello::SearchResult iterative =
+        othello::search_iterative(board, othello::SearchOptions{.max_depth = 1});
+
+    CHECK(fixed_depth.best_move == iterative.best_move);
+    CHECK(fixed_depth.score == iterative.score);
+    CHECK(fixed_depth.depth == iterative.depth);
+    CHECK(iterative.nodes > 0);
+}
+
 TEST_CASE("Fixed-depth search is deterministic", "[search]") {
     const Board board = Board::initial();
 
@@ -87,6 +125,42 @@ TEST_CASE("Fixed-depth search is deterministic", "[search]") {
     CHECK(first.score == second.score);
     CHECK(first.depth == second.depth);
     CHECK(first.nodes == second.nodes);
+}
+
+TEST_CASE("Iterative search without transposition table matches fixed-depth score", "[search]") {
+    const auto board = othello::apply_move(Board::initial(), othello::test::square("d3"));
+    REQUIRE(board.has_value());
+
+    const othello::SearchOptions options{
+        .max_depth = 3,
+        .use_transposition_table = false,
+    };
+    const othello::SearchResult fixed_depth = othello::search(*board, options);
+    const othello::SearchResult iterative = othello::search_iterative(*board, options);
+
+    CHECK(fixed_depth.best_move == iterative.best_move);
+    CHECK(fixed_depth.score == iterative.score);
+    CHECK(fixed_depth.depth == iterative.depth);
+    CHECK(iterative.nodes > fixed_depth.nodes);
+}
+
+TEST_CASE("Iterative search with transposition table is deterministic", "[search]") {
+    const auto board = othello::apply_move(Board::initial(), othello::test::square("d3"));
+    REQUIRE(board.has_value());
+
+    const othello::SearchOptions options{
+        .max_depth = 3,
+        .use_transposition_table = true,
+        .transposition_table_entries = 16,
+    };
+    const othello::SearchResult first = othello::search_iterative(*board, options);
+    const othello::SearchResult second = othello::search_iterative(*board, options);
+
+    CHECK(first.best_move == second.best_move);
+    CHECK(first.score == second.score);
+    CHECK(first.depth == second.depth);
+    CHECK(first.nodes == second.nodes);
+    CHECK(first.nodes > 0);
 }
 
 TEST_CASE("Search options can enable the transposition table", "[search]") {

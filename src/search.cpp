@@ -344,24 +344,44 @@ constexpr int search_score_max = 1'000'000'000;
     return result;
 }
 
+[[nodiscard]] SearchResult search_with_context(const Board& board, int depth,
+                                               SearchContext& context) noexcept {
+    const NodeResult result =
+        search_node(board, zobrist_hash(board), depth, search_score_min, search_score_max, context);
+
+    return SearchResult{
+        .best_move = result.best_move,
+        .score = result.score,
+        .depth = depth,
+        .nodes = context.nodes,
+    };
+}
+
 } // namespace
 
 SearchResult search(const Board& board, const SearchOptions& options) noexcept {
     const int search_depth = options.max_depth < 0 ? 0 : options.max_depth;
     SearchContext context{options};
-    const NodeResult result = search_node(board, zobrist_hash(board), search_depth,
-                                          search_score_min, search_score_max, context);
-
-    return SearchResult{
-        .best_move = result.best_move,
-        .score = result.score,
-        .depth = search_depth,
-        .nodes = context.nodes,
-    };
+    return search_with_context(board, search_depth, context);
 }
 
 SearchResult search_fixed_depth(const Board& board, int depth) noexcept {
     return search(board, SearchOptions{.max_depth = depth});
+}
+
+SearchResult search_iterative(const Board& board, const SearchOptions& options) noexcept {
+    const int search_depth = options.max_depth < 0 ? 0 : options.max_depth;
+    SearchContext context{options};
+
+    if (search_depth == 0) {
+        return search_with_context(board, 0, context);
+    }
+
+    SearchResult result;
+    for (int depth = 1; depth <= search_depth; ++depth) {
+        result = search_with_context(board, depth, context);
+    }
+    return result;
 }
 
 } // namespace othello
