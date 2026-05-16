@@ -115,6 +115,22 @@ TEST_CASE("Iterative search at depth one matches fixed-depth search", "[search]"
     CHECK(iterative.nodes > 0);
 }
 
+TEST_CASE("Iterative search with root preference matches fixed-depth search", "[search]") {
+    const Board board = Board::initial();
+    const othello::SearchOptions options{
+        .max_depth = 3,
+        .use_transposition_table = false,
+    };
+
+    const othello::SearchResult fixed_depth = othello::search(board, options);
+    const othello::SearchResult iterative = othello::search_iterative(board, options);
+
+    CHECK(fixed_depth.best_move == iterative.best_move);
+    CHECK(fixed_depth.score == iterative.score);
+    CHECK(fixed_depth.depth == iterative.depth);
+    CHECK(iterative.nodes > 0);
+}
+
 TEST_CASE("Fixed-depth search is deterministic", "[search]") {
     const Board board = Board::initial();
 

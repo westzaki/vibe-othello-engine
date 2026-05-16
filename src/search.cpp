@@ -211,6 +211,29 @@ constexpr int search_score_max = 1'000'000'000;
     return candidates;
 }
 
+[[nodiscard]] OrderedMoveIndexes
+ordered_legal_move_indexes(Bitboard moves, std::optional<Square> preferred_move) noexcept {
+    OrderedMoveIndexes candidates = ordered_legal_move_indexes(moves);
+    if (!preferred_move.has_value() || (moves & preferred_move->bit()) == 0) {
+        return candidates;
+    }
+
+    const int preferred_index = preferred_move->index();
+    for (std::size_t index = 0; index < candidates.size; ++index) {
+        if (candidates.indexes[index] != preferred_index) {
+            continue;
+        }
+
+        for (std::size_t shift = index; shift > 0; --shift) {
+            candidates.indexes[shift] = candidates.indexes[shift - 1];
+        }
+        candidates.indexes[0] = preferred_index;
+        break;
+    }
+
+    return candidates;
+}
+
 [[nodiscard]] bool is_better_best_move(int candidate_score, Square candidate,
                                        const std::optional<int>& best_score,
                                        const std::optional<Square>& best_move) noexcept {
@@ -266,7 +289,8 @@ constexpr int search_score_max = 1'000'000'000;
 // Fixed-depth negamax is easiest to audit as direct recursion at this stage.
 // NOLINTNEXTLINE(misc-no-recursion)
 [[nodiscard]] NodeResult search_node(const Board& board, ZobristHash hash, int depth, int alpha,
-                                     int beta, SearchContext& context) noexcept {
+                                     int beta, SearchContext& context,
+                                     std::optional<Square> preferred_move) noexcept {
     ++context.nodes;
 
     const int original_alpha = alpha;
@@ -297,7 +321,8 @@ constexpr int search_score_max = 1'000'000'000;
         const ZobristHash next_hash = hash_after_pass(hash, board.side_to_move);
         assert(next_hash == zobrist_hash(*next));
 
-        const NodeResult child = search_node(*next, next_hash, depth - 1, -beta, -alpha, context);
+        const NodeResult child =
+            search_node(*next, next_hash, depth - 1, -beta, -alpha, context, std::nullopt);
         const NodeResult result{.score = -child.score};
         context.transpositions.store(hash, depth, result.score, original_alpha, beta,
                                      result.best_move);
@@ -307,7 +332,7 @@ constexpr int search_score_max = 1'000'000'000;
     std::optional<int> best_score;
     std::optional<Square> best_move;
 
-    const OrderedMoveIndexes ordered_moves = ordered_legal_move_indexes(moves);
+    const OrderedMoveIndexes ordered_moves = ordered_legal_move_indexes(moves, preferred_move);
     for (std::size_t move = 0; move < ordered_moves.size; ++move) {
         const std::optional<Square> square = Square::from_index(ordered_moves.indexes[move]);
         if (!square.has_value()) {
@@ -323,7 +348,8 @@ constexpr int search_score_max = 1'000'000'000;
         const ZobristHash next_hash = hash_after_move(hash, board.side_to_move, *square, flips);
         assert(next_hash == zobrist_hash(next));
 
-        const NodeResult child = search_node(next, next_hash, depth - 1, -beta, -alpha, context);
+        const NodeResult child =
+            search_node(next, next_hash, depth - 1, -beta, -alpha, context, std::nullopt);
         const int candidate_score = -child.score;
         if (is_better_best_move(candidate_score, *square, best_score, best_move)) {
             best_score = candidate_score;
@@ -345,9 +371,10 @@ constexpr int search_score_max = 1'000'000'000;
 }
 
 [[nodiscard]] SearchResult search_with_context(const Board& board, int depth,
-                                               SearchContext& context) noexcept {
-    const NodeResult result =
-        search_node(board, zobrist_hash(board), depth, search_score_min, search_score_max, context);
+                                               SearchContext& context,
+                                               std::optional<Square> preferred_move) noexcept {
+    const NodeResult result = search_node(board, zobrist_hash(board), depth, search_score_min,
+                                          search_score_max, context, preferred_move);
 
     return SearchResult{
         .best_move = result.best_move,
@@ -362,7 +389,7 @@ constexpr int search_score_max = 1'000'000'000;
 SearchResult search(const Board& board, const SearchOptions& options) noexcept {
     const int search_depth = options.max_depth < 0 ? 0 : options.max_depth;
     SearchContext context{options};
-    return search_with_context(board, search_depth, context);
+    return search_with_context(board, search_depth, context, std::nullopt);
 }
 
 SearchResult search_fixed_depth(const Board& board, int depth) noexcept {
@@ -374,12 +401,14 @@ SearchResult search_iterative(const Board& board, const SearchOptions& options) 
     SearchContext context{options};
 
     if (search_depth == 0) {
-        return search_with_context(board, 0, context);
+        return search_with_context(board, 0, context, std::nullopt);
     }
 
     SearchResult result;
+    std::optional<Square> previous_best_move;
     for (int depth = 1; depth <= search_depth; ++depth) {
-        result = search_with_context(board, depth, context);
+        result = search_with_context(board, depth, context, previous_best_move);
+        previous_best_move = result.best_move;
     }
     return result;
 }
