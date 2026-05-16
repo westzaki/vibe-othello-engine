@@ -12,13 +12,20 @@
 #include <othello/hash.hpp>
 #include <othello/rules.hpp>
 #include <othello/search.hpp>
+#include <vector>
 
 namespace othello {
 namespace {
 
+struct PrincipalVariation {
+    std::array<int, 64> indexes{};
+    std::size_t size = 0;
+};
+
 struct NodeResult {
     std::optional<Square> best_move;
     int score = 0;
+    PrincipalVariation principal_variation;
 };
 
 struct OrderedMoveIndexes {
@@ -143,10 +150,19 @@ private:
 
     [[nodiscard]] static NodeResult
     node_result_from_entry(const TranspositionEntry& entry) noexcept {
-        return NodeResult{
-            .best_move = square_from_entry(entry),
+        const std::optional<Square> best_move = square_from_entry(entry);
+        NodeResult result{
+            .best_move = best_move,
             .score = entry.score,
         };
+
+        // TT entries intentionally store only a score and root move, not a full line.
+        // A cached result therefore reports the conservative PV fragment we know.
+        if (best_move.has_value()) {
+            result.principal_variation.indexes[0] = best_move->index();
+            result.principal_variation.size = 1;
+        }
+        return result;
     }
 };
 
@@ -246,6 +262,40 @@ ordered_legal_move_indexes(Bitboard moves, std::optional<Square> preferred_move)
     return !best_move.has_value() || candidate.index() < best_move->index();
 }
 
+[[nodiscard]] PrincipalVariation
+principal_variation_with_move(Square move, const PrincipalVariation& child_variation) noexcept {
+    PrincipalVariation principal_variation;
+    principal_variation.indexes[0] = move.index();
+    principal_variation.size = 1;
+
+    const std::size_t child_size =
+        std::min(child_variation.size, principal_variation.indexes.size() - 1);
+    for (std::size_t index = 0; index < child_size; ++index) {
+        principal_variation.indexes[index + 1] = child_variation.indexes[index];
+    }
+    principal_variation.size += child_size;
+
+    return principal_variation;
+}
+
+[[nodiscard]] std::vector<Square>
+principal_variation_to_vector(const PrincipalVariation& principal_variation) noexcept {
+    std::vector<Square> squares;
+    try {
+        squares.reserve(principal_variation.size);
+        for (std::size_t index = 0; index < principal_variation.size; ++index) {
+            const std::optional<Square> square =
+                Square::from_index(principal_variation.indexes[index]);
+            if (square.has_value()) {
+                squares.push_back(*square);
+            }
+        }
+    } catch (...) {
+        return {};
+    }
+    return squares;
+}
+
 [[nodiscard]] Board board_after_move(const Board& board, Square square, Bitboard flips) noexcept {
     const Bitboard move_bit = square.bit();
 
@@ -323,7 +373,10 @@ ordered_legal_move_indexes(Bitboard moves, std::optional<Square> preferred_move)
 
         const NodeResult child =
             search_node(*next, next_hash, depth - 1, -beta, -alpha, context, std::nullopt);
-        const NodeResult result{.score = -child.score};
+        const NodeResult result{
+            .score = -child.score,
+            .principal_variation = child.principal_variation,
+        };
         context.transpositions.store(hash, depth, result.score, original_alpha, beta,
                                      result.best_move);
         return result;
@@ -331,6 +384,7 @@ ordered_legal_move_indexes(Bitboard moves, std::optional<Square> preferred_move)
 
     std::optional<int> best_score;
     std::optional<Square> best_move;
+    PrincipalVariation best_principal_variation;
 
     const OrderedMoveIndexes ordered_moves = ordered_legal_move_indexes(moves, preferred_move);
     for (std::size_t move = 0; move < ordered_moves.size; ++move) {
@@ -354,6 +408,8 @@ ordered_legal_move_indexes(Bitboard moves, std::optional<Square> preferred_move)
         if (is_better_best_move(candidate_score, *square, best_score, best_move)) {
             best_score = candidate_score;
             best_move = square;
+            best_principal_variation =
+                principal_variation_with_move(*square, child.principal_variation);
         }
 
         alpha = std::max(alpha, candidate_score);
@@ -365,6 +421,7 @@ ordered_legal_move_indexes(Bitboard moves, std::optional<Square> preferred_move)
     const NodeResult result{
         .best_move = best_move,
         .score = best_score.value_or(evaluate_basic(board, board.side_to_move)),
+        .principal_variation = best_principal_variation,
     };
     context.transpositions.store(hash, depth, result.score, original_alpha, beta, result.best_move);
     return result;
@@ -381,6 +438,7 @@ ordered_legal_move_indexes(Bitboard moves, std::optional<Square> preferred_move)
         .score = result.score,
         .depth = depth,
         .nodes = context.nodes,
+        .principal_variation = principal_variation_to_vector(result.principal_variation),
     };
 }
 

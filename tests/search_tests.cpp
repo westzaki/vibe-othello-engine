@@ -13,6 +13,7 @@ TEST_CASE("Fixed-depth search at depth zero returns an evaluation-only result", 
     const othello::SearchResult result = othello::search_fixed_depth(board, 0);
 
     CHECK_FALSE(result.best_move.has_value());
+    CHECK(result.principal_variation.empty());
     CHECK(result.score == othello::evaluate_basic(board, board.side_to_move));
     CHECK(result.depth == 0);
     CHECK(result.nodes > 0);
@@ -25,6 +26,7 @@ TEST_CASE("Search options depth zero returns an evaluation-only result", "[searc
         othello::search(board, othello::SearchOptions{.max_depth = 0});
 
     CHECK_FALSE(result.best_move.has_value());
+    CHECK(result.principal_variation.empty());
     CHECK(result.score == othello::evaluate_basic(board, board.side_to_move));
     CHECK(result.depth == 0);
     CHECK(result.nodes > 0);
@@ -36,6 +38,7 @@ TEST_CASE("Fixed-depth search treats negative depth as depth zero", "[search]") 
     const othello::SearchResult result = othello::search_fixed_depth(board, -1);
 
     CHECK_FALSE(result.best_move.has_value());
+    CHECK(result.principal_variation.empty());
     CHECK(result.score == othello::evaluate_basic(board, board.side_to_move));
     CHECK(result.depth == 0);
     CHECK(result.nodes > 0);
@@ -48,6 +51,7 @@ TEST_CASE("Search options treat negative depth as depth zero", "[search]") {
         othello::search(board, othello::SearchOptions{.max_depth = -1});
 
     CHECK_FALSE(result.best_move.has_value());
+    CHECK(result.principal_variation.empty());
     CHECK(result.score == othello::evaluate_basic(board, board.side_to_move));
     CHECK(result.depth == 0);
     CHECK(result.nodes > 0);
@@ -60,6 +64,7 @@ TEST_CASE("Iterative search depth zero returns an evaluation-only result", "[sea
         othello::search_iterative(board, othello::SearchOptions{.max_depth = 0});
 
     CHECK_FALSE(result.best_move.has_value());
+    CHECK(result.principal_variation.empty());
     CHECK(result.score == othello::evaluate_basic(board, board.side_to_move));
     CHECK(result.depth == 0);
     CHECK(result.nodes > 0);
@@ -72,6 +77,7 @@ TEST_CASE("Iterative search treats negative depth as depth zero", "[search]") {
         othello::search_iterative(board, othello::SearchOptions{.max_depth = -1});
 
     CHECK_FALSE(result.best_move.has_value());
+    CHECK(result.principal_variation.empty());
     CHECK(result.score == othello::evaluate_basic(board, board.side_to_move));
     CHECK(result.depth == 0);
     CHECK(result.nodes > 0);
@@ -85,6 +91,8 @@ TEST_CASE("Fixed-depth search returns a legal move from the initial board", "[se
 
     REQUIRE(result.best_move.has_value());
     CHECK((legal_moves & result.best_move->bit()) != 0);
+    REQUIRE(result.principal_variation.size() == 1);
+    CHECK(result.principal_variation.front() == *result.best_move);
     CHECK(result.depth == 1);
     CHECK(result.nodes > 1);
 }
@@ -115,6 +123,25 @@ TEST_CASE("Iterative search at depth one matches fixed-depth search", "[search]"
     CHECK(iterative.nodes > 0);
 }
 
+TEST_CASE("Fixed-depth search reports a deterministic principal variation", "[search]") {
+    const Board board = Board::initial();
+    const othello::SearchOptions options{
+        .max_depth = 3,
+        .use_transposition_table = false,
+    };
+
+    const othello::SearchResult first = othello::search(board, options);
+    const othello::SearchResult second = othello::search(board, options);
+
+    REQUIRE(first.best_move.has_value());
+    REQUIRE_FALSE(first.principal_variation.empty());
+    CHECK(first.principal_variation.front() == *first.best_move);
+    CHECK(first.principal_variation.size() <= 3);
+    CHECK(first.principal_variation == second.principal_variation);
+    CHECK(first.best_move == second.best_move);
+    CHECK(first.score == second.score);
+}
+
 TEST_CASE("Iterative search with root preference matches fixed-depth search", "[search]") {
     const Board board = Board::initial();
     const othello::SearchOptions options{
@@ -128,6 +155,10 @@ TEST_CASE("Iterative search with root preference matches fixed-depth search", "[
     CHECK(fixed_depth.best_move == iterative.best_move);
     CHECK(fixed_depth.score == iterative.score);
     CHECK(fixed_depth.depth == iterative.depth);
+    REQUIRE(iterative.best_move.has_value());
+    REQUIRE_FALSE(iterative.principal_variation.empty());
+    CHECK(iterative.principal_variation.front() == *iterative.best_move);
+    CHECK(iterative.principal_variation.size() <= 3);
     CHECK(iterative.nodes > 0);
 }
 
@@ -141,6 +172,7 @@ TEST_CASE("Fixed-depth search is deterministic", "[search]") {
     CHECK(first.score == second.score);
     CHECK(first.depth == second.depth);
     CHECK(first.nodes == second.nodes);
+    CHECK(first.principal_variation == second.principal_variation);
 }
 
 TEST_CASE("Iterative search without transposition table matches fixed-depth score", "[search]") {
@@ -176,6 +208,7 @@ TEST_CASE("Iterative search with transposition table is deterministic", "[search
     CHECK(first.score == second.score);
     CHECK(first.depth == second.depth);
     CHECK(first.nodes == second.nodes);
+    CHECK(first.principal_variation == second.principal_variation);
     CHECK(first.nodes > 0);
 }
 
@@ -262,6 +295,7 @@ TEST_CASE("Fixed-depth search handles terminal boards", "[search]") {
     const othello::SearchResult result = othello::search_fixed_depth(board, 3);
 
     CHECK_FALSE(result.best_move.has_value());
+    CHECK(result.principal_variation.empty());
     CHECK(result.score == othello::evaluate_basic(board, board.side_to_move));
     CHECK(result.depth == 3);
     CHECK(result.nodes > 0);
@@ -276,6 +310,12 @@ TEST_CASE("Fixed-depth search handles pass positions", "[search]") {
     const othello::SearchResult result = othello::search_fixed_depth(board, 2);
 
     CHECK_FALSE(result.best_move.has_value());
+    CHECK(result.principal_variation.size() <= 2);
+    if (!result.principal_variation.empty()) {
+        const auto passed = othello::pass_turn(board);
+        REQUIRE(passed.has_value());
+        CHECK((othello::legal_moves(*passed) & result.principal_variation.front().bit()) != 0);
+    }
     CHECK(result.depth == 2);
     CHECK(result.nodes > 0);
 }
