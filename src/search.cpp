@@ -1,4 +1,6 @@
 #include <algorithm>
+#include <array>
+#include <cstddef>
 #include <othello/evaluation.hpp>
 #include <othello/rules.hpp>
 #include <othello/search.hpp>
@@ -11,8 +13,76 @@ struct NodeResult {
     int score = 0;
 };
 
+struct OrderedMoveIndexes {
+    std::array<int, 64> indexes{};
+    std::size_t size = 0;
+};
+
 constexpr int search_score_min = -1'000'000'000;
 constexpr int search_score_max = 1'000'000'000;
+
+[[nodiscard]] constexpr bool is_corner(int index) noexcept {
+    return index == 0 || index == 7 || index == 56 || index == 63;
+}
+
+[[nodiscard]] constexpr bool is_x_square(int index) noexcept {
+    return index == 9 || index == 14 || index == 49 || index == 54;
+}
+
+[[nodiscard]] constexpr bool is_edge(int index) noexcept {
+    const int file = index % 8;
+    const int rank = index / 8;
+    return file == 0 || file == 7 || rank == 0 || rank == 7;
+}
+
+[[nodiscard]] constexpr int move_order_priority(int index) noexcept {
+    if (is_corner(index)) {
+        return 0;
+    }
+    if (is_edge(index)) {
+        return 1;
+    }
+    if (is_x_square(index)) {
+        return 3;
+    }
+    return 2;
+}
+
+[[nodiscard]] OrderedMoveIndexes ordered_legal_move_indexes(Bitboard moves) noexcept {
+    OrderedMoveIndexes candidates;
+
+    for (int index = Square::min_index; index <= Square::max_index; ++index) {
+        const Bitboard move_bit = Bitboard{1} << index;
+        if ((moves & move_bit) != 0) {
+            candidates.indexes[candidates.size] = index;
+            ++candidates.size;
+        }
+    }
+
+    std::ranges::sort(candidates.indexes.begin(), candidates.indexes.begin() + candidates.size,
+                      [](int lhs, int rhs) {
+                          const int lhs_priority = move_order_priority(lhs);
+                          const int rhs_priority = move_order_priority(rhs);
+                          if (lhs_priority != rhs_priority) {
+                              return lhs_priority < rhs_priority;
+                          }
+                          return lhs < rhs;
+                      });
+
+    return candidates;
+}
+
+[[nodiscard]] bool is_better_best_move(int candidate_score, Square candidate,
+                                       const std::optional<int>& best_score,
+                                       const std::optional<Square>& best_move) noexcept {
+    if (!best_score.has_value()) {
+        return true;
+    }
+    if (candidate_score != *best_score) {
+        return candidate_score > *best_score;
+    }
+    return !best_move.has_value() || candidate.index() < best_move->index();
+}
 
 // Fixed-depth negamax is easiest to audit as direct recursion at this stage.
 // NOLINTNEXTLINE(misc-no-recursion)
@@ -38,9 +108,10 @@ constexpr int search_score_max = 1'000'000'000;
     std::optional<int> best_score;
     std::optional<Square> best_move;
 
-    for (int index = Square::min_index; index <= Square::max_index; ++index) {
-        const std::optional<Square> square = Square::from_index(index);
-        if (!square.has_value() || (moves & square->bit()) == 0) {
+    const OrderedMoveIndexes ordered_moves = ordered_legal_move_indexes(moves);
+    for (std::size_t move = 0; move < ordered_moves.size; ++move) {
+        const std::optional<Square> square = Square::from_index(ordered_moves.indexes[move]);
+        if (!square.has_value()) {
             continue;
         }
 
@@ -51,7 +122,7 @@ constexpr int search_score_max = 1'000'000'000;
 
         const NodeResult child = search_node(*next, depth - 1, -beta, -alpha, nodes);
         const int candidate_score = -child.score;
-        if (!best_score.has_value() || candidate_score > *best_score) {
+        if (is_better_best_move(candidate_score, *square, best_score, best_move)) {
             best_score = candidate_score;
             best_move = square;
         }
