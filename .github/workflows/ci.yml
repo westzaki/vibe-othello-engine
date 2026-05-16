@@ -40,3 +40,19 @@ jobs:
 
       - name: Build
         run: cmake --build build-tidy
+
+  sanitizers:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S . -B build-sanitizers -DCMAKE_BUILD_TYPE=Debug -DOTHELLO_ENABLE_SANITIZERS=ON
+
+      - name: Build
+        run: cmake --build build-sanitizers
+
+      - name: Test
+        run: ctest --test-dir build-sanitizers --output-on-failure
