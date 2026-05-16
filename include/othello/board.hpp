@@ -1,59 +1,8 @@
 #pragma once
 
-#include <cstdint>
-#include <optional>
-#include <string>
-#include <string_view>
+#include <othello/types.hpp>
 
 namespace othello {
-
-using Bitboard = std::uint64_t;
-
-enum class Side {
-    Black,
-    White,
-};
-
-[[nodiscard]] constexpr Side opponent(Side side) noexcept {
-    return side == Side::Black ? Side::White : Side::Black;
-}
-
-class Square {
-public:
-    static constexpr int min_index = 0;
-    static constexpr int max_index = 63;
-
-    [[nodiscard]] static constexpr std::optional<Square> from_index(int index) noexcept {
-        if (index < min_index || index > max_index) {
-            return std::nullopt;
-        }
-
-        return Square(index);
-    }
-
-    [[nodiscard]] constexpr int index() const noexcept {
-        return index_;
-    }
-    [[nodiscard]] constexpr int file() const noexcept {
-        return index_ % 8;
-    }
-    [[nodiscard]] constexpr int rank() const noexcept {
-        return index_ / 8;
-    }
-    [[nodiscard]] constexpr Bitboard bit() const noexcept {
-        return Bitboard{1} << index_;
-    }
-
-    [[nodiscard]] friend constexpr bool operator==(Square lhs, Square rhs) noexcept = default;
-
-private:
-    explicit constexpr Square(int index) noexcept : index_(index) {}
-
-    int index_;
-};
-
-[[nodiscard]] std::optional<Square> square_from_string(std::string_view coordinate) noexcept;
-[[nodiscard]] std::string to_string(Square square);
 
 struct Board {
     Bitboard black = 0;
@@ -79,16 +28,5 @@ struct Board {
         return ~occupied();
     }
 };
-
-[[nodiscard]] Bitboard legal_moves(const Board& board) noexcept;
-[[nodiscard]] bool has_legal_move(const Board& board) noexcept;
-[[nodiscard]] Bitboard flips_for_move(const Board& board, Square square) noexcept;
-[[nodiscard]] std::optional<Board> apply_move(const Board& board, Square square) noexcept;
-[[nodiscard]] std::optional<Board> pass_turn(const Board& board) noexcept;
-[[nodiscard]] bool is_game_over(const Board& board) noexcept;
-[[nodiscard]] int disc_count(const Board& board, Side side) noexcept;
-[[nodiscard]] int score(const Board& board, Side side) noexcept;
-[[nodiscard]] std::optional<Board> board_from_string(std::string_view text) noexcept;
-[[nodiscard]] std::string to_string(const Board& board);
 
 } // namespace othello
