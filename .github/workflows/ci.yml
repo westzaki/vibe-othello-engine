@@ -22,3 +22,21 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build --output-on-failure
+
+  clang-tidy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install clang-tidy
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-tidy
+
+      - name: Configure
+        run: cmake -S . -B build-tidy -DCMAKE_BUILD_TYPE=Debug -DOTHELLO_ENABLE_CLANG_TIDY=ON
+
+      - name: Build
+        run: cmake --build build-tidy

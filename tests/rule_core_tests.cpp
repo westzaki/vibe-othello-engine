@@ -1,3 +1,4 @@
+#include <array>
 #include <bit>
 #include <catch2/catch_test_macros.hpp>
 #include <othello/othello.hpp>
@@ -32,8 +33,10 @@ TEST_CASE("Coordinates convert to and from square indexes", "[rule-core]") {
         int index;
     };
 
-    constexpr Example examples[] = {
-        {"a1", 0}, {"h1", 7}, {"a8", 56}, {"h8", 63}, {"d3", 19}, {"c4", 26},
+    constexpr std::array examples{
+        Example{.coordinate = "a1", .index = 0},  Example{.coordinate = "h1", .index = 7},
+        Example{.coordinate = "a8", .index = 56}, Example{.coordinate = "h8", .index = 63},
+        Example{.coordinate = "d3", .index = 19}, Example{.coordinate = "c4", .index = 26},
     };
 
     for (const Example example : examples) {

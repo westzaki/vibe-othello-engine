@@ -10,14 +10,14 @@ struct Direction {
 };
 
 constexpr std::array<Direction, 8> directions{{
-    {-1, -1},
-    {0, -1},
-    {1, -1},
-    {-1, 0},
-    {1, 0},
-    {-1, 1},
-    {0, 1},
-    {1, 1},
+    {.file_delta = -1, .rank_delta = -1},
+    {.file_delta = 0, .rank_delta = -1},
+    {.file_delta = 1, .rank_delta = -1},
+    {.file_delta = -1, .rank_delta = 0},
+    {.file_delta = 1, .rank_delta = 0},
+    {.file_delta = -1, .rank_delta = 1},
+    {.file_delta = 0, .rank_delta = 1},
+    {.file_delta = 1, .rank_delta = 1},
 }};
 
 [[nodiscard]] constexpr bool on_board(int file, int rank) noexcept {
@@ -25,7 +25,7 @@ constexpr std::array<Direction, 8> directions{{
 }
 
 [[nodiscard]] constexpr int square_index(int file, int rank) noexcept {
-    return rank * 8 + file;
+    return (rank * 8) + file;
 }
 
 [[nodiscard]] constexpr Bitboard bit_at(int file, int rank) noexcept {
