@@ -5,6 +5,7 @@
 #include <othello/square.hpp>
 #include <othello/board.hpp>
 #include <othello/rules.hpp>
+#include <othello/evaluation.hpp>
 #include <othello/notation.hpp>
 #include <othello/player.hpp>
 // clang-format on
