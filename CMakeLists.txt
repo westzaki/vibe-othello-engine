@@ -47,6 +47,7 @@ FetchContent_MakeAvailable(Catch2)
 
 add_library(othello STATIC
     src/evaluation.cpp
+    src/hash.cpp
     src/notation.cpp
     src/player.cpp
     src/rules.cpp
@@ -65,6 +66,7 @@ enable_testing()
 
 add_executable(othello_tests
     tests/evaluation_tests.cpp
+    tests/hash_tests.cpp
     tests/notation_tests.cpp
     tests/player_tests.cpp
     tests/rules_tests.cpp
