@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <othello/evaluation.hpp>
 #include <othello/rules.hpp>
 #include <othello/search.hpp>
@@ -10,9 +11,13 @@ struct NodeResult {
     int score = 0;
 };
 
+constexpr int search_score_min = -1'000'000'000;
+constexpr int search_score_max = 1'000'000'000;
+
 // Fixed-depth negamax is easiest to audit as direct recursion at this stage.
 // NOLINTNEXTLINE(misc-no-recursion)
-[[nodiscard]] NodeResult search_node(const Board& board, int depth, std::uint64_t& nodes) noexcept {
+[[nodiscard]] NodeResult search_node(const Board& board, int depth, int alpha, int beta,
+                                     std::uint64_t& nodes) noexcept {
     ++nodes;
 
     if (depth <= 0 || is_game_over(board)) {
@@ -26,7 +31,7 @@ struct NodeResult {
             return NodeResult{.score = evaluate_basic(board, board.side_to_move)};
         }
 
-        const NodeResult child = search_node(*next, depth - 1, nodes);
+        const NodeResult child = search_node(*next, depth - 1, -beta, -alpha, nodes);
         return NodeResult{.score = -child.score};
     }
 
@@ -44,11 +49,16 @@ struct NodeResult {
             continue;
         }
 
-        const NodeResult child = search_node(*next, depth - 1, nodes);
+        const NodeResult child = search_node(*next, depth - 1, -beta, -alpha, nodes);
         const int candidate_score = -child.score;
         if (!best_score.has_value() || candidate_score > *best_score) {
             best_score = candidate_score;
             best_move = square;
+        }
+
+        alpha = std::max(alpha, candidate_score);
+        if (alpha >= beta) {
+            break;
         }
     }
 
@@ -63,7 +73,8 @@ struct NodeResult {
 SearchResult search_fixed_depth(const Board& board, int depth) noexcept {
     const int search_depth = depth < 0 ? 0 : depth;
     std::uint64_t nodes = 0;
-    const NodeResult result = search_node(board, search_depth, nodes);
+    const NodeResult result =
+        search_node(board, search_depth, search_score_min, search_score_max, nodes);
 
     return SearchResult{
         .best_move = result.best_move,
