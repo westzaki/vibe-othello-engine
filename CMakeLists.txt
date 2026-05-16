@@ -50,6 +50,7 @@ add_library(othello STATIC
     src/notation.cpp
     src/player.cpp
     src/rules.cpp
+    src/search.cpp
     src/square.cpp
 )
 
@@ -64,6 +65,7 @@ enable_testing()
 
 add_executable(othello_rule_core_tests
     tests/rule_core_tests.cpp
+    tests/search_tests.cpp
 )
 
 target_link_libraries(othello_rule_core_tests PRIVATE othello)
