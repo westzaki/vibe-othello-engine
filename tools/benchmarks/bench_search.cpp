@@ -9,6 +9,7 @@
 #include <limits>
 #include <optional>
 #include <span>
+#include <string>
 #include <string_view>
 #include <system_error>
 #include <vector>
@@ -45,6 +46,7 @@ struct SearchBenchmarkResult {
     int depth;
     std::optional<othello::Square> sample_best_move;
     int sample_score;
+    std::vector<othello::Square> sample_principal_variation;
     std::uint64_t searches;
     std::chrono::nanoseconds elapsed;
     std::uint64_t total_nodes;
@@ -284,6 +286,22 @@ void print_usage(std::string_view program_name) {
     return othello::SearchResult{};
 }
 
+[[nodiscard]] std::string
+format_principal_variation(const std::vector<othello::Square>& principal_variation) {
+    if (principal_variation.empty()) {
+        return "-";
+    }
+
+    std::string text;
+    for (const othello::Square square : principal_variation) {
+        if (!text.empty()) {
+            text += "->";
+        }
+        text += othello::to_string(square);
+    }
+    return text;
+}
+
 [[nodiscard]] SearchBenchmarkResult
 benchmark_search(const std::vector<othello::benchmarks::Position>& positions, int depth,
                  std::uint64_t repetitions, const BenchmarkOptions& benchmark_options,
@@ -295,6 +313,7 @@ benchmark_search(const std::vector<othello::benchmarks::Position>& positions, in
     std::uint64_t total_nodes = 0;
     std::optional<othello::Square> sample_best_move;
     int sample_score = 0;
+    std::vector<othello::Square> sample_principal_variation;
 
     const auto start = Clock::now();
     for (std::uint64_t repetition = 0; repetition < repetitions; ++repetition) {
@@ -315,6 +334,7 @@ benchmark_search(const std::vector<othello::benchmarks::Position>& positions, in
             if (searches == 0) {
                 sample_best_move = result.best_move;
                 sample_score = result.score;
+                sample_principal_variation = result.principal_variation;
             }
             total_nodes += result.nodes;
             ++searches;
@@ -331,6 +351,7 @@ benchmark_search(const std::vector<othello::benchmarks::Position>& positions, in
         .depth = depth,
         .sample_best_move = sample_best_move,
         .sample_score = sample_score,
+        .sample_principal_variation = sample_principal_variation,
         .searches = searches,
         .elapsed = elapsed,
         .total_nodes = total_nodes,
@@ -342,8 +363,9 @@ benchmark_search(const std::vector<othello::benchmarks::Position>& positions, in
 void print_search_result_header() {
     std::cout << std::left << std::setw(12) << "benchmark" << "  " << std::setw(10) << "mode"
               << "  " << std::setw(3) << "tt" << "  " << std::setw(10) << "tt_entries"
-              << "  positions  depth  best_move  score  searches  elapsed_ms      searches/s"
-                 "  total_nodes         nodes/s  nodes/search  result_checksum  work_checksum\n";
+              << "  positions  depth  best_move  score  " << std::setw(28) << "pv"
+              << "  searches  elapsed_ms      searches/s  total_nodes         nodes/s"
+                 "  nodes/search  result_checksum  work_checksum\n";
 }
 
 void print_search_result(const SearchBenchmarkResult& result) {
@@ -360,6 +382,8 @@ void print_search_result(const SearchBenchmarkResult& result) {
     const auto nodes_per_search = result.searches == 0 ? 0.0
                                                        : static_cast<double>(result.total_nodes) /
                                                              static_cast<double>(result.searches);
+    const std::string principal_variation_text =
+        format_principal_variation(result.sample_principal_variation);
 
     std::cout << std::left << std::setw(12) << result.name << "  " << std::setw(10)
               << mode_name(result.mode) << "  " << std::setw(3)
@@ -369,7 +393,8 @@ void print_search_result(const SearchBenchmarkResult& result) {
               << std::setw(9)
               << (result.sample_best_move.has_value() ? othello::to_string(*result.sample_best_move)
                                                       : "-")
-              << "  " << std::right << std::setw(5) << result.sample_score << "  " << std::setw(8)
+              << "  " << std::right << std::setw(5) << result.sample_score << "  " << std::left
+              << std::setw(28) << principal_variation_text << "  " << std::right << std::setw(8)
               << result.searches << "  " << std::fixed << std::setprecision(3) << std::setw(10)
               << elapsed_ms << "  " << std::setw(14) << searches_per_second << "  " << std::setw(11)
               << result.total_nodes << "  " << std::setw(14) << nodes_per_second << "  "
@@ -433,7 +458,7 @@ int run_benchmark(std::span<char* const> args) {
                       : "off")
               << '\n';
     std::cout << "tt entries: " << options.transposition_table_entries << '\n';
-    std::cout << "best_move/score: first sampled result\n";
+    std::cout << "best_move/score/pv: first sampled result\n";
     std::cout << "depths:";
     for (const int depth : options.depths) {
         std::cout << ' ' << depth;
