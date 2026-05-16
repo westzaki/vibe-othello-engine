@@ -14,6 +14,10 @@ namespace othello::benchmarks {
 
 struct Position {
     std::string_view name;
+    std::string_view phase;
+    std::string_view tags;
+    std::string_view board_text;
+    std::string_view notes;
     Board board;
 };
 
@@ -70,14 +74,21 @@ parse_positive_count(std::string_view text) noexcept {
 }
 
 [[nodiscard]] inline bool add_position(std::vector<Position>& positions, std::string_view name,
-                                       std::string_view board_text) {
+                                       std::string_view board_text,
+                                       std::string_view phase = "smoke", std::string_view tags = {},
+                                       std::string_view notes = {}) {
     auto board = board_from_string(board_text);
     if (!board.has_value()) {
         std::cerr << "failed to parse fixed benchmark position: " << name << '\n';
         return false;
     }
 
-    positions.push_back(Position{.name = name, .board = *board});
+    positions.push_back(Position{.name = name,
+                                 .phase = phase,
+                                 .tags = tags,
+                                 .board_text = board_text,
+                                 .notes = notes,
+                                 .board = *board});
     return true;
 }
 
