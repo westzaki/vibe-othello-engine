@@ -67,24 +67,31 @@ public:
           entries_{entry_count_ == 0 ? nullptr
                                      : new (std::nothrow) TranspositionEntry[entry_count_]} {}
 
-    [[nodiscard]] std::optional<NodeResult> lookup(ZobristHash hash, int depth, int alpha,
-                                                   int beta) const noexcept {
+    [[nodiscard]] std::optional<NodeResult> lookup(ZobristHash hash, int depth, int alpha, int beta,
+                                                   SearchStats& stats) const noexcept {
         if (entries_ == nullptr) {
             return std::nullopt;
         }
 
+        ++stats.tt_lookups;
         const TranspositionEntry& entry = entries_[entry_index(hash)];
         if (!entry.occupied || entry.hash != hash || entry.depth < depth) {
             return std::nullopt;
         }
 
         if (entry.bound == TranspositionBound::Exact) {
+            ++stats.tt_hits;
+            ++stats.tt_exact_hits;
             return node_result_from_entry(entry);
         }
         if (entry.bound == TranspositionBound::Lower && entry.score >= beta) {
+            ++stats.tt_hits;
+            ++stats.tt_lower_hits;
             return node_result_from_entry(entry);
         }
         if (entry.bound == TranspositionBound::Upper && entry.score <= alpha) {
+            ++stats.tt_hits;
+            ++stats.tt_upper_hits;
             return node_result_from_entry(entry);
         }
 
@@ -92,11 +99,12 @@ public:
     }
 
     void store(ZobristHash hash, int depth, int score, int original_alpha, int beta,
-               const std::optional<Square>& best_move) noexcept {
+               const std::optional<Square>& best_move, SearchStats& stats) noexcept {
         if (entries_ == nullptr) {
             return;
         }
 
+        ++stats.tt_stores;
         TranspositionBound bound = TranspositionBound::Exact;
         if (score <= original_alpha) {
             bound = TranspositionBound::Upper;
@@ -104,7 +112,15 @@ public:
             bound = TranspositionBound::Lower;
         }
 
-        entries_[entry_index(hash)] = TranspositionEntry{
+        TranspositionEntry& entry = entries_[entry_index(hash)];
+        if (entry.occupied) {
+            ++stats.tt_overwrites;
+            if (entry.hash != hash) {
+                ++stats.tt_collisions;
+            }
+        }
+
+        entry = TranspositionEntry{
             .hash = hash,
             .depth = depth,
             .score = score,
@@ -182,7 +198,7 @@ struct SearchContext {
     explicit SearchContext(const SearchOptions& options, bool enable_dynamic_move_ordering) noexcept
         : transpositions{options}, dynamic_move_ordering{enable_dynamic_move_ordering} {}
 
-    std::uint64_t nodes = 0;
+    SearchStats stats;
     TranspositionTable transpositions;
     bool dynamic_move_ordering = false;
 };
@@ -464,12 +480,12 @@ principal_variation_from_vector(const std::vector<Square>& principal_variation) 
                                      int beta, SearchContext& context,
                                      std::optional<Square> root_preferred_move,
                                      PrincipalVariationHint pv_hint, bool is_root) noexcept {
-    ++context.nodes;
+    ++context.stats.nodes;
 
     const int original_alpha = alpha;
 
     const std::optional<NodeResult> cached =
-        context.transpositions.lookup(hash, depth, alpha, beta);
+        context.transpositions.lookup(hash, depth, alpha, beta, context.stats);
     if (cached.has_value()) {
         return *cached;
     }
@@ -477,7 +493,7 @@ principal_variation_from_vector(const std::vector<Square>& principal_variation) 
     if (depth <= 0 || is_game_over(board)) {
         const NodeResult result{.score = evaluate_basic(board, board.side_to_move)};
         context.transpositions.store(hash, depth, result.score, original_alpha, beta,
-                                     result.best_move);
+                                     result.best_move, context.stats);
         return result;
     }
 
@@ -487,7 +503,7 @@ principal_variation_from_vector(const std::vector<Square>& principal_variation) 
         if (!next.has_value()) {
             const NodeResult result{.score = evaluate_basic(board, board.side_to_move)};
             context.transpositions.store(hash, depth, result.score, original_alpha, beta,
-                                         result.best_move);
+                                         result.best_move, context.stats);
             return result;
         }
 
@@ -501,7 +517,7 @@ principal_variation_from_vector(const std::vector<Square>& principal_variation) 
             .principal_variation = child.principal_variation,
         };
         context.transpositions.store(hash, depth, result.score, original_alpha, beta,
-                                     result.best_move);
+                                     result.best_move, context.stats);
         return result;
     }
 
@@ -510,6 +526,11 @@ principal_variation_from_vector(const std::vector<Square>& principal_variation) 
     PrincipalVariation best_principal_variation;
 
     const bool use_dynamic_ordering = context.dynamic_move_ordering && !is_root;
+    const std::size_t move_count = static_cast<std::size_t>(std::popcount(moves));
+    if (should_use_dynamic_move_ordering(use_dynamic_ordering, move_count, depth)) {
+        ++context.stats.dynamic_ordering_nodes;
+        context.stats.dynamic_ordering_moves += move_count;
+    }
     std::optional<Square> preferred_move = preferred_move_from_hint(pv_hint);
     if (!preferred_move.has_value() && is_root) {
         preferred_move = root_preferred_move;
@@ -554,7 +575,8 @@ principal_variation_from_vector(const std::vector<Square>& principal_variation) 
         .score = best_score.value_or(evaluate_basic(board, board.side_to_move)),
         .principal_variation = best_principal_variation,
     };
-    context.transpositions.store(hash, depth, result.score, original_alpha, beta, result.best_move);
+    context.transpositions.store(hash, depth, result.score, original_alpha, beta, result.best_move,
+                                 context.stats);
     return result;
 }
 
@@ -570,8 +592,9 @@ principal_variation_from_vector(const std::vector<Square>& principal_variation) 
         .best_move = result.best_move,
         .score = result.score,
         .depth = depth,
-        .nodes = context.nodes,
+        .nodes = context.stats.nodes,
         .principal_variation = principal_variation_to_vector(result.principal_variation),
+        .stats = context.stats,
     };
 }
 

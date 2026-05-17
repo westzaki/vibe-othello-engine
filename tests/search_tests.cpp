@@ -97,6 +97,16 @@ TEST_CASE("Fixed-depth search returns a legal move from the initial board", "[se
     CHECK(result.nodes > 1);
 }
 
+TEST_CASE("Search stats node count mirrors compatibility node field", "[search]") {
+    const Board board = Board::initial();
+
+    const othello::SearchResult result =
+        othello::search(board, othello::SearchOptions{.max_depth = 4});
+
+    CHECK(result.nodes > 0);
+    CHECK(result.stats.nodes == result.nodes);
+}
+
 TEST_CASE("Fixed-depth compatibility delegates to options-based search", "[search]") {
     const Board board = Board::initial();
 
@@ -246,6 +256,40 @@ TEST_CASE("Search options can enable the transposition table", "[search]") {
     CHECK(default_without_tt.depth == with_tt.depth);
 }
 
+TEST_CASE("Search stats leave transposition table counters zero when disabled", "[search]") {
+    const auto board = othello::apply_move(Board::initial(), othello::test::square("d3"));
+    REQUIRE(board.has_value());
+
+    const othello::SearchResult result =
+        othello::search(*board, othello::SearchOptions{.max_depth = 4});
+
+    CHECK(result.stats.nodes == result.nodes);
+    CHECK(result.stats.tt_lookups == 0);
+    CHECK(result.stats.tt_hits == 0);
+    CHECK(result.stats.tt_exact_hits == 0);
+    CHECK(result.stats.tt_lower_hits == 0);
+    CHECK(result.stats.tt_upper_hits == 0);
+    CHECK(result.stats.tt_stores == 0);
+    CHECK(result.stats.tt_overwrites == 0);
+    CHECK(result.stats.tt_collisions == 0);
+}
+
+TEST_CASE("Search stats count transposition table work when enabled", "[search]") {
+    const auto board = othello::apply_move(Board::initial(), othello::test::square("d3"));
+    REQUIRE(board.has_value());
+
+    const othello::SearchResult result = othello::search(
+        *board, othello::SearchOptions{.max_depth = 4, .use_transposition_table = true});
+
+    CHECK(result.stats.nodes == result.nodes);
+    CHECK(result.stats.tt_lookups > 0);
+    CHECK(result.stats.tt_stores > 0);
+    CHECK(result.stats.tt_hits <= result.stats.tt_lookups);
+    CHECK(result.stats.tt_exact_hits + result.stats.tt_lower_hits + result.stats.tt_upper_hits ==
+          result.stats.tt_hits);
+    CHECK(result.stats.tt_collisions <= result.stats.tt_overwrites);
+}
+
 TEST_CASE("Search options accept small transposition table sizes", "[search]") {
     const auto board = othello::apply_move(Board::initial(), othello::test::square("d3"));
     REQUIRE(board.has_value());
@@ -303,6 +347,17 @@ TEST_CASE("Fixed-depth search remains deterministic at deeper depths", "[search]
     CHECK(first.score == second.score);
     CHECK(first.depth == second.depth);
     CHECK(first.nodes == second.nodes);
+}
+
+TEST_CASE("Search stats count dynamic move ordering work", "[search]") {
+    const Board board = Board::initial();
+
+    const othello::SearchResult result =
+        othello::search(board, othello::SearchOptions{.max_depth = 5});
+
+    CHECK(result.stats.nodes == result.nodes);
+    CHECK(result.stats.dynamic_ordering_nodes > 0);
+    CHECK(result.stats.dynamic_ordering_moves >= result.stats.dynamic_ordering_nodes * 5);
 }
 
 TEST_CASE("Fixed-depth search handles terminal boards", "[search]") {

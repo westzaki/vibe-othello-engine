@@ -62,6 +62,7 @@ struct SearchBenchmarkResult {
     std::uint64_t searches;
     std::chrono::nanoseconds elapsed;
     std::uint64_t total_nodes;
+    othello::SearchStats total_stats;
     std::uint64_t result_checksum;
     std::uint64_t work_checksum;
 };
@@ -80,6 +81,7 @@ struct PositionBenchmarkResult {
     std::uint64_t searches;
     std::chrono::nanoseconds elapsed;
     std::uint64_t total_nodes;
+    othello::SearchStats total_stats;
 };
 
 void print_usage(std::string_view program_name) {
@@ -618,6 +620,27 @@ format_principal_variation(const std::vector<othello::Square>& principal_variati
     return text;
 }
 
+void add_search_stats(othello::SearchStats& total, const othello::SearchStats& stats) noexcept {
+    total.nodes += stats.nodes;
+    total.tt_lookups += stats.tt_lookups;
+    total.tt_hits += stats.tt_hits;
+    total.tt_exact_hits += stats.tt_exact_hits;
+    total.tt_lower_hits += stats.tt_lower_hits;
+    total.tt_upper_hits += stats.tt_upper_hits;
+    total.tt_stores += stats.tt_stores;
+    total.tt_overwrites += stats.tt_overwrites;
+    total.tt_collisions += stats.tt_collisions;
+    total.dynamic_ordering_nodes += stats.dynamic_ordering_nodes;
+    total.dynamic_ordering_moves += stats.dynamic_ordering_moves;
+}
+
+[[nodiscard]] double tt_hit_rate(const othello::SearchStats& stats) noexcept {
+    if (stats.tt_lookups == 0) {
+        return 0.0;
+    }
+    return (static_cast<double>(stats.tt_hits) * 100.0) / static_cast<double>(stats.tt_lookups);
+}
+
 [[nodiscard]] SearchBenchmarkResult
 benchmark_search(const std::vector<othello::benchmarks::Position>& positions, int depth,
                  std::uint64_t repetitions, const BenchmarkOptions& benchmark_options,
@@ -627,6 +650,7 @@ benchmark_search(const std::vector<othello::benchmarks::Position>& positions, in
     std::uint64_t work_checksum = 0;
     std::uint64_t searches = 0;
     std::uint64_t total_nodes = 0;
+    othello::SearchStats total_stats;
     std::optional<othello::Square> sample_best_move;
     int sample_score = 0;
     std::vector<othello::Square> sample_principal_variation;
@@ -653,6 +677,7 @@ benchmark_search(const std::vector<othello::benchmarks::Position>& positions, in
                 sample_principal_variation = result.principal_variation;
             }
             total_nodes += result.nodes;
+            add_search_stats(total_stats, result.stats);
             ++searches;
         }
     }
@@ -671,6 +696,7 @@ benchmark_search(const std::vector<othello::benchmarks::Position>& positions, in
         .searches = searches,
         .elapsed = elapsed,
         .total_nodes = total_nodes,
+        .total_stats = total_stats,
         .result_checksum = result_checksum,
         .work_checksum = work_checksum,
     };
@@ -683,6 +709,7 @@ benchmark_position(const othello::benchmarks::Position& position, int depth,
     const auto search_options = make_search_options(benchmark_options, depth);
     std::uint64_t searches = 0;
     std::uint64_t total_nodes = 0;
+    othello::SearchStats total_stats;
     std::optional<othello::Square> sample_best_move;
     int sample_score = 0;
     std::vector<othello::Square> sample_principal_variation;
@@ -696,6 +723,7 @@ benchmark_position(const othello::benchmarks::Position& position, int depth,
             sample_principal_variation = result.principal_variation;
         }
         total_nodes += result.nodes;
+        add_search_stats(total_stats, result.stats);
         ++searches;
     }
     const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - start);
@@ -714,6 +742,7 @@ benchmark_position(const othello::benchmarks::Position& position, int depth,
         .searches = searches,
         .elapsed = elapsed,
         .total_nodes = total_nodes,
+        .total_stats = total_stats,
     };
 }
 
@@ -741,7 +770,8 @@ void print_search_result_header() {
               << "  " << std::setw(3) << "tt" << "  " << std::setw(10) << "tt_entries"
               << "  positions  depth  best_move  score  " << std::setw(28) << "pv"
               << "  searches  elapsed_ms      searches/s  total_nodes         nodes/s"
-                 "  nodes/search  result_checksum  work_checksum\n";
+                 "  nodes/search  tt_lookups  tt_hits  tt_hit_rate  tt_stores"
+                 "  tt_collisions  dyn_nodes  dyn_moves  result_checksum  work_checksum\n";
 }
 
 void print_search_result(const SearchBenchmarkResult& result) {
@@ -774,7 +804,13 @@ void print_search_result(const SearchBenchmarkResult& result) {
               << result.searches << "  " << std::fixed << std::setprecision(3) << std::setw(10)
               << elapsed_ms << "  " << std::setw(14) << searches_per_second << "  " << std::setw(11)
               << result.total_nodes << "  " << std::setw(14) << nodes_per_second << "  "
-              << std::setw(12) << nodes_per_search << "  " << result.result_checksum << "  "
+              << std::setw(12) << nodes_per_search << "  " << std::setw(10)
+              << result.total_stats.tt_lookups << "  " << std::setw(7) << result.total_stats.tt_hits
+              << "  " << std::setw(11) << tt_hit_rate(result.total_stats) << "  " << std::setw(9)
+              << result.total_stats.tt_stores << "  " << std::setw(13)
+              << result.total_stats.tt_collisions << "  " << std::setw(9)
+              << result.total_stats.dynamic_ordering_nodes << "  " << std::setw(9)
+              << result.total_stats.dynamic_ordering_moves << "  " << result.result_checksum << "  "
               << result.work_checksum << '\n';
 }
 
@@ -783,7 +819,9 @@ void print_position_result_header() {
               << "  " << std::setw(44) << "tags" << "  " << std::setw(10) << "mode"
               << "  " << std::setw(3) << "tt" << "  " << std::setw(10) << "tt_entries"
               << "  depth  best_move  score  " << std::setw(28) << "pv"
-              << "  searches  elapsed_ms       nodes  nodes/search         nodes/s\n";
+              << "  searches  elapsed_ms       nodes  nodes/search         nodes/s"
+                 "  tt_lookups  tt_hits  tt_hit_rate  tt_stores  tt_collisions"
+                 "  dyn_nodes  dyn_moves\n";
 }
 
 void print_position_result(const PositionBenchmarkResult& result) {
@@ -803,7 +841,13 @@ void print_position_result(const PositionBenchmarkResult& result) {
               << result.searches << "  " << std::fixed << std::setprecision(3) << std::setw(10)
               << elapsed_ms(result.elapsed) << "  " << std::setw(10) << result.total_nodes << "  "
               << std::setw(12) << nodes_per_search(result) << "  " << std::setw(14)
-              << nodes_per_second(result) << '\n';
+              << nodes_per_second(result) << "  " << std::setw(10) << result.total_stats.tt_lookups
+              << "  " << std::setw(7) << result.total_stats.tt_hits << "  " << std::setw(11)
+              << tt_hit_rate(result.total_stats) << "  " << std::setw(9)
+              << result.total_stats.tt_stores << "  " << std::setw(13)
+              << result.total_stats.tt_collisions << "  " << std::setw(9)
+              << result.total_stats.dynamic_ordering_nodes << "  " << std::setw(9)
+              << result.total_stats.dynamic_ordering_moves << '\n';
 }
 
 [[nodiscard]] std::size_t nearest_rank_index(std::size_t count, int percentile) noexcept {
