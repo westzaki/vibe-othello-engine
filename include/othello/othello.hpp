@@ -8,6 +8,7 @@
 #include <othello/rules.hpp>
 #include <othello/evaluation.hpp>
 #include <othello/search.hpp>
+#include <othello/endgame.hpp>
 #include <othello/notation.hpp>
 #include <othello/player.hpp>
 // clang-format on

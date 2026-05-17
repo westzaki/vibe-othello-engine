@@ -46,6 +46,7 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(Catch2)
 
 add_library(othello STATIC
+    src/endgame.cpp
     src/evaluation.cpp
     src/hash.cpp
     src/notation.cpp
@@ -65,6 +66,7 @@ othello_enable_sanitizers(othello)
 enable_testing()
 
 add_executable(othello_tests
+    tests/endgame_tests.cpp
     tests/evaluation_tests.cpp
     tests/hash_tests.cpp
     tests/notation_tests.cpp
