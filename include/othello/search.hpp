@@ -9,12 +9,29 @@
 
 namespace othello {
 
+struct SearchStats {
+    std::uint64_t nodes = 0;
+
+    std::uint64_t tt_lookups = 0;
+    std::uint64_t tt_hits = 0;
+    std::uint64_t tt_exact_hits = 0;
+    std::uint64_t tt_lower_hits = 0;
+    std::uint64_t tt_upper_hits = 0;
+    std::uint64_t tt_stores = 0;
+    std::uint64_t tt_overwrites = 0;
+    std::uint64_t tt_collisions = 0;
+
+    std::uint64_t dynamic_ordering_nodes = 0;
+    std::uint64_t dynamic_ordering_moves = 0;
+};
+
 struct SearchResult {
     std::optional<Square> best_move;
     int score = 0;
     int depth = 0;
     std::uint64_t nodes = 0;
     std::vector<Square> principal_variation;
+    SearchStats stats;
 };
 
 struct SearchOptions {
