@@ -5,6 +5,9 @@ reference. Individual measurement snapshots live under
 [`docs/perf/baselines/`](baselines/) so benchmark history can be compared without
 overwriting older results.
 
+Baselines are append-only snapshots. Add a new file for each meaningful search
+performance checkpoint rather than editing older snapshots in place.
+
 Depth 10 search is currently practical enough for move recommendation and
 single-position analysis on the curated search benchmark suite. The recommended
 analysis setting is:
@@ -28,6 +31,7 @@ latency across the suite:
 
 ## Baseline Snapshots
 
+- Latest: [2026-05-17 PR44 depth-10 suite baseline](baselines/2026-05-17-pr44-bedc534-depth10-suite.md)
 - [2026-05-17 PR37 depth-10 suite baseline](baselines/2026-05-17-pr37-5568457-depth10-suite.md)
 
 ## Notes
