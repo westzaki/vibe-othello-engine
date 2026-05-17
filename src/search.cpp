@@ -201,12 +201,32 @@ private:
     }
 };
 
+struct MoveOrderingParams {
+    int static_corner_score = 3'000;
+    int static_edge_score = 2'000;
+    int static_normal_score = 1'000;
+    int static_x_square_score = 0;
+
+    int dynamic_corner_bonus = 100'000;
+    int dynamic_edge_bonus = 1'000;
+    int dynamic_x_square_empty_corner_penalty = 30'000;
+    int dynamic_opponent_corner_penalty = 80'000;
+    int dynamic_opponent_mobility_penalty = 300;
+
+    int dynamic_min_depth = 3;
+    std::size_t dynamic_min_moves = 5;
+};
+
+constexpr MoveOrderingParams default_move_ordering_params{};
+
 struct SearchContext {
     explicit SearchContext(const SearchOptions& options, bool enable_dynamic_move_ordering) noexcept
-        : transpositions{options}, dynamic_move_ordering{enable_dynamic_move_ordering} {}
+        : transpositions{options}, move_ordering_params{default_move_ordering_params},
+          dynamic_move_ordering{enable_dynamic_move_ordering} {}
 
     SearchStats stats;
     TranspositionTable transpositions;
+    const MoveOrderingParams& move_ordering_params;
     bool dynamic_move_ordering = false;
 };
 
@@ -247,52 +267,54 @@ constexpr Bitboard corner_squares =
     }
 }
 
-[[nodiscard]] constexpr bool should_use_dynamic_move_ordering(bool enabled, std::size_t move_count,
-                                                              int depth) noexcept {
-    return enabled && depth >= 3 && move_count >= 5;
+[[nodiscard]] constexpr bool
+should_use_dynamic_move_ordering(bool enabled, std::size_t move_count, int depth,
+                                 const MoveOrderingParams& params) noexcept {
+    return enabled && depth >= params.dynamic_min_depth && move_count >= params.dynamic_min_moves;
 }
 
 [[nodiscard]] int move_order_score(const Board& board, Square square, Bitboard flips,
-                                   std::size_t move_count, int depth,
-                                   bool dynamic_move_ordering) noexcept {
+                                   std::size_t move_count, int depth, bool dynamic_move_ordering,
+                                   const MoveOrderingParams& params) noexcept {
     const int index = square.index();
-    if (!should_use_dynamic_move_ordering(dynamic_move_ordering, move_count, depth)) {
+    if (!should_use_dynamic_move_ordering(dynamic_move_ordering, move_count, depth, params)) {
         if (is_corner(index)) {
-            return 3'000;
+            return params.static_corner_score;
         }
         if (is_edge(index)) {
-            return 2'000;
+            return params.static_edge_score;
         }
         if (is_x_square(index)) {
-            return 0;
+            return params.static_x_square_score;
         }
-        return 1'000;
+        return params.static_normal_score;
     }
 
     int score = 0;
     if (is_corner(index)) {
-        score += 100'000;
+        score += params.dynamic_corner_bonus;
     }
     if (is_edge(index)) {
-        score += 1'000;
+        score += params.dynamic_edge_bonus;
     }
     if (is_x_square_next_to_empty_corner(index, board.occupied())) {
-        score -= 30'000;
+        score -= params.dynamic_x_square_empty_corner_penalty;
     }
 
     const Board next = board_after_move(board, square, flips);
     const Bitboard opponent_moves = legal_moves(next);
     if ((opponent_moves & corner_squares) != 0) {
-        score -= 80'000;
+        score -= params.dynamic_opponent_corner_penalty;
     }
-    score -= static_cast<int>(std::popcount(opponent_moves)) * 300;
+    score -=
+        static_cast<int>(std::popcount(opponent_moves)) * params.dynamic_opponent_mobility_penalty;
 
     return score;
 }
 
-[[nodiscard]] OrderedMoveIndexes ordered_legal_move_indexes(const Board& board, Bitboard moves,
-                                                            int depth,
-                                                            bool dynamic_move_ordering) noexcept {
+[[nodiscard]] OrderedMoveIndexes
+ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
+                           bool dynamic_move_ordering, const MoveOrderingParams& params) noexcept {
     OrderedMoveIndexes candidates;
     const std::size_t move_count = static_cast<std::size_t>(std::popcount(moves));
 
@@ -313,7 +335,7 @@ constexpr Bitboard corner_squares =
                 .index = index,
                 .flips = flips,
                 .order_score = move_order_score(board, *square, flips, move_count, depth,
-                                                dynamic_move_ordering),
+                                                dynamic_move_ordering, params),
             };
             ++candidates.size;
         }
@@ -330,12 +352,12 @@ constexpr Bitboard corner_squares =
     return candidates;
 }
 
-[[nodiscard]] OrderedMoveIndexes ordered_legal_move_indexes(const Board& board, Bitboard moves,
-                                                            int depth,
-                                                            std::optional<Square> preferred_move,
-                                                            bool dynamic_move_ordering) noexcept {
+[[nodiscard]] OrderedMoveIndexes
+ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
+                           std::optional<Square> preferred_move, bool dynamic_move_ordering,
+                           const MoveOrderingParams& params) noexcept {
     OrderedMoveIndexes candidates =
-        ordered_legal_move_indexes(board, moves, depth, dynamic_move_ordering);
+        ordered_legal_move_indexes(board, moves, depth, dynamic_move_ordering, params);
     if (!preferred_move.has_value() || (moves & preferred_move->bit()) == 0) {
         return candidates;
     }
@@ -534,7 +556,8 @@ principal_variation_from_vector(const std::vector<Square>& principal_variation) 
 
     const bool use_dynamic_ordering = context.dynamic_move_ordering && !is_root;
     const std::size_t move_count = static_cast<std::size_t>(std::popcount(moves));
-    if (should_use_dynamic_move_ordering(use_dynamic_ordering, move_count, depth)) {
+    if (should_use_dynamic_move_ordering(use_dynamic_ordering, move_count, depth,
+                                         context.move_ordering_params)) {
         ++context.stats.dynamic_ordering_nodes;
         context.stats.dynamic_ordering_moves += move_count;
     }
@@ -542,8 +565,8 @@ principal_variation_from_vector(const std::vector<Square>& principal_variation) 
     if (!preferred_move.has_value() && is_root) {
         preferred_move = root_preferred_move;
     }
-    const OrderedMoveIndexes ordered_moves =
-        ordered_legal_move_indexes(board, moves, depth, preferred_move, use_dynamic_ordering);
+    const OrderedMoveIndexes ordered_moves = ordered_legal_move_indexes(
+        board, moves, depth, preferred_move, use_dynamic_ordering, context.move_ordering_params);
     for (std::size_t move = 0; move < ordered_moves.size; ++move) {
         const auto& ordered_move = ordered_moves.moves[move];
         const std::optional<Square> square = Square::from_index(ordered_move.index);
