@@ -272,6 +272,7 @@ TEST_CASE("Search stats leave transposition table counters zero when disabled", 
     CHECK(result.stats.tt_stores == 0);
     CHECK(result.stats.tt_overwrites == 0);
     CHECK(result.stats.tt_collisions == 0);
+    CHECK(result.stats.tt_rejected_stores == 0);
 }
 
 TEST_CASE("Search stats count transposition table work when enabled", "[search]") {
@@ -288,6 +289,25 @@ TEST_CASE("Search stats count transposition table work when enabled", "[search]"
     CHECK(result.stats.tt_exact_hits + result.stats.tt_lower_hits + result.stats.tt_upper_hits ==
           result.stats.tt_hits);
     CHECK(result.stats.tt_collisions <= result.stats.tt_overwrites);
+}
+
+TEST_CASE("Search stats count rejected transposition table stores", "[search]") {
+    const auto board = othello::apply_move(Board::initial(), othello::test::square("d3"));
+    REQUIRE(board.has_value());
+
+    const othello::SearchOptions options{
+        .max_depth = 5,
+        .use_transposition_table = true,
+        .transposition_table_entries = 1,
+    };
+    const othello::SearchResult first = othello::search(*board, options);
+    const othello::SearchResult second = othello::search(*board, options);
+
+    CHECK(first.best_move == second.best_move);
+    CHECK(first.score == second.score);
+    CHECK(first.depth == second.depth);
+    CHECK(first.stats.tt_stores > 0);
+    CHECK(first.stats.tt_rejected_stores > 0);
 }
 
 TEST_CASE("Search options accept small transposition table sizes", "[search]") {

@@ -20,6 +20,7 @@ struct SearchStats {
     std::uint64_t tt_stores = 0;
     std::uint64_t tt_overwrites = 0;
     std::uint64_t tt_collisions = 0;
+    std::uint64_t tt_rejected_stores = 0;
 
     std::uint64_t dynamic_ordering_nodes = 0;
     std::uint64_t dynamic_ordering_moves = 0;
