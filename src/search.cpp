@@ -104,7 +104,13 @@ public:
             return;
         }
 
-        ++stats.tt_stores;
+        TranspositionEntry& entry = entries_[entry_index(hash)];
+        // Keep deeper entries when a different position collides in the same direct-mapped slot.
+        // Same-position updates are still allowed so newer bounds can refresh the entry.
+        if (entry.occupied && entry.hash != hash && depth < entry.depth) {
+            return;
+        }
+
         TranspositionBound bound = TranspositionBound::Exact;
         if (score <= original_alpha) {
             bound = TranspositionBound::Upper;
@@ -112,7 +118,7 @@ public:
             bound = TranspositionBound::Lower;
         }
 
-        TranspositionEntry& entry = entries_[entry_index(hash)];
+        ++stats.tt_stores;
         if (entry.occupied) {
             ++stats.tt_overwrites;
             if (entry.hash != hash) {
