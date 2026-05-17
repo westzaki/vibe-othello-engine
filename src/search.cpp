@@ -108,6 +108,7 @@ public:
         // Keep deeper entries when a different position collides in the same direct-mapped slot.
         // Same-position updates are still allowed so newer bounds can refresh the entry.
         if (entry.occupied && entry.hash != hash && depth < entry.depth) {
+            ++stats.tt_rejected_stores;
             return;
         }
 
