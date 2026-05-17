@@ -162,6 +162,26 @@ TEST_CASE("Iterative search with root preference matches fixed-depth search", "[
     CHECK(iterative.nodes > 0);
 }
 
+TEST_CASE("Iterative search with previous principal variation hint matches fixed-depth search",
+          "[search]") {
+    const Board board = Board::initial();
+    const othello::SearchOptions options{
+        .max_depth = 4,
+        .use_transposition_table = false,
+    };
+
+    const othello::SearchResult fixed_depth = othello::search(board, options);
+    const othello::SearchResult iterative = othello::search_iterative(board, options);
+
+    CHECK(fixed_depth.best_move == iterative.best_move);
+    CHECK(fixed_depth.score == iterative.score);
+    CHECK(fixed_depth.depth == iterative.depth);
+    REQUIRE(iterative.best_move.has_value());
+    REQUIRE_FALSE(iterative.principal_variation.empty());
+    CHECK(iterative.principal_variation.front() == *iterative.best_move);
+    CHECK(iterative.principal_variation.size() <= 4);
+}
+
 TEST_CASE("Fixed-depth search is deterministic", "[search]") {
     const Board board = Board::initial();
 
@@ -318,4 +338,30 @@ TEST_CASE("Fixed-depth search handles pass positions", "[search]") {
     }
     CHECK(result.depth == 2);
     CHECK(result.nodes > 0);
+}
+
+TEST_CASE("Iterative search handles pass positions without fake principal variation moves",
+          "[search]") {
+    const Board board = othello::test::black_must_pass_board();
+
+    REQUIRE(othello::legal_moves(board) == 0);
+    REQUIRE_FALSE(othello::is_game_over(board));
+
+    const othello::SearchOptions options{
+        .max_depth = 3,
+        .use_transposition_table = false,
+    };
+    const othello::SearchResult fixed_depth = othello::search(board, options);
+    const othello::SearchResult iterative = othello::search_iterative(board, options);
+
+    CHECK_FALSE(iterative.best_move.has_value());
+    CHECK(fixed_depth.score == iterative.score);
+    CHECK(iterative.depth == 3);
+    CHECK(iterative.principal_variation.size() <= 3);
+    if (!iterative.principal_variation.empty()) {
+        const auto passed = othello::pass_turn(board);
+        REQUIRE(passed.has_value());
+        CHECK((othello::legal_moves(*passed) & iterative.principal_variation.front().bit()) != 0);
+    }
+    CHECK(iterative.nodes > 0);
 }

@@ -28,6 +28,12 @@ struct NodeResult {
     PrincipalVariation principal_variation;
 };
 
+struct PrincipalVariationHint {
+    const PrincipalVariation* principal_variation = nullptr;
+    std::size_t index = 0;
+    bool matches_prefix = false;
+};
+
 struct OrderedMoveIndexes {
     struct Move {
         int index = -1;
@@ -305,9 +311,8 @@ constexpr Bitboard corner_squares =
                                                             int depth,
                                                             std::optional<Square> preferred_move,
                                                             bool dynamic_move_ordering) noexcept {
-    const int ordering_depth = preferred_move.has_value() ? 0 : depth;
     OrderedMoveIndexes candidates =
-        ordered_legal_move_indexes(board, moves, ordering_depth, dynamic_move_ordering);
+        ordered_legal_move_indexes(board, moves, depth, dynamic_move_ordering);
     if (!preferred_move.has_value() || (moves & preferred_move->bit()) == 0) {
         return candidates;
     }
@@ -327,6 +332,33 @@ constexpr Bitboard corner_squares =
     }
 
     return candidates;
+}
+
+[[nodiscard]] std::optional<Square> preferred_move_from_hint(PrincipalVariationHint hint) noexcept {
+    if (hint.principal_variation == nullptr || !hint.matches_prefix ||
+        hint.index >= hint.principal_variation->size) {
+        return std::nullopt;
+    }
+
+    return Square::from_index(hint.principal_variation->indexes[hint.index]);
+}
+
+[[nodiscard]] PrincipalVariationHint child_hint_after_move(PrincipalVariationHint hint,
+                                                           Square move) noexcept {
+    const std::optional<Square> preferred_move = preferred_move_from_hint(hint);
+    if (preferred_move.has_value() && *preferred_move == move) {
+        return PrincipalVariationHint{
+            .principal_variation = hint.principal_variation,
+            .index = hint.index + 1,
+            .matches_prefix = true,
+        };
+    }
+
+    return PrincipalVariationHint{};
+}
+
+[[nodiscard]] PrincipalVariationHint child_hint_after_pass(PrincipalVariationHint hint) noexcept {
+    return hint;
 }
 
 [[nodiscard]] bool is_better_best_move(int candidate_score, Square candidate,
@@ -375,6 +407,17 @@ principal_variation_to_vector(const PrincipalVariation& principal_variation) noe
     return squares;
 }
 
+[[nodiscard]] PrincipalVariation
+principal_variation_from_vector(const std::vector<Square>& principal_variation) noexcept {
+    PrincipalVariation result;
+    const std::size_t size = std::min(principal_variation.size(), result.indexes.size());
+    for (std::size_t index = 0; index < size; ++index) {
+        result.indexes[index] = principal_variation[index].index();
+    }
+    result.size = size;
+    return result;
+}
+
 [[nodiscard]] Board board_after_move(const Board& board, Square square, Bitboard flips) noexcept {
     const Bitboard move_bit = square.bit();
 
@@ -419,7 +462,8 @@ principal_variation_to_vector(const PrincipalVariation& principal_variation) noe
 // NOLINTNEXTLINE(misc-no-recursion)
 [[nodiscard]] NodeResult search_node(const Board& board, ZobristHash hash, int depth, int alpha,
                                      int beta, SearchContext& context,
-                                     std::optional<Square> preferred_move, bool is_root) noexcept {
+                                     std::optional<Square> root_preferred_move,
+                                     PrincipalVariationHint pv_hint, bool is_root) noexcept {
     ++context.nodes;
 
     const int original_alpha = alpha;
@@ -450,8 +494,8 @@ principal_variation_to_vector(const PrincipalVariation& principal_variation) noe
         const ZobristHash next_hash = hash_after_pass(hash, board.side_to_move);
         assert(next_hash == zobrist_hash(*next));
 
-        const NodeResult child =
-            search_node(*next, next_hash, depth - 1, -beta, -alpha, context, std::nullopt, false);
+        const NodeResult child = search_node(*next, next_hash, depth - 1, -beta, -alpha, context,
+                                             std::nullopt, child_hint_after_pass(pv_hint), false);
         const NodeResult result{
             .score = -child.score,
             .principal_variation = child.principal_variation,
@@ -466,6 +510,10 @@ principal_variation_to_vector(const PrincipalVariation& principal_variation) noe
     PrincipalVariation best_principal_variation;
 
     const bool use_dynamic_ordering = context.dynamic_move_ordering && !is_root;
+    std::optional<Square> preferred_move = preferred_move_from_hint(pv_hint);
+    if (!preferred_move.has_value() && is_root) {
+        preferred_move = root_preferred_move;
+    }
     const OrderedMoveIndexes ordered_moves =
         ordered_legal_move_indexes(board, moves, depth, preferred_move, use_dynamic_ordering);
     for (std::size_t move = 0; move < ordered_moves.size; ++move) {
@@ -485,7 +533,8 @@ principal_variation_to_vector(const PrincipalVariation& principal_variation) noe
         assert(next_hash == zobrist_hash(next));
 
         const NodeResult child =
-            search_node(next, next_hash, depth - 1, -beta, -alpha, context, std::nullopt, false);
+            search_node(next, next_hash, depth - 1, -beta, -alpha, context, std::nullopt,
+                        child_hint_after_move(pv_hint, *square), false);
         const int candidate_score = -child.score;
         if (is_better_best_move(candidate_score, *square, best_score, best_move)) {
             best_score = candidate_score;
@@ -511,9 +560,11 @@ principal_variation_to_vector(const PrincipalVariation& principal_variation) noe
 
 [[nodiscard]] SearchResult search_with_context(const Board& board, int depth,
                                                SearchContext& context,
-                                               std::optional<Square> preferred_move) noexcept {
-    const NodeResult result = search_node(board, zobrist_hash(board), depth, search_score_min,
-                                          search_score_max, context, preferred_move, true);
+                                               std::optional<Square> root_preferred_move,
+                                               PrincipalVariationHint pv_hint) noexcept {
+    const NodeResult result =
+        search_node(board, zobrist_hash(board), depth, search_score_min, search_score_max, context,
+                    root_preferred_move, pv_hint, true);
 
     return SearchResult{
         .best_move = result.best_move,
@@ -529,7 +580,8 @@ principal_variation_to_vector(const PrincipalVariation& principal_variation) noe
 SearchResult search(const Board& board, const SearchOptions& options) noexcept {
     const int search_depth = options.max_depth < 0 ? 0 : options.max_depth;
     SearchContext context{options, true};
-    return search_with_context(board, search_depth, context, std::nullopt);
+    return search_with_context(board, search_depth, context, std::nullopt,
+                               PrincipalVariationHint{});
 }
 
 SearchResult search_fixed_depth(const Board& board, int depth) noexcept {
@@ -541,14 +593,22 @@ SearchResult search_iterative(const Board& board, const SearchOptions& options) 
     SearchContext context{options, true};
 
     if (search_depth == 0) {
-        return search_with_context(board, 0, context, std::nullopt);
+        return search_with_context(board, 0, context, std::nullopt, PrincipalVariationHint{});
     }
 
     SearchResult result;
     std::optional<Square> previous_best_move;
+    PrincipalVariation previous_principal_variation;
     for (int depth = 1; depth <= search_depth; ++depth) {
-        result = search_with_context(board, depth, context, previous_best_move);
+        const PrincipalVariationHint pv_hint{
+            .principal_variation =
+                previous_principal_variation.size == 0 ? nullptr : &previous_principal_variation,
+            .index = 0,
+            .matches_prefix = previous_principal_variation.size > 0,
+        };
+        result = search_with_context(board, depth, context, previous_best_move, pv_hint);
         previous_best_move = result.best_move;
+        previous_principal_variation = principal_variation_from_vector(result.principal_variation);
     }
 
     return result;
