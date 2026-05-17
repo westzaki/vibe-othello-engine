@@ -211,7 +211,7 @@ struct MoveOrderingParams {
     int dynamic_edge_bonus = 1'000;
     int dynamic_x_square_empty_corner_penalty = 30'000;
     int dynamic_opponent_corner_penalty = 80'000;
-    int dynamic_opponent_mobility_penalty = 300;
+    int dynamic_opponent_mobility_penalty = 500;
 
     int dynamic_min_depth = 3;
     std::size_t dynamic_min_moves = 5;
