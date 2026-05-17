@@ -92,8 +92,16 @@ add_executable(othello_search_bench
 target_link_libraries(othello_search_bench PRIVATE othello)
 othello_enable_sanitizers(othello_search_bench)
 
+add_executable(othello_analyze_position
+    tools/analyze_position.cpp
+)
+
+target_link_libraries(othello_analyze_position PRIVATE othello)
+othello_enable_sanitizers(othello_analyze_position)
+
 if(OTHELLO_ENABLE_CLANG_TIDY)
     set_target_properties(othello othello_tests othello_rule_core_bench othello_search_bench
+        othello_analyze_position
         PROPERTIES
             CXX_CLANG_TIDY "${CLANG_TIDY_EXE}"
     )
