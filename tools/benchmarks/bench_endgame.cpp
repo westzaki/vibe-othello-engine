@@ -51,7 +51,7 @@ struct PositionBenchmarkResult {
 
 void print_usage(std::string_view program_name) {
     std::cout << "usage: " << program_name
-              << " [--positions smoke|suite|endgame] [--empties 1,2,4,6,8,10,12]"
+              << " [--positions smoke|suite|endgame] [--empties 1,2,4,6,8,10,12,14]"
                  " [--repetitions N] [--describe-positions] [--help]\n"
               << '\n'
               << "Options:\n"
@@ -232,6 +232,7 @@ select_positions(const std::vector<othello::benchmarks::EndgamePosition>& positi
 
     for (const auto& position : positions) {
         const bool use_smoke_set = options.position_set == PositionSet::Smoke &&
+                                   !options.empties.has_value() &&
                                    !(options.describe_positions && !options.position_set_explicit);
         if (use_smoke_set && !position.smoke) {
             continue;

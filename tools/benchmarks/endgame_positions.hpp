@@ -248,6 +248,23 @@ struct EndgamePosition {
         return std::nullopt;
     }
 
+    if (!add_endgame_position(
+            positions, "fourteen-empty-experimental-pass", 14,
+            "experimental_14,pass,edge_heavy,score_lopsided,low_mobility",
+            "..WWWWW.\n"
+            "...BBBWB\n"
+            "WBBWWWWW\n"
+            "WBWWWBBB\n"
+            "WWWWB...\n"
+            "WWWWWB..\n"
+            "WWWWWW..\n"
+            "WWWWWWW.\n"
+            "side=B",
+            "fixed-seed late-black-pass fixture kept experimental because it has 14 empties",
+            false)) {
+        return std::nullopt;
+    }
+
     return positions;
 }
 
