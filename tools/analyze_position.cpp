@@ -30,12 +30,13 @@ struct AnalysisOptions {
     AnalysisMode mode = AnalysisMode::Fixed;
     bool use_transposition_table = true;
     std::size_t transposition_table_entries = othello::SearchOptions{}.transposition_table_entries;
+    int exact_endgame_empty_threshold = othello::SearchOptions{}.exact_endgame_empty_threshold;
 };
 
 void print_usage(std::string_view program_name) {
     std::cout << "usage: " << program_name
               << " (--board-file PATH | --stdin) [--depth N] [--mode fixed|iterative]"
-                 " [--tt on|off] [--tt-entries N]\n"
+                 " [--tt on|off] [--tt-entries N] [--exact-endgame-threshold N]\n"
               << '\n'
               << "Options:\n"
               << "  --board-file PATH  read a board in board_from_string format\n"
@@ -44,6 +45,9 @@ void print_usage(std::string_view program_name) {
               << "  --mode MODE        fixed or iterative (default: fixed)\n"
               << "  --tt on|off        enable or disable transposition table (default: on)\n"
               << "  --tt-entries N     requested transposition table entry count\n"
+              << "  --exact-endgame-threshold N\n"
+              << "                    solve root positions with at most N empties exactly; N <= 0 "
+                 "disables\n"
               << "  --help             show this help text\n";
 }
 
@@ -53,6 +57,17 @@ void print_usage(std::string_view program_name) {
     const auto* end = text.data() + text.size();
     const auto result = std::from_chars(begin, end, value);
     if (result.ec != std::errc{} || result.ptr != end || value < 0) {
+        return std::nullopt;
+    }
+    return value;
+}
+
+[[nodiscard]] std::optional<int> parse_int(std::string_view text) noexcept {
+    int value = 0;
+    const auto* begin = text.data();
+    const auto* end = text.data() + text.size();
+    const auto result = std::from_chars(begin, end, value);
+    if (result.ec != std::errc{} || result.ptr != end) {
         return std::nullopt;
     }
     return value;
@@ -169,6 +184,14 @@ next_argument(std::span<char* const> args, std::size_t& index, std::string_view 
                 return std::nullopt;
             }
             options.transposition_table_entries = *entries;
+        } else if (arg == "--exact-endgame-threshold") {
+            const auto value = next_argument(args, index, arg);
+            const auto threshold = value.has_value() ? parse_int(*value) : std::nullopt;
+            if (!threshold.has_value()) {
+                std::cerr << "invalid --exact-endgame-threshold value\n";
+                return std::nullopt;
+            }
+            options.exact_endgame_empty_threshold = *threshold;
         } else {
             std::cerr << "unknown option: " << arg << '\n';
             return std::nullopt;
@@ -248,6 +271,7 @@ format_principal_variation(const std::vector<othello::Square>& principal_variati
         .max_depth = options.depth,
         .use_transposition_table = options.use_transposition_table,
         .transposition_table_entries = options.transposition_table_entries,
+        .exact_endgame_empty_threshold = options.exact_endgame_empty_threshold,
     };
 
     if (options.mode == AnalysisMode::Fixed) {
@@ -275,6 +299,7 @@ void print_report(const othello::Board& board, const AnalysisOptions& options,
               << "depth: " << options.depth << '\n'
               << "tt: " << (options.use_transposition_table ? "on" : "off") << '\n'
               << "tt_entries: " << options.transposition_table_entries << '\n'
+              << "exact_endgame_threshold: " << options.exact_endgame_empty_threshold << '\n'
               << "elapsed_ms: " << std::fixed << std::setprecision(3) << elapsed_ms << '\n'
               << "best_move: " << format_square(result.best_move) << '\n'
               << "score: " << result.score << '\n'

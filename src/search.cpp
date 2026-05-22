@@ -8,10 +8,12 @@
 #include <limits>
 #include <memory>
 #include <new>
+#include <othello/endgame.hpp>
 #include <othello/evaluation.hpp>
 #include <othello/hash.hpp>
 #include <othello/rules.hpp>
 #include <othello/search.hpp>
+#include <utility>
 #include <vector>
 
 namespace othello {
@@ -232,6 +234,9 @@ struct SearchContext {
 
 constexpr int search_score_min = -1'000'000'000;
 constexpr int search_score_max = 1'000'000'000;
+// Keep exact root endgame scores comparable with evaluate_basic terminal scores.
+// If the terminal score weight in evaluation.cpp changes, update this scale too.
+constexpr int exact_endgame_score_scale = 1'000;
 constexpr Bitboard corner_squares =
     (Bitboard{1} << 0) | (Bitboard{1} << 7) | (Bitboard{1} << 56) | (Bitboard{1} << 63);
 
@@ -250,6 +255,16 @@ constexpr Bitboard corner_squares =
 }
 
 [[nodiscard]] Board board_after_move(const Board& board, Square square, Bitboard flips) noexcept;
+
+[[nodiscard]] int empty_count(const Board& board) noexcept {
+    return std::popcount(board.empty());
+}
+
+[[nodiscard]] bool should_solve_exact_endgame_at_root(const Board& board,
+                                                      const SearchOptions& options) noexcept {
+    return options.exact_endgame_empty_threshold > 0 &&
+           empty_count(board) <= options.exact_endgame_empty_threshold;
+}
 
 [[nodiscard]] constexpr bool is_x_square_next_to_empty_corner(int index,
                                                               Bitboard occupied) noexcept {
@@ -628,9 +643,29 @@ principal_variation_from_vector(const std::vector<Square>& principal_variation) 
     };
 }
 
+[[nodiscard]] SearchResult exact_endgame_search_result(const Board& board) noexcept {
+    ExactEndgameResult exact = solve_exact_endgame(board);
+    const SearchStats stats{
+        .nodes = exact.nodes,
+    };
+
+    return SearchResult{
+        .best_move = exact.best_move,
+        .score = exact.disc_margin * exact_endgame_score_scale,
+        .depth = exact.empties,
+        .nodes = exact.nodes,
+        .principal_variation = std::move(exact.principal_variation),
+        .stats = stats,
+    };
+}
+
 } // namespace
 
 SearchResult search(const Board& board, const SearchOptions& options) noexcept {
+    if (should_solve_exact_endgame_at_root(board, options)) {
+        return exact_endgame_search_result(board);
+    }
+
     const int search_depth = options.max_depth < 0 ? 0 : options.max_depth;
     SearchContext context{options, true};
     return search_with_context(board, search_depth, context, std::nullopt,
@@ -642,6 +677,10 @@ SearchResult search_fixed_depth(const Board& board, int depth) noexcept {
 }
 
 SearchResult search_iterative(const Board& board, const SearchOptions& options) noexcept {
+    if (should_solve_exact_endgame_at_root(board, options)) {
+        return exact_endgame_search_result(board);
+    }
+
     const int search_depth = options.max_depth < 0 ? 0 : options.max_depth;
     SearchContext context{options, true};
 
