@@ -31,6 +31,7 @@ struct ExactEndgameContext {
     std::uint64_t nodes = 0;
 };
 
+// Final disc margins are always in [-64, 64]; this leaves a simple generous alpha-beta window.
 constexpr int exact_score_min = -1'000;
 constexpr int exact_score_max = 1'000;
 
