@@ -40,7 +40,7 @@ struct EndgamePosition {
 
 [[nodiscard]] inline std::optional<std::vector<EndgamePosition>> make_endgame_positions() {
     std::vector<EndgamePosition> positions;
-    positions.reserve(14);
+    positions.reserve(27);
 
     if (!add_endgame_position(positions, "one-empty-forced", 1, "low_mobility",
                               "BBBBBBBB\n"
@@ -262,6 +262,195 @@ struct EndgamePosition {
             "side=B",
             "fixed-seed late-black-pass fixture kept experimental because it has 14 empties",
             false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(positions, "14-empty-low-mobility", 14,
+                              "experimental_14,low_mobility,balanced_count,edge_heavy",
+                              "WWWWWWWW\n"
+                              ".W.WWB.W\n"
+                              "BBWWBBBW\n"
+                              "..BBBB.W\n"
+                              "...BBB.W\n"
+                              "BBBBBBBW\n"
+                              ".B.B.B.W\n"
+                              "BWWWWWWW\n"
+                              "side=B",
+                              "fixed-seed 14-empty fixture with one legal root move", false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(positions, "14-empty-normal-mobility", 14,
+                              "experimental_14,normal_mobility,balanced_count,edge_heavy",
+                              "BBBBBB..\n"
+                              "BBBBB...\n"
+                              "BBBWW.W.\n"
+                              "BBBWWWW.\n"
+                              "BBWWWWW.\n"
+                              "B.BBWWWW\n"
+                              "..B.BBWW\n"
+                              ".WWWWWWW\n"
+                              "side=B",
+                              "fixed-seed 14-empty fixture with four legal root moves", false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(
+            positions, "14-empty-high-mobility", 14,
+            "experimental_14,high_mobility,corner_available,corner_choice,edge_heavy",
+            ".WWWW.W.\n"
+            "BWBWWWWW\n"
+            "BBWWWBW.\n"
+            "BBBBBWWW\n"
+            "BWBWBBWW\n"
+            "BWWBBWWW\n"
+            ".W..WBW.\n"
+            "...W..W.\n"
+            "side=B",
+            "fixed-seed 14-empty fixture with fourteen legal root moves", false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(positions, "14-empty-root-pass", 14,
+                              "experimental_14,pass,edge_heavy,score_lopsided",
+                              "..BBBBB.\n"
+                              "...BBB.W\n"
+                              "...BBWWW\n"
+                              "W..BWWWW\n"
+                              "WBBWWWWW\n"
+                              "WB.BWBWW\n"
+                              "W.BBWWWW\n"
+                              "WWWWWWWW\n"
+                              "side=B",
+                              "fixed-seed 14-empty fixture where the root side must pass", false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(
+            positions, "14-empty-opponent-pass-after-move", 14,
+            "experimental_14,opponent_pass_after_move,edge_heavy,balanced_count",
+            "W.WWWWW.\n"
+            "WW.WWW..\n"
+            "WWWWWW.B\n"
+            "WWWBWBBB\n"
+            "WWWWBBBB\n"
+            "W.W.BBBB\n"
+            "...BBBBB\n"
+            "...BBBBB\n"
+            "side=B",
+            "fixed-seed 14-empty fixture with a root move that leaves the opponent with no legal "
+            "move",
+            false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(
+            positions, "14-empty-corner-choice", 14,
+            "experimental_14,corner_choice,corner_available,high_mobility,edge_heavy",
+            ".BW.W...\n"
+            "WWWWWWWB\n"
+            "W.WBBBBB\n"
+            "WWBWWBB.\n"
+            "W.BWBWWB\n"
+            ".WWBBBW.\n"
+            "WWWWWWWW\n"
+            ".BB..WB.\n"
+            "side=B",
+            "fixed-seed 14-empty fixture with four legal corner moves", false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(
+            positions, "14-empty-corner-race", 14,
+            "experimental_14,corner_race,corner_available,edge_heavy,high_mobility",
+            "BW.WB.B.\n"
+            "WWWWWWWW\n"
+            "WWWWBWB.\n"
+            ".WWBBBBB\n"
+            "WWWBBBBW\n"
+            ".WBWBBW.\n"
+            "WWWWWWW.\n"
+            "..W...W.\n"
+            "side=B",
+            "fixed-seed 14-empty edge-heavy fixture with competing corner access", false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(positions, "14-empty-x-square-risk", 14,
+                              "experimental_14,x_square_risk,normal_mobility,edge_heavy",
+                              "..BBBW.W\n"
+                              "...BW..W\n"
+                              "WWWWBBWW\n"
+                              ".W.BBWBB\n"
+                              "B.BBWWBB\n"
+                              "BBWWWBWB\n"
+                              "B.B.WW.B\n"
+                              "BBBBBBBB\n"
+                              "side=B",
+                              "fixed-seed 14-empty fixture with legal X-square moves", false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(
+            positions, "14-empty-edge-heavy", 14,
+            "experimental_14,edge_heavy,corner_available,high_mobility,balanced_count",
+            "W...BB..\n"
+            "WWWWBWW.\n"
+            "WWWBBWW.\n"
+            "WWWBBBBW\n"
+            "WWBWBBBB\n"
+            ".WBBBWB.\n"
+            ".WWBBBBW\n"
+            "...WBBB.\n"
+            "side=B",
+            "fixed-seed 14-empty fixture with fourteen empty edge squares", false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(positions, "14-empty-balanced-count", 14,
+                              "experimental_14,balanced_count,edge_heavy,low_mobility",
+                              "WWW.B...\n"
+                              "..BBBB..\n"
+                              "..BBBB..\n"
+                              "BBBBW.BW\n"
+                              ".BWWWBBW\n"
+                              "BWBBBBWW\n"
+                              "WWWWWWWW\n"
+                              "WBBBWWWW\n"
+                              "side=B",
+                              "fixed-seed 14-empty fixture with equal disc counts", false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(positions, "14-empty-score-lopsided", 14,
+                              "experimental_14,score_lopsided,edge_heavy,low_mobility",
+                              "WWWWWWW.\n"
+                              "WWWWWW..\n"
+                              "WWWWW...\n"
+                              "WWWWW...\n"
+                              "WWWWW...\n"
+                              "WWWWWW.B\n"
+                              "WWWWWWB.\n"
+                              "WWWWWBBB\n"
+                              "side=W",
+                              "fixed-seed 14-empty fixture with a large disc-count imbalance",
+                              false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(positions, "14-empty-parity-ish", 14,
+                              "experimental_14,parity-ish,edge_heavy,high_mobility,balanced_count",
+                              "WW.WB..B\n"
+                              "BWWBWBWW\n"
+                              ".WBBWWW.\n"
+                              "BBBBBWWB\n"
+                              "BBWWWWWW\n"
+                              ".WBBBBW.\n"
+                              "WWBBBWB.\n"
+                              "...B..B.\n"
+                              "side=B",
+                              "fixed-seed balanced 14-empty fixture with many edge-region empties",
+                              false)) {
         return std::nullopt;
     }
 
