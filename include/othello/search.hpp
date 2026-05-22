@@ -29,6 +29,8 @@ struct SearchStats {
 struct SearchResult {
     std::optional<Square> best_move;
     int score = 0;
+    // Search depth used for the result. Exact root endgame results report the
+    // input board's empty count instead of SearchOptions::max_depth.
     int depth = 0;
     std::uint64_t nodes = 0;
     std::vector<Square> principal_variation;
@@ -39,6 +41,8 @@ struct SearchOptions {
     int max_depth = 5;
     bool use_transposition_table = false;
     std::size_t transposition_table_entries = 1 << 18;
+    // Root-only exact endgame cutoff by empty square count. Values <= 0 disable it.
+    int exact_endgame_empty_threshold = 12;
 };
 
 [[nodiscard]] SearchResult search(const Board& board, const SearchOptions& options) noexcept;

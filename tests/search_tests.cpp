@@ -7,6 +7,36 @@ using othello::Bitboard;
 using othello::Board;
 using othello::Side;
 
+namespace {
+
+constexpr int exact_endgame_score_scale = 1'000;
+
+[[nodiscard]] Board one_empty_forced_board() {
+    return othello::test::board_from_text(R"(BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBW.
+side=B)");
+}
+
+[[nodiscard]] Board one_empty_root_pass_board() {
+    return othello::test::board_from_text(R"(BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBWB.
+side=B)");
+}
+
+} // namespace
+
 TEST_CASE("Fixed-depth search at depth zero returns an evaluation-only result", "[search]") {
     const Board board = Board::initial();
 
@@ -105,6 +135,82 @@ TEST_CASE("Search stats node count mirrors compatibility node field", "[search]"
 
     CHECK(result.nodes > 0);
     CHECK(result.stats.nodes == result.nodes);
+}
+
+TEST_CASE("Search threshold disabled keeps depth-limited behavior for small endgames", "[search]") {
+    const Board board = one_empty_forced_board();
+    const othello::SearchOptions options{
+        .max_depth = 0,
+        .exact_endgame_empty_threshold = 0,
+    };
+
+    const othello::SearchResult result = othello::search(board, options);
+
+    CHECK_FALSE(result.best_move.has_value());
+    CHECK(result.principal_variation.empty());
+    CHECK(result.score == othello::evaluate_basic(board, board.side_to_move));
+    CHECK(result.depth == 0);
+    CHECK(result.nodes > 0);
+}
+
+TEST_CASE("Search uses exact endgame at the root within threshold", "[search]") {
+    const Board board = one_empty_forced_board();
+    const othello::ExactEndgameResult exact = othello::solve_exact_endgame(board);
+    const othello::SearchOptions options{
+        .max_depth = 0,
+        .use_transposition_table = true,
+        .exact_endgame_empty_threshold = 1,
+    };
+
+    const othello::SearchResult result = othello::search(board, options);
+
+    CHECK(result.best_move == exact.best_move);
+    CHECK(result.score == exact.disc_margin * exact_endgame_score_scale);
+    CHECK(result.depth == exact.empties);
+    CHECK(result.nodes == exact.nodes);
+    CHECK(result.stats.nodes == result.nodes);
+    CHECK(result.principal_variation == exact.principal_variation);
+    CHECK(result.stats.tt_lookups == 0);
+    CHECK(result.stats.tt_hits == 0);
+    CHECK(result.stats.tt_stores == 0);
+    CHECK(result.stats.dynamic_ordering_nodes == 0);
+    CHECK(result.stats.dynamic_ordering_moves == 0);
+}
+
+TEST_CASE("Exact root search handles pass positions without fake PV moves", "[search]") {
+    const Board board = one_empty_root_pass_board();
+    REQUIRE(othello::legal_moves(board) == 0);
+    const auto after_pass = othello::pass_turn(board);
+    REQUIRE(after_pass.has_value());
+
+    const othello::SearchResult result =
+        othello::search(board, othello::SearchOptions{.exact_endgame_empty_threshold = 1});
+
+    CHECK_FALSE(result.best_move.has_value());
+    REQUIRE_FALSE(result.principal_variation.empty());
+    CHECK((othello::legal_moves(*after_pass) & result.principal_variation.front().bit()) != 0);
+    CHECK(result.depth == 1);
+    CHECK(result.nodes == result.stats.nodes);
+}
+
+TEST_CASE("Iterative search returns exact result immediately within threshold", "[search]") {
+    const Board board = one_empty_forced_board();
+    const othello::ExactEndgameResult exact = othello::solve_exact_endgame(board);
+    const othello::SearchOptions options{
+        .max_depth = 5,
+        .use_transposition_table = true,
+        .exact_endgame_empty_threshold = 1,
+    };
+
+    const othello::SearchResult result = othello::search_iterative(board, options);
+
+    CHECK(result.best_move == exact.best_move);
+    CHECK(result.score == exact.disc_margin * exact_endgame_score_scale);
+    CHECK(result.depth == exact.empties);
+    CHECK(result.nodes == exact.nodes);
+    CHECK(result.stats.nodes == result.nodes);
+    CHECK(result.stats.tt_lookups == 0);
+    CHECK(result.stats.dynamic_ordering_nodes == 0);
 }
 
 TEST_CASE("Fixed-depth compatibility delegates to options-based search", "[search]") {
@@ -392,7 +498,7 @@ TEST_CASE("Fixed-depth search handles terminal boards", "[search]") {
     CHECK_FALSE(result.best_move.has_value());
     CHECK(result.principal_variation.empty());
     CHECK(result.score == othello::evaluate_basic(board, board.side_to_move));
-    CHECK(result.depth == 3);
+    CHECK(result.depth == 0);
     CHECK(result.nodes > 0);
 }
 

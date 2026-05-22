@@ -47,6 +47,7 @@ struct BenchmarkOptions {
     bool by_position = false;
     std::optional<bool> use_transposition_table;
     std::size_t transposition_table_entries = othello::SearchOptions{}.transposition_table_entries;
+    int exact_endgame_empty_threshold = othello::SearchOptions{}.exact_endgame_empty_threshold;
 };
 
 struct SearchBenchmarkResult {
@@ -88,7 +89,8 @@ void print_usage(std::string_view program_name) {
     std::cout << "usage: " << program_name
               << " [--mode fixed|iterative|both] [--depths 1,2,3,4,5]"
                  " [--repetitions N] [--positions smoke|suite]"
-                 " [--describe-positions] [--by-position] [--tt on|off] [--tt-entries N]\n"
+                 " [--describe-positions] [--by-position] [--tt on|off] [--tt-entries N]"
+                 " [--exact-endgame-threshold N]\n"
               << '\n'
               << "Options:\n"
               << "  --depths LIST       comma-separated positive search depths\n"
@@ -100,6 +102,9 @@ void print_usage(std::string_view program_name) {
               << "  --by-position       print per-position benchmark rows and summaries\n"
               << "  --tt on|off         override the SearchOptions TT default\n"
               << "  --tt-entries N      requested transposition table entry count\n"
+              << "  --exact-endgame-threshold N\n"
+              << "                       solve root positions with at most N empties exactly; N <= "
+                 "0 disables\n"
               << "  --help              show this help text\n";
 }
 
@@ -142,6 +147,17 @@ void print_usage(std::string_view program_name) {
     const auto* end = text.data() + text.size();
     const auto result = std::from_chars(begin, end, value);
     if (result.ec != std::errc{} || result.ptr != end || value <= 0) {
+        return std::nullopt;
+    }
+    return value;
+}
+
+[[nodiscard]] std::optional<int> parse_int(std::string_view text) noexcept {
+    int value = 0;
+    const auto* begin = text.data();
+    const auto* end = text.data() + text.size();
+    const auto result = std::from_chars(begin, end, value);
+    if (result.ec != std::errc{} || result.ptr != end) {
         return std::nullopt;
     }
     return value;
@@ -320,6 +336,22 @@ void print_usage(std::string_view program_name) {
                 return std::nullopt;
             }
             options.transposition_table_entries = *entry_count;
+            continue;
+        }
+
+        if (option == "--exact-endgame-threshold") {
+            ++index;
+            if (index >= args.size()) {
+                std::cerr << "--exact-endgame-threshold requires an integer\n";
+                return std::nullopt;
+            }
+
+            const auto threshold = parse_int(args[index]);
+            if (!threshold.has_value()) {
+                std::cerr << "--exact-endgame-threshold must be an integer\n";
+                return std::nullopt;
+            }
+            options.exact_endgame_empty_threshold = *threshold;
             continue;
         }
 
@@ -588,6 +620,7 @@ void check_tag_consistency(std::string_view position_name, std::string_view tags
         search_options.use_transposition_table = *options.use_transposition_table;
     }
     search_options.transposition_table_entries = options.transposition_table_entries;
+    search_options.exact_endgame_empty_threshold = options.exact_endgame_empty_threshold;
     return search_options;
 }
 
@@ -1044,6 +1077,7 @@ int run_benchmark(std::span<char* const> args) {
                       : "off")
               << '\n';
     std::cout << "tt entries: " << options.transposition_table_entries << '\n';
+    std::cout << "exact endgame threshold: " << options.exact_endgame_empty_threshold << '\n';
     if (options.by_position) {
         std::cout << "best_move/score/pv: first sampled result per position\n";
     } else {
