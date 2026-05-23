@@ -67,6 +67,17 @@ constexpr EndgameMoveOrderingParams default_move_ordering_params{};
     return hash;
 }
 
+[[nodiscard]] inline bool has_legal_move_after_forced_pass(const Board& board,
+                                                           Bitboard moves) noexcept {
+    if (moves != 0) {
+        return false;
+    }
+
+    Board after_pass = board;
+    after_pass.side_to_move = opponent(board.side_to_move);
+    return legal_moves(after_pass) != 0;
+}
+
 [[nodiscard]] inline int move_order_score(const Board& board, int index, const Board& next,
                                           const EndgameMoveOrderingParams& params) noexcept {
     int score = 0;
@@ -89,7 +100,7 @@ constexpr EndgameMoveOrderingParams default_move_ordering_params{};
     const int opponent_move_count = static_cast<int>(std::popcount(opponent_moves));
     score -= opponent_move_count * params.opponent_mobility_penalty;
 
-    if (opponent_moves == 0 && pass_turn(next).has_value()) {
+    if (has_legal_move_after_forced_pass(next, opponent_moves)) {
         score += params.opponent_pass_bonus;
     }
 
