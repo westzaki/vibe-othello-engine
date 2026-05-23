@@ -40,7 +40,7 @@ struct EndgamePosition {
 
 [[nodiscard]] inline std::optional<std::vector<EndgamePosition>> make_endgame_positions() {
     std::vector<EndgamePosition> positions;
-    positions.reserve(49);
+    positions.reserve(66);
 
     if (!add_endgame_position(positions, "one-empty-forced", 1, "low_mobility",
                               "BBBBBBBB\n"
@@ -67,6 +67,23 @@ struct EndgamePosition {
                               "BBBBBWB.\n"
                               "side=B",
                               "root side passes, white plays h1", false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(positions, "one-empty-terminal-no-move", 1,
+                              "last_n,low_mobility,rule_core_regression",
+                              "BBBBBBBB\n"
+                              "BBBBBBBB\n"
+                              "BBBBBBBB\n"
+                              "BBBBBBBB\n"
+                              "BBBBBBBB\n"
+                              "BBBBBBBB\n"
+                              "BBBBBBBB\n"
+                              "BBBBBBB.\n"
+                              "side=B",
+                              "hand-crafted one-empty terminal shape with no legal move for "
+                              "either side",
+                              false)) {
         return std::nullopt;
     }
 
@@ -99,6 +116,95 @@ struct EndgamePosition {
         return std::nullopt;
     }
 
+    if (!add_endgame_position(
+            positions, "two-empty-tie-break-opponent-pass", 2,
+            "last_n,tie_break,opponent_pass_after_move,edge_heavy,rule_core_regression",
+            "WBBBBBBB\n"
+            "WWBWWWWB\n"
+            "WWWBWBWW\n"
+            "WWWWWBWW\n"
+            "WWWBWBW.\n"
+            "WWBWBWWW\n"
+            "WWWWBBWW\n"
+            "BW.WBBWW\n"
+            "side=B",
+            "fixed-seed legal playout, seed 1 policy 0; equal best margins and a root move can "
+            "force an opponent pass",
+            false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(
+            positions, "two-empty-corner-pass-after-move", 2,
+            "last_n,corner_choice,opponent_pass_after_move,edge_heavy,rule_core_regression",
+            "BWWWWWWW\n"
+            "BWWBWWWW\n"
+            "BWWWWWWW\n"
+            ".WWWBBWB\n"
+            "WWWWWWBB\n"
+            "WWBBBBBB\n"
+            "WWWWBWBB\n"
+            ".WWWWWWB\n"
+            "side=B",
+            "fixed-seed legal playout, seed 4 policy 0; legal corner choice includes a move that "
+            "leaves the opponent without a legal reply",
+            false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(
+            positions, "three-empty-diagonal-corner", 3,
+            "last_n,diagonal,corner_choice,x_square_risk,tie_break,rule_core_regression",
+            "B.WWWWBW\n"
+            "BWWWWBBB\n"
+            "BWWBBWBW\n"
+            "BBBBWBWW\n"
+            "WBWWBWWW\n"
+            "WBWWWBWW\n"
+            "WWWWWW.W\n"
+            "WWWBBBB.\n"
+            "side=W",
+            "fixed-seed legal playout, seed 2 policy 0; singleton empties exercise diagonal and "
+            "corner-adjacent last-N play",
+            false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(
+            positions, "three-empty-opponent-pass-after-move", 3,
+            "last_n,opponent_pass_after_move,edge_wrap,tie_break,rule_core_regression",
+            "WWWWWWWW\n"
+            ".WWWWWWW\n"
+            "BBBBBBWW\n"
+            "WBBWWBWW\n"
+            "WWBBWWWW\n"
+            "WBWBBWWW\n"
+            "WWBW.WWW\n"
+            "WB.BWWWB\n"
+            "side=W",
+            "fixed-seed legal playout, seed 6 policy 0; a root move can force an opponent pass "
+            "with three empties remaining",
+            false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(positions, "three-empty-edge-wrap", 3,
+                              "last_n,edge_wrap,edge_heavy,rule_core_regression",
+                              "BBB.WWWW\n"
+                              "BBBBWBWW\n"
+                              "BBBWBWWW\n"
+                              "BBBWBWWW\n"
+                              "BBBWWWWW\n"
+                              "BBBWWBWB\n"
+                              ".BBBBWWB\n"
+                              "BBBW.BWB\n"
+                              "side=W",
+                              "fixed-seed legal playout, seed 11 policy 0; all legal root moves "
+                              "are edge moves near wrap-prone files",
+                              false)) {
+        return std::nullopt;
+    }
+
     if (!add_endgame_position(positions, "four-empty-forced-edge", 4, "edge_heavy,low_mobility",
                               "BBBBBBBB\n"
                               "BBBBBBBB\n"
@@ -125,6 +231,40 @@ struct EndgamePosition {
                               "WWWWBWWW\n"
                               "side=B",
                               "reduced variant of the endgame corner-choice fixture", false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(positions, "four-empty-parity-ish", 4,
+                              "last_n,parity-ish,tie_break,edge_heavy,rule_core_regression",
+                              "BBWWWWBB\n"
+                              "WWWWWWBB\n"
+                              "WWWWBWBW\n"
+                              "BBWBBWBW\n"
+                              "BWWBBWBW\n"
+                              "WBBBB.WW\n"
+                              ".WBBWWWW\n"
+                              "WWWBB.B.\n"
+                              "side=B",
+                              "fixed-seed legal playout, seed 14 policy 0; four singleton empty "
+                              "regions with equal best root margins",
+                              false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(positions, "four-empty-root-pass-chain", 4,
+                              "last_n,pass,pass_chain,edge_heavy,rule_core_regression",
+                              "W.W..BWW\n"
+                              "BBBBBBWW\n"
+                              ".BWBWWWW\n"
+                              "BBWWBWBW\n"
+                              "BBWBWBBW\n"
+                              "WBWBWBBW\n"
+                              "WBBWWWBB\n"
+                              "WBBBWWBB\n"
+                              "side=B",
+                              "fixed-seed legal playout, seed 27 policy 0; root side must pass "
+                              "before the final four-empty sequence",
+                              false)) {
         return std::nullopt;
     }
 
@@ -157,6 +297,23 @@ struct EndgamePosition {
         return std::nullopt;
     }
 
+    if (!add_endgame_position(positions, "six-empty-high-mobility-edge", 6,
+                              "high_mobility,edge_heavy,corner_choice,rule_core_regression",
+                              "WBBBBBBB\n"
+                              "WWBBWBBB\n"
+                              "WWWBBBBB\n"
+                              "WWBBBBBB\n"
+                              "WBWBWBBB\n"
+                              "WWBWBWBB\n"
+                              "WWWWWBWB\n"
+                              "......BW\n"
+                              "side=B",
+                              "fixed-seed legal playout, seed 6 policy 3; six edge empties and "
+                              "six legal root moves",
+                              false)) {
+        return std::nullopt;
+    }
+
     if (!add_endgame_position(
             positions, "eight-empty-corner-choice", 8,
             "corner_choice,corner_available,edge_heavy,x_square_risk,score_lopsided,low_mobility",
@@ -184,6 +341,23 @@ struct EndgamePosition {
                               "BBWW....\n"
                               "side=B",
                               "low-branching edge corridor", false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(positions, "eight-empty-root-pass", 8,
+                              "pass,edge_heavy,low_mobility,rule_core_regression",
+                              "WBBBBBBB\n"
+                              "WWBBBBBB\n"
+                              "WWBBBBBB\n"
+                              "WBBBBBBB\n"
+                              "WBWBWBBB\n"
+                              "WWBWWBBB\n"
+                              "WBBBBBBB\n"
+                              "........\n"
+                              "side=B",
+                              "fixed-seed legal playout, seed 14 policy 3; root side must pass "
+                              "with an eight-square edge region",
+                              false)) {
         return std::nullopt;
     }
 
@@ -219,6 +393,25 @@ struct EndgamePosition {
     }
 
     if (!add_endgame_position(
+            positions, "ten-empty-opponent-pass-after-move", 10,
+            "opponent_pass_after_move,high_mobility,corner_choice,edge_heavy,rule_core_"
+            "regression",
+            "WWWWW...\n"
+            ".WBBWWW.\n"
+            "WWWWWWWB\n"
+            "WWBBBWWW\n"
+            "WBBWWBW.\n"
+            "WWWWWWWW\n"
+            "WWWWWWWB\n"
+            "W..W.WW.\n"
+            "side=B",
+            "fixed-seed legal playout, seed 37 policy 0; ten legal root moves and a move that "
+            "can force an opponent pass",
+            false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(
             positions, "twelve-empty-late-pass-shape", 12, "edge_heavy,score_lopsided",
             "W.WWWWWB\n"
             "...BBBWB\n"
@@ -245,6 +438,25 @@ struct EndgamePosition {
                               ".WBBBBB.\n"
                               "side=W",
                               "symmetric late position with open corner choices", false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(
+            positions, "twelve-empty-corner-parity", 12,
+            "corner_choice,corner_available,parity-ish,edge_heavy,x_square_risk,rule_core_"
+            "regression",
+            ".W.W.BW.\n"
+            "..WWBBBB\n"
+            "WWWWBBB.\n"
+            ".WWBBBBB\n"
+            "BWBWBWBW\n"
+            ".BWBWBWW\n"
+            "BWBWWW.W\n"
+            ".WWWWWW.\n"
+            "side=B",
+            "fixed-seed legal playout, seed 7 policy 1; many singleton odd regions with "
+            "multiple corner candidates",
+            false)) {
         return std::nullopt;
     }
 
@@ -673,6 +885,99 @@ struct EndgamePosition {
                               "fixed-seed legal playout fixture, seed 34 policy 0, competing "
                               "corner access",
                               false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(
+            positions, "18-empty-edge-heavy", 18,
+            "experimental_18,edge_heavy,corner_available,high_mobility,rule_core_regression",
+            "BW..WB..\n"
+            "BWBBBBB.\n"
+            ".WBBWWW.\n"
+            "BWBBWW.W\n"
+            ".WBWWWW.\n"
+            ".WWWBWB.\n"
+            ".WWWWB.B\n"
+            "...BBBB.\n"
+            "side=B",
+            "fixed-seed legal playout, seed 4 policy 1; sixteen edge empties and thirteen legal "
+            "root moves",
+            false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(
+            positions, "18-empty-parity-ish", 18,
+            "experimental_18,parity-ish,edge_heavy,high_mobility,rule_core_regression",
+            "W.WB....\n"
+            ".W.BBBBB\n"
+            "W.WBW.B.\n"
+            "WWBWBWBW\n"
+            "WWWBWBW.\n"
+            "WWWWWWB.\n"
+            "WWWWWW.B\n"
+            "...W.BW.\n"
+            "side=B",
+            "fixed-seed legal playout, seed 1 policy 0; twelve empty regions with ten odd "
+            "regions",
+            false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(
+            positions, "18-empty-corner-choice", 18,
+            "experimental_18,corner_choice,corner_available,high_mobility,edge_heavy,rule_core_"
+            "regression",
+            ".W.W.BW.\n"
+            "..WW.BW.\n"
+            "W.BWWBW.\n"
+            ".WBBWWBB\n"
+            "BWBWBWBW\n"
+            ".BWBWWWW\n"
+            "BWWWWW.W\n"
+            ".WW..B..\n"
+            "side=B",
+            "fixed-seed legal playout, seed 7 policy 1; fifteen legal root moves with three "
+            "legal corners",
+            false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(
+            positions, "18-empty-high-mobility-lite", 18,
+            "experimental_18,high_mobility,corner_available,edge_heavy,x_square_risk,rule_core_"
+            "regression",
+            "BW..B...\n"
+            ".W.BBWW.\n"
+            ".WBBBWWB\n"
+            ".BWBWBW.\n"
+            "BWBWWBBW\n"
+            "W.BWWBBB\n"
+            "..WBWWBB\n"
+            ".WB.B.B.\n"
+            "side=B",
+            "fixed-seed legal playout, seed 2 policy 1; fifteen legal root moves with broad edge "
+            "pressure",
+            false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(
+            positions, "18-empty-opponent-pass-after-move", 18,
+            "experimental_18,opponent_pass_after_move,edge_heavy,high_mobility,rule_core_"
+            "regression",
+            ".W.....B\n"
+            "BWWWW.B.\n"
+            "BW.WWW..\n"
+            "BWWWW.W.\n"
+            "BWBBWWWB\n"
+            ".WWBWWW.\n"
+            ".WBWWWWW\n"
+            "..BBBBBB\n"
+            "side=B",
+            "fixed-seed legal playout, seed 300 policy 1; a root move can force an opponent pass "
+            "with eighteen empties",
+            false)) {
         return std::nullopt;
     }
 
