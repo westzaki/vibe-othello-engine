@@ -35,6 +35,15 @@ function(othello_enable_sanitizers target)
     endif()
 endfunction()
 
+function(othello_add_executable target)
+    add_executable(${target} ${ARGN})
+    target_link_libraries(${target} PRIVATE othello)
+    othello_enable_sanitizers(${target})
+
+    list(APPEND OTHELLO_CLANG_TIDY_TARGETS ${target})
+    set(OTHELLO_CLANG_TIDY_TARGETS ${OTHELLO_CLANG_TIDY_TARGETS} PARENT_SCOPE)
+endfunction()
+
 include(FetchContent)
 
 FetchContent_Declare(
@@ -62,10 +71,11 @@ target_include_directories(othello
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
 othello_enable_sanitizers(othello)
+set(OTHELLO_CLANG_TIDY_TARGETS othello)
 
 enable_testing()
 
-add_executable(othello_tests
+othello_add_executable(othello_tests
     tests/endgame_tests.cpp
     tests/evaluation_tests.cpp
     tests/hash_tests.cpp
@@ -76,41 +86,26 @@ add_executable(othello_tests
     tests/square_tests.cpp
 )
 
-target_link_libraries(othello_tests PRIVATE othello)
 target_link_libraries(othello_tests PRIVATE Catch2::Catch2WithMain)
-othello_enable_sanitizers(othello_tests)
 
-add_executable(othello_rule_core_bench
+othello_add_executable(othello_rule_core_bench
     tools/benchmarks/bench_rule_core.cpp
 )
 
-target_link_libraries(othello_rule_core_bench PRIVATE othello)
-othello_enable_sanitizers(othello_rule_core_bench)
-
-add_executable(othello_search_bench
+othello_add_executable(othello_search_bench
     tools/benchmarks/bench_search.cpp
 )
 
-target_link_libraries(othello_search_bench PRIVATE othello)
-othello_enable_sanitizers(othello_search_bench)
-
-add_executable(othello_endgame_bench
+othello_add_executable(othello_endgame_bench
     tools/benchmarks/bench_endgame.cpp
 )
 
-target_link_libraries(othello_endgame_bench PRIVATE othello)
-othello_enable_sanitizers(othello_endgame_bench)
-
-add_executable(othello_analyze_position
+othello_add_executable(othello_analyze_position
     tools/analyze_position.cpp
 )
 
-target_link_libraries(othello_analyze_position PRIVATE othello)
-othello_enable_sanitizers(othello_analyze_position)
-
 if(OTHELLO_ENABLE_CLANG_TIDY)
-    set_target_properties(othello othello_tests othello_rule_core_bench othello_search_bench
-        othello_endgame_bench othello_analyze_position
+    set_target_properties(${OTHELLO_CLANG_TIDY_TARGETS}
         PROPERTIES
             CXX_CLANG_TIDY "${CLANG_TIDY_EXE}"
     )
