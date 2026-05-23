@@ -5,7 +5,8 @@
 #include <bit>
 #include <cstddef>
 #include <optional>
-#include <othello/rules.hpp>
+#include <othello/board.hpp>
+#include <othello/square.hpp>
 #include <vector>
 
 namespace othello::search_detail {
