@@ -94,7 +94,7 @@ struct RootCandidateBreakdown {
 
 void print_usage(std::string_view program_name) {
     std::cout << "usage: " << program_name
-              << " [--positions smoke|suite|endgame] [--empties 1,2,4,6,8,10,12,14,16,18]"
+              << " [--positions smoke|suite|endgame] [--empties 1,2,4,6,8,10,12,14,16,18,20]"
                  " [--repetitions N] [--describe-positions] [--root-breakdown] [--help]\n"
               << '\n'
               << "Options:\n"

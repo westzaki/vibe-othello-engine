@@ -40,7 +40,7 @@ struct EndgamePosition {
 
 [[nodiscard]] inline std::optional<std::vector<EndgamePosition>> make_endgame_positions() {
     std::vector<EndgamePosition> positions;
-    positions.reserve(40);
+    positions.reserve(44);
 
     if (!add_endgame_position(positions, "one-empty-forced", 1, "low_mobility",
                               "BBBBBBBB\n"
@@ -672,6 +672,74 @@ struct EndgamePosition {
                               "side=B",
                               "fixed-seed legal playout fixture, seed 34 policy 0, competing "
                               "corner access",
+                              false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(positions, "20-empty-low-mobility", 20,
+                              "experimental_20,low_mobility,low_branching",
+                              "B......W\n"
+                              "B.....W.\n"
+                              "BWWWWW..\n"
+                              "BWWWWWW.\n"
+                              "BBWWW...\n"
+                              "BBBBWW..\n"
+                              "BBBBBBBB\n"
+                              "BBBBBBBW\n"
+                              "side=W",
+                              "fixed-seed legal playout fixture, seed 28 policy 1, one legal "
+                              "root move",
+                              false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(positions, "20-empty-root-pass", 20,
+                              "experimental_20,pass,edge_heavy,low_branching",
+                              "........\n"
+                              "W....B..\n"
+                              "WWW.BB..\n"
+                              "WWWWBB..\n"
+                              "WWWWWBBB\n"
+                              "WWWWWWBB\n"
+                              "WWWWWWW.\n"
+                              "WWWWWWWW\n"
+                              "side=B",
+                              "fixed-seed legal playout fixture, seed 266 policy 1, root side "
+                              "must pass",
+                              false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(positions, "20-empty-edge-heavy-low-branching", 20,
+                              "experimental_20,edge_heavy,low_branching",
+                              "W.B.W.W.\n"
+                              ".WBWWBB.\n"
+                              "..W.W...\n"
+                              "WWWWBBB.\n"
+                              "WWWWBBBB\n"
+                              "WBBWWB..\n"
+                              "W.WWWW..\n"
+                              "WWWWWW..\n"
+                              "side=B",
+                              "fixed-seed legal playout fixture, seed 8 policy 1, three legal "
+                              "root moves and many edge empties",
+                              false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(positions, "20-empty-corner-available-low-branching", 20,
+                              "experimental_20,corner_available,low_branching",
+                              ".....W..\n"
+                              "......W.\n"
+                              "B....BBW\n"
+                              "BB.BBBBW\n"
+                              "BBBBBWBB\n"
+                              "BBWBWWB.\n"
+                              "BBBBBBBB\n"
+                              "BBBBBBBW\n"
+                              "side=B",
+                              "fixed-seed legal playout fixture, seed 65 policy 1, three legal "
+                              "root moves with one legal corner",
                               false)) {
         return std::nullopt;
     }
