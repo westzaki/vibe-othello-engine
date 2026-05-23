@@ -33,4 +33,4 @@ Read [AGENTS.md](AGENTS.md) for Codex/agent instructions and repository conventi
 
 Read [docs/ROADMAP.md](docs/ROADMAP.md) for the staged engine development plan.
 
-Read [docs/BENCHMARKING.md](docs/BENCHMARKING.md) for lightweight benchmark guidance.
+Read [docs/BENCHMARKS.md](docs/BENCHMARKS.md) for lightweight benchmark guidance.
