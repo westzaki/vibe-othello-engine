@@ -37,6 +37,8 @@ struct BenchmarkOptions {
     std::uint64_t repetitions = 1;
     bool describe_positions = false;
     bool root_breakdown = false;
+    bool expand_worst_candidate = false;
+    std::optional<std::string_view> breakdown_position;
     bool help = false;
 };
 
@@ -93,10 +95,27 @@ struct RootCandidateBreakdown {
     std::vector<othello::Square> principal_variation;
 };
 
+struct ExpandedChildBreakdown {
+    std::string_view position_name;
+    int parent_empties = 0;
+    std::string root_move;
+    std::optional<othello::Square> child_move;
+    bool is_pass = false;
+    int rank_by_margin = 0;
+    int disc_margin_node = 0;
+    int disc_margin_root = 0;
+    EndgamePositionMetrics child_metrics;
+    std::uint64_t nodes = 0;
+    othello::ExactEndgameStats stats;
+    std::chrono::nanoseconds elapsed{};
+    std::vector<othello::Square> principal_variation;
+};
+
 void print_usage(std::string_view program_name) {
     std::cout << "usage: " << program_name
               << " [--positions smoke|suite|endgame] [--empties 1,2,4,6,8,10,12,14,16,18,20]"
-                 " [--repetitions N] [--describe-positions] [--root-breakdown] [--help]\n"
+                 " [--repetitions N] [--describe-positions] [--root-breakdown]"
+                 " [--expand-worst-candidate] [--breakdown-position NAME] [--help]\n"
               << '\n'
               << "Options:\n"
               << "  --positions SET       smoke, suite, or endgame (default: smoke)\n"
@@ -105,6 +124,11 @@ void print_usage(std::string_view program_name) {
               << "  --describe-positions  validate and print selected position metadata only\n"
               << "  --root-breakdown      solve each root candidate separately after the normal "
                  "benchmark\n"
+              << "  --expand-worst-candidate\n"
+              << "                       with --root-breakdown, expand the slowest root candidate "
+                 "one ply\n"
+              << "  --breakdown-position NAME\n"
+              << "                       restrict the selected benchmark positions by exact name\n"
               << "  --help                show this help text\n";
 }
 
@@ -190,6 +214,21 @@ void print_usage(std::string_view program_name) {
             continue;
         }
 
+        if (option == "--expand-worst-candidate") {
+            options.expand_worst_candidate = true;
+            continue;
+        }
+
+        if (option == "--breakdown-position") {
+            ++index;
+            if (index >= args.size()) {
+                std::cerr << "--breakdown-position requires a position name\n";
+                return std::nullopt;
+            }
+            options.breakdown_position = std::string_view{args[index]};
+            continue;
+        }
+
         if (option == "--positions") {
             ++index;
             if (index >= args.size()) {
@@ -240,6 +279,11 @@ void print_usage(std::string_view program_name) {
         }
 
         std::cerr << "unknown option: " << option << '\n';
+        return std::nullopt;
+    }
+
+    if (options.expand_worst_candidate && !options.root_breakdown) {
+        std::cerr << "--expand-worst-candidate requires --root-breakdown\n";
         return std::nullopt;
     }
 
@@ -407,6 +451,14 @@ select_positions(const std::vector<othello::benchmarks::EndgamePosition>& positi
     selected.reserve(positions.size());
 
     for (const auto& position : positions) {
+        if (options.breakdown_position.has_value()) {
+            if (position.name == *options.breakdown_position &&
+                (!options.empties.has_value() || options.empties->contains(position.empties))) {
+                selected.push_back(position);
+            }
+            continue;
+        }
+
         const bool use_smoke_set = options.position_set == PositionSet::Smoke &&
                                    !options.empties.has_value() &&
                                    (!options.describe_positions || options.position_set_explicit);
@@ -665,6 +717,13 @@ run_benchmark(const othello::benchmarks::EndgamePosition& position, std::uint64_
     return othello::Square::min_index - 1;
 }
 
+[[nodiscard]] int child_candidate_tie_index(const ExpandedChildBreakdown& candidate) noexcept {
+    if (candidate.child_move.has_value()) {
+        return candidate.child_move->index();
+    }
+    return othello::Square::min_index - 1;
+}
+
 void assign_margin_ranks(std::vector<RootCandidateBreakdown>& candidates) {
     std::vector<std::size_t> indices;
     indices.reserve(candidates.size());
@@ -679,6 +738,29 @@ void assign_margin_ranks(std::vector<RootCandidateBreakdown>& candidates) {
             return left.disc_margin_root > right.disc_margin_root;
         }
         return candidate_tie_index(left) < candidate_tie_index(right);
+    });
+
+    int rank = 1;
+    for (const auto index : indices) {
+        candidates[index].rank_by_margin = rank;
+        ++rank;
+    }
+}
+
+void assign_margin_ranks(std::vector<ExpandedChildBreakdown>& candidates) {
+    std::vector<std::size_t> indices;
+    indices.reserve(candidates.size());
+    for (std::size_t index = 0; index < candidates.size(); ++index) {
+        indices.push_back(index);
+    }
+
+    std::ranges::sort(indices, [&candidates](std::size_t lhs, std::size_t rhs) {
+        const auto& left = candidates[lhs];
+        const auto& right = candidates[rhs];
+        if (left.disc_margin_node != right.disc_margin_node) {
+            return left.disc_margin_node > right.disc_margin_node;
+        }
+        return child_candidate_tie_index(left) < child_candidate_tie_index(right);
     });
 
     int rank = 1;
@@ -740,6 +822,18 @@ void assign_margin_ranks(std::vector<RootCandidateBreakdown>& candidates) {
         return false;
     }
     return true;
+}
+
+[[nodiscard]] std::optional<othello::Board>
+board_after_root_candidate(const othello::benchmarks::EndgamePosition& position,
+                           const RootCandidateBreakdown& candidate) {
+    if (candidate.is_pass) {
+        return othello::pass_turn(position.board);
+    }
+    if (!candidate.root_move.has_value()) {
+        return std::nullopt;
+    }
+    return othello::apply_move(position.board, *candidate.root_move);
 }
 
 [[nodiscard]] std::optional<std::vector<RootCandidateBreakdown>>
@@ -833,6 +927,191 @@ run_root_breakdown(const othello::benchmarks::EndgamePosition& position,
                               return lhs.elapsed > rhs.elapsed;
                           }
                           return candidate_tie_index(lhs) < candidate_tie_index(rhs);
+                      });
+    return candidates;
+}
+
+[[nodiscard]] std::vector<othello::Square>
+child_candidate_principal_variation(othello::Square child_move,
+                                    const std::vector<othello::Square>& grandchild_pv) {
+    std::vector<othello::Square> pv;
+    pv.reserve(grandchild_pv.size() + 1);
+    pv.push_back(child_move);
+    pv.insert(pv.end(), grandchild_pv.begin(), grandchild_pv.end());
+    return pv;
+}
+
+[[nodiscard]] bool
+validate_expanded_child_breakdown(const std::string& root_move,
+                                  const othello::Board& expanded_board,
+                                  const othello::ExactEndgameResult& expanded_result,
+                                  const std::vector<ExpandedChildBreakdown>& candidates) {
+    if (othello::is_game_over(expanded_board)) {
+        if (!candidates.empty()) {
+            std::cerr << "expanded child breakdown unexpectedly has candidates after root move "
+                      << root_move << '\n';
+            return false;
+        }
+        return true;
+    }
+
+    const auto legal_moves = othello::legal_moves(expanded_board);
+    if (legal_moves == 0) {
+        if (candidates.size() != 1 || !candidates.front().is_pass) {
+            std::cerr << "expanded child breakdown missing pass row after root move " << root_move
+                      << '\n';
+            return false;
+        }
+        if (candidates.front().disc_margin_node != expanded_result.disc_margin) {
+            std::cerr << "expanded pass margin mismatch after root move " << root_move
+                      << " breakdown=" << candidates.front().disc_margin_node
+                      << " solve=" << expanded_result.disc_margin << '\n';
+            return false;
+        }
+        return true;
+    }
+
+    const auto best = std::ranges::max_element(
+        candidates, [](const ExpandedChildBreakdown& lhs, const ExpandedChildBreakdown& rhs) {
+            if (lhs.disc_margin_node != rhs.disc_margin_node) {
+                return lhs.disc_margin_node < rhs.disc_margin_node;
+            }
+            return child_candidate_tie_index(lhs) > child_candidate_tie_index(rhs);
+        });
+    if (best == candidates.end()) {
+        std::cerr << "expanded child breakdown has no legal rows after root move " << root_move
+                  << '\n';
+        return false;
+    }
+
+    if (best->disc_margin_node != expanded_result.disc_margin) {
+        std::cerr << "expanded child best margin mismatch after root move " << root_move
+                  << " breakdown=" << best->disc_margin_node
+                  << " solve=" << expanded_result.disc_margin << '\n';
+        return false;
+    }
+    if (best->child_move != expanded_result.best_move) {
+        std::cerr << "expanded child best move mismatch after root move " << root_move
+                  << " breakdown=" << format_square(best->child_move)
+                  << " solve=" << format_square(expanded_result.best_move) << '\n';
+        return false;
+    }
+    return true;
+}
+
+[[nodiscard]] std::optional<std::vector<ExpandedChildBreakdown>>
+run_expanded_child_breakdown(const othello::benchmarks::EndgamePosition& position,
+                             const RootCandidateBreakdown& root_candidate) {
+    const auto expanded_board = board_after_root_candidate(position, root_candidate);
+    if (!expanded_board.has_value()) {
+        std::cerr << "failed to expand root candidate " << format_root_move(root_candidate)
+                  << " for " << position.name << '\n';
+        return std::nullopt;
+    }
+
+    const std::string root_move = format_root_move(root_candidate);
+    const auto expanded_result = othello::solve_exact_endgame(*expanded_board);
+    std::vector<ExpandedChildBreakdown> candidates;
+
+    if (othello::is_game_over(*expanded_board)) {
+        if (!validate_expanded_child_breakdown(root_move, *expanded_board, expanded_result,
+                                               candidates)) {
+            return std::nullopt;
+        }
+        return candidates;
+    }
+
+    othello::Bitboard legal_moves = othello::legal_moves(*expanded_board);
+    if (legal_moves == 0) {
+        const auto after_pass = othello::pass_turn(*expanded_board);
+        if (!after_pass.has_value()) {
+            std::cerr << "expanded child breakdown found neither legal move nor pass after "
+                      << root_move << " for " << position.name << '\n';
+            return std::nullopt;
+        }
+
+        const auto started = Clock::now();
+        const auto child_result = othello::solve_exact_endgame(*after_pass);
+        const auto elapsed =
+            std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - started);
+        const int margin_node = -child_result.disc_margin;
+
+        candidates.push_back(ExpandedChildBreakdown{
+            .position_name = position.name,
+            .parent_empties = position.empties,
+            .root_move = root_move,
+            .child_move = std::nullopt,
+            .is_pass = true,
+            .rank_by_margin = 1,
+            .disc_margin_node = margin_node,
+            .disc_margin_root = -margin_node,
+            .child_metrics = compute_metrics(*after_pass),
+            .nodes = child_result.nodes,
+            .stats = child_result.stats,
+            .elapsed = elapsed,
+            .principal_variation = child_result.principal_variation,
+        });
+
+        if (!validate_expanded_child_breakdown(root_move, *expanded_board, expanded_result,
+                                               candidates)) {
+            return std::nullopt;
+        }
+        return candidates;
+    }
+
+    while (legal_moves != 0) {
+        const int move_index = std::countr_zero(legal_moves);
+        legal_moves &= legal_moves - 1;
+        const auto child_move = othello::Square::from_index(move_index);
+        if (!child_move.has_value()) {
+            std::cerr << "expanded child breakdown produced invalid move index " << move_index
+                      << " after " << root_move << " for " << position.name << '\n';
+            return std::nullopt;
+        }
+        const auto child_board = othello::apply_move(*expanded_board, *child_move);
+        if (!child_board.has_value()) {
+            std::cerr << "expanded child breakdown failed to apply legal move "
+                      << othello::to_string(*child_move) << " after " << root_move << " for "
+                      << position.name << '\n';
+            return std::nullopt;
+        }
+
+        const auto started = Clock::now();
+        const auto child_result = othello::solve_exact_endgame(*child_board);
+        const auto elapsed =
+            std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - started);
+        const int margin_node = -child_result.disc_margin;
+
+        candidates.push_back(ExpandedChildBreakdown{
+            .position_name = position.name,
+            .parent_empties = position.empties,
+            .root_move = root_move,
+            .child_move = child_move,
+            .is_pass = false,
+            .rank_by_margin = 0,
+            .disc_margin_node = margin_node,
+            .disc_margin_root = -margin_node,
+            .child_metrics = compute_metrics(*child_board),
+            .nodes = child_result.nodes,
+            .stats = child_result.stats,
+            .elapsed = elapsed,
+            .principal_variation =
+                child_candidate_principal_variation(*child_move, child_result.principal_variation),
+        });
+    }
+
+    assign_margin_ranks(candidates);
+    if (!validate_expanded_child_breakdown(root_move, *expanded_board, expanded_result,
+                                           candidates)) {
+        return std::nullopt;
+    }
+
+    std::ranges::sort(candidates,
+                      [](const ExpandedChildBreakdown& lhs, const ExpandedChildBreakdown& rhs) {
+                          if (lhs.elapsed != rhs.elapsed) {
+                              return lhs.elapsed > rhs.elapsed;
+                          }
+                          return child_candidate_tie_index(lhs) < child_candidate_tie_index(rhs);
                       });
     return candidates;
 }
@@ -1122,6 +1401,113 @@ void print_root_breakdown_analysis(const std::vector<RootCandidateBreakdown>& ca
     }
 }
 
+[[nodiscard]] std::string format_child_move(const ExpandedChildBreakdown& candidate) {
+    if (candidate.is_pass) {
+        return "pass";
+    }
+    return format_square(candidate.child_move);
+}
+
+void print_expanded_child_breakdown_rows(const std::vector<ExpandedChildBreakdown>& candidates) {
+    if (candidates.empty()) {
+        std::cout << "\nExpanded worst-root child breakdown\n";
+        std::cout << "No child candidates to expand for selected positions.\n";
+        return;
+    }
+
+    std::cout << "\nExpanded worst-root child breakdown (sorted by elapsed_ms descending within "
+                 "each expanded root)\n";
+    std::cout << "Scores: node_margin is from the expanded node side-to-move perspective; "
+                 "root_margin is converted back to the original root perspective.\n";
+    std::cout << std::left << std::setw(30) << "position" << "  " << std::right << std::setw(7)
+              << "empties" << "  " << std::left << std::setw(9) << "root_move" << "  "
+              << std::setw(10) << "child_move" << "  " << std::right << std::setw(6) << "rank"
+              << "  " << std::setw(11) << "node_margin" << "  " << std::setw(11) << "root_margin"
+              << "  " << std::setw(12) << "elapsed_ms" << "  " << std::setw(12) << "nodes" << "  "
+              << std::setw(12) << "tt_lookups" << "  " << std::setw(12) << "tt_hits" << "  "
+              << std::setw(11) << "tt_hit_pct" << "  " << std::setw(12) << "tt_stores" << "  "
+              << std::setw(13) << "tt_collisions" << "  " << std::setw(11) << "tt_rejects" << "  "
+              << std::setw(9) << "legal_cur" << "  " << std::setw(9) << "legal_opp" << "  "
+              << std::setw(12) << "corner_legal" << "  " << std::setw(10) << "edge_empty" << "  "
+              << std::setw(7) << "regions" << "  " << std::setw(11) << "odd_regions" << "  "
+              << std::setw(14) << "largest_region"
+              << "  pv\n";
+
+    for (const auto& candidate : candidates) {
+        const EndgamePositionMetrics& metrics = candidate.child_metrics;
+        std::cout << std::left << std::setw(30) << candidate.position_name << "  " << std::right
+                  << std::setw(7) << candidate.parent_empties << "  " << std::left << std::setw(9)
+                  << candidate.root_move << "  " << std::setw(10) << format_child_move(candidate)
+                  << "  " << std::right << std::setw(6) << candidate.rank_by_margin << "  "
+                  << std::setw(11) << candidate.disc_margin_node << "  " << std::setw(11)
+                  << candidate.disc_margin_root << "  " << std::setw(12) << std::fixed
+                  << std::setprecision(3) << milliseconds(candidate.elapsed) << "  "
+                  << std::setw(12) << candidate.nodes << "  " << std::setw(12)
+                  << candidate.stats.tt_lookups << "  " << std::setw(12) << candidate.stats.tt_hits
+                  << "  " << std::setw(11) << std::fixed << std::setprecision(2)
+                  << hit_rate(candidate.stats.tt_hits, candidate.stats.tt_lookups) << "  "
+                  << std::setw(12) << candidate.stats.tt_stores << "  " << std::setw(13)
+                  << candidate.stats.tt_collisions << "  " << std::setw(11)
+                  << candidate.stats.tt_rejected_stores << "  " << std::setw(9)
+                  << metrics.legal_moves_current << "  " << std::setw(9)
+                  << metrics.legal_moves_opponent << "  " << std::setw(12)
+                  << metrics.legal_corner_count << "  " << std::setw(10) << metrics.edge_empty_count
+                  << "  " << std::setw(7) << metrics.empty_region_count << "  " << std::setw(11)
+                  << metrics.odd_region_count << "  " << std::setw(14)
+                  << metrics.largest_region_size << "  "
+                  << format_principal_variation(candidate.principal_variation) << '\n';
+    }
+}
+
+void print_expanded_child_breakdown_analysis(
+    const std::vector<ExpandedChildBreakdown>& candidates) {
+    if (candidates.empty()) {
+        return;
+    }
+
+    std::map<std::pair<std::string_view, std::string>, std::vector<ExpandedChildBreakdown>>
+        by_expanded_root;
+    for (const auto& candidate : candidates) {
+        by_expanded_root[{candidate.position_name, candidate.root_move}].push_back(candidate);
+    }
+
+    std::cout << "\nExpanded child breakdown analysis\n";
+    std::cout << std::left << std::setw(30) << "position" << "  " << std::setw(10) << "root_move"
+              << "  " << std::right << std::setw(10) << "children" << "  " << std::setw(18)
+              << "total_child_ms" << "  " << std::setw(12) << "total_nodes" << "  " << std::left
+              << std::setw(10) << "worst_move" << "  " << std::right << std::setw(12) << "worst_ms"
+              << "  " << std::setw(12) << "worst_nodes" << "  " << std::setw(11) << "node_margin"
+              << "  " << std::setw(10) << "worst_rank" << "  " << std::setw(11) << "worst_best"
+              << "  " << std::setw(11) << "avg_tt_pct" << '\n';
+
+    for (const auto& [expanded_root, group] : by_expanded_root) {
+        const auto worst = std::ranges::max_element(
+            group, [](const ExpandedChildBreakdown& lhs, const ExpandedChildBreakdown& rhs) {
+                return lhs.elapsed < rhs.elapsed;
+            });
+        std::chrono::nanoseconds total_elapsed{};
+        std::uint64_t total_nodes = 0;
+        othello::ExactEndgameStats total_stats;
+        for (const auto& candidate : group) {
+            total_elapsed += candidate.elapsed;
+            total_nodes += candidate.nodes;
+            add_stats(total_stats, candidate.stats);
+        }
+
+        std::cout << std::left << std::setw(30) << expanded_root.first << "  " << std::setw(10)
+                  << expanded_root.second << "  " << std::right << std::setw(10) << group.size()
+                  << "  " << std::setw(18) << std::fixed << std::setprecision(3)
+                  << milliseconds(total_elapsed) << "  " << std::setw(12) << total_nodes << "  "
+                  << std::left << std::setw(10) << format_child_move(*worst) << "  " << std::right
+                  << std::setw(12) << milliseconds(worst->elapsed) << "  " << std::setw(12)
+                  << worst->nodes << "  " << std::setw(11) << worst->disc_margin_node << "  "
+                  << std::setw(10) << worst->rank_by_margin << "  " << std::setw(11)
+                  << (worst->rank_by_margin == 1 ? "yes" : "no") << "  " << std::setw(11)
+                  << std::fixed << std::setprecision(2)
+                  << hit_rate(total_stats.tt_hits, total_stats.tt_lookups) << '\n';
+    }
+}
+
 int run_benchmark(std::span<char* const> args) {
     const auto options = parse_options(args);
     if (!options.has_value()) {
@@ -1170,15 +1556,34 @@ int run_benchmark(std::span<char* const> args) {
 
     if (options->root_breakdown) {
         std::vector<RootCandidateBreakdown> root_breakdowns;
+        std::vector<ExpandedChildBreakdown> expanded_child_breakdowns;
         for (std::size_t index = 0; index < selected_positions.size(); ++index) {
             const auto breakdown = run_root_breakdown(selected_positions[index], results[index]);
             if (!breakdown.has_value()) {
                 return 1;
             }
+            if (options->expand_worst_candidate && !breakdown->empty()) {
+                const auto worst =
+                    std::ranges::max_element(*breakdown, [](const RootCandidateBreakdown& lhs,
+                                                            const RootCandidateBreakdown& rhs) {
+                        return lhs.elapsed < rhs.elapsed;
+                    });
+                const auto expanded =
+                    run_expanded_child_breakdown(selected_positions[index], *worst);
+                if (!expanded.has_value()) {
+                    return 1;
+                }
+                expanded_child_breakdowns.insert(expanded_child_breakdowns.end(), expanded->begin(),
+                                                 expanded->end());
+            }
             root_breakdowns.insert(root_breakdowns.end(), breakdown->begin(), breakdown->end());
         }
         print_root_breakdown_rows(root_breakdowns);
         print_root_breakdown_analysis(root_breakdowns);
+        if (options->expand_worst_candidate) {
+            print_expanded_child_breakdown_rows(expanded_child_breakdowns);
+            print_expanded_child_breakdown_analysis(expanded_child_breakdowns);
+        }
     }
 
     return 0;
