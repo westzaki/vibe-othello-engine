@@ -136,7 +136,13 @@ private:
         if (empties <= 12) {
             return 1 << 16;
         }
-        return 1 << 20;
+        // Keep 13-16 at 1M entries: larger tables improved hit rate but lost elapsed time to
+        // cache pressure in benchmarks. 17+ uses 8M entries to reduce the high rejection pressure
+        // seen in 18-empty fixtures while leaving 14/16 behavior unchanged.
+        if (empties <= 16) {
+            return 1 << 20;
+        }
+        return 1 << 23;
     }
 
     std::size_t entry_count_ = 0;
