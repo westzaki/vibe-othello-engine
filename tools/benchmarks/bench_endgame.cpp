@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <iomanip>
 #include <iostream>
 #include <map>
@@ -1121,17 +1122,14 @@ void print_root_breakdown_analysis(const std::vector<RootCandidateBreakdown>& ca
     }
 }
 
-} // namespace
-
-int main(int argc, char** argv) {
-    const auto options =
-        parse_options(std::span<char* const>(argv, static_cast<std::size_t>(argc)));
+int run_benchmark(std::span<char* const> args) {
+    const auto options = parse_options(args);
     if (!options.has_value()) {
-        print_usage(argc > 0 ? argv[0] : "othello_endgame_bench");
+        print_usage(args.empty() ? "othello_endgame_bench" : args.front());
         return 1;
     }
     if (options->help) {
-        print_usage(argc > 0 ? argv[0] : "othello_endgame_bench");
+        print_usage(args.empty() ? "othello_endgame_bench" : args.front());
         return 0;
     }
 
@@ -1184,4 +1182,18 @@ int main(int argc, char** argv) {
     }
 
     return 0;
+}
+
+} // namespace
+
+int main(int argc, char** argv) {
+    try {
+        return run_benchmark(std::span<char* const>{argv, static_cast<std::size_t>(argc)});
+    } catch (const std::exception& exception) {
+        std::cerr << "exact endgame benchmark failed: " << exception.what() << '\n';
+    } catch (...) {
+        std::cerr << "exact endgame benchmark failed with an unknown exception\n";
+    }
+
+    return 1;
 }

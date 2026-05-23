@@ -1,6 +1,7 @@
 #include <charconv>
 #include <chrono>
 #include <cstdint>
+#include <exception>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -255,7 +256,7 @@ next_argument(std::span<char* const> args, std::size_t& index, std::string_view 
 [[nodiscard]] std::string
 format_principal_variation(const std::vector<othello::Square>& principal_variation) {
     std::string text;
-    for (othello::Square square : principal_variation) {
+    for (const othello::Square square : principal_variation) {
         if (!text.empty()) {
             text += "->";
         }
@@ -311,10 +312,7 @@ void print_report(const othello::Board& board, const AnalysisOptions& options,
               << "pass_available: " << (pass_available ? "yes" : "no") << '\n';
 }
 
-} // namespace
-
-int main(int argc, char** argv) {
-    const std::span<char* const> args{argv, static_cast<std::size_t>(argc)};
+int run_analysis(std::span<char* const> args) {
     bool help_requested = false;
     const std::optional<AnalysisOptions> options = parse_options(args, help_requested);
 
@@ -345,4 +343,18 @@ int main(int argc, char** argv) {
 
     print_report(*board, *options, result, end - start);
     return 0;
+}
+
+} // namespace
+
+int main(int argc, char** argv) {
+    try {
+        return run_analysis(std::span<char* const>{argv, static_cast<std::size_t>(argc)});
+    } catch (const std::exception& exception) {
+        std::cerr << "analysis failed: " << exception.what() << '\n';
+    } catch (...) {
+        std::cerr << "analysis failed with an unknown exception\n";
+    }
+
+    return 1;
 }

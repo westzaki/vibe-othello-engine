@@ -418,13 +418,9 @@ make_positions(PositionSet position_set) {
 }
 
 [[nodiscard]] bool has_tag(std::string_view tags, std::string_view expected_tag) {
-    for (const auto tag : split_tags(tags)) {
-        if (tag == expected_tag) {
-            return true;
-        }
-    }
-
-    return false;
+    const auto split = split_tags(tags);
+    return std::ranges::any_of(
+        split, [expected_tag](std::string_view tag) { return tag == expected_tag; });
 }
 
 [[nodiscard]] int count_bits(othello::Bitboard bits) noexcept {
@@ -891,14 +887,14 @@ void print_position_result(const PositionBenchmarkResult& result) {
     if (count == 0) {
         return 0;
     }
-    return ((static_cast<std::size_t>(percentile) * count + 99) / 100) - 1;
+    return (((static_cast<std::size_t>(percentile) * count) + 99) / 100) - 1;
 }
 
 [[nodiscard]] double percentile_value(std::vector<double> values, int percentile) {
     if (values.empty()) {
         return 0.0;
     }
-    std::sort(values.begin(), values.end());
+    std::ranges::sort(values);
     return values[nearest_rank_index(values.size(), percentile)];
 }
 
@@ -906,7 +902,7 @@ void print_position_result(const PositionBenchmarkResult& result) {
     if (values.empty()) {
         return 0;
     }
-    std::sort(values.begin(), values.end());
+    std::ranges::sort(values);
     return values[nearest_rank_index(values.size(), percentile)];
 }
 
@@ -943,13 +939,10 @@ void print_position_summary(std::span<const PositionBenchmarkResult> results, Se
     const auto avg_nodes = position_count == 0 ? 0.0
                                                : static_cast<double>(total_nodes) /
                                                      static_cast<double>(position_count);
-    const auto max_ms = per_position_ms.empty()
-                            ? 0.0
-                            : *std::max_element(per_position_ms.begin(), per_position_ms.end());
-    const auto max_nodes =
-        per_position_nodes.empty()
-            ? std::uint64_t{0}
-            : *std::max_element(per_position_nodes.begin(), per_position_nodes.end());
+    const auto max_ms = per_position_ms.empty() ? 0.0 : *std::ranges::max_element(per_position_ms);
+    const auto max_nodes = per_position_nodes.empty()
+                               ? std::uint64_t{0}
+                               : *std::ranges::max_element(per_position_nodes);
 
     std::cout << std::left << std::setw(10) << mode_name(mode) << "  " << std::setw(3)
               << (use_transposition_table ? "on" : "off") << "  " << std::right << std::setw(5)
