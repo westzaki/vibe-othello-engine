@@ -28,9 +28,12 @@ struct SearchStats {
 
 struct SearchResult {
     std::optional<Square> best_move;
+    // Depth-limited searches report a heuristic score from the search/evaluator.
+    // If SearchOptions::exact_endgame_empty_threshold triggers at the root, this
+    // is the exact final disc margin converted onto the search score scale.
     int score = 0;
-    // Search depth used for the result. Exact root endgame results report the
-    // input board's empty count instead of SearchOptions::max_depth.
+    // Requested/effective depth for depth-limited searches. Exact root endgame
+    // results report the input board's empty count instead.
     int depth = 0;
     std::uint64_t nodes = 0;
     std::vector<Square> principal_variation;
@@ -41,7 +44,9 @@ struct SearchOptions {
     int max_depth = 5;
     bool use_transposition_table = false;
     std::size_t transposition_table_entries = 1 << 18;
-    // Root-only exact endgame cutoff by empty square count. Values <= 0 disable it.
+    // Root-only exact endgame cutoff by empty square count. At or below this
+    // threshold, search uses the exact endgame solver instead of depth-limited
+    // search. Values <= 0 disable it.
     int exact_endgame_empty_threshold = 12;
 };
 
