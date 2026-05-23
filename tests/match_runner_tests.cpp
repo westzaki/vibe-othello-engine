@@ -5,6 +5,12 @@
 
 namespace runner = othello::match_runner;
 
+TEST_CASE("Search player specs require positive depth", "[match-runner]") {
+    CHECK_FALSE(runner::parse_player_spec("search:depth=0").has_value());
+    CHECK_FALSE(runner::parse_player_spec("search:depth=-1").has_value());
+    CHECK(runner::parse_player_spec("search:depth=1").has_value());
+}
+
 TEST_CASE("First versus first reaches a legal terminal result", "[match-runner]") {
     const auto first = runner::parse_player_spec("first");
     REQUIRE(first.has_value());
@@ -15,6 +21,7 @@ TEST_CASE("First versus first reaches a legal terminal result", "[match-runner]"
     CHECK(record.plies > 0);
     CHECK(record.black_score + record.white_score == 64);
     CHECK(record.score_diff_from_black == record.black_score - record.white_score);
+    CHECK(record.score_diff_from_player_a == record.score_diff_from_black);
     CHECK(static_cast<int>(record.moves.size()) == record.plies);
 }
 
@@ -50,9 +57,15 @@ TEST_CASE("Swap sides alternates black and white specs", "[match-runner]") {
     CHECK(records[0].black_spec == "first");
     CHECK(records[0].white_spec == "random");
     CHECK(records[0].black_is_player_a);
+    CHECK(records[0].player_a_spec == "first");
+    CHECK(records[0].player_b_spec == "random");
+    CHECK(records[0].score_diff_from_player_a == records[0].score_diff_from_black);
     CHECK(records[1].black_spec == "random");
     CHECK(records[1].white_spec == "first");
     CHECK_FALSE(records[1].black_is_player_a);
+    CHECK(records[1].player_a_spec == "first");
+    CHECK(records[1].player_b_spec == "random");
+    CHECK(records[1].score_diff_from_player_a == -records[1].score_diff_from_black);
 }
 
 TEST_CASE("Run match emits the requested number of games", "[match-runner]") {

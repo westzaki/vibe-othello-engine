@@ -43,11 +43,14 @@ struct GameRecord {
     std::uint64_t seed = 0;
     std::string black_spec;
     std::string white_spec;
+    std::string player_a_spec;
+    std::string player_b_spec;
     bool black_is_player_a = true;
     std::string winner = "draw";
     int black_score = 0;
     int white_score = 0;
     int score_diff_from_black = 0;
+    int score_diff_from_player_a = 0;
     int plies = 0;
     int passes = 0;
     std::vector<std::string> moves;
@@ -101,7 +104,7 @@ struct MatchSummary {
     if (text.starts_with(search_prefix)) {
         const std::string_view depth_text = text.substr(search_prefix.size());
         const std::optional<int> depth = parse_non_negative_int(depth_text);
-        if (!depth.has_value()) {
+        if (!depth.has_value() || *depth <= 0) {
             return std::nullopt;
         }
         return PlayerSpec{.kind = PlayerKind::Search, .depth = *depth, .text = std::string{text}};
@@ -201,6 +204,8 @@ struct MatchSummary {
         .seed = seed,
         .black_spec = black_spec.text,
         .white_spec = white_spec.text,
+        .player_a_spec = black_is_player_a ? black_spec.text : white_spec.text,
+        .player_b_spec = black_is_player_a ? white_spec.text : black_spec.text,
         .black_is_player_a = black_is_player_a,
     };
 
@@ -248,6 +253,8 @@ struct MatchSummary {
     record.black_score = black_score;
     record.white_score = white_score;
     record.score_diff_from_black = black_score - white_score;
+    record.score_diff_from_player_a =
+        record.black_is_player_a ? record.score_diff_from_black : -record.score_diff_from_black;
 
     if (record.score_diff_from_black > 0) {
         record.winner = "black";
@@ -279,14 +286,11 @@ struct MatchSummary {
 
     int total_diff_from_player_a = 0;
     for (const GameRecord& record : records) {
-        const int diff_from_player_a =
-            record.black_is_player_a ? record.score_diff_from_black
-                                     : -record.score_diff_from_black;
-        total_diff_from_player_a += diff_from_player_a;
+        total_diff_from_player_a += record.score_diff_from_player_a;
 
-        if (diff_from_player_a > 0) {
+        if (record.score_diff_from_player_a > 0) {
             ++summary.player_a_wins;
-        } else if (diff_from_player_a < 0) {
+        } else if (record.score_diff_from_player_a < 0) {
             ++summary.player_b_wins;
         } else {
             ++summary.draws;
