@@ -32,3 +32,5 @@ ctest --test-dir build --output-on-failure
 Read [AGENTS.md](AGENTS.md) for Codex/agent instructions and repository conventions.
 
 Read [docs/ROADMAP.md](docs/ROADMAP.md) for the staged engine development plan.
+
+Read [docs/BENCHMARKING.md](docs/BENCHMARKING.md) for lightweight benchmark guidance.
