@@ -16,18 +16,18 @@
 namespace othello {
 namespace {
 
-using search_detail::corner_squares;
 using search_detail::board_after_move;
+using search_detail::corner_squares;
 using search_detail::empty_count;
 using search_detail::is_better_best_move;
 using search_detail::is_corner;
 using search_detail::is_edge;
 using search_detail::is_x_square_next_to_empty_corner;
-using search_detail::NodeResult;
 using search_detail::node_result_from_transposition_entry;
-using search_detail::PrincipalVariation;
+using search_detail::NodeResult;
 using search_detail::principal_variation_to_vector;
 using search_detail::principal_variation_with_move;
+using search_detail::PrincipalVariation;
 
 enum class ExactTranspositionBound {
     Exact,
@@ -191,6 +191,8 @@ struct EndgameMoveOrderingParams {
 // Final disc margins are always in [-64, 64]; this leaves a simple generous alpha-beta window.
 constexpr int exact_score_min = -1'000;
 constexpr int exact_score_max = 1'000;
+constexpr int final_disc_margin_max = 64;
+constexpr int root_pvs_min_empties = 16;
 constexpr EndgameMoveOrderingParams default_move_ordering_params{};
 
 [[nodiscard]] int move_order_score(const Board& board, int index, const Board& next,
@@ -260,6 +262,27 @@ constexpr EndgameMoveOrderingParams default_move_ordering_params{};
     return result;
 }
 
+[[nodiscard]] bool should_use_root_pvs(int empties, std::size_t legal_move_count) noexcept {
+    return empties >= root_pvs_min_empties && legal_move_count > 1;
+}
+
+[[nodiscard]] int root_candidate_required_score(int best_score, Square candidate,
+                                                Square best_move) noexcept {
+    return candidate.index() < best_move.index() ? best_score : best_score + 1;
+}
+
+[[nodiscard]] bool root_scout_rejects_candidate(const NodeResult& scout_result,
+                                                int required_score) noexcept {
+    return -scout_result.score < required_score;
+}
+
+[[nodiscard]] NodeResult solve_root_candidate_full(const Board& board, ZobristHash hash,
+                                                   ExactEndgameContext& context) noexcept;
+
+[[nodiscard]] bool root_candidate_needs_full_search(const Board& board, ZobristHash hash,
+                                                    int required_score,
+                                                    ExactEndgameContext& context) noexcept;
+
 // Exact negamax searches to game-over leaves only.
 // NOLINTNEXTLINE(misc-no-recursion)
 [[nodiscard]] NodeResult solve_node(const Board& board, ZobristHash hash, int alpha, int beta,
@@ -291,8 +314,12 @@ constexpr EndgameMoveOrderingParams default_move_ordering_params{};
             return result;
         }
 
+        // At a root pass, the after-pass child is still the first real move choice in the public
+        // PV. Treat only that child as a root traversal so root PVS can help without exposing a
+        // fake pass move or changing best_move=nullopt semantics.
+        const bool use_after_pass_root_pvs = is_root && empty_count(*next) >= root_pvs_min_empties;
         const NodeResult child =
-            solve_node(*next, zobrist_hash(*next), -beta, -alpha, context, false);
+            solve_node(*next, zobrist_hash(*next), -beta, -alpha, context, use_after_pass_root_pvs);
         const NodeResult result{
             .score = -child.score,
             .principal_variation = child.principal_variation,
@@ -307,6 +334,7 @@ constexpr EndgameMoveOrderingParams default_move_ordering_params{};
     PrincipalVariation best_principal_variation;
 
     const OrderedMoveIndexes ordered_moves = ordered_legal_move_indexes(board, moves);
+    const bool use_root_pvs = is_root && should_use_root_pvs(empties, ordered_moves.size);
     for (std::size_t move = 0; move < ordered_moves.size; ++move) {
         const OrderedMoveIndexes::Move& ordered_move = ordered_moves.moves[move];
         const std::optional<Square> square = Square::from_index(ordered_move.index);
@@ -315,18 +343,34 @@ constexpr EndgameMoveOrderingParams default_move_ordering_params{};
         }
 
         // Root results are public API, so compare exact root candidate scores instead of
-        // alpha-beta bounds. Interior nodes still use normal alpha-beta windows.
-        const NodeResult child =
-            is_root ? solve_node(ordered_move.next, zobrist_hash(ordered_move.next),
-                                 exact_score_min, exact_score_max, context, false)
-                    : solve_node(ordered_move.next, zobrist_hash(ordered_move.next), -beta, -alpha,
-                                 context, false);
-        const int candidate_score = -child.score;
+        // alpha-beta bounds. Root PVS only uses a scout to reject candidates that provably cannot
+        // beat the current exact best; candidates that may become best are re-searched full-window.
+        const ZobristHash next_hash = zobrist_hash(ordered_move.next);
+        std::optional<NodeResult> child;
+        if (is_root) {
+            if (!use_root_pvs || !best_score.has_value() || !best_move.has_value()) {
+                child = solve_root_candidate_full(ordered_move.next, next_hash, context);
+            } else {
+                const int required_score =
+                    root_candidate_required_score(*best_score, *square, *best_move);
+                if (required_score > final_disc_margin_max) {
+                    continue;
+                }
+                if (!root_candidate_needs_full_search(ordered_move.next, next_hash, required_score,
+                                                      context)) {
+                    continue;
+                }
+                child = solve_root_candidate_full(ordered_move.next, next_hash, context);
+            }
+        } else {
+            child = solve_node(ordered_move.next, next_hash, -beta, -alpha, context, false);
+        }
+        const int candidate_score = -child->score;
         if (is_better_best_move(candidate_score, *square, best_score, best_move)) {
             best_score = candidate_score;
             best_move = square;
             best_principal_variation =
-                principal_variation_with_move(*square, child.principal_variation);
+                principal_variation_with_move(*square, child->principal_variation);
         }
 
         alpha = std::max(alpha, candidate_score);
@@ -343,6 +387,25 @@ constexpr EndgameMoveOrderingParams default_move_ordering_params{};
     context.transpositions.store(hash, empties, result.score, original_alpha, beta,
                                  result.best_move, context.stats);
     return result;
+}
+
+// NOLINTNEXTLINE(misc-no-recursion)
+[[nodiscard]] NodeResult solve_root_candidate_full(const Board& board, ZobristHash hash,
+                                                   ExactEndgameContext& context) noexcept {
+    return solve_node(board, hash, exact_score_min, exact_score_max, context, false);
+}
+
+// NOLINTNEXTLINE(misc-no-recursion)
+[[nodiscard]] bool root_candidate_needs_full_search(const Board& board, ZobristHash hash,
+                                                    int required_score,
+                                                    ExactEndgameContext& context) noexcept {
+    // Root candidate score is -child_score. The null window [a, a + 1), where
+    // a = -required_score, proves rejection when child_score > a, because then
+    // root_score < required_score. Equality is handled by required_score:
+    // lower-index candidates need only tie, higher-index candidates must beat.
+    const int scout_alpha = -required_score;
+    const NodeResult scout = solve_node(board, hash, scout_alpha, scout_alpha + 1, context, false);
+    return !root_scout_rejects_candidate(scout, required_score);
 }
 
 } // namespace
