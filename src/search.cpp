@@ -1,4 +1,5 @@
 #include "hash_detail.hpp"
+#include "search_common.hpp"
 
 #include <algorithm>
 #include <array>
@@ -19,16 +20,19 @@
 namespace othello {
 namespace {
 
-struct PrincipalVariation {
-    std::array<int, 64> indexes{};
-    std::size_t size = 0;
-};
-
-struct NodeResult {
-    std::optional<Square> best_move;
-    int score = 0;
-    PrincipalVariation principal_variation;
-};
+using search_detail::corner_squares;
+using search_detail::empty_count;
+using search_detail::is_better_best_move;
+using search_detail::is_corner;
+using search_detail::is_edge;
+using search_detail::is_x_square;
+using search_detail::is_x_square_next_to_empty_corner;
+using search_detail::NodeResult;
+using search_detail::node_result_from_transposition_entry;
+using search_detail::PrincipalVariation;
+using search_detail::principal_variation_from_vector;
+using search_detail::principal_variation_to_vector;
+using search_detail::principal_variation_with_move;
 
 struct PrincipalVariationHint {
     const PrincipalVariation* principal_variation = nullptr;
@@ -176,30 +180,9 @@ private:
         return static_cast<std::size_t>(hash) & (entry_count_ - 1);
     }
 
-    [[nodiscard]] static std::optional<Square>
-    square_from_entry(const TranspositionEntry& entry) noexcept {
-        if (entry.best_move_index < Square::min_index ||
-            entry.best_move_index > Square::max_index) {
-            return std::nullopt;
-        }
-        return Square::from_index(entry.best_move_index);
-    }
-
     [[nodiscard]] static NodeResult
     node_result_from_entry(const TranspositionEntry& entry) noexcept {
-        const std::optional<Square> best_move = square_from_entry(entry);
-        NodeResult result{
-            .best_move = best_move,
-            .score = entry.score,
-        };
-
-        // TT entries intentionally store only a score and root move, not a full line.
-        // A cached result therefore reports the conservative PV fragment we know.
-        if (best_move.has_value()) {
-            result.principal_variation.indexes[0] = best_move->index();
-            result.principal_variation.size = 1;
-        }
-        return result;
+        return node_result_from_transposition_entry(entry.score, entry.best_move_index);
     }
 };
 
@@ -237,49 +220,13 @@ constexpr int search_score_max = 1'000'000'000;
 // Keep exact root endgame scores comparable with evaluate_basic terminal scores.
 // If the terminal score weight in evaluation.cpp changes, update this scale too.
 constexpr int exact_endgame_score_scale = 1'000;
-constexpr Bitboard corner_squares =
-    (Bitboard{1} << 0) | (Bitboard{1} << 7) | (Bitboard{1} << 56) | (Bitboard{1} << 63);
-
-[[nodiscard]] constexpr bool is_corner(int index) noexcept {
-    return index == 0 || index == 7 || index == 56 || index == 63;
-}
-
-[[nodiscard]] constexpr bool is_x_square(int index) noexcept {
-    return index == 9 || index == 14 || index == 49 || index == 54;
-}
-
-[[nodiscard]] constexpr bool is_edge(int index) noexcept {
-    const int file = index % 8;
-    const int rank = index / 8;
-    return file == 0 || file == 7 || rank == 0 || rank == 7;
-}
 
 [[nodiscard]] Board board_after_move(const Board& board, Square square, Bitboard flips) noexcept;
-
-[[nodiscard]] int empty_count(const Board& board) noexcept {
-    return std::popcount(board.empty());
-}
 
 [[nodiscard]] bool should_solve_exact_endgame_at_root(const Board& board,
                                                       const SearchOptions& options) noexcept {
     return options.exact_endgame_empty_threshold > 0 &&
            empty_count(board) <= options.exact_endgame_empty_threshold;
-}
-
-[[nodiscard]] constexpr bool is_x_square_next_to_empty_corner(int index,
-                                                              Bitboard occupied) noexcept {
-    switch (index) {
-    case 9:
-        return (occupied & (Bitboard{1} << 0)) == 0;
-    case 14:
-        return (occupied & (Bitboard{1} << 7)) == 0;
-    case 49:
-        return (occupied & (Bitboard{1} << 56)) == 0;
-    case 54:
-        return (occupied & (Bitboard{1} << 63)) == 0;
-    default:
-        return false;
-    }
 }
 
 [[nodiscard]] constexpr bool
@@ -419,63 +366,6 @@ ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
 
 [[nodiscard]] PrincipalVariationHint child_hint_after_pass(PrincipalVariationHint hint) noexcept {
     return hint;
-}
-
-[[nodiscard]] bool is_better_best_move(int candidate_score, Square candidate,
-                                       const std::optional<int>& best_score,
-                                       const std::optional<Square>& best_move) noexcept {
-    if (!best_score.has_value()) {
-        return true;
-    }
-    if (candidate_score != *best_score) {
-        return candidate_score > *best_score;
-    }
-    return !best_move.has_value() || candidate.index() < best_move->index();
-}
-
-[[nodiscard]] PrincipalVariation
-principal_variation_with_move(Square move, const PrincipalVariation& child_variation) noexcept {
-    PrincipalVariation principal_variation;
-    principal_variation.indexes[0] = move.index();
-    principal_variation.size = 1;
-
-    const std::size_t child_size =
-        std::min(child_variation.size, principal_variation.indexes.size() - 1);
-    for (std::size_t index = 0; index < child_size; ++index) {
-        principal_variation.indexes[index + 1] = child_variation.indexes[index];
-    }
-    principal_variation.size += child_size;
-
-    return principal_variation;
-}
-
-[[nodiscard]] std::vector<Square>
-principal_variation_to_vector(const PrincipalVariation& principal_variation) noexcept {
-    std::vector<Square> squares;
-    try {
-        squares.reserve(principal_variation.size);
-        for (std::size_t index = 0; index < principal_variation.size; ++index) {
-            const std::optional<Square> square =
-                Square::from_index(principal_variation.indexes[index]);
-            if (square.has_value()) {
-                squares.push_back(*square);
-            }
-        }
-    } catch (...) {
-        return {};
-    }
-    return squares;
-}
-
-[[nodiscard]] PrincipalVariation
-principal_variation_from_vector(const std::vector<Square>& principal_variation) noexcept {
-    PrincipalVariation result;
-    const std::size_t size = std::min(principal_variation.size(), result.indexes.size());
-    for (std::size_t index = 0; index < size; ++index) {
-        result.indexes[index] = principal_variation[index].index();
-    }
-    result.size = size;
-    return result;
 }
 
 [[nodiscard]] Board board_after_move(const Board& board, Square square, Bitboard flips) noexcept {

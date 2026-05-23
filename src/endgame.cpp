@@ -1,3 +1,5 @@
+#include "search_common.hpp"
+
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -14,16 +16,17 @@
 namespace othello {
 namespace {
 
-struct PrincipalVariation {
-    std::array<int, 64> indexes{};
-    std::size_t size = 0;
-};
-
-struct NodeResult {
-    std::optional<Square> best_move;
-    int score = 0;
-    PrincipalVariation principal_variation;
-};
+using search_detail::corner_squares;
+using search_detail::empty_count;
+using search_detail::is_better_best_move;
+using search_detail::is_corner;
+using search_detail::is_edge;
+using search_detail::is_x_square_next_to_empty_corner;
+using search_detail::NodeResult;
+using search_detail::node_result_from_transposition_entry;
+using search_detail::PrincipalVariation;
+using search_detail::principal_variation_to_vector;
+using search_detail::principal_variation_with_move;
 
 enum class ExactTranspositionBound {
     Exact,
@@ -147,27 +150,9 @@ private:
         return static_cast<std::size_t>(hash) & (entry_count_ - 1);
     }
 
-    [[nodiscard]] static std::optional<Square>
-    square_from_entry(const ExactTranspositionEntry& entry) noexcept {
-        if (entry.best_move_index < Square::min_index ||
-            entry.best_move_index > Square::max_index) {
-            return std::nullopt;
-        }
-        return Square::from_index(entry.best_move_index);
-    }
-
     [[nodiscard]] static NodeResult
     node_result_from_entry(const ExactTranspositionEntry& entry) noexcept {
-        const std::optional<Square> best_move = square_from_entry(entry);
-        NodeResult result{
-            .best_move = best_move,
-            .score = entry.score,
-        };
-        if (best_move.has_value()) {
-            result.principal_variation.indexes[0] = best_move->index();
-            result.principal_variation.size = 1;
-        }
-        return result;
+        return node_result_from_transposition_entry(entry.score, entry.best_move_index);
     }
 
     static void record_hit(ExactEndgameStats& stats, ExactTranspositionBound bound) noexcept {
@@ -206,39 +191,6 @@ struct EndgameMoveOrderingParams {
 constexpr int exact_score_min = -1'000;
 constexpr int exact_score_max = 1'000;
 constexpr EndgameMoveOrderingParams default_move_ordering_params{};
-constexpr Bitboard corner_squares =
-    (Bitboard{1} << 0) | (Bitboard{1} << 7) | (Bitboard{1} << 56) | (Bitboard{1} << 63);
-
-[[nodiscard]] int empty_count(const Board& board) noexcept {
-    // NOLINTNEXTLINE(readability-redundant-casting)
-    return static_cast<int>(std::popcount(board.empty()));
-}
-
-[[nodiscard]] constexpr bool is_corner(int index) noexcept {
-    return index == 0 || index == 7 || index == 56 || index == 63;
-}
-
-[[nodiscard]] constexpr bool is_edge(int index) noexcept {
-    const int file = index % 8;
-    const int rank = index / 8;
-    return file == 0 || file == 7 || rank == 0 || rank == 7;
-}
-
-[[nodiscard]] constexpr bool is_x_square_next_to_empty_corner(int index,
-                                                              Bitboard occupied) noexcept {
-    switch (index) {
-    case 9:
-        return (occupied & (Bitboard{1} << 0)) == 0;
-    case 14:
-        return (occupied & (Bitboard{1} << 7)) == 0;
-    case 49:
-        return (occupied & (Bitboard{1} << 56)) == 0;
-    case 54:
-        return (occupied & (Bitboard{1} << 63)) == 0;
-    default:
-        return false;
-    }
-}
 
 [[nodiscard]] int move_order_score(const Board& board, int index, const Board& next,
                                    const EndgameMoveOrderingParams& params) noexcept {
@@ -304,52 +256,6 @@ constexpr Bitboard corner_squares =
               });
 
     return result;
-}
-
-[[nodiscard]] bool is_better_best_move(int candidate_score, Square candidate,
-                                       const std::optional<int>& best_score,
-                                       const std::optional<Square>& best_move) noexcept {
-    if (!best_score.has_value()) {
-        return true;
-    }
-    if (candidate_score != *best_score) {
-        return candidate_score > *best_score;
-    }
-    return !best_move.has_value() || candidate.index() < best_move->index();
-}
-
-[[nodiscard]] PrincipalVariation
-principal_variation_with_move(Square move, const PrincipalVariation& child_variation) noexcept {
-    PrincipalVariation principal_variation;
-    principal_variation.indexes[0] = move.index();
-    principal_variation.size = 1;
-
-    const std::size_t child_size =
-        std::min(child_variation.size, principal_variation.indexes.size() - 1);
-    for (std::size_t index = 0; index < child_size; ++index) {
-        principal_variation.indexes[index + 1] = child_variation.indexes[index];
-    }
-    principal_variation.size += child_size;
-
-    return principal_variation;
-}
-
-[[nodiscard]] std::vector<Square>
-principal_variation_to_vector(const PrincipalVariation& principal_variation) noexcept {
-    std::vector<Square> squares;
-    try {
-        squares.reserve(principal_variation.size);
-        for (std::size_t index = 0; index < principal_variation.size; ++index) {
-            const std::optional<Square> square =
-                Square::from_index(principal_variation.indexes[index]);
-            if (square.has_value()) {
-                squares.push_back(*square);
-            }
-        }
-    } catch (...) {
-        return {};
-    }
-    return squares;
 }
 
 // Exact negamax searches to game-over leaves only.
