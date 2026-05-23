@@ -98,6 +98,10 @@ Current exact endgame reference:
 - [2026-05-24 PR78 child breakdown exact endgame baseline](perf/baselines/2026-05-24-pr78-8d31a40-exact-endgame-child-breakdown.md)
 - [2026-05-23 PR70 interior PVS exact endgame baseline](perf/baselines/2026-05-23-pr70-0c89ba4-exact-endgame-interior-pvs.md)
 
+Related analysis:
+
+- [20-empty exact endgame ordering analysis](perf/exact-endgame-20-empty-ordering-analysis.md)
+
 ## Position Analysis
 
 Use the analysis tool for a focused position check rather than a benchmark suite:
