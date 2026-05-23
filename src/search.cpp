@@ -20,20 +20,20 @@
 namespace othello {
 namespace {
 
-using search_detail::corner_squares;
 using search_detail::board_after_move;
+using search_detail::corner_squares;
 using search_detail::empty_count;
 using search_detail::is_better_best_move;
 using search_detail::is_corner;
 using search_detail::is_edge;
 using search_detail::is_x_square;
 using search_detail::is_x_square_next_to_empty_corner;
-using search_detail::NodeResult;
 using search_detail::node_result_from_transposition_entry;
-using search_detail::PrincipalVariation;
+using search_detail::NodeResult;
 using search_detail::principal_variation_from_vector;
 using search_detail::principal_variation_to_vector;
 using search_detail::principal_variation_with_move;
+using search_detail::PrincipalVariation;
 
 struct PrincipalVariationHint {
     const PrincipalVariation* principal_variation = nullptr;
@@ -207,12 +207,11 @@ constexpr MoveOrderingParams default_move_ordering_params{};
 
 struct SearchContext {
     explicit SearchContext(const SearchOptions& options, bool enable_dynamic_move_ordering) noexcept
-        : transpositions{options}, move_ordering_params{default_move_ordering_params},
-          dynamic_move_ordering{enable_dynamic_move_ordering} {}
+        : transpositions{options}, dynamic_move_ordering{enable_dynamic_move_ordering} {}
 
     SearchStats stats;
     TranspositionTable transpositions;
-    const MoveOrderingParams& move_ordering_params;
+    MoveOrderingParams move_ordering_params = default_move_ordering_params;
     bool dynamic_move_ordering = false;
 };
 
@@ -267,8 +266,7 @@ should_use_dynamic_move_ordering(bool enabled, std::size_t move_count, int depth
     if ((opponent_moves & corner_squares) != 0) {
         score -= params.dynamic_opponent_corner_penalty;
     }
-    score -=
-        static_cast<int>(std::popcount(opponent_moves)) * params.dynamic_opponent_mobility_penalty;
+    score -= std::popcount(opponent_moves) * params.dynamic_opponent_mobility_penalty;
 
     return score;
 }
@@ -277,7 +275,7 @@ should_use_dynamic_move_ordering(bool enabled, std::size_t move_count, int depth
 ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
                            bool dynamic_move_ordering, const MoveOrderingParams& params) noexcept {
     OrderedMoveIndexes candidates;
-    const std::size_t move_count = static_cast<std::size_t>(std::popcount(moves));
+    const auto move_count = static_cast<std::size_t>(std::popcount(moves));
 
     for (int index = Square::min_index; index <= Square::max_index; ++index) {
         const Bitboard move_bit = Bitboard{1} << index;
@@ -443,7 +441,7 @@ ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
     PrincipalVariation best_principal_variation;
 
     const bool use_dynamic_ordering = context.dynamic_move_ordering && !is_root;
-    const std::size_t move_count = static_cast<std::size_t>(std::popcount(moves));
+    const auto move_count = static_cast<std::size_t>(std::popcount(moves));
     if (should_use_dynamic_move_ordering(use_dynamic_ordering, move_count, depth,
                                          context.move_ordering_params)) {
         ++context.stats.dynamic_ordering_nodes;
