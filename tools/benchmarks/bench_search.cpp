@@ -660,6 +660,9 @@ void add_search_stats(othello::SearchStats& total, const othello::SearchStats& s
     total.tt_overwrites += stats.tt_overwrites;
     total.tt_collisions += stats.tt_collisions;
     total.tt_rejected_stores += stats.tt_rejected_stores;
+    total.tt_move_ordering_probes += stats.tt_move_ordering_probes;
+    total.tt_move_ordering_hits += stats.tt_move_ordering_hits;
+    total.tt_move_ordering_used += stats.tt_move_ordering_used;
     total.dynamic_ordering_nodes += stats.dynamic_ordering_nodes;
     total.dynamic_ordering_moves += stats.dynamic_ordering_moves;
 }
@@ -801,7 +804,8 @@ void print_search_result_header() {
               << "  positions  depth  best_move  score  " << std::setw(28) << "pv"
               << "  searches  elapsed_ms      searches/s  total_nodes         nodes/s"
                  "  nodes/search  tt_lookups  tt_hits  tt_hit_rate  tt_stores"
-                 "  tt_collisions  tt_rejected_stores  dyn_nodes  dyn_moves"
+                 "  tt_collisions  tt_rejected_stores  tt_order_probes  tt_order_hits"
+                 "  tt_order_used  dyn_nodes  dyn_moves"
                  "  result_checksum  work_checksum\n";
 }
 
@@ -841,6 +845,9 @@ void print_search_result(const SearchBenchmarkResult& result) {
               << result.total_stats.tt_stores << "  " << std::setw(13)
               << result.total_stats.tt_collisions << "  " << std::setw(18)
               << result.total_stats.tt_rejected_stores << "  " << std::setw(9)
+              << result.total_stats.tt_move_ordering_probes << "  " << std::setw(9)
+              << result.total_stats.tt_move_ordering_hits << "  " << std::setw(9)
+              << result.total_stats.tt_move_ordering_used << "  " << std::setw(9)
               << result.total_stats.dynamic_ordering_nodes << "  " << std::setw(9)
               << result.total_stats.dynamic_ordering_moves << "  " << result.result_checksum << "  "
               << result.work_checksum << '\n';
@@ -853,7 +860,8 @@ void print_position_result_header() {
               << "  depth  best_move  score  " << std::setw(28) << "pv"
               << "  searches  elapsed_ms       nodes  nodes/search         nodes/s"
                  "  tt_lookups  tt_hits  tt_hit_rate  tt_stores  tt_collisions"
-                 "  tt_rejected_stores  dyn_nodes  dyn_moves\n";
+                 "  tt_rejected_stores  tt_order_probes  tt_order_hits  tt_order_used"
+                 "  dyn_nodes  dyn_moves\n";
 }
 
 void print_position_result(const PositionBenchmarkResult& result) {
@@ -879,6 +887,9 @@ void print_position_result(const PositionBenchmarkResult& result) {
               << result.total_stats.tt_stores << "  " << std::setw(13)
               << result.total_stats.tt_collisions << "  " << std::setw(18)
               << result.total_stats.tt_rejected_stores << "  " << std::setw(9)
+              << result.total_stats.tt_move_ordering_probes << "  " << std::setw(9)
+              << result.total_stats.tt_move_ordering_hits << "  " << std::setw(9)
+              << result.total_stats.tt_move_ordering_used << "  " << std::setw(9)
               << result.total_stats.dynamic_ordering_nodes << "  " << std::setw(9)
               << result.total_stats.dynamic_ordering_moves << '\n';
 }
