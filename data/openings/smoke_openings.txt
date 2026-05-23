@@ -1,0 +1,4 @@
+# Small deterministic opening suite for match runner smoke tests.
+initial:
+c4-c3: c4 c3
+d3-c3-c4: d3 c3 c4
