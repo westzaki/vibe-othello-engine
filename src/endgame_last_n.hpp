@@ -4,6 +4,7 @@
 #include "search_common.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <cassert>
 #include <optional>
 #include <othello/rules.hpp>
@@ -75,11 +76,10 @@ constexpr int last_n_specialized_empties = 3;
     std::optional<Square> best_move;
     PrincipalVariation best_principal_variation;
 
-    for (int index = Square::min_index; index <= Square::max_index; ++index) {
-        const Bitboard move_bit = Bitboard{1} << index;
-        if ((moves & move_bit) == 0) {
-            continue;
-        }
+    Bitboard remaining_moves = moves;
+    while (remaining_moves != 0) {
+        const int index = std::countr_zero(remaining_moves);
+        remaining_moves &= remaining_moves - 1;
 
         const std::optional<Square> square = Square::from_index(index);
         if (!square.has_value()) {

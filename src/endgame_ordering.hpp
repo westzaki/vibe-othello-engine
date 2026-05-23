@@ -100,32 +100,32 @@ constexpr EndgameMoveOrderingParams default_move_ordering_params{};
 ordered_legal_move_indexes(const Board& board, ZobristHash hash, Bitboard moves) noexcept {
     OrderedMoveIndexes result;
 
-    for (int index = Square::min_index; index <= Square::max_index; ++index) {
-        const Bitboard move_bit = Bitboard{1} << index;
-        if ((moves & move_bit) != 0) {
-            const std::optional<Square> square = Square::from_index(index);
-            if (!square.has_value()) {
-                continue;
-            }
+    while (moves != 0) {
+        const int index = std::countr_zero(moves);
+        moves &= moves - 1;
 
-            const Bitboard flips = flips_for_move(board, *square);
-            if (flips == 0) {
-                continue;
-            }
-            const Board next = board_after_move(board, *square, flips);
-            const ZobristHash next_hash = hash_after_move(hash, board, *square, flips);
+        const std::optional<Square> square = Square::from_index(index);
+        if (!square.has_value()) {
+            continue;
+        }
+
+        const Bitboard flips = flips_for_move(board, *square);
+        if (flips == 0) {
+            continue;
+        }
+        const Board next = board_after_move(board, *square, flips);
+        const ZobristHash next_hash = hash_after_move(hash, board, *square, flips);
 #ifndef NDEBUG
-            assert(next_hash == zobrist_hash(next));
+        assert(next_hash == zobrist_hash(next));
 #endif
 
-            result.moves[result.size] = OrderedMoveIndexes::Move{
-                .index = index,
-                .order_score = move_order_score(board, index, next, default_move_ordering_params),
-                .hash = next_hash,
-                .next = next,
-            };
-            ++result.size;
-        }
+        result.moves[result.size] = OrderedMoveIndexes::Move{
+            .index = index,
+            .order_score = move_order_score(board, index, next, default_move_ordering_params),
+            .hash = next_hash,
+            .next = next,
+        };
+        ++result.size;
     }
 
     std::sort(result.moves.begin(), result.moves.begin() + result.size,
