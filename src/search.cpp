@@ -21,6 +21,7 @@ namespace othello {
 namespace {
 
 using search_detail::corner_squares;
+using search_detail::board_after_move;
 using search_detail::empty_count;
 using search_detail::is_better_best_move;
 using search_detail::is_corner;
@@ -221,8 +222,6 @@ constexpr int search_score_max = 1'000'000'000;
 // If the terminal score weight in evaluation.cpp changes, update this scale too.
 constexpr int exact_endgame_score_scale = 1'000;
 
-[[nodiscard]] Board board_after_move(const Board& board, Square square, Bitboard flips) noexcept;
-
 [[nodiscard]] bool should_solve_exact_endgame_at_root(const Board& board,
                                                       const SearchOptions& options) noexcept {
     return options.exact_endgame_empty_threshold > 0 &&
@@ -366,22 +365,6 @@ ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
 
 [[nodiscard]] PrincipalVariationHint child_hint_after_pass(PrincipalVariationHint hint) noexcept {
     return hint;
-}
-
-[[nodiscard]] Board board_after_move(const Board& board, Square square, Bitboard flips) noexcept {
-    const Bitboard move_bit = square.bit();
-
-    Board next = board;
-    if (board.side_to_move == Side::Black) {
-        next.black = board.black | move_bit | flips;
-        next.white = board.white & ~flips;
-    } else {
-        next.white = board.white | move_bit | flips;
-        next.black = board.black & ~flips;
-    }
-    next.side_to_move = opponent(board.side_to_move);
-
-    return next;
 }
 
 [[nodiscard]] ZobristHash hash_after_pass(ZobristHash hash, Side side_to_move) noexcept {
