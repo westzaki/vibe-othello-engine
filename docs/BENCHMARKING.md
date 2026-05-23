@@ -45,7 +45,9 @@ the same local setup over absolute numbers copied from another machine.
 
 For small endgame positions, remember that an enabled exact endgame threshold can
 switch root search from depth-limited search to exact solving. Disable or fix the
-threshold explicitly when you need to compare only depth-limited behavior.
+threshold explicitly when you need to compare only depth-limited behavior. Exact
+root endgame results also report score and depth with exact-endgame semantics,
+not ordinary heuristic depth-limited search semantics.
 
 ## Position Analysis
 
