@@ -5,6 +5,9 @@ reference. Individual measurement snapshots live under
 [`docs/perf/baselines/`](baselines/) so benchmark history can be compared without
 overwriting older results.
 
+General benchmark commands and baseline policy live in
+[`docs/BENCHMARKS.md`](../BENCHMARKS.md).
+
 Baselines are append-only snapshots. Add a new file for each meaningful search
 performance checkpoint rather than editing older snapshots in place.
 
