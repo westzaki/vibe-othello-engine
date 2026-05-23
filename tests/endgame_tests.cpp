@@ -1,10 +1,62 @@
 #include "test_helpers.hpp"
 
+#include <array>
 #include <catch2/catch_test_macros.hpp>
+#include <optional>
 #include <othello/othello.hpp>
+#include <string>
+#include <string_view>
 
 using othello::Board;
 using othello::Side;
+
+namespace {
+
+struct ExactRegressionCase {
+    std::string_view benchmark_name;
+    std::string_view board_text;
+    int empties = 0;
+    std::optional<std::string_view> best_move;
+    int disc_margin = 0;
+};
+
+[[nodiscard]] std::optional<othello::Square>
+expected_best_move(std::optional<std::string_view> coordinate) {
+    if (!coordinate.has_value()) {
+        return std::nullopt;
+    }
+
+    return othello::test::square(*coordinate);
+}
+
+void check_exact_regression_case(const ExactRegressionCase& test_case) {
+    const std::string benchmark_name{test_case.benchmark_name};
+    CAPTURE(benchmark_name);
+
+    const Board board = othello::test::board_from_text(test_case.board_text);
+    const std::optional<othello::Square> expected_move = expected_best_move(test_case.best_move);
+
+    const othello::ExactEndgameResult first = othello::solve_exact_endgame(board);
+    const othello::ExactEndgameResult second = othello::solve_exact_endgame(board);
+
+    CHECK(first.empties == test_case.empties);
+    CHECK(first.best_move == expected_move);
+    CHECK(first.disc_margin == test_case.disc_margin);
+    CHECK(first.nodes > 0);
+    CHECK(first.principal_variation.size() <= static_cast<std::size_t>(first.empties));
+
+    CHECK(second.empties == first.empties);
+    CHECK(second.best_move == first.best_move);
+    CHECK(second.disc_margin == first.disc_margin);
+    CHECK(second.principal_variation == first.principal_variation);
+
+    if (expected_move.has_value()) {
+        REQUIRE_FALSE(first.principal_variation.empty());
+        CHECK(first.principal_variation.front() == *expected_move);
+    }
+}
+
+} // namespace
 
 TEST_CASE("Exact endgame solver returns terminal margin immediately", "[endgame]") {
     const Board board{
@@ -179,4 +231,104 @@ side=B)");
     CHECK(result.stats.tt_collisions <= result.stats.tt_overwrites);
     CHECK(result.stats.tt_exact_hits + result.stats.tt_lower_hits + result.stats.tt_upper_hits ==
           result.stats.tt_hits);
+}
+
+TEST_CASE("Exact endgame solver preserves selected PVS regression results", "[endgame]") {
+    // Current exact solver expected results; do not update casually.
+    constexpr std::array cases{
+        ExactRegressionCase{
+            // tools/benchmarks/endgame_positions.hpp: 14-empty-corner-choice
+            .benchmark_name = "14-empty-corner-choice",
+            .board_text = R"(.BW.W...
+WWWWWWWB
+W.WBBBBB
+WWBWWBB.
+W.BWBWWB
+.WWBBBW.
+WWWWWWWW
+.BB..WB.
+side=B)",
+            .empties = 14,
+            .best_move = "a8",
+            .disc_margin = 24,
+        },
+        ExactRegressionCase{
+            // tools/benchmarks/endgame_positions.hpp: 16-empty-corner-choice
+            .benchmark_name = "16-empty-corner-choice",
+            .board_text = R"(.WB.B.BW
+.WWWWWWW
+.WBWWWWB
+W.WBWWW.
+WWBBBW.W
+WBBBB.W.
+WBBBBB..
+WBW...B.
+side=B)",
+            .empties = 16,
+            .best_move = "d1",
+            .disc_margin = -14,
+        },
+        ExactRegressionCase{
+            // tools/benchmarks/endgame_positions.hpp: 18-empty-normal-mobility
+            .benchmark_name = "18-empty-normal-mobility",
+            .board_text = R"(.B.W.BB.
+..BBBBBB
+B..WBWB.
+BBBWWWW.
+BBBWBWWB
+..BBWBW.
+.WBBBBWW
+W...BBW.
+side=B)",
+            .empties = 18,
+            .best_move = "h1",
+            .disc_margin = -30,
+        },
+    };
+
+    for (const ExactRegressionCase& test_case : cases) {
+        check_exact_regression_case(test_case);
+    }
+}
+
+TEST_CASE("Exact endgame solver preserves selected root-pass regression result", "[endgame]") {
+    // Current exact solver expected result; do not update casually.
+    const ExactRegressionCase test_case{
+        // tools/benchmarks/endgame_positions.hpp: 16-empty-root-pass
+        .benchmark_name = "16-empty-root-pass",
+        .board_text = R"(........
+BBBBBBBW
+BBWWBBB.
+BBBBBBBB
+.BBBBWBB
+..BBBWBB
+..BBBWWW
+..BBBBBW
+side=B)",
+        .empties = 16,
+        .best_move = std::nullopt,
+        .disc_margin = -48,
+    };
+
+    const Board board = othello::test::board_from_text(test_case.board_text);
+    REQUIRE(othello::legal_moves(board) == 0);
+    const std::optional<Board> after_pass = othello::pass_turn(board);
+    REQUIRE(after_pass.has_value());
+
+    const othello::ExactEndgameResult first = othello::solve_exact_endgame(board);
+    const othello::ExactEndgameResult second = othello::solve_exact_endgame(board);
+
+    CHECK(first.empties == test_case.empties);
+    CHECK_FALSE(first.best_move.has_value());
+    CHECK(first.disc_margin == test_case.disc_margin);
+    CHECK(first.nodes > 0);
+    REQUIRE_FALSE(first.principal_variation.empty());
+    CHECK(first.principal_variation.front() == othello::test::square("a3"));
+    CHECK(first.principal_variation.size() <= static_cast<std::size_t>(first.empties));
+    CHECK((othello::legal_moves(*after_pass) & first.principal_variation.front().bit()) != 0);
+
+    CHECK(second.empties == first.empties);
+    CHECK(second.best_move == first.best_move);
+    CHECK(second.disc_margin == first.disc_margin);
+    CHECK(second.principal_variation == first.principal_variation);
 }
