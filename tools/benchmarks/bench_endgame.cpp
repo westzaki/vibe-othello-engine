@@ -1,6 +1,7 @@
 #include "endgame_positions.hpp"
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <charconv>
 #include <chrono>
@@ -37,10 +38,36 @@ struct BenchmarkOptions {
     bool help = false;
 };
 
+struct EndgamePositionMetrics {
+    int empties = 0;
+    int score_current = 0;
+    int legal_moves_current = 0;
+    int legal_moves_opponent = 0;
+
+    bool root_pass = false;
+    bool game_over = false;
+
+    int empty_corner_count = 0;
+    int legal_corner_count = 0;
+    int opponent_legal_corner_count = 0;
+
+    int edge_empty_count = 0;
+    int legal_edge_count = 0;
+
+    int x_square_legal_risk_count = 0;
+
+    int empty_region_count = 0;
+    int odd_region_count = 0;
+    int even_region_count = 0;
+    int singleton_region_count = 0;
+    int largest_region_size = 0;
+};
+
 struct PositionBenchmarkResult {
     std::string_view name;
     int empties = 0;
     std::string_view tags;
+    EndgamePositionMetrics metrics;
     std::optional<othello::Square> best_move;
     int disc_margin = 0;
     std::vector<othello::Square> principal_variation;
@@ -225,6 +252,131 @@ void print_usage(std::string_view program_name) {
     return std::popcount(othello::legal_moves(board));
 }
 
+[[nodiscard]] constexpr bool is_corner_index(int index) noexcept {
+    return index == 0 || index == 7 || index == 56 || index == 63;
+}
+
+[[nodiscard]] constexpr bool is_edge_index(int index) noexcept {
+    const int file = index % 8;
+    const int rank = index / 8;
+    return file == 0 || file == 7 || rank == 0 || rank == 7;
+}
+
+[[nodiscard]] constexpr bool is_x_square_next_to_empty_corner(int index,
+                                                              othello::Bitboard empty) noexcept {
+    switch (index) {
+    case 9:
+        return (empty & (othello::Bitboard{1} << 0)) != 0;
+    case 14:
+        return (empty & (othello::Bitboard{1} << 7)) != 0;
+    case 49:
+        return (empty & (othello::Bitboard{1} << 56)) != 0;
+    case 54:
+        return (empty & (othello::Bitboard{1} << 63)) != 0;
+    default:
+        return false;
+    }
+}
+
+[[nodiscard]] constexpr othello::Bitboard orthogonal_neighbors(int index) noexcept {
+    othello::Bitboard neighbors = 0;
+    const int file = index % 8;
+    const int rank = index / 8;
+    if (file > 0) {
+        neighbors |= othello::Bitboard{1} << (index - 1);
+    }
+    if (file < 7) {
+        neighbors |= othello::Bitboard{1} << (index + 1);
+    }
+    if (rank > 0) {
+        neighbors |= othello::Bitboard{1} << (index - 8);
+    }
+    if (rank < 7) {
+        neighbors |= othello::Bitboard{1} << (index + 8);
+    }
+    return neighbors;
+}
+
+void add_empty_region_metrics(othello::Bitboard empty, EndgamePositionMetrics& metrics) noexcept {
+    othello::Bitboard remaining = empty;
+    while (remaining != 0) {
+        const int seed_index = std::countr_zero(remaining);
+        othello::Bitboard region = othello::Bitboard{1} << seed_index;
+        std::array<int, 64> stack{};
+        std::size_t stack_size = 1;
+        stack[0] = seed_index;
+
+        while (stack_size > 0) {
+            const int index = stack[--stack_size];
+            othello::Bitboard neighbors = orthogonal_neighbors(index) & remaining & ~region;
+            while (neighbors != 0) {
+                const int next_index = std::countr_zero(neighbors);
+                neighbors &= neighbors - 1;
+                region |= othello::Bitboard{1} << next_index;
+                stack[stack_size] = next_index;
+                ++stack_size;
+            }
+        }
+
+        remaining &= ~region;
+        // NOLINTNEXTLINE(readability-redundant-casting)
+        const int region_size = static_cast<int>(std::popcount(region));
+        ++metrics.empty_region_count;
+        if (region_size % 2 == 0) {
+            ++metrics.even_region_count;
+        } else {
+            ++metrics.odd_region_count;
+        }
+        if (region_size == 1) {
+            ++metrics.singleton_region_count;
+        }
+        metrics.largest_region_size = std::max(metrics.largest_region_size, region_size);
+    }
+}
+
+[[nodiscard]] EndgamePositionMetrics compute_metrics(const othello::Board& board) noexcept {
+    EndgamePositionMetrics metrics;
+    const othello::Bitboard empty = board.empty();
+    const othello::Bitboard current_moves = othello::legal_moves(board);
+    auto opponent_board = board;
+    opponent_board.side_to_move = othello::opponent(board.side_to_move);
+    const othello::Bitboard opponent_moves = othello::legal_moves(opponent_board);
+
+    metrics.empties = empty_count(board);
+    metrics.score_current = othello::score(board, board.side_to_move);
+    // NOLINTNEXTLINE(readability-redundant-casting)
+    metrics.legal_moves_current = static_cast<int>(std::popcount(current_moves));
+    // NOLINTNEXTLINE(readability-redundant-casting)
+    metrics.legal_moves_opponent = static_cast<int>(std::popcount(opponent_moves));
+    metrics.root_pass = othello::pass_turn(board).has_value();
+    metrics.game_over = othello::is_game_over(board);
+
+    for (int index = othello::Square::min_index; index <= othello::Square::max_index; ++index) {
+        const othello::Bitboard bit = othello::Bitboard{1} << index;
+        if ((empty & bit) != 0 && is_corner_index(index)) {
+            ++metrics.empty_corner_count;
+        }
+        if ((empty & bit) != 0 && is_edge_index(index)) {
+            ++metrics.edge_empty_count;
+        }
+        if ((current_moves & bit) != 0 && is_corner_index(index)) {
+            ++metrics.legal_corner_count;
+        }
+        if ((opponent_moves & bit) != 0 && is_corner_index(index)) {
+            ++metrics.opponent_legal_corner_count;
+        }
+        if ((current_moves & bit) != 0 && is_edge_index(index)) {
+            ++metrics.legal_edge_count;
+        }
+        if ((current_moves & bit) != 0 && is_x_square_next_to_empty_corner(index, empty)) {
+            ++metrics.x_square_legal_risk_count;
+        }
+    }
+
+    add_empty_region_metrics(empty, metrics);
+    return metrics;
+}
+
 [[nodiscard]] std::vector<othello::benchmarks::EndgamePosition>
 select_positions(const std::vector<othello::benchmarks::EndgamePosition>& positions,
                  const BenchmarkOptions& options) {
@@ -234,7 +386,7 @@ select_positions(const std::vector<othello::benchmarks::EndgamePosition>& positi
     for (const auto& position : positions) {
         const bool use_smoke_set = options.position_set == PositionSet::Smoke &&
                                    !options.empties.has_value() &&
-                                   !(options.describe_positions && !options.position_set_explicit);
+                                   (!options.describe_positions || options.position_set_explicit);
         if (use_smoke_set && !position.smoke) {
             continue;
         }
@@ -315,6 +467,36 @@ validate_positions(const std::vector<othello::benchmarks::EndgamePosition>& posi
 
     if (verbose) {
         std::cout << "\nValidation: " << (error_count == 0 ? "ok" : "failed") << '\n';
+        std::cout << "\nPosition metrics\n";
+        std::cout << std::left << std::setw(30) << "name" << "  " << std::right << std::setw(7)
+                  << "empties" << "  " << std::setw(9) << "score_cur" << "  " << std::setw(9)
+                  << "legal_cur" << "  " << std::setw(9) << "legal_opp" << "  " << std::setw(4)
+                  << "pass" << "  " << std::setw(13) << "corners_empty" << "  " << std::setw(12)
+                  << "corner_legal" << "  " << std::setw(16) << "opp_corner_legal" << "  "
+                  << std::setw(10) << "edge_empty" << "  " << std::setw(10) << "edge_legal" << "  "
+                  << std::setw(6) << "x_risk" << "  " << std::setw(7) << "regions" << "  "
+                  << std::setw(11) << "odd_regions" << "  " << std::setw(10) << "singletons" << "  "
+                  << std::setw(14) << "largest_region" << '\n';
+
+        for (const auto& position : positions) {
+            const EndgamePositionMetrics metrics = compute_metrics(position.board);
+            std::cout << std::left << std::setw(30) << position.name << "  " << std::right
+                      << std::setw(7) << metrics.empties << "  " << std::setw(9)
+                      << metrics.score_current << "  " << std::setw(9)
+                      << metrics.legal_moves_current << "  " << std::setw(9)
+                      << metrics.legal_moves_opponent << "  " << std::setw(4)
+                      << (metrics.root_pass ? "yes" : "no") << "  " << std::setw(13)
+                      << metrics.empty_corner_count << "  " << std::setw(12)
+                      << metrics.legal_corner_count << "  " << std::setw(16)
+                      << metrics.opponent_legal_corner_count << "  " << std::setw(10)
+                      << metrics.edge_empty_count << "  " << std::setw(10)
+                      << metrics.legal_edge_count << "  " << std::setw(6)
+                      << metrics.x_square_legal_risk_count << "  " << std::setw(7)
+                      << metrics.empty_region_count << "  " << std::setw(11)
+                      << metrics.odd_region_count << "  " << std::setw(10)
+                      << metrics.singleton_region_count << "  " << std::setw(14)
+                      << metrics.largest_region_size << '\n';
+        }
     }
 
     return error_count == 0;
@@ -425,6 +607,7 @@ run_benchmark(const othello::benchmarks::EndgamePosition& position, std::uint64_
         .name = position.name,
         .empties = position.empties,
         .tags = position.tags,
+        .metrics = compute_metrics(position.board),
         .best_move = sample->best_move,
         .disc_margin = sample->disc_margin,
         .principal_variation = sample->principal_variation,
@@ -572,6 +755,66 @@ void print_summary_by_empty_count(const std::vector<PositionBenchmarkResult>& re
     }
 }
 
+void print_position_metrics(const std::vector<PositionBenchmarkResult>& results) {
+    std::cout << "\nPosition metrics\n";
+    std::cout << std::left << std::setw(30) << "position" << "  " << std::right << std::setw(7)
+              << "empties" << "  " << std::setw(9) << "legal_cur" << "  " << std::setw(9)
+              << "legal_opp" << "  " << std::setw(12) << "corner_legal" << "  " << std::setw(10)
+              << "edge_empty" << "  " << std::setw(7) << "regions" << "  " << std::setw(11)
+              << "odd_regions" << "  " << std::setw(14) << "largest_region"
+              << "  " << std::setw(12) << "elapsed_ms" << "  " << std::setw(12) << "nodes" << '\n';
+
+    for (const auto& result : results) {
+        const EndgamePositionMetrics& metrics = result.metrics;
+        std::cout << std::left << std::setw(30) << result.name << "  " << std::right << std::setw(7)
+                  << metrics.empties << "  " << std::setw(9) << metrics.legal_moves_current << "  "
+                  << std::setw(9) << metrics.legal_moves_opponent << "  " << std::setw(12)
+                  << metrics.legal_corner_count << "  " << std::setw(10) << metrics.edge_empty_count
+                  << "  " << std::setw(7) << metrics.empty_region_count << "  " << std::setw(11)
+                  << metrics.odd_region_count << "  " << std::setw(14)
+                  << metrics.largest_region_size << "  " << std::setw(12) << std::fixed
+                  << std::setprecision(3) << milliseconds(result.elapsed) << "  " << std::setw(12)
+                  << result.total_nodes << '\n';
+    }
+}
+
+void print_metrics_summary_by_empty_count(const std::vector<PositionBenchmarkResult>& results) {
+    std::map<int, std::vector<PositionBenchmarkResult>> by_empty_count;
+    for (const auto& result : results) {
+        by_empty_count[result.empties].push_back(result);
+    }
+
+    std::cout << "\nPosition metrics summary by empty count\n";
+    std::cout << std::right << std::setw(7) << "empties" << "  " << std::setw(5) << "count"
+              << "  " << std::setw(13) << "avg_legal_cur" << "  " << std::setw(13)
+              << "max_legal_cur" << "  " << std::setw(11) << "avg_regions" << "  " << std::setw(14)
+              << "avg_odd_regs" << "  " << std::setw(14) << "max_largest_reg" << '\n';
+
+    for (const auto& [empties, group] : by_empty_count) {
+        double total_legal_moves = 0.0;
+        double total_regions = 0.0;
+        double total_odd_regions = 0.0;
+        int max_legal_moves = 0;
+        int max_largest_region = 0;
+
+        for (const auto& result : group) {
+            total_legal_moves += static_cast<double>(result.metrics.legal_moves_current);
+            total_regions += static_cast<double>(result.metrics.empty_region_count);
+            total_odd_regions += static_cast<double>(result.metrics.odd_region_count);
+            max_legal_moves = std::max(max_legal_moves, result.metrics.legal_moves_current);
+            max_largest_region = std::max(max_largest_region, result.metrics.largest_region_size);
+        }
+
+        const auto count = static_cast<double>(group.size());
+        std::cout << std::right << std::setw(7) << empties << "  " << std::setw(5) << group.size()
+                  << "  " << std::setw(13) << std::fixed << std::setprecision(2)
+                  << total_legal_moves / count << "  " << std::setw(13) << max_legal_moves << "  "
+                  << std::setw(11) << total_regions / count << "  " << std::setw(14)
+                  << total_odd_regions / count << "  " << std::setw(14) << max_largest_region
+                  << '\n';
+    }
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -618,6 +861,8 @@ int main(int argc, char** argv) {
 
     print_position_results(results);
     print_summary_by_empty_count(results);
+    print_position_metrics(results);
+    print_metrics_summary_by_empty_count(results);
 
     return 0;
 }
