@@ -29,7 +29,7 @@ using search_detail::principal_variation_to_vector;
 using search_detail::principal_variation_with_move;
 using search_detail::PrincipalVariation;
 
-enum class ExactTranspositionBound {
+enum class ExactTranspositionBound : std::uint8_t {
     Exact,
     Lower,
     Upper,
@@ -37,9 +37,9 @@ enum class ExactTranspositionBound {
 
 struct ExactTranspositionEntry {
     ZobristHash hash = 0;
-    int empties = -1;
     int score = 0;
-    int best_move_index = -1;
+    std::int8_t empties = -1;
+    std::int8_t best_move_index = -1;
     ExactTranspositionBound bound = ExactTranspositionBound::Exact;
     bool occupied = false;
 };
@@ -114,9 +114,10 @@ public:
 
         entry = ExactTranspositionEntry{
             .hash = hash,
-            .empties = empties,
             .score = score,
-            .best_move_index = best_move.has_value() ? best_move->index() : -1,
+            .empties = static_cast<std::int8_t>(empties),
+            .best_move_index =
+                static_cast<std::int8_t>(best_move.has_value() ? best_move->index() : -1),
             .bound = bound,
             .occupied = true,
         };
@@ -153,7 +154,8 @@ private:
 
     [[nodiscard]] static NodeResult
     node_result_from_entry(const ExactTranspositionEntry& entry) noexcept {
-        return node_result_from_transposition_entry(entry.score, entry.best_move_index);
+        return node_result_from_transposition_entry(entry.score,
+                                                    static_cast<int>(entry.best_move_index));
     }
 
     static void record_hit(ExactEndgameStats& stats, ExactTranspositionBound bound) noexcept {
