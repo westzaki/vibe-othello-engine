@@ -59,23 +59,28 @@ public:
                                      : new (std::nothrow) ExactTranspositionEntry[entry_count_]} {}
 
     [[nodiscard]] std::optional<NodeResult> lookup(ZobristHash hash, int empties, int alpha,
-                                                   int beta) const noexcept {
+                                                   int beta,
+                                                   ExactEndgameStats& stats) const noexcept {
         if (entries_ == nullptr) {
             return std::nullopt;
         }
 
+        ++stats.tt_lookups;
         const ExactTranspositionEntry& entry = entries_[entry_index(hash)];
         if (!entry.occupied || entry.hash != hash || entry.empties < empties) {
             return std::nullopt;
         }
 
         if (entry.bound == ExactTranspositionBound::Exact) {
+            record_hit(stats, entry.bound);
             return node_result_from_entry(entry);
         }
         if (entry.bound == ExactTranspositionBound::Lower && entry.score >= beta) {
+            record_hit(stats, entry.bound);
             return node_result_from_entry(entry);
         }
         if (entry.bound == ExactTranspositionBound::Upper && entry.score <= alpha) {
+            record_hit(stats, entry.bound);
             return node_result_from_entry(entry);
         }
 
@@ -83,16 +88,19 @@ public:
     }
 
     void store(ZobristHash hash, int empties, int score, int original_alpha, int beta,
-               const std::optional<Square>& best_move) noexcept {
+               const std::optional<Square>& best_move, ExactEndgameStats& stats) noexcept {
         if (entries_ == nullptr) {
             return;
         }
 
         ExactTranspositionEntry& entry = entries_[entry_index(hash)];
         if (entry.occupied && entry.hash != hash && empties < entry.empties) {
+            ++stats.tt_rejected_stores;
             return;
         }
 
+        const bool overwrites_entry = entry.occupied;
+        const bool collides_with_different_hash = entry.occupied && entry.hash != hash;
         ExactTranspositionBound bound = ExactTranspositionBound::Exact;
         if (score <= original_alpha) {
             bound = ExactTranspositionBound::Upper;
@@ -108,6 +116,13 @@ public:
             .bound = bound,
             .occupied = true,
         };
+        ++stats.tt_stores;
+        if (overwrites_entry) {
+            ++stats.tt_overwrites;
+        }
+        if (collides_with_different_hash) {
+            ++stats.tt_collisions;
+        }
     }
 
 private:
@@ -154,12 +169,27 @@ private:
         }
         return result;
     }
+
+    static void record_hit(ExactEndgameStats& stats, ExactTranspositionBound bound) noexcept {
+        ++stats.tt_hits;
+        switch (bound) {
+        case ExactTranspositionBound::Exact:
+            ++stats.tt_exact_hits;
+            break;
+        case ExactTranspositionBound::Lower:
+            ++stats.tt_lower_hits;
+            break;
+        case ExactTranspositionBound::Upper:
+            ++stats.tt_upper_hits;
+            break;
+        }
+    }
 };
 
 struct ExactEndgameContext {
     explicit ExactEndgameContext(int root_empties) noexcept : transpositions{root_empties} {}
 
-    std::uint64_t nodes = 0;
+    ExactEndgameStats stats;
     ExactTranspositionTable transpositions;
 };
 
@@ -326,12 +356,12 @@ principal_variation_to_vector(const PrincipalVariation& principal_variation) noe
 // NOLINTNEXTLINE(misc-no-recursion)
 [[nodiscard]] NodeResult solve_node(const Board& board, ZobristHash hash, int alpha, int beta,
                                     ExactEndgameContext& context, bool is_root) noexcept {
-    ++context.nodes;
+    ++context.stats.nodes;
     const int original_alpha = alpha;
     const int empties = empty_count(board);
 
     const std::optional<NodeResult> cached =
-        context.transpositions.lookup(hash, empties, alpha, beta);
+        context.transpositions.lookup(hash, empties, alpha, beta, context.stats);
     if (cached.has_value()) {
         return *cached;
     }
@@ -339,7 +369,7 @@ principal_variation_to_vector(const PrincipalVariation& principal_variation) noe
     if (is_game_over(board)) {
         const NodeResult result{.score = score(board, board.side_to_move)};
         context.transpositions.store(hash, empties, result.score, original_alpha, beta,
-                                     result.best_move);
+                                     result.best_move, context.stats);
         return result;
     }
 
@@ -349,7 +379,7 @@ principal_variation_to_vector(const PrincipalVariation& principal_variation) noe
         if (!next.has_value()) {
             const NodeResult result{.score = score(board, board.side_to_move)};
             context.transpositions.store(hash, empties, result.score, original_alpha, beta,
-                                         result.best_move);
+                                         result.best_move, context.stats);
             return result;
         }
 
@@ -360,7 +390,7 @@ principal_variation_to_vector(const PrincipalVariation& principal_variation) noe
             .principal_variation = child.principal_variation,
         };
         context.transpositions.store(hash, empties, result.score, original_alpha, beta,
-                                     result.best_move);
+                                     result.best_move, context.stats);
         return result;
     }
 
@@ -403,7 +433,7 @@ principal_variation_to_vector(const PrincipalVariation& principal_variation) noe
         .principal_variation = best_principal_variation,
     };
     context.transpositions.store(hash, empties, result.score, original_alpha, beta,
-                                 result.best_move);
+                                 result.best_move, context.stats);
     return result;
 }
 
@@ -418,8 +448,9 @@ ExactEndgameResult solve_exact_endgame(const Board& board) noexcept {
         .best_move = result.best_move,
         .disc_margin = result.score,
         .empties = empty_count(board),
-        .nodes = context.nodes,
+        .nodes = context.stats.nodes,
         .principal_variation = principal_variation_to_vector(result.principal_variation),
+        .stats = context.stats,
     };
 }
 

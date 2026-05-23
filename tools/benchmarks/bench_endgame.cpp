@@ -45,6 +45,7 @@ struct PositionBenchmarkResult {
     int disc_margin = 0;
     std::vector<othello::Square> principal_variation;
     std::uint64_t total_nodes = 0;
+    othello::ExactEndgameStats total_stats;
     std::chrono::nanoseconds elapsed{};
     std::uint64_t repetitions = 0;
 };
@@ -348,6 +349,19 @@ format_principal_variation(const std::vector<othello::Square>& principal_variati
            lhs.principal_variation == rhs.principal_variation;
 }
 
+void add_stats(othello::ExactEndgameStats& total, const othello::ExactEndgameStats& stats) {
+    total.nodes += stats.nodes;
+    total.tt_lookups += stats.tt_lookups;
+    total.tt_hits += stats.tt_hits;
+    total.tt_exact_hits += stats.tt_exact_hits;
+    total.tt_lower_hits += stats.tt_lower_hits;
+    total.tt_upper_hits += stats.tt_upper_hits;
+    total.tt_stores += stats.tt_stores;
+    total.tt_overwrites += stats.tt_overwrites;
+    total.tt_collisions += stats.tt_collisions;
+    total.tt_rejected_stores += stats.tt_rejected_stores;
+}
+
 [[nodiscard]] bool validate_solver_result(const othello::benchmarks::EndgamePosition& position,
                                           const othello::ExactEndgameResult& result) {
     if (result.best_move.has_value()) {
@@ -383,6 +397,7 @@ format_principal_variation(const std::vector<othello::Square>& principal_variati
 run_benchmark(const othello::benchmarks::EndgamePosition& position, std::uint64_t repetitions) {
     std::optional<othello::ExactEndgameResult> sample;
     std::uint64_t total_nodes = 0;
+    othello::ExactEndgameStats total_stats;
 
     const auto started = Clock::now();
     for (std::uint64_t repetition = 0; repetition < repetitions; ++repetition) {
@@ -398,6 +413,7 @@ run_benchmark(const othello::benchmarks::EndgamePosition& position, std::uint64_
             return std::nullopt;
         }
         total_nodes += result.nodes;
+        add_stats(total_stats, result.stats);
     }
     const auto elapsed = Clock::now() - started;
 
@@ -413,6 +429,7 @@ run_benchmark(const othello::benchmarks::EndgamePosition& position, std::uint64_
         .disc_margin = sample->disc_margin,
         .principal_variation = sample->principal_variation,
         .total_nodes = total_nodes,
+        .total_stats = total_stats,
         .elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed),
         .repetitions = repetitions,
     };
@@ -430,12 +447,22 @@ run_benchmark(const othello::benchmarks::EndgamePosition& position, std::uint64_
     return static_cast<double>(nodes) / seconds;
 }
 
+[[nodiscard]] double hit_rate(std::uint64_t hits, std::uint64_t lookups) {
+    if (lookups == 0) {
+        return 0.0;
+    }
+    return (static_cast<double>(hits) * 100.0) / static_cast<double>(lookups);
+}
+
 void print_position_results(const std::vector<PositionBenchmarkResult>& results) {
     std::cout << std::left << std::setw(30) << "position" << "  " << std::right << std::setw(7)
               << "empties" << "  " << std::left << std::setw(58) << "tags" << "  " << std::setw(9)
               << "best_move" << "  " << std::right << std::setw(11) << "margin" << "  "
               << std::setw(12) << "nodes" << "  " << std::setw(12) << "elapsed_ms" << "  "
-              << std::setw(12) << "nodes/s" << "  pv\n";
+              << std::setw(12) << "nodes/s" << "  " << std::setw(12) << "tt_lookups" << "  "
+              << std::setw(12) << "tt_hits" << "  " << std::setw(11) << "tt_hit_pct" << "  "
+              << std::setw(12) << "tt_stores" << "  " << std::setw(13) << "tt_collisions"
+              << "  " << std::setw(11) << "tt_rejects" << "  pv\n";
 
     for (const auto& result : results) {
         std::cout << std::left << std::setw(30) << result.name << "  " << std::right << std::setw(7)
@@ -446,7 +473,14 @@ void print_position_results(const std::vector<PositionBenchmarkResult>& results)
                   << std::setw(12) << std::fixed << std::setprecision(3)
                   << milliseconds(result.elapsed) << "  " << std::setw(12) << std::fixed
                   << std::setprecision(0) << nodes_per_second(result.total_nodes, result.elapsed)
-                  << "  " << format_principal_variation(result.principal_variation) << '\n';
+                  << "  " << std::setw(12) << result.total_stats.tt_lookups << "  " << std::setw(12)
+                  << result.total_stats.tt_hits << "  " << std::setw(11) << std::fixed
+                  << std::setprecision(2)
+                  << hit_rate(result.total_stats.tt_hits, result.total_stats.tt_lookups) << "  "
+                  << std::setw(12) << result.total_stats.tt_stores << "  " << std::setw(13)
+                  << result.total_stats.tt_collisions << "  " << std::setw(11)
+                  << result.total_stats.tt_rejected_stores << "  "
+                  << format_principal_variation(result.principal_variation) << '\n';
     }
 }
 
@@ -509,6 +543,32 @@ void print_summary_by_empty_count(const std::vector<PositionBenchmarkResult>& re
                   << percentile(solve_nodes, 0.50) << "  " << std::setw(12)
                   << percentile(solve_nodes, 0.95) << "  " << std::setw(12)
                   << *std::ranges::max_element(solve_nodes) << '\n';
+    }
+
+    std::cout << "\nTT summary by empty count\n";
+    std::cout << std::right << std::setw(7) << "empties" << "  " << std::setw(5) << "count"
+              << "  " << std::setw(14) << "tt_lookups" << "  " << std::setw(12) << "tt_hits"
+              << "  " << std::setw(11) << "tt_hit_pct" << "  " << std::setw(12) << "exact_hits"
+              << "  " << std::setw(12) << "lower_hits" << "  " << std::setw(12) << "upper_hits"
+              << "  " << std::setw(12) << "tt_stores" << "  " << std::setw(13) << "tt_overwrites"
+              << "  " << std::setw(13) << "tt_collisions" << "  " << std::setw(11) << "tt_rejects"
+              << '\n';
+
+    for (const auto& [empties, group] : by_empty_count) {
+        othello::ExactEndgameStats total_stats;
+        for (const auto& result : group) {
+            add_stats(total_stats, result.total_stats);
+        }
+
+        std::cout << std::right << std::setw(7) << empties << "  " << std::setw(5) << group.size()
+                  << "  " << std::setw(14) << total_stats.tt_lookups << "  " << std::setw(12)
+                  << total_stats.tt_hits << "  " << std::setw(11) << std::fixed
+                  << std::setprecision(2) << hit_rate(total_stats.tt_hits, total_stats.tt_lookups)
+                  << "  " << std::setw(12) << total_stats.tt_exact_hits << "  " << std::setw(12)
+                  << total_stats.tt_lower_hits << "  " << std::setw(12) << total_stats.tt_upper_hits
+                  << "  " << std::setw(12) << total_stats.tt_stores << "  " << std::setw(13)
+                  << total_stats.tt_overwrites << "  " << std::setw(13) << total_stats.tt_collisions
+                  << "  " << std::setw(11) << total_stats.tt_rejected_stores << '\n';
     }
 }
 

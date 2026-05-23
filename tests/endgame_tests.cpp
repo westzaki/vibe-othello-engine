@@ -131,3 +131,52 @@ side=B)");
     CHECK(result.principal_variation.front() == *result.best_move);
     CHECK(result.principal_variation.size() <= static_cast<std::size_t>(result.empties));
 }
+
+TEST_CASE("Exact endgame stats mirror node count and leave TT counters zero when disabled",
+          "[endgame]") {
+    const Board board = othello::test::board_from_text(R"(BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBW.
+side=B)");
+
+    const othello::ExactEndgameResult result = othello::solve_exact_endgame(board);
+
+    CHECK(result.stats.nodes == result.nodes);
+    CHECK(result.stats.tt_lookups == 0);
+    CHECK(result.stats.tt_hits == 0);
+    CHECK(result.stats.tt_exact_hits == 0);
+    CHECK(result.stats.tt_lower_hits == 0);
+    CHECK(result.stats.tt_upper_hits == 0);
+    CHECK(result.stats.tt_stores == 0);
+    CHECK(result.stats.tt_overwrites == 0);
+    CHECK(result.stats.tt_collisions == 0);
+    CHECK(result.stats.tt_rejected_stores == 0);
+}
+
+TEST_CASE("Exact endgame reports TT activity and consistent TT stats when enabled", "[endgame]") {
+    const Board board = othello::test::board_from_text(R"(...B....
+WWBWWW.B
+WWWWWWWW
+WBWWWWW.
+WWWBBWBB
+WBBBWB.B
+WWBWBWBB
+WWWWWWWB
+side=B)");
+
+    const othello::ExactEndgameResult result = othello::solve_exact_endgame(board);
+
+    CHECK(result.empties == 10);
+    CHECK(result.stats.nodes == result.nodes);
+    CHECK(result.stats.tt_lookups > 0);
+    CHECK(result.stats.tt_stores > 0);
+    CHECK(result.stats.tt_hits <= result.stats.tt_lookups);
+    CHECK(result.stats.tt_collisions <= result.stats.tt_overwrites);
+    CHECK(result.stats.tt_exact_hits + result.stats.tt_lower_hits + result.stats.tt_upper_hits ==
+          result.stats.tt_hits);
+}
