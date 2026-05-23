@@ -121,7 +121,11 @@ constexpr int root_pvs_min_empties = 16;
     std::optional<Square> best_move;
     PrincipalVariation best_principal_variation;
 
-    const OrderedMoveIndexes ordered_moves = ordered_legal_move_indexes(board, hash, moves);
+    const std::optional<Square> preferred_move =
+        context.use_tt_best_move_hints ? context.transpositions.best_move_hint(hash, empties)
+                                       : std::nullopt;
+    const OrderedMoveIndexes ordered_moves =
+        ordered_legal_move_indexes(board, hash, moves, preferred_move);
     const bool use_root_pvs = is_root && should_use_root_pvs(empties, ordered_moves.size);
     for (std::size_t move = 0; move < ordered_moves.size; ++move) {
         const OrderedMoveIndexes::Move& ordered_move = ordered_moves.moves[move];

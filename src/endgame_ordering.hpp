@@ -97,7 +97,8 @@ constexpr EndgameMoveOrderingParams default_move_ordering_params{};
 }
 
 [[nodiscard]] inline OrderedMoveIndexes
-ordered_legal_move_indexes(const Board& board, ZobristHash hash, Bitboard moves) noexcept {
+ordered_legal_move_indexes(const Board& board, ZobristHash hash, Bitboard moves,
+                           const std::optional<Square>& preferred_move = std::nullopt) noexcept {
     OrderedMoveIndexes result;
 
     for (int index = Square::min_index; index <= Square::max_index; ++index) {
@@ -135,6 +136,22 @@ ordered_legal_move_indexes(const Board& board, ZobristHash hash, Bitboard moves)
                   }
                   return lhs.index < rhs.index;
               });
+
+    if (preferred_move.has_value()) {
+        const Bitboard preferred_bit = Bitboard{1} << preferred_move->index();
+        if ((moves & preferred_bit) != 0) {
+            auto first = result.moves.begin();
+            auto last = result.moves.begin() + result.size;
+            auto preferred = std::find_if(first, last,
+                                          [preferred_index = preferred_move->index()](
+                                              const OrderedMoveIndexes::Move& move) noexcept {
+                                              return move.index == preferred_index;
+                                          });
+            if (preferred != last) {
+                std::rotate(first, preferred, preferred + 1);
+            }
+        }
+    }
 
     return result;
 }

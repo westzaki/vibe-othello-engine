@@ -67,6 +67,25 @@ public:
         return std::nullopt;
     }
 
+    [[nodiscard]] std::optional<Square> best_move_hint(ZobristHash hash,
+                                                       int empties) const noexcept {
+        if (entries_ == nullptr) {
+            return std::nullopt;
+        }
+
+        const ExactTranspositionEntry& entry = entries_[entry_index(hash)];
+        if (!entry.occupied || entry.hash != hash || entry.empties < empties) {
+            return std::nullopt;
+        }
+        // Exact entries would have been returned by lookup(). Upper-bound moves were not strong
+        // enough to raise alpha, so use only fail-high moves as first-move ordering hints.
+        if (entry.bound != ExactTranspositionBound::Lower) {
+            return std::nullopt;
+        }
+
+        return Square::from_index(static_cast<int>(entry.best_move_index));
+    }
+
     void store(ZobristHash hash, int empties, int score, int original_alpha, int beta,
                const std::optional<Square>& best_move, ExactEndgameStats& stats) noexcept {
         if (entries_ == nullptr) {
@@ -151,9 +170,13 @@ private:
 };
 
 struct ExactEndgameContext {
-    explicit ExactEndgameContext(int root_empties) noexcept : transpositions{root_empties} {}
+    explicit ExactEndgameContext(int root_empties) noexcept
+        : use_tt_best_move_hints{root_empties >= 18}, transpositions{root_empties} {}
 
     ExactEndgameStats stats;
+    // Smaller roots already have stable static ordering; hints are only worthwhile when TT reuse is
+    // frequent enough to justify perturbing it.
+    bool use_tt_best_move_hints = false;
     ExactTranspositionTable transpositions;
 };
 
