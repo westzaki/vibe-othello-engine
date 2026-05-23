@@ -40,7 +40,7 @@ struct EndgamePosition {
 
 [[nodiscard]] inline std::optional<std::vector<EndgamePosition>> make_endgame_positions() {
     std::vector<EndgamePosition> positions;
-    positions.reserve(27);
+    positions.reserve(40);
 
     if (!add_endgame_position(positions, "one-empty-forced", 1, "low_mobility",
                               "BBBBBBBB\n"
@@ -450,6 +450,228 @@ struct EndgamePosition {
                               "...B..B.\n"
                               "side=B",
                               "fixed-seed balanced 14-empty fixture with many edge-region empties",
+                              false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(positions, "16-empty-low-mobility", 16,
+                              "experimental_16,low_mobility,edge_heavy",
+                              "...W.B.W\n"
+                              "....BBWB\n"
+                              "WB.BBWBB\n"
+                              ".BBBWWBB\n"
+                              ".BWBWBBB\n"
+                              ".BWWWBBB\n"
+                              ".BWWW.BB\n"
+                              "BBBBW.WB\n"
+                              "side=B",
+                              "fixed-seed legal playout fixture, seed 41 policy 0, three legal "
+                              "root moves",
+                              false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(positions, "16-empty-normal-mobility", 16,
+                              "experimental_16,normal_mobility,edge_heavy,balanced_count",
+                              "BBB..W.B\n"
+                              "BWWB..B.\n"
+                              ".W.WWBWW\n"
+                              "WWBWBBWW\n"
+                              "..WWWBWW\n"
+                              ".BBWWWWW\n"
+                              "BBBBBBBB\n"
+                              "..B.W.W.\n"
+                              "side=B",
+                              "fixed-seed legal playout fixture, seed 10 policy 0, six legal "
+                              "root moves",
+                              false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(
+            positions, "16-empty-high-mobility", 16,
+            "experimental_16,high_mobility,corner_available,corner_choice,edge_heavy,balanced_"
+            "count",
+            "...W.W..\n"
+            "..WWW.WW\n"
+            ".WWWBWW.\n"
+            ".WBBBBB.\n"
+            "WBWBBBBW\n"
+            "BBBBBWWW\n"
+            "BBBBWWWW\n"
+            "BW.B.WW.\n"
+            "side=B",
+            "fixed-seed legal playout fixture, seed 50 policy 0, fourteen legal root moves",
+            false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(positions, "16-empty-root-pass", 16,
+                              "experimental_16,pass,edge_heavy,score_lopsided",
+                              "........\n"
+                              "BBBBBBBW\n"
+                              "BBWWBBB.\n"
+                              "BBBBBBBB\n"
+                              ".BBBBWBB\n"
+                              "..BBBWBB\n"
+                              "..BBBWWW\n"
+                              "..BBBBBW\n"
+                              "side=B",
+                              "fixed-seed legal playout fixture, seed 3398 policy 0, root side "
+                              "must pass",
+                              false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(positions, "16-empty-corner-choice", 16,
+                              "experimental_16,corner_choice,corner_available,edge_heavy",
+                              ".WB.B.BW\n"
+                              ".WWWWWWW\n"
+                              ".WBWWWWB\n"
+                              "W.WBWWW.\n"
+                              "WWBBBW.W\n"
+                              "WBBBB.W.\n"
+                              "WBBBBB..\n"
+                              "WBW...B.\n"
+                              "side=B",
+                              "fixed-seed legal playout fixture, seed 2 policy 0, open corner "
+                              "choice",
+                              false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(positions, "16-empty-corner-race", 16,
+                              "experimental_16,corner_race,corner_available,edge_heavy",
+                              ".BBBB...\n"
+                              "..WWWB..\n"
+                              ".WWWWW..\n"
+                              "WWWBWWWW\n"
+                              "WWWBWWWW\n"
+                              "W.BWWWWW\n"
+                              "WBBBWWW.\n"
+                              "B.WWWW..\n"
+                              "side=B",
+                              "fixed-seed legal playout fixture, seed 3 policy 0, competing "
+                              "corner access",
+                              false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(positions, "16-empty-edge-heavy", 16,
+                              "experimental_16,edge_heavy,corner_available,high_mobility",
+                              ".B....BW\n"
+                              ".WWWWWW.\n"
+                              ".WWWWBWW\n"
+                              ".WBWWWWW\n"
+                              "WWBWWBWW\n"
+                              ".WWWBBWW\n"
+                              "WWBBBBW.\n"
+                              "W...B.W.\n"
+                              "side=B",
+                              "fixed-seed legal playout fixture, seed 5043 policy 0, all empties "
+                              "on edges",
+                              false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(positions, "16-empty-parity-ish", 16,
+                              "experimental_16,parity-ish,balanced_count,low_mobility",
+                              "...W....\n"
+                              "....W..B\n"
+                              "BBBBBWBB\n"
+                              ".BBBBBWB\n"
+                              "BWBWBWBB\n"
+                              "WWWBWBB.\n"
+                              "WWWWWWB.\n"
+                              "WWWWWWWB\n"
+                              "side=B",
+                              "fixed-seed legal playout fixture, seed 5042 policy 0, balanced "
+                              "disc count and four legal root moves",
+                              false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(positions, "18-empty-low-mobility", 18,
+                              "experimental_18,low_mobility,edge_heavy",
+                              ".B...W..\n"
+                              "B.B.BBBB\n"
+                              "BBWBBWBB\n"
+                              "BWBWBWWB\n"
+                              ".BWBWW.W\n"
+                              ".BBWBBB.\n"
+                              "...WBBB.\n"
+                              "..WWWWWW\n"
+                              "side=B",
+                              "fixed-seed legal playout fixture, seed 19 policy 0, four legal "
+                              "root moves",
+                              false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(positions, "18-empty-normal-mobility", 18,
+                              "experimental_18,normal_mobility,corner_available,edge_heavy",
+                              ".B.W.BB.\n"
+                              "..BBBBBB\n"
+                              "B..WBWB.\n"
+                              "BBBWWWW.\n"
+                              "BBBWBWWB\n"
+                              "..BBWBW.\n"
+                              ".WBBBBWW\n"
+                              "W...BBW.\n"
+                              "side=B",
+                              "fixed-seed legal playout fixture, seed 4 policy 0, six legal "
+                              "root moves",
+                              false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(positions, "18-empty-high-mobility", 18,
+                              "experimental_18,high_mobility,corner_available,edge_heavy",
+                              "...W....\n"
+                              ".WBWWW..\n"
+                              "BWBBWWWB\n"
+                              "WWBBBBWB\n"
+                              "BWBBWWWW\n"
+                              ".BWWBWWB\n"
+                              "..WWWWW.\n"
+                              "WWW...W.\n"
+                              "side=B",
+                              "fixed-seed legal playout fixture, seed 47 policy 0, sixteen legal "
+                              "root moves",
+                              false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(positions, "18-empty-root-pass", 18,
+                              "experimental_18,pass,edge_heavy,score_lopsided",
+                              "..BBBBB.\n"
+                              "....BB.W\n"
+                              "....BWWW\n"
+                              "W..B.WWW\n"
+                              "WBBWWWWW\n"
+                              "WB.BWB.W\n"
+                              "W.BBWWWW\n"
+                              "WWWWWWWW\n"
+                              "side=B",
+                              "reopened variant of the fixed-seed 14-empty pass fixture; root side "
+                              "must pass",
+                              false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(positions, "18-empty-corner-race", 18,
+                              "experimental_18,corner_race,corner_available,edge_heavy",
+                              ".B...WWW\n"
+                              ".WBWWWBW\n"
+                              "..BBWBWB\n"
+                              ".WWWWWBB\n"
+                              ".WWWWBBB\n"
+                              "WWBWB..B\n"
+                              "WWWBWW..\n"
+                              ".W.BB...\n"
+                              "side=B",
+                              "fixed-seed legal playout fixture, seed 34 policy 0, competing "
+                              "corner access",
                               false)) {
         return std::nullopt;
     }
