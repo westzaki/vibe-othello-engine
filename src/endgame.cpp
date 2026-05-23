@@ -1,8 +1,10 @@
+#include "hash_detail.hpp"
 #include "search_common.hpp"
 
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -48,6 +50,7 @@ struct OrderedMoveIndexes {
     struct Move {
         int index = 0;
         int order_score = 0;
+        ZobristHash hash = 0;
         Board next;
     };
 
@@ -197,6 +200,30 @@ constexpr int final_disc_margin_max = 64;
 constexpr int root_pvs_min_empties = 16;
 constexpr EndgameMoveOrderingParams default_move_ordering_params{};
 
+[[nodiscard]] ZobristHash hash_after_pass(ZobristHash hash, const Board& board) noexcept {
+    hash ^= detail::zobrist_side_hash(board.side_to_move);
+    hash ^= detail::zobrist_side_hash(opponent(board.side_to_move));
+    return hash;
+}
+
+[[nodiscard]] ZobristHash hash_after_move(ZobristHash hash, const Board& board, Square square,
+                                          Bitboard flips) noexcept {
+    const Side side = board.side_to_move;
+    const Side other = opponent(side);
+    hash ^= detail::zobrist_side_hash(side);
+    hash ^= detail::zobrist_side_hash(other);
+    hash ^= detail::zobrist_piece_hash(side, square.index());
+
+    while (flips != 0) {
+        const int index = std::countr_zero(flips);
+        flips &= flips - 1;
+        hash ^= detail::zobrist_piece_hash(other, index);
+        hash ^= detail::zobrist_piece_hash(side, index);
+    }
+
+    return hash;
+}
+
 [[nodiscard]] int move_order_score(const Board& board, int index, const Board& next,
                                    const EndgameMoveOrderingParams& params) noexcept {
     int score = 0;
@@ -226,7 +253,7 @@ constexpr EndgameMoveOrderingParams default_move_ordering_params{};
     return score;
 }
 
-[[nodiscard]] OrderedMoveIndexes ordered_legal_move_indexes(const Board& board,
+[[nodiscard]] OrderedMoveIndexes ordered_legal_move_indexes(const Board& board, ZobristHash hash,
                                                             Bitboard moves) noexcept {
     OrderedMoveIndexes result;
 
@@ -243,10 +270,15 @@ constexpr EndgameMoveOrderingParams default_move_ordering_params{};
                 continue;
             }
             const Board next = board_after_move(board, *square, flips);
+            const ZobristHash next_hash = hash_after_move(hash, board, *square, flips);
+#ifndef NDEBUG
+            assert(next_hash == zobrist_hash(next));
+#endif
 
             result.moves[result.size] = OrderedMoveIndexes::Move{
                 .index = index,
                 .order_score = move_order_score(board, index, next, default_move_ordering_params),
+                .hash = next_hash,
                 .next = next,
             };
             ++result.size;
@@ -319,9 +351,13 @@ constexpr EndgameMoveOrderingParams default_move_ordering_params{};
         // At a root pass, the after-pass child is still the first real move choice in the public
         // PV. Treat only that child as a root traversal so root PVS can help without exposing a
         // fake pass move or changing best_move=nullopt semantics.
+        const ZobristHash next_hash = hash_after_pass(hash, board);
+#ifndef NDEBUG
+        assert(next_hash == zobrist_hash(*next));
+#endif
         const bool use_after_pass_root_pvs = is_root && empty_count(*next) >= root_pvs_min_empties;
         const NodeResult child =
-            solve_node(*next, zobrist_hash(*next), -beta, -alpha, context, use_after_pass_root_pvs);
+            solve_node(*next, next_hash, -beta, -alpha, context, use_after_pass_root_pvs);
         const NodeResult result{
             .score = -child.score,
             .principal_variation = child.principal_variation,
@@ -335,7 +371,7 @@ constexpr EndgameMoveOrderingParams default_move_ordering_params{};
     std::optional<Square> best_move;
     PrincipalVariation best_principal_variation;
 
-    const OrderedMoveIndexes ordered_moves = ordered_legal_move_indexes(board, moves);
+    const OrderedMoveIndexes ordered_moves = ordered_legal_move_indexes(board, hash, moves);
     const bool use_root_pvs = is_root && should_use_root_pvs(empties, ordered_moves.size);
     for (std::size_t move = 0; move < ordered_moves.size; ++move) {
         const OrderedMoveIndexes::Move& ordered_move = ordered_moves.moves[move];
@@ -347,7 +383,7 @@ constexpr EndgameMoveOrderingParams default_move_ordering_params{};
         // Root results are public API, so compare exact root candidate scores instead of
         // alpha-beta bounds. Root PVS only uses a scout to reject candidates that provably cannot
         // beat the current exact best; candidates that may become best are re-searched full-window.
-        const ZobristHash next_hash = zobrist_hash(ordered_move.next);
+        const ZobristHash next_hash = ordered_move.hash;
         std::optional<NodeResult> child;
         if (is_root) {
             if (!use_root_pvs || !best_score.has_value() || !best_move.has_value()) {
