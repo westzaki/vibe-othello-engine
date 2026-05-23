@@ -87,6 +87,8 @@ othello_add_executable(othello_tests
     tests/hash_tests.cpp
     tests/notation_tests.cpp
     tests/player_tests.cpp
+    tests/reference_rules.cpp
+    tests/reference_rules_tests.cpp
     tests/rules_tests.cpp
     tests/search_tests.cpp
     tests/square_tests.cpp
