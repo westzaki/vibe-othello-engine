@@ -18,6 +18,7 @@ struct CliOptions {
     int games = 1;
     bool swap_sides = false;
     std::uint64_t seed = 1;
+    std::string openings_path;
     std::string output_path;
     bool quiet = false;
 };
@@ -25,7 +26,7 @@ struct CliOptions {
 void print_usage(std::string_view program_name) {
     std::cout << "usage: " << program_name
               << " --black SPEC --white SPEC --games N --swap-sides true|false --seed N"
-                 " --output PATH [--format jsonl] [--quiet]\n"
+                 " [--openings PATH] --output PATH [--format jsonl] [--quiet]\n"
               << '\n'
               << "Player specs:\n"
               << "  first\n"
@@ -39,6 +40,7 @@ void print_usage(std::string_view program_name) {
               << "  --games N           number of games to run\n"
               << "  --swap-sides BOOL   alternate A/B sides by game when true\n"
               << "  --seed N            base random seed; game i uses seed + i\n"
+              << "  --openings PATH     opening suite text file\n"
               << "  --output PATH       JSONL output path\n"
               << "  --format jsonl      output format\n"
               << "  --quiet             suppress stdout summary\n"
@@ -125,6 +127,13 @@ next_argument(std::span<char* const> args, std::size_t& index, std::string_view 
                 return std::nullopt;
             }
             options.seed = *seed;
+        } else if (arg == "--openings") {
+            const auto value = next_argument(args, index, arg);
+            if (!value.has_value() || value->empty()) {
+                std::cerr << "invalid --openings value\n";
+                return std::nullopt;
+            }
+            options.openings_path = std::string{*value};
         } else if (arg == "--output") {
             const auto value = next_argument(args, index, arg);
             if (!value.has_value() || value->empty()) {
@@ -160,6 +169,43 @@ next_argument(std::span<char* const> args, std::size_t& index, std::string_view 
     options.black = *black;
     options.white = *white;
     return options;
+}
+
+[[nodiscard]] std::optional<std::vector<othello::match_runner::Opening>>
+load_openings_file(const std::filesystem::path& path) {
+    std::ifstream input{path};
+    if (!input) {
+        std::cerr << "failed to open openings file: " << path << '\n';
+        return std::nullopt;
+    }
+
+    std::vector<othello::match_runner::Opening> openings;
+    std::string line;
+    int line_number = 0;
+    while (std::getline(input, line)) {
+        ++line_number;
+        const othello::match_runner::OpeningParseResult result =
+            othello::match_runner::parse_opening_line(line);
+        if (!result.ok) {
+            std::cerr << "invalid opening at " << path << ':' << line_number << ": "
+                      << result.error << '\n';
+            return std::nullopt;
+        }
+        if (result.has_opening) {
+            openings.push_back(result.opening);
+        }
+    }
+
+    if (!input.eof()) {
+        std::cerr << "failed to read openings file: " << path << '\n';
+        return std::nullopt;
+    }
+    if (openings.empty()) {
+        std::cerr << "openings file contains no openings: " << path << '\n';
+        return std::nullopt;
+    }
+
+    return openings;
 }
 
 [[nodiscard]] std::string json_escape(std::string_view text) {
@@ -206,6 +252,21 @@ void write_jsonl_record(std::ostream& output, const othello::match_runner::GameR
     output << "{";
     output << "\"game_index\":" << record.game_index << ',';
     output << "\"seed\":" << record.seed << ',';
+    output << "\"opening_index\":" << record.opening_index << ',';
+    output << "\"opening_name\":";
+    write_json_string(output, record.opening_name);
+    output << ',';
+    output << "\"opening_moves\":[";
+    for (std::size_t index = 0; index < record.opening_moves.size(); ++index) {
+        if (index != 0) {
+            output << ',';
+        }
+        write_json_string(output, record.opening_moves[index]);
+    }
+    output << "],";
+    output << "\"start_board\":";
+    write_json_string(output, record.start_board);
+    output << ',';
     output << "\"black_spec\":";
     write_json_string(output, record.black_spec);
     output << ',';
@@ -271,7 +332,8 @@ void write_jsonl_record(std::ostream& output, const othello::match_runner::GameR
 }
 
 void print_summary(const CliOptions& options,
-                   std::span<const othello::match_runner::GameRecord> records) {
+                   std::span<const othello::match_runner::GameRecord> records,
+                   std::size_t openings_count) {
     const othello::match_runner::MatchSummary summary = othello::match_runner::summarize(records);
 
     std::cout << "games: " << summary.games << '\n';
@@ -282,6 +344,7 @@ void print_summary(const CliOptions& options,
     std::cout << "draws: " << summary.draws << '\n';
     std::cout << "average disc diff from A perspective: " << std::fixed << std::setprecision(2)
               << summary.average_disc_diff_from_player_a << '\n';
+    std::cout << "openings: " << openings_count << '\n';
     std::cout << "output: " << options.output_path << '\n';
 }
 
@@ -301,12 +364,23 @@ int main(int argc, char** argv) {
         return 2;
     }
 
+    std::vector<othello::match_runner::Opening> openings;
+    if (!options->openings_path.empty()) {
+        const std::optional<std::vector<othello::match_runner::Opening>> loaded_openings =
+            load_openings_file(options->openings_path);
+        if (!loaded_openings.has_value()) {
+            return 2;
+        }
+        openings = *loaded_openings;
+    }
+
     const othello::match_runner::MatchConfig config{
         .player_a = options->black,
         .player_b = options->white,
         .games = options->games,
         .swap_sides = options->swap_sides,
         .seed = options->seed,
+        .openings = openings,
     };
     const std::vector<othello::match_runner::GameRecord> records =
         othello::match_runner::run_match(config);
@@ -316,7 +390,7 @@ int main(int argc, char** argv) {
     }
 
     if (!options->quiet) {
-        print_summary(*options, records);
+        print_summary(*options, records, openings.empty() ? 1 : openings.size());
     }
 
     return 0;
