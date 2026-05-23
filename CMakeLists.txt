@@ -10,6 +10,12 @@ if(OTHELLO_ENABLE_CLANG_TIDY)
     if(NOT CLANG_TIDY_EXE)
         message(FATAL_ERROR "OTHELLO_ENABLE_CLANG_TIDY is ON, but clang-tidy was not found")
     endif()
+
+    # Third-party FetchContent headers are intentionally excluded from clang-tidy diagnostics.
+    set(OTHELLO_CLANG_TIDY_COMMAND
+        "${CLANG_TIDY_EXE}"
+        "--header-filter=^${CMAKE_CURRENT_SOURCE_DIR}/(include|src|tests|tools)/"
+    )
 endif()
 
 if(OTHELLO_ENABLE_SANITIZERS AND NOT CMAKE_CXX_COMPILER_ID MATCHES "AppleClang|Clang|GNU")
@@ -107,7 +113,7 @@ othello_add_executable(othello_analyze_position
 if(OTHELLO_ENABLE_CLANG_TIDY)
     set_target_properties(${OTHELLO_CLANG_TIDY_TARGETS}
         PROPERTIES
-            CXX_CLANG_TIDY "${CLANG_TIDY_EXE}"
+            CXX_CLANG_TIDY "${OTHELLO_CLANG_TIDY_COMMAND}"
     )
 endif()
 
