@@ -317,6 +317,16 @@ constexpr EndgameMoveOrderingParams default_move_ordering_params{};
                                                     int required_score,
                                                     ExactEndgameContext& context) noexcept;
 
+// A null-window scout can reject equality with alpha. Use a full search when equality could change
+// the deterministic lower-index tie-break for this node's stored best move and PV.
+[[nodiscard]] bool interior_candidate_needs_full_search(Square candidate,
+                                                        const std::optional<int>& best_score,
+                                                        const std::optional<Square>& best_move,
+                                                        int alpha) noexcept {
+    return best_score.has_value() && best_move.has_value() &&
+           candidate.index() < best_move->index() && *best_score <= alpha;
+}
+
 // Exact negamax searches to game-over leaves only.
 // NOLINTNEXTLINE(misc-no-recursion)
 [[nodiscard]] NodeResult solve_node(const Board& board, ZobristHash hash, int alpha, int beta,
@@ -400,8 +410,17 @@ constexpr EndgameMoveOrderingParams default_move_ordering_params{};
                 }
                 child = solve_root_candidate_full(ordered_move.next, next_hash, context);
             }
-        } else {
+        } else if (move == 0 ||
+                   interior_candidate_needs_full_search(*square, best_score, best_move, alpha)) {
             child = solve_node(ordered_move.next, next_hash, -beta, -alpha, context, false);
+        } else {
+            // Interior PVS tests whether this move can improve alpha. A root-side scout window
+            // [alpha, alpha + 1) becomes child-side [-(alpha + 1), -alpha] through negamax.
+            child = solve_node(ordered_move.next, next_hash, -(alpha + 1), -alpha, context, false);
+            const int scout_score = -child->score;
+            if (scout_score > alpha && scout_score < beta) {
+                child = solve_node(ordered_move.next, next_hash, -beta, -alpha, context, false);
+            }
         }
         const int candidate_score = -child->score;
         if (is_better_best_move(candidate_score, *square, best_score, best_move)) {
