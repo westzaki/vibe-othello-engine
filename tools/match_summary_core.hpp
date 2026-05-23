@@ -42,6 +42,7 @@ struct OpeningSummary {
     std::string opening_name;
     int games = 0;
     int valid_games = 0;
+    int error_games = 0;
     int player_a_wins = 0;
     int player_b_wins = 0;
     int draws = 0;
@@ -97,7 +98,7 @@ public:
         return text_.empty();
     }
 
-    [[nodiscard]] bool consume(char expected) noexcept {
+    [[nodiscard]] bool consume(char expected) {
         skip_ws();
         if (text_.empty() || text_.front() != expected) {
             set_error(std::string{"expected '"} + expected + "'");
@@ -116,7 +117,7 @@ public:
         return false;
     }
 
-    [[nodiscard]] bool parse_string(std::string& value) noexcept {
+    [[nodiscard]] bool parse_string(std::string& value) {
         skip_ws();
         if (text_.empty() || text_.front() != '"') {
             set_error("expected string");
@@ -188,7 +189,7 @@ public:
         return false;
     }
 
-    [[nodiscard]] bool parse_int(int& value) noexcept {
+    [[nodiscard]] bool parse_int(int& value) {
         skip_ws();
         const char* begin = text_.data();
         const char* end = text_.data() + text_.size();
@@ -204,7 +205,7 @@ public:
         return true;
     }
 
-    [[nodiscard]] bool parse_bool(bool& value) noexcept {
+    [[nodiscard]] bool parse_bool(bool& value) {
         skip_ws();
         if (text_.starts_with("true")) {
             value = true;
@@ -221,7 +222,7 @@ public:
         return false;
     }
 
-    [[nodiscard]] bool skip_value() noexcept {
+    [[nodiscard]] bool skip_value() {
         skip_ws();
         if (text_.empty()) {
             set_error("expected value");
@@ -257,13 +258,13 @@ private:
     std::string_view text_;
     std::string error_;
 
-    void set_error(std::string error) noexcept {
+    void set_error(std::string error) {
         if (error_.empty()) {
             error_ = std::move(error);
         }
     }
 
-    [[nodiscard]] bool skip_unicode_escape() noexcept {
+    [[nodiscard]] bool skip_unicode_escape() {
         if (text_.size() < 4) {
             set_error("short unicode escape");
             return false;
@@ -278,7 +279,7 @@ private:
         return true;
     }
 
-    [[nodiscard]] bool skip_object() noexcept {
+    [[nodiscard]] bool skip_object() {
         if (!consume('{')) {
             return false;
         }
@@ -304,7 +305,7 @@ private:
         }
     }
 
-    [[nodiscard]] bool skip_array() noexcept {
+    [[nodiscard]] bool skip_array() {
         if (!consume('[')) {
             return false;
         }
@@ -329,7 +330,7 @@ private:
         }
     }
 
-    [[nodiscard]] bool skip_number() noexcept {
+    [[nodiscard]] bool skip_number() {
         skip_ws();
         std::size_t index = 0;
         if (index < text_.size() && text_[index] == '-') {
@@ -526,6 +527,7 @@ private:
 
         if (record.illegal_or_error) {
             ++summary.error_games;
+            ++opening.error_games;
             continue;
         }
 

@@ -122,6 +122,10 @@ load_records(const std::filesystem::path& input_path) {
         std::cerr << "failed to read input file: " << input_path << '\n';
         return std::nullopt;
     }
+    if (records.empty()) {
+        std::cerr << "input file contains no records: " << input_path << '\n';
+        return std::nullopt;
+    }
 
     return records;
 }
@@ -163,12 +167,14 @@ void print_summary(const std::filesystem::path& input_path,
     std::cout << '\n';
     std::cout << "by opening:\n";
     std::cout << std::left << std::setw(8) << "index" << std::setw(24) << "name" << std::right
-              << std::setw(8) << "games" << std::setw(8) << "A wins" << std::setw(8) << "B wins"
-              << std::setw(8) << "draws" << std::setw(12) << "avg diff" << '\n';
+              << std::setw(8) << "games" << std::setw(8) << "errors" << std::setw(8)
+              << "A wins" << std::setw(8) << "B wins" << std::setw(8) << "draws"
+              << std::setw(12) << "avg diff" << '\n';
     for (const othello::match_summary::OpeningSummary& opening : summary.openings) {
         std::cout << std::left << std::setw(8) << opening.opening_index << std::setw(24)
                   << opening.opening_name << std::right << std::setw(8) << opening.games
-                  << std::setw(8) << opening.player_a_wins << std::setw(8)
+                  << std::setw(8) << opening.error_games << std::setw(8)
+                  << opening.player_a_wins << std::setw(8)
                   << opening.player_b_wins << std::setw(8) << opening.draws << std::setw(12)
                   << opening.average_disc_diff_from_player_a << '\n';
     }

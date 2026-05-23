@@ -151,4 +151,8 @@ TEST_CASE("Match summary counts illegal games as error games", "[match-summary]"
     CHECK(result.player_a_wins == 1);
     CHECK(result.player_b_wins == 0);
     CHECK(result.average_disc_diff_from_player_a == 10.0);
+    REQUIRE(result.openings.size() == 1);
+    CHECK(result.openings[0].games == 2);
+    CHECK(result.openings[0].valid_games == 1);
+    CHECK(result.openings[0].error_games == 1);
 }
