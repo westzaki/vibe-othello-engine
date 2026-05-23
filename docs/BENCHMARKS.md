@@ -34,18 +34,37 @@ Available options may change; use `--help` for current details.
 Use the exact endgame benchmark when changing the standalone exact solver,
 endgame fixtures, or exact endgame observability:
 
+Standard benchmark commands:
+
 ```sh
 ./build/othello_endgame_bench --empties 14 --repetitions 1
 ./build/othello_endgame_bench --empties 16 --repetitions 1
 ./build/othello_endgame_bench --empties 18 --repetitions 1
 ./build/othello_endgame_bench --empties 20 --repetitions 1
-./build/othello_endgame_bench --empties 20 --repetitions 1 --root-breakdown
 ```
 
-The exact endgame benchmark includes solver statistics, position metrics, and
-optional root candidate breakdown output. The root breakdown mode solves each
-root candidate separately, so use it as diagnostic evidence rather than as a
-direct replacement for the normal benchmark row.
+Diagnostic commands:
+
+```sh
+./build/othello_endgame_bench --empties 20 --repetitions 1 --root-breakdown
+./build/othello_endgame_bench --empties 20 --repetitions 1 --root-breakdown --expand-worst-candidate
+./build/othello_endgame_bench --breakdown-position 20-empty-high-mobility-lite --repetitions 1 --root-breakdown --expand-worst-candidate
+```
+
+The standard exact endgame rows measure one normal `solve_exact_endgame` call per
+position. Diagnostic modes intentionally solve candidates separately:
+
+- `--root-breakdown` solves each root candidate independently and reports
+  candidate-level cost, margin rank, TT stats, position metrics, and PV.
+- `--expand-worst-candidate` requires `--root-breakdown`; it finds the slowest
+  root candidate for each selected position and expands that candidate one ply to
+  show child-candidate cost.
+- `--breakdown-position NAME` restricts the selected benchmark positions by exact
+  fixture name. This is useful when inspecting one heavy 18/20-empty fixture
+  without running the whole bucket.
+
+Use diagnostic output to understand where time goes. Do not compare total
+candidate time from diagnostic modes directly with the normal benchmark row.
 
 ## Comparing Search Changes
 
@@ -76,6 +95,7 @@ files for comparison history.
 
 Current exact endgame reference:
 
+- [2026-05-24 PR78 child breakdown exact endgame baseline](perf/baselines/2026-05-24-pr78-8d31a40-exact-endgame-child-breakdown.md)
 - [2026-05-23 PR70 interior PVS exact endgame baseline](perf/baselines/2026-05-23-pr70-0c89ba4-exact-endgame-interior-pvs.md)
 
 ## Position Analysis
