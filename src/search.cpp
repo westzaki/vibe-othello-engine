@@ -67,6 +67,11 @@ struct TranspositionEntry {
     bool occupied = false;
 };
 
+struct TranspositionLookup {
+    std::optional<NodeResult> cutoff;
+    std::optional<Square> best_move_hint;
+};
+
 class TranspositionTable {
 public:
     explicit TranspositionTable(const SearchOptions& options) noexcept
@@ -74,35 +79,46 @@ public:
           entries_{entry_count_ == 0 ? nullptr
                                      : new (std::nothrow) TranspositionEntry[entry_count_]} {}
 
-    [[nodiscard]] std::optional<NodeResult> lookup(ZobristHash hash, int depth, int alpha, int beta,
-                                                   SearchStats& stats) const noexcept {
+    [[nodiscard]] TranspositionLookup lookup(ZobristHash hash, int depth, int alpha, int beta,
+                                             bool collect_best_move_hint,
+                                             SearchStats& stats) const noexcept {
         if (entries_ == nullptr) {
-            return std::nullopt;
+            return {};
         }
 
         ++stats.tt_lookups;
         const TranspositionEntry& entry = entries_[entry_index(hash)];
+        // The same depth guard is used for cutoff and ordering hints. A shallower
+        // hint would be correctness-safe, but can perturb iterative search behavior.
         if (!entry.occupied || entry.hash != hash || entry.depth < depth) {
-            return std::nullopt;
+            if (collect_best_move_hint) {
+                ++stats.tt_move_ordering_probes;
+            }
+            return {};
         }
 
         if (entry.bound == TranspositionBound::Exact) {
             ++stats.tt_hits;
             ++stats.tt_exact_hits;
-            return node_result_from_entry(entry);
+            return TranspositionLookup{.cutoff = node_result_from_entry(entry)};
         }
         if (entry.bound == TranspositionBound::Lower && entry.score >= beta) {
             ++stats.tt_hits;
             ++stats.tt_lower_hits;
-            return node_result_from_entry(entry);
+            return TranspositionLookup{.cutoff = node_result_from_entry(entry)};
         }
         if (entry.bound == TranspositionBound::Upper && entry.score <= alpha) {
             ++stats.tt_hits;
             ++stats.tt_upper_hits;
-            return node_result_from_entry(entry);
+            return TranspositionLookup{.cutoff = node_result_from_entry(entry)};
         }
 
-        return std::nullopt;
+        if (!collect_best_move_hint) {
+            return {};
+        }
+
+        ++stats.tt_move_ordering_probes;
+        return TranspositionLookup{.best_move_hint = best_move_hint_from_entry(entry, stats)};
     }
 
     void store(ZobristHash hash, int depth, int score, int original_alpha, int beta,
@@ -184,6 +200,22 @@ private:
     [[nodiscard]] static NodeResult
     node_result_from_entry(const TranspositionEntry& entry) noexcept {
         return node_result_from_transposition_entry(entry.score, entry.best_move_index);
+    }
+
+    [[nodiscard]] static std::optional<Square>
+    best_move_hint_from_entry(const TranspositionEntry& entry, SearchStats& stats) noexcept {
+        if (entry.best_move_index < Square::min_index ||
+            entry.best_move_index > Square::max_index) {
+            return std::nullopt;
+        }
+
+        std::optional<Square> best_move = Square::from_index(entry.best_move_index);
+        if (!best_move.has_value()) {
+            return std::nullopt;
+        }
+
+        ++stats.tt_move_ordering_hits;
+        return best_move;
     }
 };
 
@@ -311,17 +343,9 @@ ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
     return candidates;
 }
 
-[[nodiscard]] OrderedMoveIndexes
-ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
-                           std::optional<Square> preferred_move, bool dynamic_move_ordering,
-                           const MoveOrderingParams& params) noexcept {
-    OrderedMoveIndexes candidates =
-        ordered_legal_move_indexes(board, moves, depth, dynamic_move_ordering, params);
-    if (!preferred_move.has_value() || (moves & preferred_move->bit()) == 0) {
-        return candidates;
-    }
-
-    const int preferred_index = preferred_move->index();
+[[nodiscard]] bool promote_preferred_move(OrderedMoveIndexes& candidates,
+                                          Square preferred_move) noexcept {
+    const int preferred_index = preferred_move.index();
     for (std::size_t index = 0; index < candidates.size; ++index) {
         if (candidates.moves[index].index != preferred_index) {
             continue;
@@ -332,7 +356,27 @@ ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
             candidates.moves[shift] = candidates.moves[shift - 1];
         }
         candidates.moves[0] = preferred;
-        break;
+        return true;
+    }
+
+    return false;
+}
+
+[[nodiscard]] OrderedMoveIndexes
+ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
+                           std::optional<Square> preferred_move,
+                           std::optional<Square> tt_preferred_move, bool dynamic_move_ordering,
+                           const MoveOrderingParams& params, SearchStats& stats) noexcept {
+    OrderedMoveIndexes candidates =
+        ordered_legal_move_indexes(board, moves, depth, dynamic_move_ordering, params);
+
+    if (tt_preferred_move.has_value() && (moves & tt_preferred_move->bit()) != 0 &&
+        promote_preferred_move(candidates, *tt_preferred_move)) {
+        ++stats.tt_move_ordering_used;
+    }
+
+    if (preferred_move.has_value() && (moves & preferred_move->bit()) != 0) {
+        static_cast<void>(promote_preferred_move(candidates, *preferred_move));
     }
 
     return candidates;
@@ -399,10 +443,12 @@ ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
 
     const int original_alpha = alpha;
 
-    const std::optional<NodeResult> cached =
-        context.transpositions.lookup(hash, depth, alpha, beta, context.stats);
-    if (cached.has_value()) {
-        return *cached;
+    const bool collect_tt_best_move_hint = context.dynamic_move_ordering && !is_root &&
+                                           depth >= context.move_ordering_params.dynamic_min_depth;
+    const TranspositionLookup cached = context.transpositions.lookup(
+        hash, depth, alpha, beta, collect_tt_best_move_hint, context.stats);
+    if (cached.cutoff.has_value()) {
+        return *cached.cutoff;
     }
 
     if (depth <= 0 || is_game_over(board)) {
@@ -451,8 +497,10 @@ ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
     if (!preferred_move.has_value() && is_root) {
         preferred_move = root_preferred_move;
     }
+
     const OrderedMoveIndexes ordered_moves = ordered_legal_move_indexes(
-        board, moves, depth, preferred_move, use_dynamic_ordering, context.move_ordering_params);
+        board, moves, depth, preferred_move, cached.best_move_hint, use_dynamic_ordering,
+        context.move_ordering_params, context.stats);
     for (std::size_t move = 0; move < ordered_moves.size; ++move) {
         const auto& ordered_move = ordered_moves.moves[move];
         const std::optional<Square> square = Square::from_index(ordered_move.index);
