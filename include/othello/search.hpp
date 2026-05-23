@@ -29,6 +29,13 @@ struct SearchStats {
     std::uint64_t pvs_researches = 0;
     std::uint64_t pvs_scout_cutoffs = 0;
 
+    std::uint64_t beta_cutoffs = 0;
+    std::uint64_t first_move_beta_cutoffs = 0;
+    std::uint64_t ordered_legal_move_nodes = 0;
+    std::uint64_t ordered_legal_moves = 0;
+    std::uint64_t root_ordering_nodes = 0;
+    std::uint64_t root_ordering_moves = 0;
+
     std::uint64_t dynamic_ordering_nodes = 0;
     std::uint64_t dynamic_ordering_moves = 0;
 };
@@ -56,6 +63,7 @@ struct SearchOptions {
     // search. Values <= 0 disable it.
     int exact_endgame_empty_threshold = 12;
     bool use_pvs = false;
+    bool use_root_dynamic_move_ordering = false;
 };
 
 [[nodiscard]] SearchResult search(const Board& board, const SearchOptions& options) noexcept;

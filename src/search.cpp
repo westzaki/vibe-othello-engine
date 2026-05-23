@@ -240,13 +240,15 @@ constexpr MoveOrderingParams default_move_ordering_params{};
 struct SearchContext {
     explicit SearchContext(const SearchOptions& options, bool enable_dynamic_move_ordering) noexcept
         : transpositions{options}, dynamic_move_ordering{enable_dynamic_move_ordering},
-          use_pvs{options.use_pvs} {}
+          use_pvs{options.use_pvs},
+          use_root_dynamic_move_ordering{options.use_root_dynamic_move_ordering} {}
 
     SearchStats stats;
     TranspositionTable transpositions;
     MoveOrderingParams move_ordering_params = default_move_ordering_params;
     bool dynamic_move_ordering = false;
     bool use_pvs = false;
+    bool use_root_dynamic_move_ordering = false;
 };
 
 constexpr int search_score_min = -1'000'000'000;
@@ -445,7 +447,9 @@ ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
 
     const int original_alpha = alpha;
 
-    const bool collect_tt_best_move_hint = context.dynamic_move_ordering && !is_root &&
+    const bool use_root_ordering = is_root && context.use_root_dynamic_move_ordering;
+    const bool collect_tt_best_move_hint = context.dynamic_move_ordering &&
+                                           (!is_root || use_root_ordering) &&
                                            depth >= context.move_ordering_params.dynamic_min_depth;
     const TranspositionLookup cached = context.transpositions.lookup(
         hash, depth, alpha, beta, collect_tt_best_move_hint, context.stats);
@@ -488,7 +492,8 @@ ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
     std::optional<Square> best_move;
     PrincipalVariation best_principal_variation;
 
-    const bool use_dynamic_ordering = context.dynamic_move_ordering && !is_root;
+    const bool use_dynamic_ordering =
+        context.dynamic_move_ordering && (!is_root || use_root_ordering);
     const auto move_count = static_cast<std::size_t>(std::popcount(moves));
     if (should_use_dynamic_move_ordering(use_dynamic_ordering, move_count, depth,
                                          context.move_ordering_params)) {
@@ -503,6 +508,12 @@ ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
     const OrderedMoveIndexes ordered_moves = ordered_legal_move_indexes(
         board, moves, depth, preferred_move, cached.best_move_hint, use_dynamic_ordering,
         context.move_ordering_params, context.stats);
+    ++context.stats.ordered_legal_move_nodes;
+    context.stats.ordered_legal_moves += ordered_moves.size;
+    if (is_root) {
+        ++context.stats.root_ordering_nodes;
+        context.stats.root_ordering_moves += ordered_moves.size;
+    }
     // Avoid very shallow scouts; with the current ordering, depth-2 null windows tend
     // to add overhead while giving little pruning back.
     const bool use_pvs_at_node = context.use_pvs && ordered_moves.size > 1 && depth >= 3;
@@ -552,6 +563,10 @@ ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
 
         alpha = std::max(alpha, candidate_score);
         if (alpha >= beta) {
+            ++context.stats.beta_cutoffs;
+            if (move == 0) {
+                ++context.stats.first_move_beta_cutoffs;
+            }
             break;
         }
     }

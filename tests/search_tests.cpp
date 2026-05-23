@@ -35,6 +35,16 @@ BBBBBWB.
 side=B)");
 }
 
+void check_ordering_stats_are_consistent(const othello::SearchResult& result) {
+    CHECK(result.stats.first_move_beta_cutoffs <= result.stats.beta_cutoffs);
+    CHECK(result.stats.ordered_legal_move_nodes <= result.stats.nodes);
+    if (result.stats.ordered_legal_move_nodes > 0) {
+        CHECK(result.stats.ordered_legal_moves >= result.stats.ordered_legal_move_nodes);
+    }
+    CHECK(result.stats.root_ordering_nodes <= result.stats.ordered_legal_move_nodes);
+    CHECK(result.stats.root_ordering_moves <= result.stats.ordered_legal_moves);
+}
+
 } // namespace
 
 TEST_CASE("Fixed-depth search at depth zero returns an evaluation-only result", "[search]") {
@@ -180,6 +190,12 @@ TEST_CASE("Search uses exact endgame at the root within threshold", "[search]") 
     CHECK(result.stats.pvs_scouts == 0);
     CHECK(result.stats.pvs_researches == 0);
     CHECK(result.stats.pvs_scout_cutoffs == 0);
+    CHECK(result.stats.beta_cutoffs == 0);
+    CHECK(result.stats.first_move_beta_cutoffs == 0);
+    CHECK(result.stats.ordered_legal_move_nodes == 0);
+    CHECK(result.stats.ordered_legal_moves == 0);
+    CHECK(result.stats.root_ordering_nodes == 0);
+    CHECK(result.stats.root_ordering_moves == 0);
     CHECK(result.stats.dynamic_ordering_nodes == 0);
     CHECK(result.stats.dynamic_ordering_moves == 0);
 }
@@ -222,6 +238,12 @@ TEST_CASE("Iterative search returns exact result immediately within threshold", 
     CHECK(result.stats.pvs_scouts == 0);
     CHECK(result.stats.pvs_researches == 0);
     CHECK(result.stats.pvs_scout_cutoffs == 0);
+    CHECK(result.stats.beta_cutoffs == 0);
+    CHECK(result.stats.first_move_beta_cutoffs == 0);
+    CHECK(result.stats.ordered_legal_move_nodes == 0);
+    CHECK(result.stats.ordered_legal_moves == 0);
+    CHECK(result.stats.root_ordering_nodes == 0);
+    CHECK(result.stats.root_ordering_moves == 0);
     CHECK(result.stats.dynamic_ordering_nodes == 0);
 }
 
@@ -397,6 +419,7 @@ TEST_CASE("Search stats leave transposition table counters zero when disabled", 
     CHECK(result.stats.pvs_scouts == 0);
     CHECK(result.stats.pvs_researches == 0);
     CHECK(result.stats.pvs_scout_cutoffs == 0);
+    check_ordering_stats_are_consistent(result);
 }
 
 TEST_CASE("Search stats count transposition table work when enabled", "[search]") {
@@ -413,6 +436,7 @@ TEST_CASE("Search stats count transposition table work when enabled", "[search]"
     CHECK(result.stats.tt_exact_hits + result.stats.tt_lower_hits + result.stats.tt_upper_hits ==
           result.stats.tt_hits);
     CHECK(result.stats.tt_collisions <= result.stats.tt_overwrites);
+    check_ordering_stats_are_consistent(result);
 }
 
 TEST_CASE("Transposition best move ordering preserves fixed-depth search result", "[search]") {
@@ -575,6 +599,100 @@ TEST_CASE("Search stats count dynamic move ordering work", "[search]") {
     CHECK(result.stats.nodes == result.nodes);
     CHECK(result.stats.dynamic_ordering_nodes > 0);
     CHECK(result.stats.dynamic_ordering_moves >= result.stats.dynamic_ordering_nodes * 5);
+    check_ordering_stats_are_consistent(result);
+    CHECK(result.stats.root_ordering_nodes == 1);
+    CHECK(result.stats.root_ordering_moves == 4);
+}
+
+TEST_CASE("Root dynamic ordering preserves fixed-depth search result", "[search]") {
+    const auto board = othello::apply_move(Board::initial(), othello::test::square("d3"));
+    REQUIRE(board.has_value());
+
+    const othello::SearchOptions baseline_options{
+        .max_depth = 5,
+        .use_transposition_table = true,
+        .exact_endgame_empty_threshold = 0,
+        .use_pvs = true,
+        .use_root_dynamic_move_ordering = false,
+    };
+    const othello::SearchOptions root_ordered_options{
+        .max_depth = 5,
+        .use_transposition_table = true,
+        .exact_endgame_empty_threshold = 0,
+        .use_pvs = true,
+        .use_root_dynamic_move_ordering = true,
+    };
+
+    const othello::SearchResult baseline = othello::search(*board, baseline_options);
+    const othello::SearchResult root_ordered = othello::search(*board, root_ordered_options);
+
+    CHECK(root_ordered.best_move == baseline.best_move);
+    CHECK(root_ordered.score == baseline.score);
+    CHECK(root_ordered.depth == baseline.depth);
+    check_ordering_stats_are_consistent(root_ordered);
+    CHECK(root_ordered.stats.root_ordering_nodes == 1);
+    CHECK(root_ordered.stats.root_ordering_moves > 1);
+}
+
+TEST_CASE("Root dynamic ordering preserves fixed-depth result without TT or PVS", "[search]") {
+    const auto board = othello::apply_move(Board::initial(), othello::test::square("d3"));
+    REQUIRE(board.has_value());
+
+    const othello::SearchOptions baseline_options{
+        .max_depth = 5,
+        .use_transposition_table = false,
+        .exact_endgame_empty_threshold = 0,
+        .use_pvs = false,
+        .use_root_dynamic_move_ordering = false,
+    };
+    const othello::SearchOptions root_ordered_options{
+        .max_depth = 5,
+        .use_transposition_table = false,
+        .exact_endgame_empty_threshold = 0,
+        .use_pvs = false,
+        .use_root_dynamic_move_ordering = true,
+    };
+
+    const othello::SearchResult baseline = othello::search(*board, baseline_options);
+    const othello::SearchResult root_ordered = othello::search(*board, root_ordered_options);
+
+    CHECK(root_ordered.best_move == baseline.best_move);
+    CHECK(root_ordered.score == baseline.score);
+    CHECK(root_ordered.depth == baseline.depth);
+    CHECK(root_ordered.stats.pvs_scouts == 0);
+    check_ordering_stats_are_consistent(root_ordered);
+}
+
+TEST_CASE("Root dynamic ordering is deterministic", "[search]") {
+    const Board board = othello::test::board_from_text(R"(........
+.B......
+..B.B...
+...BB...
+.WWWWW..
+..B.....
+........
+........
+side=W)");
+
+    const othello::SearchOptions options{
+        .max_depth = 6,
+        .use_transposition_table = true,
+        .exact_endgame_empty_threshold = 0,
+        .use_pvs = true,
+        .use_root_dynamic_move_ordering = true,
+    };
+
+    const othello::SearchResult first = othello::search_iterative(board, options);
+    const othello::SearchResult second = othello::search_iterative(board, options);
+
+    CHECK(first.best_move == second.best_move);
+    CHECK(first.score == second.score);
+    CHECK(first.depth == second.depth);
+    CHECK(first.nodes == second.nodes);
+    CHECK(first.principal_variation == second.principal_variation);
+    CHECK(first.stats.root_ordering_nodes == second.stats.root_ordering_nodes);
+    CHECK(first.stats.root_ordering_moves == second.stats.root_ordering_moves);
+    check_ordering_stats_are_consistent(first);
 }
 
 TEST_CASE("PVS off leaves PVS counters zero", "[search]") {
@@ -703,6 +821,12 @@ TEST_CASE("PVS does not scout terminal boards", "[search]") {
     CHECK(result.stats.pvs_scouts == 0);
     CHECK(result.stats.pvs_researches == 0);
     CHECK(result.stats.pvs_scout_cutoffs == 0);
+    CHECK(result.stats.beta_cutoffs == 0);
+    CHECK(result.stats.first_move_beta_cutoffs == 0);
+    CHECK(result.stats.ordered_legal_move_nodes == 0);
+    CHECK(result.stats.ordered_legal_moves == 0);
+    CHECK(result.stats.root_ordering_nodes == 0);
+    CHECK(result.stats.root_ordering_moves == 0);
 }
 
 TEST_CASE("Transposition move ordering does not affect terminal boards", "[search]") {
@@ -729,6 +853,12 @@ TEST_CASE("Transposition move ordering does not affect terminal boards", "[searc
     CHECK(result.stats.pvs_scouts == 0);
     CHECK(result.stats.pvs_researches == 0);
     CHECK(result.stats.pvs_scout_cutoffs == 0);
+    CHECK(result.stats.beta_cutoffs == 0);
+    CHECK(result.stats.first_move_beta_cutoffs == 0);
+    CHECK(result.stats.ordered_legal_move_nodes == 0);
+    CHECK(result.stats.ordered_legal_moves == 0);
+    CHECK(result.stats.root_ordering_nodes == 0);
+    CHECK(result.stats.root_ordering_moves == 0);
 }
 
 TEST_CASE("Fixed-depth search handles pass positions", "[search]") {
@@ -834,4 +964,5 @@ TEST_CASE("PVS preserves pass position result without fake principal variation m
         CHECK((othello::legal_moves(*passed) & pvs.principal_variation.front().bit()) != 0);
     }
     CHECK(pvs.stats.pvs_researches + pvs.stats.pvs_scout_cutoffs == pvs.stats.pvs_scouts);
+    check_ordering_stats_are_consistent(pvs);
 }

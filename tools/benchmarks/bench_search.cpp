@@ -47,6 +47,7 @@ struct BenchmarkOptions {
     bool by_position = false;
     std::optional<bool> use_transposition_table;
     std::optional<bool> use_pvs;
+    std::optional<bool> use_root_dynamic_move_ordering;
     std::size_t transposition_table_entries = othello::SearchOptions{}.transposition_table_entries;
     int exact_endgame_empty_threshold = othello::SearchOptions{}.exact_endgame_empty_threshold;
 };
@@ -56,6 +57,7 @@ struct SearchBenchmarkResult {
     SearchRunMode mode;
     bool use_transposition_table;
     bool use_pvs;
+    bool use_root_dynamic_move_ordering;
     std::size_t transposition_table_entries;
     std::uint64_t position_count;
     int depth;
@@ -77,6 +79,7 @@ struct PositionBenchmarkResult {
     SearchRunMode mode;
     bool use_transposition_table;
     bool use_pvs;
+    bool use_root_dynamic_move_ordering;
     std::size_t transposition_table_entries;
     int depth;
     std::optional<othello::Square> sample_best_move;
@@ -93,7 +96,8 @@ void print_usage(std::string_view program_name) {
               << " [--mode fixed|iterative|both] [--depths 1,2,3,4,5]"
                  " [--repetitions N] [--positions smoke|suite]"
                  " [--describe-positions] [--by-position] [--tt on|off] [--tt-entries N]"
-                 " [--pvs on|off] [--exact-endgame-threshold N]\n"
+                 " [--pvs on|off] [--root-dynamic-ordering on|off]"
+                 " [--exact-endgame-threshold N]\n"
               << '\n'
               << "Options:\n"
               << "  --depths LIST       comma-separated positive search depths\n"
@@ -106,6 +110,8 @@ void print_usage(std::string_view program_name) {
               << "  --tt on|off         override the SearchOptions TT default\n"
               << "  --tt-entries N      requested transposition table entry count\n"
               << "  --pvs on|off        override the SearchOptions PVS default\n"
+              << "  --root-dynamic-ordering on|off\n"
+              << "                      override the SearchOptions root dynamic ordering default\n"
               << "  --exact-endgame-threshold N\n"
               << "                       solve root positions with at most N empties exactly; N <= "
                  "0 disables\n"
@@ -351,6 +357,22 @@ void print_usage(std::string_view program_name) {
                 return std::nullopt;
             }
             options.use_pvs = pvs_setting;
+            continue;
+        }
+
+        if (option == "--root-dynamic-ordering") {
+            ++index;
+            if (index >= args.size()) {
+                std::cerr << "--root-dynamic-ordering requires on or off\n";
+                return std::nullopt;
+            }
+
+            const auto root_ordering_setting = parse_on_off(args[index]);
+            if (!root_ordering_setting.has_value()) {
+                std::cerr << "--root-dynamic-ordering must be on or off\n";
+                return std::nullopt;
+            }
+            options.use_root_dynamic_move_ordering = root_ordering_setting;
             continue;
         }
 
@@ -649,6 +671,9 @@ void check_tag_consistency(std::string_view position_name, std::string_view tags
     if (options.use_pvs.has_value()) {
         search_options.use_pvs = *options.use_pvs;
     }
+    if (options.use_root_dynamic_move_ordering.has_value()) {
+        search_options.use_root_dynamic_move_ordering = *options.use_root_dynamic_move_ordering;
+    }
     search_options.transposition_table_entries = options.transposition_table_entries;
     search_options.exact_endgame_empty_threshold = options.exact_endgame_empty_threshold;
     return search_options;
@@ -700,6 +725,12 @@ void add_search_stats(othello::SearchStats& total, const othello::SearchStats& s
     total.pvs_scouts += stats.pvs_scouts;
     total.pvs_researches += stats.pvs_researches;
     total.pvs_scout_cutoffs += stats.pvs_scout_cutoffs;
+    total.beta_cutoffs += stats.beta_cutoffs;
+    total.first_move_beta_cutoffs += stats.first_move_beta_cutoffs;
+    total.ordered_legal_move_nodes += stats.ordered_legal_move_nodes;
+    total.ordered_legal_moves += stats.ordered_legal_moves;
+    total.root_ordering_nodes += stats.root_ordering_nodes;
+    total.root_ordering_moves += stats.root_ordering_moves;
     total.dynamic_ordering_nodes += stats.dynamic_ordering_nodes;
     total.dynamic_ordering_moves += stats.dynamic_ordering_moves;
 }
@@ -709,6 +740,22 @@ void add_search_stats(othello::SearchStats& total, const othello::SearchStats& s
         return 0.0;
     }
     return (static_cast<double>(stats.tt_hits) * 100.0) / static_cast<double>(stats.tt_lookups);
+}
+
+[[nodiscard]] double first_move_cut_rate(const othello::SearchStats& stats) noexcept {
+    if (stats.beta_cutoffs == 0) {
+        return 0.0;
+    }
+    return (static_cast<double>(stats.first_move_beta_cutoffs) * 100.0) /
+           static_cast<double>(stats.beta_cutoffs);
+}
+
+[[nodiscard]] double avg_ordered_moves(const othello::SearchStats& stats) noexcept {
+    if (stats.ordered_legal_move_nodes == 0) {
+        return 0.0;
+    }
+    return static_cast<double>(stats.ordered_legal_moves) /
+           static_cast<double>(stats.ordered_legal_move_nodes);
 }
 
 [[nodiscard]] SearchBenchmarkResult
@@ -758,6 +805,7 @@ benchmark_search(const std::vector<othello::benchmarks::Position>& positions, in
         .mode = mode,
         .use_transposition_table = search_options.use_transposition_table,
         .use_pvs = search_options.use_pvs,
+        .use_root_dynamic_move_ordering = search_options.use_root_dynamic_move_ordering,
         .transposition_table_entries = search_options.transposition_table_entries,
         .position_count = positions.size(),
         .depth = depth,
@@ -806,6 +854,7 @@ benchmark_position(const othello::benchmarks::Position& position, int depth,
         .mode = mode,
         .use_transposition_table = search_options.use_transposition_table,
         .use_pvs = search_options.use_pvs,
+        .use_root_dynamic_move_ordering = search_options.use_root_dynamic_move_ordering,
         .transposition_table_entries = search_options.transposition_table_entries,
         .depth = depth,
         .sample_best_move = sample_best_move,
@@ -840,13 +889,14 @@ benchmark_position(const othello::benchmarks::Position& position, int depth,
 void print_search_result_header() {
     std::cout << std::left << std::setw(12) << "benchmark" << "  " << std::setw(10) << "mode"
               << "  " << std::setw(3) << "tt" << "  " << std::setw(3) << "pvs"
-              << "  " << std::setw(10) << "tt_entries"
+              << "  " << std::setw(8) << "root_dyn" << "  " << std::setw(10) << "tt_entries"
               << "  positions  depth  best_move  score  " << std::setw(28) << "pv"
               << "  searches  elapsed_ms      searches/s  total_nodes         nodes/s"
                  "  nodes/search  tt_lookups  tt_hits  tt_hit_rate  tt_stores"
                  "  tt_collisions  tt_rejected_stores  tt_order_probes  tt_order_hits"
                  "  tt_order_used  pvs_scouts  pvs_researches  pvs_scout_cutoffs"
-                 "  dyn_nodes  dyn_moves"
+                 "  beta_cutoffs  first_move_cuts  first_move_cut_rate  ordered_nodes"
+                 "  ordered_moves  avg_ordered_moves  root_nodes  root_moves  dyn_nodes  dyn_moves"
                  "  result_checksum  work_checksum\n";
 }
 
@@ -870,9 +920,11 @@ void print_search_result(const SearchBenchmarkResult& result) {
     std::cout << std::left << std::setw(12) << result.name << "  " << std::setw(10)
               << mode_name(result.mode) << "  " << std::setw(3)
               << (result.use_transposition_table ? "on" : "off") << "  " << std::setw(3)
-              << (result.use_pvs ? "on" : "off") << "  " << std::right << std::setw(10)
-              << result.transposition_table_entries << "  " << std::setw(9) << result.position_count
-              << "  " << std::setw(5) << result.depth << "  " << std::left << std::setw(9)
+              << (result.use_pvs ? "on" : "off") << "  " << std::setw(8)
+              << (result.use_root_dynamic_move_ordering ? "on" : "off") << "  " << std::right
+              << std::setw(10) << result.transposition_table_entries << "  " << std::setw(9)
+              << result.position_count << "  " << std::setw(5) << result.depth << "  " << std::left
+              << std::setw(9)
               << (result.sample_best_move.has_value() ? othello::to_string(*result.sample_best_move)
                                                       : "-")
               << "  " << std::right << std::setw(5) << result.sample_score << "  " << std::left
@@ -892,6 +944,14 @@ void print_search_result(const SearchBenchmarkResult& result) {
               << result.total_stats.pvs_scouts << "  " << std::setw(14)
               << result.total_stats.pvs_researches << "  " << std::setw(17)
               << result.total_stats.pvs_scout_cutoffs << "  " << std::setw(9)
+              << result.total_stats.beta_cutoffs << "  " << std::setw(15)
+              << result.total_stats.first_move_beta_cutoffs << "  " << std::setw(19)
+              << first_move_cut_rate(result.total_stats) << "  " << std::setw(13)
+              << result.total_stats.ordered_legal_move_nodes << "  " << std::setw(13)
+              << result.total_stats.ordered_legal_moves << "  " << std::setw(17)
+              << avg_ordered_moves(result.total_stats) << "  " << std::setw(10)
+              << result.total_stats.root_ordering_nodes << "  " << std::setw(10)
+              << result.total_stats.root_ordering_moves << "  " << std::setw(9)
               << result.total_stats.dynamic_ordering_nodes << "  " << std::setw(9)
               << result.total_stats.dynamic_ordering_moves << "  " << result.result_checksum << "  "
               << result.work_checksum << '\n';
@@ -901,12 +961,14 @@ void print_position_result_header() {
     std::cout << std::left << std::setw(28) << "position" << "  " << std::setw(14) << "phase"
               << "  " << std::setw(44) << "tags" << "  " << std::setw(10) << "mode"
               << "  " << std::setw(3) << "tt" << "  " << std::setw(3) << "pvs"
-              << "  " << std::setw(10) << "tt_entries"
+              << "  " << std::setw(8) << "root_dyn" << "  " << std::setw(10) << "tt_entries"
               << "  depth  best_move  score  " << std::setw(28) << "pv"
               << "  searches  elapsed_ms       nodes  nodes/search         nodes/s"
                  "  tt_lookups  tt_hits  tt_hit_rate  tt_stores  tt_collisions"
                  "  tt_rejected_stores  tt_order_probes  tt_order_hits  tt_order_used"
-                 "  pvs_scouts  pvs_researches  pvs_scout_cutoffs  dyn_nodes  dyn_moves\n";
+                 "  pvs_scouts  pvs_researches  pvs_scout_cutoffs  beta_cutoffs"
+                 "  first_move_cuts  first_move_cut_rate  ordered_nodes  ordered_moves"
+                 "  avg_ordered_moves  root_nodes  root_moves  dyn_nodes  dyn_moves\n";
 }
 
 void print_position_result(const PositionBenchmarkResult& result) {
@@ -917,9 +979,10 @@ void print_position_result(const PositionBenchmarkResult& result) {
               << result.phase << "  " << std::setw(44) << (result.tags.empty() ? "-" : result.tags)
               << "  " << std::setw(10) << mode_name(result.mode) << "  " << std::setw(3)
               << (result.use_transposition_table ? "on" : "off") << "  " << std::setw(3)
-              << (result.use_pvs ? "on" : "off") << "  " << std::right << std::setw(10)
-              << result.transposition_table_entries << "  " << std::setw(5) << result.depth << "  "
-              << std::left << std::setw(9)
+              << (result.use_pvs ? "on" : "off") << "  " << std::setw(8)
+              << (result.use_root_dynamic_move_ordering ? "on" : "off") << "  " << std::right
+              << std::setw(10) << result.transposition_table_entries << "  " << std::setw(5)
+              << result.depth << "  " << std::left << std::setw(9)
               << (result.sample_best_move.has_value() ? othello::to_string(*result.sample_best_move)
                                                       : "-")
               << "  " << std::right << std::setw(5) << result.sample_score << "  " << std::left
@@ -939,6 +1002,14 @@ void print_position_result(const PositionBenchmarkResult& result) {
               << result.total_stats.pvs_scouts << "  " << std::setw(14)
               << result.total_stats.pvs_researches << "  " << std::setw(17)
               << result.total_stats.pvs_scout_cutoffs << "  " << std::setw(9)
+              << result.total_stats.beta_cutoffs << "  " << std::setw(15)
+              << result.total_stats.first_move_beta_cutoffs << "  " << std::setw(19)
+              << first_move_cut_rate(result.total_stats) << "  " << std::setw(13)
+              << result.total_stats.ordered_legal_move_nodes << "  " << std::setw(13)
+              << result.total_stats.ordered_legal_moves << "  " << std::setw(17)
+              << avg_ordered_moves(result.total_stats) << "  " << std::setw(10)
+              << result.total_stats.root_ordering_nodes << "  " << std::setw(10)
+              << result.total_stats.root_ordering_moves << "  " << std::setw(9)
               << result.total_stats.dynamic_ordering_nodes << "  " << std::setw(9)
               << result.total_stats.dynamic_ordering_moves << '\n';
 }
@@ -968,7 +1039,7 @@ void print_position_result(const PositionBenchmarkResult& result) {
 
 void print_position_summary_header() {
     std::cout << std::left << std::setw(10) << "mode" << "  " << std::setw(3) << "tt"
-              << "  " << std::setw(3) << "pvs"
+              << "  " << std::setw(3) << "pvs" << "  " << std::setw(8) << "root_dyn"
               << "  depth  positions  total_elapsed_ms  avg_ms_per_position"
                  "  p50_ms_per_position  p95_ms_per_position  max_ms_per_position"
                  "  avg_nodes_per_position  p50_nodes_per_position  p95_nodes_per_position"
@@ -986,6 +1057,7 @@ void print_position_summary(std::span<const PositionBenchmarkResult> results, Se
     std::uint64_t total_nodes = 0;
     bool use_transposition_table = false;
     bool use_pvs = false;
+    bool use_root_dynamic_move_ordering = false;
 
     for (const auto& result : results) {
         per_position_ms.push_back(elapsed_ms(result.elapsed));
@@ -994,6 +1066,7 @@ void print_position_summary(std::span<const PositionBenchmarkResult> results, Se
         total_nodes += result.total_nodes;
         use_transposition_table = result.use_transposition_table;
         use_pvs = result.use_pvs;
+        use_root_dynamic_move_ordering = result.use_root_dynamic_move_ordering;
     }
 
     const auto position_count = results.size();
@@ -1009,12 +1082,14 @@ void print_position_summary(std::span<const PositionBenchmarkResult> results, Se
 
     std::cout << std::left << std::setw(10) << mode_name(mode) << "  " << std::setw(3)
               << (use_transposition_table ? "on" : "off") << "  " << std::setw(3)
-              << (use_pvs ? "on" : "off") << "  " << std::right << std::setw(5) << depth << "  "
-              << std::setw(9) << position_count << "  " << std::fixed << std::setprecision(3)
-              << std::setw(16) << elapsed_ms(total_elapsed) << "  " << std::setw(19) << avg_ms
-              << "  " << std::setw(20) << percentile_value(per_position_ms, 50) << "  "
-              << std::setw(20) << percentile_value(per_position_ms, 95) << "  " << std::setw(19)
-              << max_ms << "  " << std::setw(22) << avg_nodes << "  " << std::setw(22)
+              << (use_pvs ? "on" : "off") << "  " << std::setw(8)
+              << (use_root_dynamic_move_ordering ? "on" : "off") << "  " << std::right
+              << std::setw(5) << depth << "  " << std::setw(9) << position_count << "  "
+              << std::fixed << std::setprecision(3) << std::setw(16) << elapsed_ms(total_elapsed)
+              << "  " << std::setw(19) << avg_ms << "  " << std::setw(20)
+              << percentile_value(per_position_ms, 50) << "  " << std::setw(20)
+              << percentile_value(per_position_ms, 95) << "  " << std::setw(19) << max_ms << "  "
+              << std::setw(22) << avg_nodes << "  " << std::setw(22)
               << percentile_value(per_position_nodes, 50) << "  " << std::setw(22)
               << percentile_value(per_position_nodes, 95) << "  " << std::setw(22) << max_nodes
               << '\n';
@@ -1134,6 +1209,12 @@ int run_benchmark(std::span<char* const> args) {
               << '\n';
     std::cout << "pvs: "
               << (options.use_pvs.value_or(default_search_options.use_pvs) ? "on" : "off") << '\n';
+    std::cout << "root dynamic ordering: "
+              << (options.use_root_dynamic_move_ordering.value_or(
+                      default_search_options.use_root_dynamic_move_ordering)
+                      ? "on"
+                      : "off")
+              << '\n';
     std::cout << "tt entries: " << options.transposition_table_entries << '\n';
     std::cout << "exact endgame threshold: " << options.exact_endgame_empty_threshold << '\n';
     if (options.by_position) {
