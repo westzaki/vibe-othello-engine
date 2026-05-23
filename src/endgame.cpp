@@ -3,8 +3,11 @@
 #include <bit>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
+#include <new>
 #include <optional>
 #include <othello/endgame.hpp>
+#include <othello/hash.hpp>
 #include <othello/rules.hpp>
 #include <vector>
 
@@ -22,6 +25,21 @@ struct NodeResult {
     PrincipalVariation principal_variation;
 };
 
+enum class ExactTranspositionBound {
+    Exact,
+    Lower,
+    Upper,
+};
+
+struct ExactTranspositionEntry {
+    ZobristHash hash = 0;
+    int empties = -1;
+    int score = 0;
+    int best_move_index = -1;
+    ExactTranspositionBound bound = ExactTranspositionBound::Exact;
+    bool occupied = false;
+};
+
 struct OrderedMoveIndexes {
     struct Move {
         int index = 0;
@@ -33,8 +51,116 @@ struct OrderedMoveIndexes {
     std::size_t size = 0;
 };
 
+class ExactTranspositionTable {
+public:
+    explicit ExactTranspositionTable(int root_empties) noexcept
+        : entry_count_{entry_count_for_empties(root_empties)},
+          entries_{entry_count_ == 0 ? nullptr
+                                     : new (std::nothrow) ExactTranspositionEntry[entry_count_]} {}
+
+    [[nodiscard]] std::optional<NodeResult> lookup(ZobristHash hash, int empties, int alpha,
+                                                   int beta) const noexcept {
+        if (entries_ == nullptr) {
+            return std::nullopt;
+        }
+
+        const ExactTranspositionEntry& entry = entries_[entry_index(hash)];
+        if (!entry.occupied || entry.hash != hash || entry.empties < empties) {
+            return std::nullopt;
+        }
+
+        if (entry.bound == ExactTranspositionBound::Exact) {
+            return node_result_from_entry(entry);
+        }
+        if (entry.bound == ExactTranspositionBound::Lower && entry.score >= beta) {
+            return node_result_from_entry(entry);
+        }
+        if (entry.bound == ExactTranspositionBound::Upper && entry.score <= alpha) {
+            return node_result_from_entry(entry);
+        }
+
+        return std::nullopt;
+    }
+
+    void store(ZobristHash hash, int empties, int score, int original_alpha, int beta,
+               const std::optional<Square>& best_move) noexcept {
+        if (entries_ == nullptr) {
+            return;
+        }
+
+        ExactTranspositionEntry& entry = entries_[entry_index(hash)];
+        if (entry.occupied && entry.hash != hash && empties < entry.empties) {
+            return;
+        }
+
+        ExactTranspositionBound bound = ExactTranspositionBound::Exact;
+        if (score <= original_alpha) {
+            bound = ExactTranspositionBound::Upper;
+        } else if (score >= beta) {
+            bound = ExactTranspositionBound::Lower;
+        }
+
+        entry = ExactTranspositionEntry{
+            .hash = hash,
+            .empties = empties,
+            .score = score,
+            .best_move_index = best_move.has_value() ? best_move->index() : -1,
+            .bound = bound,
+            .occupied = true,
+        };
+    }
+
+private:
+    [[nodiscard]] static constexpr std::size_t entry_count_for_empties(int empties) noexcept {
+        if (empties <= 8) {
+            return 0;
+        }
+        if (empties <= 10) {
+            return 1 << 14;
+        }
+        if (empties <= 12) {
+            return 1 << 16;
+        }
+        return 1 << 20;
+    }
+
+    std::size_t entry_count_ = 0;
+    std::unique_ptr<ExactTranspositionEntry[]> entries_; // NOLINT(cppcoreguidelines-avoid-c-arrays,
+                                                         // modernize-avoid-c-arrays)
+
+    [[nodiscard]] std::size_t entry_index(ZobristHash hash) const noexcept {
+        return static_cast<std::size_t>(hash) & (entry_count_ - 1);
+    }
+
+    [[nodiscard]] static std::optional<Square>
+    square_from_entry(const ExactTranspositionEntry& entry) noexcept {
+        if (entry.best_move_index < Square::min_index ||
+            entry.best_move_index > Square::max_index) {
+            return std::nullopt;
+        }
+        return Square::from_index(entry.best_move_index);
+    }
+
+    [[nodiscard]] static NodeResult
+    node_result_from_entry(const ExactTranspositionEntry& entry) noexcept {
+        const std::optional<Square> best_move = square_from_entry(entry);
+        NodeResult result{
+            .best_move = best_move,
+            .score = entry.score,
+        };
+        if (best_move.has_value()) {
+            result.principal_variation.indexes[0] = best_move->index();
+            result.principal_variation.size = 1;
+        }
+        return result;
+    }
+};
+
 struct ExactEndgameContext {
+    explicit ExactEndgameContext(int root_empties) noexcept : transpositions{root_empties} {}
+
     std::uint64_t nodes = 0;
+    ExactTranspositionTable transpositions;
 };
 
 struct EndgameMoveOrderingParams {
@@ -52,6 +178,11 @@ constexpr int exact_score_max = 1'000;
 constexpr EndgameMoveOrderingParams default_move_ordering_params{};
 constexpr Bitboard corner_squares =
     (Bitboard{1} << 0) | (Bitboard{1} << 7) | (Bitboard{1} << 56) | (Bitboard{1} << 63);
+
+[[nodiscard]] int empty_count(const Board& board) noexcept {
+    // NOLINTNEXTLINE(readability-redundant-casting)
+    return static_cast<int>(std::popcount(board.empty()));
+}
 
 [[nodiscard]] constexpr bool is_corner(int index) noexcept {
     return index == 0 || index == 7 || index == 56 || index == 63;
@@ -193,26 +324,44 @@ principal_variation_to_vector(const PrincipalVariation& principal_variation) noe
 
 // Exact negamax searches to game-over leaves only.
 // NOLINTNEXTLINE(misc-no-recursion)
-[[nodiscard]] NodeResult solve_node(const Board& board, int alpha, int beta,
-                                    ExactEndgameContext& context) noexcept {
+[[nodiscard]] NodeResult solve_node(const Board& board, ZobristHash hash, int alpha, int beta,
+                                    ExactEndgameContext& context, bool is_root) noexcept {
     ++context.nodes;
+    const int original_alpha = alpha;
+    const int empties = empty_count(board);
+
+    const std::optional<NodeResult> cached =
+        context.transpositions.lookup(hash, empties, alpha, beta);
+    if (cached.has_value()) {
+        return *cached;
+    }
 
     if (is_game_over(board)) {
-        return NodeResult{.score = score(board, board.side_to_move)};
+        const NodeResult result{.score = score(board, board.side_to_move)};
+        context.transpositions.store(hash, empties, result.score, original_alpha, beta,
+                                     result.best_move);
+        return result;
     }
 
     const Bitboard moves = legal_moves(board);
     if (moves == 0) {
         const std::optional<Board> next = pass_turn(board);
         if (!next.has_value()) {
-            return NodeResult{.score = score(board, board.side_to_move)};
+            const NodeResult result{.score = score(board, board.side_to_move)};
+            context.transpositions.store(hash, empties, result.score, original_alpha, beta,
+                                         result.best_move);
+            return result;
         }
 
-        const NodeResult child = solve_node(*next, -beta, -alpha, context);
-        return NodeResult{
+        const NodeResult child =
+            solve_node(*next, zobrist_hash(*next), -beta, -alpha, context, false);
+        const NodeResult result{
             .score = -child.score,
             .principal_variation = child.principal_variation,
         };
+        context.transpositions.store(hash, empties, result.score, original_alpha, beta,
+                                     result.best_move);
+        return result;
     }
 
     std::optional<int> best_score;
@@ -227,7 +376,13 @@ principal_variation_to_vector(const PrincipalVariation& principal_variation) noe
             continue;
         }
 
-        const NodeResult child = solve_node(ordered_move.next, -beta, -alpha, context);
+        // Root results are public API, so compare exact root candidate scores instead of
+        // alpha-beta bounds. Interior nodes still use normal alpha-beta windows.
+        const NodeResult child =
+            is_root ? solve_node(ordered_move.next, zobrist_hash(ordered_move.next),
+                                 exact_score_min, exact_score_max, context, false)
+                    : solve_node(ordered_move.next, zobrist_hash(ordered_move.next), -beta, -alpha,
+                                 context, false);
         const int candidate_score = -child.score;
         if (is_better_best_move(candidate_score, *square, best_score, best_move)) {
             best_score = candidate_score;
@@ -242,24 +397,27 @@ principal_variation_to_vector(const PrincipalVariation& principal_variation) noe
         }
     }
 
-    return NodeResult{
+    const NodeResult result{
         .best_move = best_move,
         .score = best_score.value_or(score(board, board.side_to_move)),
         .principal_variation = best_principal_variation,
     };
+    context.transpositions.store(hash, empties, result.score, original_alpha, beta,
+                                 result.best_move);
+    return result;
 }
 
 } // namespace
 
 ExactEndgameResult solve_exact_endgame(const Board& board) noexcept {
-    ExactEndgameContext context;
-    const NodeResult result = solve_node(board, exact_score_min, exact_score_max, context);
+    ExactEndgameContext context{empty_count(board)};
+    const NodeResult result =
+        solve_node(board, zobrist_hash(board), exact_score_min, exact_score_max, context, true);
 
     return ExactEndgameResult{
         .best_move = result.best_move,
         .disc_margin = result.score,
-        // NOLINTNEXTLINE(readability-redundant-casting)
-        .empties = static_cast<int>(std::popcount(board.empty())),
+        .empties = empty_count(board),
         .nodes = context.nodes,
         .principal_variation = principal_variation_to_vector(result.principal_variation),
     };
