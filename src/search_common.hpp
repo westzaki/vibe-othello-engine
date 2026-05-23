@@ -59,6 +59,23 @@ constexpr Bitboard corner_squares =
     return std::popcount(board.empty());
 }
 
+[[nodiscard]] inline Board board_after_move(const Board& board, Square square,
+                                            Bitboard flips) noexcept {
+    const Bitboard move_bit = square.bit();
+
+    Board next = board;
+    if (board.side_to_move == Side::Black) {
+        next.black = board.black | move_bit | flips;
+        next.white = board.white & ~flips;
+    } else {
+        next.white = board.white | move_bit | flips;
+        next.black = board.black & ~flips;
+    }
+    next.side_to_move = opponent(board.side_to_move);
+
+    return next;
+}
+
 [[nodiscard]] inline bool is_better_best_move(int candidate_score, Square candidate,
                                               const std::optional<int>& best_score,
                                               const std::optional<Square>& best_move) noexcept {

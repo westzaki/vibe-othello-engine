@@ -17,6 +17,7 @@ namespace othello {
 namespace {
 
 using search_detail::corner_squares;
+using search_detail::board_after_move;
 using search_detail::empty_count;
 using search_detail::is_better_best_move;
 using search_detail::is_corner;
@@ -233,15 +234,16 @@ constexpr EndgameMoveOrderingParams default_move_ordering_params{};
                 continue;
             }
 
-            const std::optional<Board> next = apply_move(board, *square);
-            if (!next.has_value()) {
+            const Bitboard flips = flips_for_move(board, *square);
+            if (flips == 0) {
                 continue;
             }
+            const Board next = board_after_move(board, *square, flips);
 
             result.moves[result.size] = OrderedMoveIndexes::Move{
                 .index = index,
-                .order_score = move_order_score(board, index, *next, default_move_ordering_params),
-                .next = *next,
+                .order_score = move_order_score(board, index, next, default_move_ordering_params),
+                .next = next,
             };
             ++result.size;
         }
