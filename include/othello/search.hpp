@@ -25,6 +25,10 @@ struct SearchStats {
     std::uint64_t tt_move_ordering_hits = 0;
     std::uint64_t tt_move_ordering_used = 0;
 
+    std::uint64_t pvs_scouts = 0;
+    std::uint64_t pvs_researches = 0;
+    std::uint64_t pvs_scout_cutoffs = 0;
+
     std::uint64_t dynamic_ordering_nodes = 0;
     std::uint64_t dynamic_ordering_moves = 0;
 };
@@ -51,6 +55,7 @@ struct SearchOptions {
     // threshold, search uses the exact endgame solver instead of depth-limited
     // search. Values <= 0 disable it.
     int exact_endgame_empty_threshold = 12;
+    bool use_pvs = false;
 };
 
 [[nodiscard]] SearchResult search(const Board& board, const SearchOptions& options) noexcept;

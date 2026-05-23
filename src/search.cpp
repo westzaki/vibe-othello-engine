@@ -239,12 +239,14 @@ constexpr MoveOrderingParams default_move_ordering_params{};
 
 struct SearchContext {
     explicit SearchContext(const SearchOptions& options, bool enable_dynamic_move_ordering) noexcept
-        : transpositions{options}, dynamic_move_ordering{enable_dynamic_move_ordering} {}
+        : transpositions{options}, dynamic_move_ordering{enable_dynamic_move_ordering},
+          use_pvs{options.use_pvs} {}
 
     SearchStats stats;
     TranspositionTable transpositions;
     MoveOrderingParams move_ordering_params = default_move_ordering_params;
     bool dynamic_move_ordering = false;
+    bool use_pvs = false;
 };
 
 constexpr int search_score_min = -1'000'000'000;
@@ -501,6 +503,9 @@ ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
     const OrderedMoveIndexes ordered_moves = ordered_legal_move_indexes(
         board, moves, depth, preferred_move, cached.best_move_hint, use_dynamic_ordering,
         context.move_ordering_params, context.stats);
+    // Avoid very shallow scouts; with the current ordering, depth-2 null windows tend
+    // to add overhead while giving little pruning back.
+    const bool use_pvs_at_node = context.use_pvs && ordered_moves.size > 1 && depth >= 3;
     for (std::size_t move = 0; move < ordered_moves.size; ++move) {
         const auto& ordered_move = ordered_moves.moves[move];
         const std::optional<Square> square = Square::from_index(ordered_move.index);
@@ -517,9 +522,26 @@ ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
         const ZobristHash next_hash = hash_after_move(hash, board.side_to_move, *square, flips);
         assert(next_hash == zobrist_hash(next));
 
-        const NodeResult child =
-            search_node(next, next_hash, depth - 1, -beta, -alpha, context, std::nullopt,
-                        child_hint_after_move(pv_hint, *square), false);
+        const PrincipalVariationHint child_hint = child_hint_after_move(pv_hint, *square);
+        NodeResult child;
+        if (!use_pvs_at_node || move == 0) {
+            child = search_node(next, next_hash, depth - 1, -beta, -alpha, context, std::nullopt,
+                                child_hint, false);
+        } else {
+            ++context.stats.pvs_scouts;
+            child = search_node(next, next_hash, depth - 1, -(alpha + 1), -alpha, context,
+                                std::nullopt, child_hint, false);
+            const int scout_score = -child.score;
+            if (scout_score > alpha && scout_score < beta) {
+                ++context.stats.pvs_researches;
+                child = search_node(next, next_hash, depth - 1, -beta, -alpha, context,
+                                    std::nullopt, child_hint, false);
+            } else {
+                // Counts null-window searches that did not need full-window re-search,
+                // including both fail-low scouts and scout beta cutoffs.
+                ++context.stats.pvs_scout_cutoffs;
+            }
+        }
         const int candidate_score = -child.score;
         if (is_better_best_move(candidate_score, *square, best_score, best_move)) {
             best_score = candidate_score;

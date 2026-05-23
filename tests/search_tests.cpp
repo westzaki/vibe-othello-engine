@@ -160,6 +160,7 @@ TEST_CASE("Search uses exact endgame at the root within threshold", "[search]") 
         .max_depth = 0,
         .use_transposition_table = true,
         .exact_endgame_empty_threshold = 1,
+        .use_pvs = true,
     };
 
     const othello::SearchResult result = othello::search(board, options);
@@ -176,6 +177,9 @@ TEST_CASE("Search uses exact endgame at the root within threshold", "[search]") 
     CHECK(result.stats.tt_move_ordering_probes == 0);
     CHECK(result.stats.tt_move_ordering_hits == 0);
     CHECK(result.stats.tt_move_ordering_used == 0);
+    CHECK(result.stats.pvs_scouts == 0);
+    CHECK(result.stats.pvs_researches == 0);
+    CHECK(result.stats.pvs_scout_cutoffs == 0);
     CHECK(result.stats.dynamic_ordering_nodes == 0);
     CHECK(result.stats.dynamic_ordering_moves == 0);
 }
@@ -203,6 +207,7 @@ TEST_CASE("Iterative search returns exact result immediately within threshold", 
         .max_depth = 5,
         .use_transposition_table = true,
         .exact_endgame_empty_threshold = 1,
+        .use_pvs = true,
     };
 
     const othello::SearchResult result = othello::search_iterative(board, options);
@@ -214,6 +219,9 @@ TEST_CASE("Iterative search returns exact result immediately within threshold", 
     CHECK(result.stats.nodes == result.nodes);
     CHECK(result.stats.tt_lookups == 0);
     CHECK(result.stats.tt_move_ordering_probes == 0);
+    CHECK(result.stats.pvs_scouts == 0);
+    CHECK(result.stats.pvs_researches == 0);
+    CHECK(result.stats.pvs_scout_cutoffs == 0);
     CHECK(result.stats.dynamic_ordering_nodes == 0);
 }
 
@@ -386,6 +394,9 @@ TEST_CASE("Search stats leave transposition table counters zero when disabled", 
     CHECK(result.stats.tt_move_ordering_probes == 0);
     CHECK(result.stats.tt_move_ordering_hits == 0);
     CHECK(result.stats.tt_move_ordering_used == 0);
+    CHECK(result.stats.pvs_scouts == 0);
+    CHECK(result.stats.pvs_researches == 0);
+    CHECK(result.stats.pvs_scout_cutoffs == 0);
 }
 
 TEST_CASE("Search stats count transposition table work when enabled", "[search]") {
@@ -566,6 +577,96 @@ TEST_CASE("Search stats count dynamic move ordering work", "[search]") {
     CHECK(result.stats.dynamic_ordering_moves >= result.stats.dynamic_ordering_nodes * 5);
 }
 
+TEST_CASE("PVS off leaves PVS counters zero", "[search]") {
+    const auto board = othello::apply_move(Board::initial(), othello::test::square("d3"));
+    REQUIRE(board.has_value());
+
+    const othello::SearchResult result =
+        othello::search(*board, othello::SearchOptions{.max_depth = 5});
+
+    CHECK(result.stats.pvs_scouts == 0);
+    CHECK(result.stats.pvs_researches == 0);
+    CHECK(result.stats.pvs_scout_cutoffs == 0);
+}
+
+TEST_CASE("PVS preserves fixed-depth search result without transposition table", "[search]") {
+    const auto board = othello::apply_move(Board::initial(), othello::test::square("d3"));
+    REQUIRE(board.has_value());
+
+    const othello::SearchOptions alpha_beta_options{
+        .max_depth = 5,
+        .use_transposition_table = false,
+        .exact_endgame_empty_threshold = 0,
+        .use_pvs = false,
+    };
+    const othello::SearchOptions pvs_options{
+        .max_depth = 5,
+        .use_transposition_table = false,
+        .exact_endgame_empty_threshold = 0,
+        .use_pvs = true,
+    };
+
+    const othello::SearchResult alpha_beta = othello::search(*board, alpha_beta_options);
+    const othello::SearchResult pvs = othello::search(*board, pvs_options);
+
+    CHECK(pvs.best_move == alpha_beta.best_move);
+    CHECK(pvs.score == alpha_beta.score);
+    CHECK(pvs.depth == alpha_beta.depth);
+    CHECK(pvs.stats.pvs_scouts > 0);
+    CHECK(pvs.stats.pvs_researches <= pvs.stats.pvs_scouts);
+    CHECK(pvs.stats.pvs_scout_cutoffs <= pvs.stats.pvs_scouts);
+    CHECK(pvs.stats.pvs_researches + pvs.stats.pvs_scout_cutoffs == pvs.stats.pvs_scouts);
+}
+
+TEST_CASE("PVS preserves fixed-depth search result with transposition table", "[search]") {
+    const auto board = othello::apply_move(Board::initial(), othello::test::square("d3"));
+    REQUIRE(board.has_value());
+
+    const othello::SearchOptions alpha_beta_options{
+        .max_depth = 5,
+        .use_transposition_table = true,
+        .exact_endgame_empty_threshold = 0,
+        .use_pvs = false,
+    };
+    const othello::SearchOptions pvs_options{
+        .max_depth = 5,
+        .use_transposition_table = true,
+        .exact_endgame_empty_threshold = 0,
+        .use_pvs = true,
+    };
+
+    const othello::SearchResult alpha_beta = othello::search(*board, alpha_beta_options);
+    const othello::SearchResult pvs = othello::search(*board, pvs_options);
+
+    CHECK(pvs.best_move == alpha_beta.best_move);
+    CHECK(pvs.score == alpha_beta.score);
+    CHECK(pvs.depth == alpha_beta.depth);
+    CHECK(pvs.stats.pvs_scouts > 0);
+    CHECK(pvs.stats.pvs_researches + pvs.stats.pvs_scout_cutoffs == pvs.stats.pvs_scouts);
+}
+
+TEST_CASE("Iterative PVS final result matches fixed-depth PVS result", "[search]") {
+    const auto board = othello::apply_move(Board::initial(), othello::test::square("d3"));
+    REQUIRE(board.has_value());
+
+    const othello::SearchOptions options{
+        .max_depth = 5,
+        .use_transposition_table = true,
+        .exact_endgame_empty_threshold = 0,
+        .use_pvs = true,
+    };
+
+    const othello::SearchResult fixed_depth = othello::search(*board, options);
+    const othello::SearchResult iterative = othello::search_iterative(*board, options);
+
+    CHECK(iterative.best_move == fixed_depth.best_move);
+    CHECK(iterative.score == fixed_depth.score);
+    CHECK(iterative.depth == fixed_depth.depth);
+    CHECK(iterative.stats.pvs_scouts > fixed_depth.stats.pvs_scouts);
+    CHECK(iterative.stats.pvs_researches + iterative.stats.pvs_scout_cutoffs ==
+          iterative.stats.pvs_scouts);
+}
+
 TEST_CASE("Fixed-depth search handles terminal boards", "[search]") {
     const Board board{
         .black = ~Bitboard{0},
@@ -580,6 +681,28 @@ TEST_CASE("Fixed-depth search handles terminal boards", "[search]") {
     CHECK(result.score == othello::evaluate_basic(board, board.side_to_move));
     CHECK(result.depth == 0);
     CHECK(result.nodes > 0);
+}
+
+TEST_CASE("PVS does not scout terminal boards", "[search]") {
+    const Board board{
+        .black = ~Bitboard{0},
+        .white = 0,
+        .side_to_move = Side::Black,
+    };
+    const othello::SearchOptions options{
+        .max_depth = 3,
+        .exact_endgame_empty_threshold = 0,
+        .use_pvs = true,
+    };
+
+    const othello::SearchResult result = othello::search(board, options);
+
+    CHECK_FALSE(result.best_move.has_value());
+    CHECK(result.principal_variation.empty());
+    CHECK(result.score == othello::evaluate_basic(board, board.side_to_move));
+    CHECK(result.stats.pvs_scouts == 0);
+    CHECK(result.stats.pvs_researches == 0);
+    CHECK(result.stats.pvs_scout_cutoffs == 0);
 }
 
 TEST_CASE("Transposition move ordering does not affect terminal boards", "[search]") {
@@ -603,6 +726,9 @@ TEST_CASE("Transposition move ordering does not affect terminal boards", "[searc
     CHECK(result.stats.tt_move_ordering_probes == 0);
     CHECK(result.stats.tt_move_ordering_hits == 0);
     CHECK(result.stats.tt_move_ordering_used == 0);
+    CHECK(result.stats.pvs_scouts == 0);
+    CHECK(result.stats.pvs_researches == 0);
+    CHECK(result.stats.pvs_scout_cutoffs == 0);
 }
 
 TEST_CASE("Fixed-depth search handles pass positions", "[search]") {
@@ -674,4 +800,38 @@ TEST_CASE("Transposition move ordering preserves pass position result", "[search
     CHECK(ordered.score == baseline.score);
     CHECK(ordered.depth == baseline.depth);
     CHECK(ordered.principal_variation == baseline.principal_variation);
+}
+
+TEST_CASE("PVS preserves pass position result without fake principal variation moves", "[search]") {
+    const Board board = othello::test::black_must_pass_board();
+
+    REQUIRE(othello::legal_moves(board) == 0);
+    REQUIRE_FALSE(othello::is_game_over(board));
+
+    const othello::SearchOptions alpha_beta_options{
+        .max_depth = 4,
+        .use_transposition_table = true,
+        .exact_endgame_empty_threshold = 0,
+        .use_pvs = false,
+    };
+    const othello::SearchOptions pvs_options{
+        .max_depth = 4,
+        .use_transposition_table = true,
+        .exact_endgame_empty_threshold = 0,
+        .use_pvs = true,
+    };
+
+    const othello::SearchResult alpha_beta = othello::search_iterative(board, alpha_beta_options);
+    const othello::SearchResult pvs = othello::search_iterative(board, pvs_options);
+
+    CHECK_FALSE(pvs.best_move.has_value());
+    CHECK(pvs.score == alpha_beta.score);
+    CHECK(pvs.depth == alpha_beta.depth);
+    CHECK(pvs.principal_variation.size() <= 4);
+    if (!pvs.principal_variation.empty()) {
+        const auto passed = othello::pass_turn(board);
+        REQUIRE(passed.has_value());
+        CHECK((othello::legal_moves(*passed) & pvs.principal_variation.front().bit()) != 0);
+    }
+    CHECK(pvs.stats.pvs_researches + pvs.stats.pvs_scout_cutoffs == pvs.stats.pvs_scouts);
 }
