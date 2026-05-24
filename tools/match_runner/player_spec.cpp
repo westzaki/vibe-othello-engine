@@ -1,0 +1,168 @@
+#include "player_spec.hpp"
+
+#include <charconv>
+#include <limits>
+#include <string>
+
+namespace othello::match_runner {
+
+std::optional<int> parse_non_negative_int(std::string_view text) noexcept {
+    int value = 0;
+    const auto* begin = text.data();
+    const auto* end = text.data() + text.size();
+    const auto result = std::from_chars(begin, end, value);
+    if (result.ec != std::errc{} || result.ptr != end || value < 0) {
+        return std::nullopt;
+    }
+    return value;
+}
+
+std::optional<std::uint64_t> parse_u64(std::string_view text) noexcept {
+    std::uint64_t value = 0;
+    const auto* begin = text.data();
+    const auto* end = text.data() + text.size();
+    const auto result = std::from_chars(begin, end, value);
+    if (result.ec != std::errc{} || result.ptr != end) {
+        return std::nullopt;
+    }
+    return value;
+}
+
+std::optional<bool> parse_on_off(std::string_view text) noexcept {
+    if (text == "on") {
+        return true;
+    }
+    if (text == "off") {
+        return false;
+    }
+    return std::nullopt;
+}
+
+std::optional<PlayerSpec> parse_player_spec(std::string_view text) {
+    if (text == "first") {
+        return PlayerSpec{.kind = PlayerKind::First, .depth = 0, .text = std::string{text}};
+    }
+    if (text == "random") {
+        return PlayerSpec{.kind = PlayerKind::Random, .depth = 0, .text = std::string{text}};
+    }
+    if (text == "eval") {
+        return PlayerSpec{.kind = PlayerKind::Eval, .depth = 0, .text = std::string{text}};
+    }
+
+    constexpr std::string_view search_prefix = "search:depth=";
+    if (text.starts_with(search_prefix)) {
+        std::string_view rest = text.substr(search_prefix.size());
+        const std::size_t depth_end = rest.find(',');
+        const std::string_view depth_text = rest.substr(0, depth_end);
+        const std::optional<int> depth = parse_non_negative_int(depth_text);
+        if (!depth.has_value() || *depth <= 0) {
+            return std::nullopt;
+        }
+
+        SearchPlayerOptions search_options;
+        search_options.max_depth = *depth;
+
+        bool seen_tt = false;
+        bool seen_pvs = false;
+        bool seen_exact = false;
+        bool seen_tt_entries = false;
+
+        if (depth_end != std::string_view::npos) {
+            rest.remove_prefix(depth_end + 1);
+            while (true) {
+                if (rest.empty()) {
+                    return std::nullopt;
+                }
+
+                const std::size_t option_end = rest.find(',');
+                const std::string_view option = rest.substr(0, option_end);
+                if (option.empty()) {
+                    return std::nullopt;
+                }
+
+                const std::size_t equals = option.find('=');
+                if (equals == std::string_view::npos) {
+                    return std::nullopt;
+                }
+
+                const std::string_view key = option.substr(0, equals);
+                const std::string_view value = option.substr(equals + 1);
+
+                if (key == "tt") {
+                    if (seen_tt) {
+                        return std::nullopt;
+                    }
+                    const std::optional<bool> parsed = parse_on_off(value);
+                    if (!parsed.has_value()) {
+                        return std::nullopt;
+                    }
+                    search_options.use_transposition_table = *parsed;
+                    seen_tt = true;
+                } else if (key == "pvs") {
+                    if (seen_pvs) {
+                        return std::nullopt;
+                    }
+                    const std::optional<bool> parsed = parse_on_off(value);
+                    if (!parsed.has_value()) {
+                        return std::nullopt;
+                    }
+                    search_options.use_pvs = *parsed;
+                    seen_pvs = true;
+                } else if (key == "exact") {
+                    if (seen_exact) {
+                        return std::nullopt;
+                    }
+                    if (value == "off") {
+                        search_options.exact_endgame_empty_threshold = 0;
+                    } else {
+                        const std::optional<int> parsed = parse_non_negative_int(value);
+                        if (!parsed.has_value()) {
+                            return std::nullopt;
+                        }
+                        search_options.exact_endgame_empty_threshold = *parsed;
+                    }
+                    seen_exact = true;
+                } else if (key == "tt_entries") {
+                    if (seen_tt_entries) {
+                        return std::nullopt;
+                    }
+                    const std::optional<std::uint64_t> parsed = parse_u64(value);
+                    if (!parsed.has_value() ||
+                        *parsed > static_cast<std::uint64_t>(
+                                      std::numeric_limits<std::size_t>::max())) {
+                        return std::nullopt;
+                    }
+                    search_options.transposition_table_entries =
+                        static_cast<std::size_t>(*parsed);
+                    seen_tt_entries = true;
+                } else {
+                    return std::nullopt;
+                }
+
+                if (option_end == std::string_view::npos) {
+                    break;
+                }
+                rest.remove_prefix(option_end + 1);
+            }
+        }
+
+        return PlayerSpec{.kind = PlayerKind::Search,
+                          .depth = *depth,
+                          .search_options = search_options,
+                          .text = std::string{text}};
+    }
+
+    return std::nullopt;
+}
+
+SearchOptions make_search_options(const PlayerSpec& spec) noexcept {
+    SearchOptions options;
+    options.max_depth = spec.search_options.max_depth;
+    options.use_transposition_table = spec.search_options.use_transposition_table;
+    options.transposition_table_entries = spec.search_options.transposition_table_entries;
+    options.exact_endgame_empty_threshold = spec.search_options.exact_endgame_empty_threshold;
+    options.use_pvs = spec.search_options.use_pvs;
+    return options;
+}
+
+} // namespace othello::match_runner
