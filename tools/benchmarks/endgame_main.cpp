@@ -1,9 +1,11 @@
 #include "common/cli.hpp"
+#include "common/formatting.hpp"
+#include "common/stats.hpp"
 #include "positions/endgame_fixtures.hpp"
+#include "positions/metrics.hpp"
+#include "positions/tags.hpp"
 
 #include <algorithm>
-#include <array>
-#include <bit>
 #include <charconv>
 #include <chrono>
 #include <cmath>
@@ -24,6 +26,16 @@
 namespace {
 
 using Clock = std::chrono::steady_clock;
+using othello::benchmarks::EndgamePositionMetrics;
+using othello::benchmarks::compute_endgame_metrics;
+using othello::benchmarks::empty_count;
+using othello::benchmarks::has_tag;
+using othello::benchmarks::legal_move_count;
+using othello::benchmarks::same_board;
+using othello::tools::elapsed_ms;
+using othello::tools::format_principal_variation;
+using othello::tools::format_square;
+using othello::tools::tt_hit_percentage;
 
 enum class PositionSet {
     Smoke,
@@ -41,31 +53,6 @@ struct BenchmarkOptions {
     bool expand_worst_candidate = false;
     std::optional<std::string_view> breakdown_position;
     bool help = false;
-};
-
-struct EndgamePositionMetrics {
-    int empties = 0;
-    int score_current = 0;
-    int legal_moves_current = 0;
-    int legal_moves_opponent = 0;
-
-    bool root_pass = false;
-    bool game_over = false;
-
-    int empty_corner_count = 0;
-    int legal_corner_count = 0;
-    int opponent_legal_corner_count = 0;
-
-    int edge_empty_count = 0;
-    int legal_edge_count = 0;
-
-    int x_square_legal_risk_count = 0;
-
-    int empty_region_count = 0;
-    int odd_region_count = 0;
-    int even_region_count = 0;
-    int singleton_region_count = 0;
-    int largest_region_size = 0;
 };
 
 struct PositionBenchmarkResult {
@@ -284,160 +271,6 @@ void print_usage(std::string_view program_name) {
     return options;
 }
 
-[[nodiscard]] bool same_board(const othello::Board& lhs, const othello::Board& rhs) noexcept {
-    return lhs.black == rhs.black && lhs.white == rhs.white && lhs.side_to_move == rhs.side_to_move;
-}
-
-[[nodiscard]] bool has_tag(std::string_view tags, std::string_view expected_tag) {
-    std::size_t begin = 0;
-    while (begin <= tags.size()) {
-        const auto comma = tags.find(',', begin);
-        const auto end = comma == std::string_view::npos ? tags.size() : comma;
-        const auto tag = tags.substr(begin, end - begin);
-        if (tag == expected_tag) {
-            return true;
-        }
-        if (comma == std::string_view::npos) {
-            break;
-        }
-        begin = comma + 1;
-    }
-    return false;
-}
-
-[[nodiscard]] int empty_count(const othello::Board& board) noexcept {
-    return std::popcount(board.empty());
-}
-
-[[nodiscard]] int legal_move_count(const othello::Board& board) noexcept {
-    return std::popcount(othello::legal_moves(board));
-}
-
-[[nodiscard]] constexpr bool is_corner_index(int index) noexcept {
-    return index == 0 || index == 7 || index == 56 || index == 63;
-}
-
-[[nodiscard]] constexpr bool is_edge_index(int index) noexcept {
-    const int file = index % 8;
-    const int rank = index / 8;
-    return file == 0 || file == 7 || rank == 0 || rank == 7;
-}
-
-[[nodiscard]] constexpr bool is_x_square_next_to_empty_corner(int index,
-                                                              othello::Bitboard empty) noexcept {
-    switch (index) {
-    case 9:
-        return (empty & (othello::Bitboard{1} << 0)) != 0;
-    case 14:
-        return (empty & (othello::Bitboard{1} << 7)) != 0;
-    case 49:
-        return (empty & (othello::Bitboard{1} << 56)) != 0;
-    case 54:
-        return (empty & (othello::Bitboard{1} << 63)) != 0;
-    default:
-        return false;
-    }
-}
-
-[[nodiscard]] constexpr othello::Bitboard orthogonal_neighbors(int index) noexcept {
-    othello::Bitboard neighbors = 0;
-    const int file = index % 8;
-    const int rank = index / 8;
-    if (file > 0) {
-        neighbors |= othello::Bitboard{1} << (index - 1);
-    }
-    if (file < 7) {
-        neighbors |= othello::Bitboard{1} << (index + 1);
-    }
-    if (rank > 0) {
-        neighbors |= othello::Bitboard{1} << (index - 8);
-    }
-    if (rank < 7) {
-        neighbors |= othello::Bitboard{1} << (index + 8);
-    }
-    return neighbors;
-}
-
-void add_empty_region_metrics(othello::Bitboard empty, EndgamePositionMetrics& metrics) noexcept {
-    othello::Bitboard remaining = empty;
-    while (remaining != 0) {
-        const int seed_index = std::countr_zero(remaining);
-        othello::Bitboard region = othello::Bitboard{1} << seed_index;
-        std::array<int, 64> stack{};
-        std::size_t stack_size = 1;
-        stack[0] = seed_index;
-
-        while (stack_size > 0) {
-            const int index = stack[--stack_size];
-            othello::Bitboard neighbors = orthogonal_neighbors(index) & remaining & ~region;
-            while (neighbors != 0) {
-                const int next_index = std::countr_zero(neighbors);
-                neighbors &= neighbors - 1;
-                region |= othello::Bitboard{1} << next_index;
-                stack[stack_size] = next_index;
-                ++stack_size;
-            }
-        }
-
-        remaining &= ~region;
-        // NOLINTNEXTLINE(readability-redundant-casting)
-        const int region_size = static_cast<int>(std::popcount(region));
-        ++metrics.empty_region_count;
-        if (region_size % 2 == 0) {
-            ++metrics.even_region_count;
-        } else {
-            ++metrics.odd_region_count;
-        }
-        if (region_size == 1) {
-            ++metrics.singleton_region_count;
-        }
-        metrics.largest_region_size = std::max(metrics.largest_region_size, region_size);
-    }
-}
-
-[[nodiscard]] EndgamePositionMetrics compute_metrics(const othello::Board& board) noexcept {
-    EndgamePositionMetrics metrics;
-    const othello::Bitboard empty = board.empty();
-    const othello::Bitboard current_moves = othello::legal_moves(board);
-    auto opponent_board = board;
-    opponent_board.side_to_move = othello::opponent(board.side_to_move);
-    const othello::Bitboard opponent_moves = othello::legal_moves(opponent_board);
-
-    metrics.empties = empty_count(board);
-    metrics.score_current = othello::score(board, board.side_to_move);
-    // NOLINTNEXTLINE(readability-redundant-casting)
-    metrics.legal_moves_current = static_cast<int>(std::popcount(current_moves));
-    // NOLINTNEXTLINE(readability-redundant-casting)
-    metrics.legal_moves_opponent = static_cast<int>(std::popcount(opponent_moves));
-    metrics.root_pass = othello::pass_turn(board).has_value();
-    metrics.game_over = othello::is_game_over(board);
-
-    for (int index = othello::Square::min_index; index <= othello::Square::max_index; ++index) {
-        const othello::Bitboard bit = othello::Bitboard{1} << index;
-        if ((empty & bit) != 0 && is_corner_index(index)) {
-            ++metrics.empty_corner_count;
-        }
-        if ((empty & bit) != 0 && is_edge_index(index)) {
-            ++metrics.edge_empty_count;
-        }
-        if ((current_moves & bit) != 0 && is_corner_index(index)) {
-            ++metrics.legal_corner_count;
-        }
-        if ((opponent_moves & bit) != 0 && is_corner_index(index)) {
-            ++metrics.opponent_legal_corner_count;
-        }
-        if ((current_moves & bit) != 0 && is_edge_index(index)) {
-            ++metrics.legal_edge_count;
-        }
-        if ((current_moves & bit) != 0 && is_x_square_next_to_empty_corner(index, empty)) {
-            ++metrics.x_square_legal_risk_count;
-        }
-    }
-
-    add_empty_region_metrics(empty, metrics);
-    return metrics;
-}
-
 [[nodiscard]] std::vector<othello::benchmarks::EndgamePosition>
 select_positions(const std::vector<othello::benchmarks::EndgamePosition>& positions,
                  const BenchmarkOptions& options) {
@@ -548,7 +381,7 @@ validate_positions(const std::vector<othello::benchmarks::EndgamePosition>& posi
                   << std::setw(14) << "largest_region" << '\n';
 
         for (const auto& position : positions) {
-            const EndgamePositionMetrics metrics = compute_metrics(position.board);
+            const EndgamePositionMetrics metrics = compute_endgame_metrics(position.board);
             std::cout << std::left << std::setw(30) << position.name << "  " << std::right
                       << std::setw(7) << metrics.empties << "  " << std::setw(9)
                       << metrics.score_current << "  " << std::setw(9)
@@ -571,13 +404,6 @@ validate_positions(const std::vector<othello::benchmarks::EndgamePosition>& posi
     return error_count == 0;
 }
 
-[[nodiscard]] std::string format_square(std::optional<othello::Square> square) {
-    if (!square.has_value()) {
-        return "-";
-    }
-    return othello::to_string(*square);
-}
-
 [[nodiscard]] std::string format_root_move(const RootCandidateBreakdown& candidate) {
     if (candidate.is_pass) {
         return "pass";
@@ -585,39 +411,10 @@ validate_positions(const std::vector<othello::benchmarks::EndgamePosition>& posi
     return format_square(candidate.root_move);
 }
 
-[[nodiscard]] std::string
-format_principal_variation(const std::vector<othello::Square>& principal_variation) {
-    if (principal_variation.empty()) {
-        return "-";
-    }
-
-    std::string text;
-    for (const auto square : principal_variation) {
-        if (!text.empty()) {
-            text += "->";
-        }
-        text += othello::to_string(square);
-    }
-    return text;
-}
-
 [[nodiscard]] bool same_result(const othello::ExactEndgameResult& lhs,
                                const othello::ExactEndgameResult& rhs) {
     return lhs.best_move == rhs.best_move && lhs.disc_margin == rhs.disc_margin &&
            lhs.principal_variation == rhs.principal_variation;
-}
-
-void add_stats(othello::ExactEndgameStats& total, const othello::ExactEndgameStats& stats) {
-    total.nodes += stats.nodes;
-    total.tt_lookups += stats.tt_lookups;
-    total.tt_hits += stats.tt_hits;
-    total.tt_exact_hits += stats.tt_exact_hits;
-    total.tt_lower_hits += stats.tt_lower_hits;
-    total.tt_upper_hits += stats.tt_upper_hits;
-    total.tt_stores += stats.tt_stores;
-    total.tt_overwrites += stats.tt_overwrites;
-    total.tt_collisions += stats.tt_collisions;
-    total.tt_rejected_stores += stats.tt_rejected_stores;
 }
 
 [[nodiscard]] bool validate_solver_result(const othello::benchmarks::EndgamePosition& position,
@@ -681,7 +478,7 @@ run_benchmark(const othello::benchmarks::EndgamePosition& position, std::uint64_
             return std::nullopt;
         }
         total_nodes += result.nodes;
-        add_stats(total_stats, result.stats);
+        othello::tools::add_exact_endgame_stats(total_stats, result.stats);
     }
     const auto elapsed = Clock::now() - started;
 
@@ -693,7 +490,7 @@ run_benchmark(const othello::benchmarks::EndgamePosition& position, std::uint64_
         .name = position.name,
         .empties = position.empties,
         .tags = position.tags,
-        .metrics = compute_metrics(position.board),
+        .metrics = compute_endgame_metrics(position.board),
         .best_move = sample->best_move,
         .disc_margin = sample->disc_margin,
         .principal_variation = sample->principal_variation,
@@ -860,7 +657,7 @@ run_root_breakdown(const othello::benchmarks::EndgamePosition& position,
             .is_pass = true,
             .rank_by_margin = 1,
             .disc_margin_root = -child_result.disc_margin,
-            .child_metrics = compute_metrics(*after_pass),
+            .child_metrics = compute_endgame_metrics(*after_pass),
             .nodes = child_result.nodes,
             .stats = child_result.stats,
             .elapsed = elapsed,
@@ -901,7 +698,7 @@ run_root_breakdown(const othello::benchmarks::EndgamePosition& position,
             .is_pass = false,
             .rank_by_margin = 0,
             .disc_margin_root = -child_result.disc_margin,
-            .child_metrics = compute_metrics(*child_board),
+            .child_metrics = compute_endgame_metrics(*child_board),
             .nodes = child_result.nodes,
             .stats = child_result.stats,
             .elapsed = elapsed,
@@ -1039,7 +836,7 @@ run_expanded_child_breakdown(const othello::benchmarks::EndgamePosition& positio
             .rank_by_margin = 1,
             .disc_margin_node = margin_node,
             .disc_margin_root = -margin_node,
-            .child_metrics = compute_metrics(*after_pass),
+            .child_metrics = compute_endgame_metrics(*after_pass),
             .nodes = child_result.nodes,
             .stats = child_result.stats,
             .elapsed = elapsed,
@@ -1085,7 +882,7 @@ run_expanded_child_breakdown(const othello::benchmarks::EndgamePosition& positio
             .rank_by_margin = 0,
             .disc_margin_node = margin_node,
             .disc_margin_root = -margin_node,
-            .child_metrics = compute_metrics(*child_board),
+            .child_metrics = compute_endgame_metrics(*child_board),
             .nodes = child_result.nodes,
             .stats = child_result.stats,
             .elapsed = elapsed,
@@ -1110,23 +907,12 @@ run_expanded_child_breakdown(const othello::benchmarks::EndgamePosition& positio
     return candidates;
 }
 
-[[nodiscard]] double milliseconds(std::chrono::nanoseconds elapsed) {
-    return std::chrono::duration<double, std::milli>(elapsed).count();
-}
-
 [[nodiscard]] double nodes_per_second(std::uint64_t nodes, std::chrono::nanoseconds elapsed) {
     const auto seconds = std::chrono::duration<double>(elapsed).count();
     if (seconds <= 0.0) {
         return 0.0;
     }
     return static_cast<double>(nodes) / seconds;
-}
-
-[[nodiscard]] double hit_rate(std::uint64_t hits, std::uint64_t lookups) {
-    if (lookups == 0) {
-        return 0.0;
-    }
-    return (static_cast<double>(hits) * 100.0) / static_cast<double>(lookups);
 }
 
 void print_position_results(const std::vector<PositionBenchmarkResult>& results) {
@@ -1146,12 +932,12 @@ void print_position_results(const std::vector<PositionBenchmarkResult>& results)
                   << format_square(result.best_move) << "  " << std::right << std::setw(11)
                   << result.disc_margin << "  " << std::setw(12) << result.total_nodes << "  "
                   << std::setw(12) << std::fixed << std::setprecision(3)
-                  << milliseconds(result.elapsed) << "  " << std::setw(12) << std::fixed
+                  << elapsed_ms(result.elapsed) << "  " << std::setw(12) << std::fixed
                   << std::setprecision(0) << nodes_per_second(result.total_nodes, result.elapsed)
                   << "  " << std::setw(12) << result.total_stats.tt_lookups << "  " << std::setw(12)
                   << result.total_stats.tt_hits << "  " << std::setw(11) << std::fixed
                   << std::setprecision(2)
-                  << hit_rate(result.total_stats.tt_hits, result.total_stats.tt_lookups) << "  "
+                  << tt_hit_percentage(result.total_stats) << "  "
                   << std::setw(12) << result.total_stats.tt_stores << "  " << std::setw(13)
                   << result.total_stats.tt_collisions << "  " << std::setw(11)
                   << result.total_stats.tt_rejected_stores << "  "
@@ -1201,8 +987,8 @@ void print_summary_by_empty_count(const std::vector<PositionBenchmarkResult>& re
         std::vector<double> solve_nodes;
         double total_elapsed_ms = 0.0;
         for (const auto& result : group) {
-            total_elapsed_ms += milliseconds(result.elapsed);
-            solve_ms.push_back(milliseconds(result.elapsed) /
+            total_elapsed_ms += elapsed_ms(result.elapsed);
+            solve_ms.push_back(elapsed_ms(result.elapsed) /
                                static_cast<double>(result.repetitions));
             solve_nodes.push_back(static_cast<double>(result.total_nodes) /
                                   static_cast<double>(result.repetitions));
@@ -1232,13 +1018,13 @@ void print_summary_by_empty_count(const std::vector<PositionBenchmarkResult>& re
     for (const auto& [empties, group] : by_empty_count) {
         othello::ExactEndgameStats total_stats;
         for (const auto& result : group) {
-            add_stats(total_stats, result.total_stats);
+            othello::tools::add_exact_endgame_stats(total_stats, result.total_stats);
         }
 
         std::cout << std::right << std::setw(7) << empties << "  " << std::setw(5) << group.size()
                   << "  " << std::setw(14) << total_stats.tt_lookups << "  " << std::setw(12)
                   << total_stats.tt_hits << "  " << std::setw(11) << std::fixed
-                  << std::setprecision(2) << hit_rate(total_stats.tt_hits, total_stats.tt_lookups)
+                  << std::setprecision(2) << tt_hit_percentage(total_stats)
                   << "  " << std::setw(12) << total_stats.tt_exact_hits << "  " << std::setw(12)
                   << total_stats.tt_lower_hits << "  " << std::setw(12) << total_stats.tt_upper_hits
                   << "  " << std::setw(12) << total_stats.tt_stores << "  " << std::setw(13)
@@ -1265,7 +1051,7 @@ void print_position_metrics(const std::vector<PositionBenchmarkResult>& results)
                   << "  " << std::setw(7) << metrics.empty_region_count << "  " << std::setw(11)
                   << metrics.odd_region_count << "  " << std::setw(14)
                   << metrics.largest_region_size << "  " << std::setw(12) << std::fixed
-                  << std::setprecision(3) << milliseconds(result.elapsed) << "  " << std::setw(12)
+                  << std::setprecision(3) << elapsed_ms(result.elapsed) << "  " << std::setw(12)
                   << result.total_nodes << '\n';
     }
 }
@@ -1333,11 +1119,11 @@ void print_root_breakdown_rows(const std::vector<RootCandidateBreakdown>& candid
                   << format_root_move(candidate) << "  " << std::right << std::setw(6)
                   << candidate.rank_by_margin << "  " << std::setw(11) << candidate.disc_margin_root
                   << "  " << std::setw(12) << std::fixed << std::setprecision(3)
-                  << milliseconds(candidate.elapsed) << "  " << std::setw(12) << candidate.nodes
+                  << elapsed_ms(candidate.elapsed) << "  " << std::setw(12) << candidate.nodes
                   << "  " << std::setw(12) << candidate.stats.tt_lookups << "  " << std::setw(12)
                   << candidate.stats.tt_hits << "  " << std::setw(11) << std::fixed
                   << std::setprecision(2)
-                  << hit_rate(candidate.stats.tt_hits, candidate.stats.tt_lookups) << "  "
+                  << tt_hit_percentage(candidate.stats) << "  "
                   << std::setw(12) << candidate.stats.tt_stores << "  " << std::setw(13)
                   << candidate.stats.tt_collisions << "  " << std::setw(11)
                   << candidate.stats.tt_rejected_stores << "  " << std::setw(11)
@@ -1379,19 +1165,19 @@ void print_root_breakdown_analysis(const std::vector<RootCandidateBreakdown>& ca
         for (const auto& candidate : group) {
             total_elapsed += candidate.elapsed;
             total_nodes += candidate.nodes;
-            add_stats(total_stats, candidate.stats);
+            othello::tools::add_exact_endgame_stats(total_stats, candidate.stats);
         }
 
         std::cout << std::left << std::setw(30) << position_name << "  " << std::right
                   << std::setw(10) << group.size() << "  " << std::setw(18) << std::fixed
-                  << std::setprecision(3) << milliseconds(total_elapsed) << "  " << std::setw(12)
+                  << std::setprecision(3) << elapsed_ms(total_elapsed) << "  " << std::setw(12)
                   << total_nodes << "  " << std::left << std::setw(10) << format_root_move(*worst)
-                  << "  " << std::right << std::setw(12) << milliseconds(worst->elapsed) << "  "
+                  << "  " << std::right << std::setw(12) << elapsed_ms(worst->elapsed) << "  "
                   << std::setw(12) << worst->nodes << "  " << std::setw(11)
                   << worst->disc_margin_root << "  " << std::setw(10) << worst->rank_by_margin
                   << "  " << std::setw(11) << (worst->rank_by_margin == 1 ? "yes" : "no") << "  "
                   << std::setw(11) << std::fixed << std::setprecision(2)
-                  << hit_rate(total_stats.tt_hits, total_stats.tt_lookups) << '\n';
+                  << tt_hit_percentage(total_stats) << '\n';
     }
 }
 
@@ -1435,11 +1221,11 @@ void print_expanded_child_breakdown_rows(const std::vector<ExpandedChildBreakdow
                   << "  " << std::right << std::setw(6) << candidate.rank_by_margin << "  "
                   << std::setw(11) << candidate.disc_margin_node << "  " << std::setw(11)
                   << candidate.disc_margin_root << "  " << std::setw(12) << std::fixed
-                  << std::setprecision(3) << milliseconds(candidate.elapsed) << "  "
+                  << std::setprecision(3) << elapsed_ms(candidate.elapsed) << "  "
                   << std::setw(12) << candidate.nodes << "  " << std::setw(12)
                   << candidate.stats.tt_lookups << "  " << std::setw(12) << candidate.stats.tt_hits
                   << "  " << std::setw(11) << std::fixed << std::setprecision(2)
-                  << hit_rate(candidate.stats.tt_hits, candidate.stats.tt_lookups) << "  "
+                  << tt_hit_percentage(candidate.stats) << "  "
                   << std::setw(12) << candidate.stats.tt_stores << "  " << std::setw(13)
                   << candidate.stats.tt_collisions << "  " << std::setw(11)
                   << candidate.stats.tt_rejected_stores << "  " << std::setw(9)
@@ -1485,20 +1271,20 @@ void print_expanded_child_breakdown_analysis(
         for (const auto& candidate : group) {
             total_elapsed += candidate.elapsed;
             total_nodes += candidate.nodes;
-            add_stats(total_stats, candidate.stats);
+            othello::tools::add_exact_endgame_stats(total_stats, candidate.stats);
         }
 
         std::cout << std::left << std::setw(30) << expanded_root.first << "  " << std::setw(10)
                   << expanded_root.second << "  " << std::right << std::setw(10) << group.size()
                   << "  " << std::setw(18) << std::fixed << std::setprecision(3)
-                  << milliseconds(total_elapsed) << "  " << std::setw(12) << total_nodes << "  "
+                  << elapsed_ms(total_elapsed) << "  " << std::setw(12) << total_nodes << "  "
                   << std::left << std::setw(10) << format_child_move(*worst) << "  " << std::right
-                  << std::setw(12) << milliseconds(worst->elapsed) << "  " << std::setw(12)
+                  << std::setw(12) << elapsed_ms(worst->elapsed) << "  " << std::setw(12)
                   << worst->nodes << "  " << std::setw(11) << worst->disc_margin_node << "  "
                   << std::setw(10) << worst->rank_by_margin << "  " << std::setw(11)
                   << (worst->rank_by_margin == 1 ? "yes" : "no") << "  " << std::setw(11)
                   << std::fixed << std::setprecision(2)
-                  << hit_rate(total_stats.tt_hits, total_stats.tt_lookups) << '\n';
+                  << tt_hit_percentage(total_stats) << '\n';
     }
 }
 

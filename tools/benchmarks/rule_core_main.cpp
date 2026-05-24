@@ -1,5 +1,8 @@
+#include "benchmarks/reporters.hpp"
+#include "common/formatting.hpp"
 #include "positions/fixtures.hpp"
 
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <exception>
@@ -511,36 +514,32 @@ void add_to_summary(std::vector<SummaryResult>& summaries, const BenchmarkResult
 }
 
 [[nodiscard]] double elapsed_ms(std::chrono::nanoseconds elapsed) noexcept {
-    return static_cast<double>(elapsed.count()) / 1'000'000.0;
+    return othello::tools::elapsed_ms(elapsed);
 }
 
 [[nodiscard]] double ns_per_call(const BenchmarkResult& result) noexcept {
-    if (result.calls == 0) {
-        return 0.0;
-    }
-    return static_cast<double>(result.elapsed.count()) / static_cast<double>(result.calls);
+    return othello::tools::ns_per_call(result.elapsed, result.calls);
 }
 
 [[nodiscard]] double ns_per_call(const SummaryResult& result) noexcept {
-    if (result.calls == 0) {
-        return 0.0;
-    }
-    return static_cast<double>(result.elapsed.count()) / static_cast<double>(result.calls);
+    return othello::tools::ns_per_call(result.elapsed, result.calls);
 }
 
 [[nodiscard]] double calls_per_second(const BenchmarkResult& result) noexcept {
-    if (result.elapsed.count() == 0) {
-        return 0.0;
-    }
-    return (static_cast<double>(result.calls) * 1'000'000'000.0) /
-           static_cast<double>(result.elapsed.count());
+    return othello::tools::calls_per_second(result.elapsed, result.calls);
 }
 
 void print_position_result_header() {
-    std::cout << std::left << std::setw(36) << "position" << std::setw(16) << "operation"
-              << std::right << std::setw(14) << "calls" << std::setw(14) << "elapsed_ms"
-              << std::setw(14) << "ns_per_call" << std::setw(16) << "calls/s" << std::setw(22)
-              << "checksum" << '\n';
+    constexpr std::array columns{
+        othello::benchmarks::ColumnSpec{"position", 36, othello::benchmarks::ColumnAlign::Left},
+        othello::benchmarks::ColumnSpec{"operation", 16, othello::benchmarks::ColumnAlign::Left},
+        othello::benchmarks::ColumnSpec{"calls", 14},
+        othello::benchmarks::ColumnSpec{"elapsed_ms", 14},
+        othello::benchmarks::ColumnSpec{"ns_per_call", 14},
+        othello::benchmarks::ColumnSpec{"calls/s", 16},
+        othello::benchmarks::ColumnSpec{"checksum", 22},
+    };
+    othello::benchmarks::print_header_row(std::cout, columns);
 }
 
 void print_position_result(const BenchmarkResult& result) {
@@ -553,9 +552,14 @@ void print_position_result(const BenchmarkResult& result) {
 
 void print_summary(const std::vector<SummaryResult>& summaries) {
     std::cout << "\nSummary by operation\n";
-    std::cout << std::left << std::setw(16) << "operation" << std::right << std::setw(14)
-              << "total_calls" << std::setw(18) << "total_elapsed_ms" << std::setw(18)
-              << "avg_ns_per_call" << std::setw(22) << "checksum" << '\n';
+    constexpr std::array columns{
+        othello::benchmarks::ColumnSpec{"operation", 16, othello::benchmarks::ColumnAlign::Left},
+        othello::benchmarks::ColumnSpec{"total_calls", 14},
+        othello::benchmarks::ColumnSpec{"total_elapsed_ms", 18},
+        othello::benchmarks::ColumnSpec{"avg_ns_per_call", 18},
+        othello::benchmarks::ColumnSpec{"checksum", 22},
+    };
+    othello::benchmarks::print_header_row(std::cout, columns);
 
     for (const auto& summary : summaries) {
         std::cout << std::left << std::setw(16) << summary.operation << std::right << std::setw(14)
