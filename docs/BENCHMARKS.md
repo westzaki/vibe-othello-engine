@@ -271,8 +271,7 @@ For phase-aware or feature-weight evaluation PRs, collect at least:
 - `othello_analyze_position` output for a representative input board
 - smoke search benchmark with `--exact-endgame-threshold 0`
 - suite search benchmark using the current opt-in stronger preset
-- a small base/head match-runner comparison when an old evaluator binary is
-  available
+- a base/head match matrix when an old evaluator binary is available
 
 Useful commands:
 
@@ -312,6 +311,13 @@ Useful commands:
 Do not describe an evaluation PR as a pure speed comparison. Record score,
 best-move/PV, result checksum, work checksum, and a short explanation of the
 new breakdown fields or weights.
+
+For strength-changing PRs, prefer the external-process base/head matrix in
+[`docs/BASE_HEAD.md`](BASE_HEAD.md). Do not compare two in-process `search:`
+players when the code itself changed, because both players use the same linked
+engine. Quick smoke: depths 4 and 8 with 12 games. Useful local check: depths
+4, 6, 8, and 10 with 40 games. Stronger claims need broader openings and 100+
+games per depth.
 
 ## Comparing Search Changes
 

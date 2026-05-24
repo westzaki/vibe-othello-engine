@@ -46,6 +46,25 @@ python3 tools/scripts/run_experiment_matrix.py \
   --config tools/scripts/examples/search_ablation_smoke.json
 ```
 
+Run an external-process base/head matrix for a strength-changing PR:
+
+```sh
+python3 tools/scripts/base_head_match_matrix.py \
+  --base-build /tmp/vibe-othello-base/build \
+  --head-build build \
+  --base-repo /tmp/vibe-othello-base \
+  --head-repo . \
+  --openings data/openings/smoke_openings.txt \
+  --depths 4,8 \
+  --games 12 \
+  --seed 20260524 \
+  --out runs/base-head/my-change-smoke
+```
+
+Use this for base/head code comparisons where in-process `search:` players would
+share the same linked evaluator or search implementation. Raw matrix output
+belongs under `runs/`; summarize meaningful snapshots in `docs/perf/baselines/`.
+
 Probe the canonical external engine adapter CLI with the fake engine:
 
 ```sh
