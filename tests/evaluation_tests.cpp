@@ -29,11 +29,58 @@ side=W)");
     };
 }
 
+[[nodiscard]] Board corner_access_board() {
+    return othello::test::board_from_text(R"(........
+........
+........
+...BW...
+...WB...
+........
+........
+.WB.....
+side=B)");
+}
+
+[[nodiscard]] Board x_square_danger_board() {
+    return Board{
+        .black = Board::initial().black | othello::test::bit("b2"),
+        .white = Board::initial().white,
+        .side_to_move = Side::Black,
+    };
+}
+
+[[nodiscard]] Board frontier_sensitive_board() {
+    return othello::test::board_from_text(R"(........
+........
+..WWW...
+..WBW...
+..WWW...
+........
+........
+........
+side=B)");
+}
+
+[[nodiscard]] Board swapped_colors(const Board& board) noexcept {
+    return Board{
+        .black = board.white,
+        .white = board.black,
+        .side_to_move = othello::opponent(board.side_to_move),
+    };
+}
+
 void check_breakdown_matches_basic(const Board& board, Side side) {
     const othello::EvaluationBreakdown breakdown =
         othello::evaluate_basic_breakdown(board, side);
 
     CHECK(breakdown.total == othello::evaluate_basic(board, side));
+}
+
+[[nodiscard]] int non_terminal_score_sum(const othello::EvaluationBreakdown& breakdown) noexcept {
+    return breakdown.disc_difference_score + breakdown.mobility_score +
+           breakdown.corner_occupancy_score + breakdown.potential_mobility_score +
+           breakdown.corner_access_score + breakdown.x_square_danger_score +
+           breakdown.frontier_score;
 }
 
 void check_non_terminal_breakdown_math(const Board& board, Side side) {
@@ -48,10 +95,16 @@ void check_non_terminal_breakdown_math(const Board& board, Side side) {
     CHECK(breakdown.mobility_score == breakdown.mobility * breakdown.mobility_weight);
     CHECK(breakdown.corner_occupancy_score ==
           breakdown.corner_occupancy * breakdown.corner_occupancy_weight);
+    CHECK(breakdown.potential_mobility_score ==
+          breakdown.potential_mobility * breakdown.potential_mobility_weight);
+    CHECK(breakdown.corner_access_score ==
+          breakdown.corner_access * breakdown.corner_access_weight);
+    CHECK(breakdown.x_square_danger_score ==
+          breakdown.x_square_danger * breakdown.x_square_danger_weight);
+    CHECK(breakdown.frontier_score == breakdown.frontier * breakdown.frontier_weight);
     CHECK(breakdown.terminal_disc_difference == 0);
     CHECK(breakdown.terminal_score == 0);
-    CHECK(breakdown.total == breakdown.disc_difference_score + breakdown.mobility_score +
-                                breakdown.corner_occupancy_score);
+    CHECK(breakdown.total == non_terminal_score_sum(breakdown));
 }
 
 } // namespace
@@ -87,18 +140,55 @@ TEST_CASE("Evaluation breakdown total matches basic evaluator", "[evaluation]") 
         .side_to_move = Side::Black,
     };
 
-    for (const Board& board : {Board::initial(), midgame_board(), corner_occupancy_board(),
-                               terminal}) {
+    for (const Board& board :
+         {Board::initial(), midgame_board(), corner_occupancy_board(), corner_access_board(),
+          x_square_danger_board(), frontier_sensitive_board(), terminal}) {
         check_breakdown_matches_basic(board, Side::Black);
         check_breakdown_matches_basic(board, Side::White);
     }
 }
 
 TEST_CASE("Non-terminal evaluation breakdown explains component math", "[evaluation]") {
-    for (const Board& board : {Board::initial(), midgame_board(), corner_occupancy_board()}) {
+    for (const Board& board : {Board::initial(), midgame_board(), corner_occupancy_board(),
+                               corner_access_board(), x_square_danger_board(),
+                               frontier_sensitive_board()}) {
         check_non_terminal_breakdown_math(board, Side::Black);
         check_non_terminal_breakdown_math(board, Side::White);
     }
+}
+
+TEST_CASE("Evaluation breakdown reports phase and board fill", "[evaluation]") {
+    const Board initial = Board::initial();
+    const Board midgame = midgame_board();
+    const Board late = othello::test::board_from_text(R"(BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+WWWWWWWW
+WWWWWWWW
+WWWWWW..
+........
+side=B)");
+
+    const othello::EvaluationBreakdown initial_breakdown =
+        othello::evaluate_basic_breakdown(initial, Side::Black);
+    const othello::EvaluationBreakdown midgame_breakdown =
+        othello::evaluate_basic_breakdown(midgame, Side::Black);
+    const othello::EvaluationBreakdown late_breakdown =
+        othello::evaluate_basic_breakdown(late, Side::Black);
+
+    CHECK(initial_breakdown.phase == othello::EvaluationPhase::Opening);
+    CHECK(initial_breakdown.occupied_count == 4);
+    CHECK(initial_breakdown.empty_count == 60);
+    CHECK(initial_breakdown.disc_difference_weight == 0);
+
+    CHECK(midgame_breakdown.phase == othello::EvaluationPhase::Opening);
+    CHECK(midgame_breakdown.occupied_count == 11);
+
+    CHECK(late_breakdown.phase == othello::EvaluationPhase::Late);
+    CHECK(late_breakdown.occupied_count == 54);
+    CHECK(late_breakdown.empty_count == 10);
+    CHECK(late_breakdown.disc_difference_weight == 4);
 }
 
 TEST_CASE("Corner occupancy appears in evaluation breakdown", "[evaluation]") {
@@ -115,10 +205,63 @@ TEST_CASE("Corner occupancy appears in evaluation breakdown", "[evaluation]") {
 
     REQUIRE_FALSE(black.terminal);
     CHECK(black.corner_occupancy == 1);
-    CHECK(black.corner_occupancy_weight == 25);
-    CHECK(black.corner_occupancy_score == 25);
+    CHECK(black.corner_occupancy_weight == 35);
+    CHECK(black.corner_occupancy_score == 35);
     CHECK(white.corner_occupancy == -1);
-    CHECK(white.corner_occupancy_score == -25);
+    CHECK(white.corner_occupancy_score == -35);
+}
+
+TEST_CASE("Legal corner access is positive for the side with a corner move", "[evaluation]") {
+    const Board board = corner_access_board();
+
+    const othello::EvaluationBreakdown black =
+        othello::evaluate_basic_breakdown(board, Side::Black);
+    const othello::EvaluationBreakdown white =
+        othello::evaluate_basic_breakdown(board, Side::White);
+
+    CHECK((othello::legal_moves(board) & othello::test::bit("a1")) != 0);
+    CHECK(black.corner_access > 0);
+    CHECK(black.corner_access_score > 0);
+    CHECK(white.corner_access < 0);
+    CHECK(white.corner_access_score < 0);
+}
+
+TEST_CASE("X-square next to an empty corner is dangerous", "[evaluation]") {
+    const Board board = x_square_danger_board();
+
+    const othello::EvaluationBreakdown black =
+        othello::evaluate_basic_breakdown(board, Side::Black);
+    const othello::EvaluationBreakdown white =
+        othello::evaluate_basic_breakdown(board, Side::White);
+
+    CHECK(black.x_square_danger == -1);
+    CHECK(black.x_square_danger_score < 0);
+    CHECK(white.x_square_danger == 1);
+    CHECK(white.x_square_danger_score > 0);
+}
+
+TEST_CASE("Lower own frontier is better", "[evaluation]") {
+    const Board board = frontier_sensitive_board();
+
+    const othello::EvaluationBreakdown black =
+        othello::evaluate_basic_breakdown(board, Side::Black);
+    const othello::EvaluationBreakdown white =
+        othello::evaluate_basic_breakdown(board, Side::White);
+
+    CHECK(black.frontier > 0);
+    CHECK(black.frontier_score > 0);
+    CHECK(white.frontier < 0);
+    CHECK(white.frontier_score < 0);
+}
+
+TEST_CASE("Evaluation is symmetric under color swap", "[evaluation]") {
+    const Board board = midgame_board();
+    const Board swapped = swapped_colors(board);
+
+    CHECK(othello::evaluate_basic(board, Side::Black) ==
+          -othello::evaluate_basic(swapped, Side::Black));
+    CHECK(othello::evaluate_basic(board, Side::White) ==
+          -othello::evaluate_basic(swapped, Side::White));
 }
 
 TEST_CASE("Terminal board evaluation is strongly scaled", "[evaluation]") {
@@ -152,6 +295,10 @@ TEST_CASE("Terminal evaluation breakdown uses terminal score only", "[evaluation
     CHECK(black.disc_difference_score == 0);
     CHECK(black.mobility_score == 0);
     CHECK(black.corner_occupancy_score == 0);
+    CHECK(black.potential_mobility_score == 0);
+    CHECK(black.corner_access_score == 0);
+    CHECK(black.x_square_danger_score == 0);
+    CHECK(black.frontier_score == 0);
 
     CHECK(white.terminal);
     CHECK(white.terminal_disc_difference == othello::score(board, Side::White));

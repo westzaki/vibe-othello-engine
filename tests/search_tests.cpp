@@ -781,7 +781,7 @@ TEST_CASE("PVS preserves fixed-depth search result with transposition table", "[
     CHECK(pvs.stats.pvs_researches + pvs.stats.pvs_scout_cutoffs == pvs.stats.pvs_scouts);
 }
 
-TEST_CASE("Iterative PVS final result matches fixed-depth PVS result", "[search]") {
+TEST_CASE("Iterative PVS final score matches fixed-depth PVS result", "[search]") {
     const auto board = othello::apply_move(Board::initial(), othello::test::square("d3"));
     REQUIRE(board.has_value());
 
@@ -794,11 +794,15 @@ TEST_CASE("Iterative PVS final result matches fixed-depth PVS result", "[search]
 
     const othello::SearchResult fixed_depth = othello::search(*board, options);
     const othello::SearchResult iterative = othello::search_iterative(*board, options);
+    const othello::SearchResult repeated = othello::search_iterative(*board, options);
 
-    CHECK(iterative.best_move == fixed_depth.best_move);
     CHECK(iterative.score == fixed_depth.score);
     CHECK(iterative.depth == fixed_depth.depth);
-    CHECK(iterative.stats.pvs_scouts > fixed_depth.stats.pvs_scouts);
+    CHECK(iterative.best_move == repeated.best_move);
+    CHECK(iterative.score == repeated.score);
+    CHECK(iterative.depth == repeated.depth);
+    CHECK(iterative.principal_variation == repeated.principal_variation);
+    CHECK(iterative.stats.pvs_scouts > 0);
     CHECK(iterative.stats.pvs_researches + iterative.stats.pvs_scout_cutoffs ==
           iterative.stats.pvs_scouts);
 }

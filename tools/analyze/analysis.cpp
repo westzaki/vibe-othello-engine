@@ -13,6 +13,19 @@ namespace {
     return side == Side::Black ? "black" : "white";
 }
 
+[[nodiscard]] std::string_view phase_name(EvaluationPhase phase) noexcept {
+    switch (phase) {
+    case EvaluationPhase::Opening:
+        return "opening";
+    case EvaluationPhase::Midgame:
+        return "midgame";
+    case EvaluationPhase::Late:
+        return "late";
+    }
+
+    return "unknown";
+}
+
 } // namespace
 
 std::string_view mode_name(AnalysisMode mode) noexcept {
@@ -74,6 +87,9 @@ void print_report(const Board& board, const AnalysisOptions& options, const Sear
               << '\n'
               << "evaluation_breakdown:\n"
               << "  side: " << side_name(board.side_to_move) << '\n'
+              << "  phase: " << phase_name(evaluation.phase) << '\n'
+              << "  occupied_count: " << evaluation.occupied_count << '\n'
+              << "  empty_count: " << evaluation.empty_count << '\n'
               << "  terminal: " << (evaluation.terminal ? "yes" : "no") << '\n'
               << "  disc_difference: " << evaluation.disc_difference << '\n'
               << "  disc_difference_weight: " << evaluation.disc_difference_weight << '\n'
@@ -84,6 +100,18 @@ void print_report(const Board& board, const AnalysisOptions& options, const Sear
               << "  corner_occupancy: " << evaluation.corner_occupancy << '\n'
               << "  corner_occupancy_weight: " << evaluation.corner_occupancy_weight << '\n'
               << "  corner_occupancy_score: " << evaluation.corner_occupancy_score << '\n'
+              << "  potential_mobility: " << evaluation.potential_mobility << '\n'
+              << "  potential_mobility_weight: " << evaluation.potential_mobility_weight << '\n'
+              << "  potential_mobility_score: " << evaluation.potential_mobility_score << '\n'
+              << "  corner_access: " << evaluation.corner_access << '\n'
+              << "  corner_access_weight: " << evaluation.corner_access_weight << '\n'
+              << "  corner_access_score: " << evaluation.corner_access_score << '\n'
+              << "  x_square_danger: " << evaluation.x_square_danger << '\n'
+              << "  x_square_danger_weight: " << evaluation.x_square_danger_weight << '\n'
+              << "  x_square_danger_score: " << evaluation.x_square_danger_score << '\n'
+              << "  frontier: " << evaluation.frontier << '\n'
+              << "  frontier_weight: " << evaluation.frontier_weight << '\n'
+              << "  frontier_score: " << evaluation.frontier_score << '\n'
               << "  terminal_disc_difference: " << evaluation.terminal_disc_difference << '\n'
               << "  terminal_score_weight: " << evaluation.terminal_score_weight << '\n'
               << "  terminal_score: " << evaluation.terminal_score << '\n'
