@@ -123,6 +123,22 @@ Check these first:
 - average time per player, especially at deeper depths
 - whether one side times out or returns illegal moves
 
+When one depth or opening regresses, use root candidate analysis before tuning
+weights:
+
+```sh
+printf '........\n........\n........\n...BW...\n...WB...\n........\n........\n........\nside=B\n' | \
+./build/othello_analyze_position \
+  --stdin \
+  --depth 8 \
+  --mode iterative \
+  --tt on \
+  --pvs on \
+  --aspiration on \
+  --exact-endgame-threshold 0 \
+  --root-candidates
+```
+
 The matrix is deterministic for the selected openings and seed. It is still only
 a sample of positions. Avoid claiming Elo from it, and treat small game counts as
 smoke tests only.

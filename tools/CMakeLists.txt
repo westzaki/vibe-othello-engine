@@ -48,6 +48,15 @@ target_include_directories(othello_nboard_protocol PRIVATE ${CMAKE_CURRENT_SOURC
 othello_enable_sanitizers(othello_nboard_protocol)
 list(APPEND OTHELLO_CLANG_TIDY_TARGETS othello_nboard_protocol)
 
+add_library(othello_analyze_core OBJECT
+    analyze/analysis.cpp
+)
+
+target_link_libraries(othello_analyze_core PRIVATE othello)
+target_include_directories(othello_analyze_core PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+othello_enable_sanitizers(othello_analyze_core)
+list(APPEND OTHELLO_CLANG_TIDY_TARGETS othello_analyze_core)
+
 othello_add_executable(othello_rule_core_bench
     benchmarks/rule_core_main.cpp
     benchmarks/reporters.cpp
@@ -74,7 +83,7 @@ target_include_directories(othello_endgame_bench PRIVATE ${CMAKE_CURRENT_SOURCE_
 
 othello_add_executable(othello_analyze_position
     analyze/analyze_position_main.cpp
-    analyze/analysis.cpp
+    $<TARGET_OBJECTS:othello_analyze_core>
     $<TARGET_OBJECTS:othello_tools_common>
 )
 target_include_directories(othello_analyze_position PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

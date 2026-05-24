@@ -91,6 +91,7 @@ othello_add_executable(othello_tests
     tests/endgame_tests.cpp
     tests/evaluation_tests.cpp
     tests/hash_tests.cpp
+    tests/analyze_tests.cpp
     tests/match_runner_tests.cpp
     tests/nboard_protocol_tests.cpp
     tests/notation_tests.cpp
@@ -100,6 +101,7 @@ othello_add_executable(othello_tests
     tests/rules_tests.cpp
     tests/search_tests.cpp
     tests/square_tests.cpp
+    $<TARGET_OBJECTS:othello_analyze_core>
     $<TARGET_OBJECTS:othello_match_runner_core>
     $<TARGET_OBJECTS:othello_nboard_protocol>
     $<TARGET_OBJECTS:othello_tools_common>
