@@ -46,6 +46,8 @@ void print_report(const Board& board, const AnalysisOptions& options, const Sear
     const bool no_legal_moves = moves == 0;
     const bool pass_available = pass_turn(board).has_value();
     const bool game_over = is_game_over(board);
+    const EvaluationBreakdown evaluation =
+        evaluate_basic_breakdown(board, board.side_to_move);
 
     std::cout << "Othello position analysis\n"
               << '\n'
@@ -68,7 +70,24 @@ void print_report(const Board& board, const AnalysisOptions& options, const Sear
               << '\n'
               << "game_over: " << (game_over ? "yes" : "no") << '\n'
               << "no_legal_moves: " << (no_legal_moves ? "yes" : "no") << '\n'
-              << "pass_available: " << (pass_available ? "yes" : "no") << '\n';
+              << "pass_available: " << (pass_available ? "yes" : "no") << '\n'
+              << '\n'
+              << "evaluation_breakdown:\n"
+              << "  side: " << side_name(board.side_to_move) << '\n'
+              << "  terminal: " << (evaluation.terminal ? "yes" : "no") << '\n'
+              << "  disc_difference: " << evaluation.disc_difference << '\n'
+              << "  disc_difference_weight: " << evaluation.disc_difference_weight << '\n'
+              << "  disc_difference_score: " << evaluation.disc_difference_score << '\n'
+              << "  mobility: " << evaluation.mobility << '\n'
+              << "  mobility_weight: " << evaluation.mobility_weight << '\n'
+              << "  mobility_score: " << evaluation.mobility_score << '\n'
+              << "  corner_occupancy: " << evaluation.corner_occupancy << '\n'
+              << "  corner_occupancy_weight: " << evaluation.corner_occupancy_weight << '\n'
+              << "  corner_occupancy_score: " << evaluation.corner_occupancy_score << '\n'
+              << "  terminal_disc_difference: " << evaluation.terminal_disc_difference << '\n'
+              << "  terminal_score_weight: " << evaluation.terminal_score_weight << '\n'
+              << "  terminal_score: " << evaluation.terminal_score << '\n'
+              << "  total: " << evaluation.total << '\n';
 }
 
 } // namespace othello::tools::analyze

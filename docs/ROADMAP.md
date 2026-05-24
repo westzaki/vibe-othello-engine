@@ -111,6 +111,12 @@ Evaluation changes should be deterministic, understandable, and measurable.
 Useful comparison methods include fixed-position tests, self-play, benchmark
 positions, and optional games against external engines.
 
+Before changing evaluation strength, evaluator output should be inspectable by
+component. Future phase-aware or feature-tuning PRs should compare evaluation
+breakdowns alongside search and match behavior. Result checksum changes are
+expected for intentional strength-changing evaluation PRs, but instrumentation
+PRs should preserve current evaluator totals.
+
 Avoid large parameter sets or complex learned tables until there is a real tuning
 pipeline.
 
