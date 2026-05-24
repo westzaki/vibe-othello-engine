@@ -95,6 +95,30 @@ the JSONL output with `othello_match_summary`:
   --by-opening
 ```
 
+Search players also accept runner-local options for comparing existing search
+features without changing engine code:
+
+```sh
+./build/othello_match_runner \
+  --black search:depth=4,tt=on,pvs=on,exact=off \
+  --white search:depth=4,tt=off,pvs=off,exact=off \
+  --games 8 \
+  --swap-sides true \
+  --seed 1 \
+  --openings data/openings/smoke_openings.txt \
+  --output build/matches/search4_tt_pvs_vs_plain.jsonl
+
+./build/othello_match_summary \
+  --input build/matches/search4_tt_pvs_vs_plain.jsonl \
+  --by-opening
+```
+
+Supported search player options are `tt=on|off`, `pvs=on|off`,
+`exact=off|N`, and `tt_entries=N`. The plain `search:depth=N` form keeps the
+same defaults as the existing fixed-depth search path. `tt_entries=N` only sets
+the transposition-table capacity; include `tt=on` when the match should use the
+table.
+
 The summary reports A/B wins, draws, average disc diff from the player A
 perspective, average plies, average passes, error-game count, and optional
 per-opening rows. It is intentionally not an Elo or significance tool.

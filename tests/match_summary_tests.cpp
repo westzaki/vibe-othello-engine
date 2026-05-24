@@ -73,7 +73,11 @@ TEST_CASE("Match summary skips escaped strings and arrays", "[match-summary]") {
 
 TEST_CASE("Match summary ignores unknown fields", "[match-summary]") {
     std::string line = record_json(0, 0, "initial", 4, 60, 2);
-    line.insert(line.size() - 1, ",\"extra\":{\"nested\":[true,false,null,12,\"x\"]}");
+    line.insert(line.size() - 1,
+                ",\"nodes_black\":123,\"nodes_white\":0,\"nodes_player_a\":123,"
+                "\"nodes_player_b\":0,\"time_ms_black\":1.25,\"time_ms_white\":0,"
+                "\"time_ms_player_a\":1.25,\"time_ms_player_b\":0,"
+                "\"extra\":{\"nested\":[true,false,null,12,\"x\"]}");
 
     const summary::ParseResult result = summary::parse_game_record(line);
 
