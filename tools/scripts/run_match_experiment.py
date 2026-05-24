@@ -41,6 +41,8 @@ def build_summary_command(args: argparse.Namespace) -> list[str]:
     command = [sys.executable, args.summary_script, "--input", args.output]
     if args.allow_errors:
         command.append("--allow-errors")
+    if args.by_opening:
+        command.append("--by-opening")
     return command
 
 
@@ -65,8 +67,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="pass --allow-errors to summary script",
     )
+    parser.add_argument(
+        "--by-opening",
+        action="store_true",
+        help="pass --by-opening to summary script; requires --summary",
+    )
     parser.add_argument("--dry-run", action="store_true", help="print commands without running")
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.by_opening and not args.summary:
+        parser.error("--by-opening requires --summary")
+    return args
 
 
 def main(argv: list[str] | None = None) -> int:

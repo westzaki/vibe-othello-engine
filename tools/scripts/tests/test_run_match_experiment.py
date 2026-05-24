@@ -43,6 +43,7 @@ class RunMatchExperimentTests(unittest.TestCase):
                     "--output",
                     "build/matches/out.jsonl",
                     "--summary",
+                    "--by-opening",
                     "--dry-run",
                 ]
             )
@@ -55,7 +56,38 @@ class RunMatchExperimentTests(unittest.TestCase):
             "--games 4 --swap-sides true --seed 1 --openings data/openings/smoke_openings.txt "
             "--output build/matches/out.jsonl",
         )
-        self.assertIn("tools/scripts/match_summary.py --input build/matches/out.jsonl", lines[1])
+        self.assertIn(
+            "tools/scripts/match_summary.py --input build/matches/out.jsonl --by-opening",
+            lines[1],
+        )
+
+    def test_by_opening_without_summary_is_error(self) -> None:
+        stderr = io.StringIO()
+
+        with contextlib.redirect_stderr(stderr):
+            with self.assertRaises(SystemExit) as raised:
+                run_match_experiment.parse_args(
+                    [
+                        "--runner",
+                        "./build/othello_match_runner",
+                        "--black",
+                        "first",
+                        "--white",
+                        "random",
+                        "--games",
+                        "1",
+                        "--swap-sides",
+                        "false",
+                        "--seed",
+                        "1",
+                        "--output",
+                        "out.jsonl",
+                        "--by-opening",
+                    ]
+                )
+
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn("--by-opening requires --summary", stderr.getvalue())
 
     def test_runner_failure_exit_code_is_propagated(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
