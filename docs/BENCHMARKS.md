@@ -73,6 +73,48 @@ ordering signal; deeper midgame search usually benefits more from better orderin
 than from raw NPS alone. If best move, score, or checksum changes, the run is not
 a pure speed comparison.
 
+## Comparing the Existing Stronger Midgame Preset
+
+The current stronger preset is existing behavior, not a default policy change:
+
+- fixed plain: fixed depth, TT off, PVS off
+- stronger preset: iterative deepening, TT on, PVS on
+
+Compare fixed plain with:
+
+```sh
+./build/othello_search_bench \
+  --mode fixed \
+  --depths 3,4,5,6,7 \
+  --positions suite \
+  --repetitions 3 \
+  --tt off \
+  --pvs off \
+  --exact-endgame-threshold 0
+```
+
+Compare the existing stronger preset with:
+
+```sh
+./build/othello_search_bench \
+  --mode iterative \
+  --depths 3,4,5,6,7 \
+  --positions suite \
+  --repetitions 3 \
+  --tt on \
+  --pvs on \
+  --exact-endgame-threshold 0
+```
+
+This comparison uses the observability counters in `SearchStats`; it does not
+imply that TT, PVS, or iterative search should become default-on. Keep Release
+builds separate from Debug builds, and keep `--exact-endgame-threshold 0` when
+the goal is depth-limited midgame measurement. Treat best move, score, PV, or
+checksum changes as behavior changes first, not pure speed changes. When
+comparing different benchmark modes, remember that benchmark checksums include
+the mode to make each command reproducible; use them together with best move,
+score, and PV rather than as a mode-independent equality check.
+
 ## Exact Endgame Benchmarks
 
 Use the exact endgame benchmark when changing the standalone exact solver,
