@@ -275,6 +275,7 @@ struct MoveOrderingParams {
     int dynamic_edge_bonus = 1'000;
     int dynamic_x_square_empty_corner_penalty = 30'000;
     int dynamic_opponent_corner_penalty = 80'000;
+    int dynamic_opponent_pass_bonus = 30'000;
     int dynamic_opponent_mobility_penalty = 500;
 
     int dynamic_min_depth = 3;
@@ -318,6 +319,17 @@ should_use_dynamic_move_ordering(bool enabled, std::size_t move_count, int depth
     return enabled && depth >= params.dynamic_min_depth && move_count >= params.dynamic_min_moves;
 }
 
+[[nodiscard]] bool has_legal_move_after_forced_pass(const Board& board,
+                                                    Bitboard opponent_moves) noexcept {
+    if (opponent_moves != 0) {
+        return false;
+    }
+
+    Board after_pass = board;
+    after_pass.side_to_move = opponent(board.side_to_move);
+    return legal_moves(after_pass) != 0;
+}
+
 [[nodiscard]] int move_order_score(const Board& board, Square square, Bitboard flips,
                                    std::size_t move_count, int depth, bool dynamic_move_ordering,
                                    const MoveOrderingParams& params) noexcept {
@@ -350,6 +362,12 @@ should_use_dynamic_move_ordering(bool enabled, std::size_t move_count, int depth
     const Bitboard opponent_moves = legal_moves(next);
     if ((opponent_moves & corner_squares) != 0) {
         score -= params.dynamic_opponent_corner_penalty;
+    }
+    // Ordering-only signal: forcing a real opponent pass is often tactically useful
+    // and can improve alpha-beta/PVS first-move quality. Search pass semantics remain
+    // handled only by search_node().
+    if (has_legal_move_after_forced_pass(next, opponent_moves)) {
+        score += params.dynamic_opponent_pass_bonus;
     }
     score -= std::popcount(opponent_moves) * params.dynamic_opponent_mobility_penalty;
 

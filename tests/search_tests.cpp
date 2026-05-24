@@ -1107,3 +1107,39 @@ TEST_CASE("PVS preserves pass position result without fake principal variation m
     }
     CHECK(pvs.stats.pvs_researches + pvs.stats.pvs_scout_cutoffs == pvs.stats.pvs_scouts);
 }
+
+TEST_CASE("Aspiration with TT and PVS preserves pass position result", "[search]") {
+    const Board board = othello::test::black_must_pass_board();
+
+    REQUIRE(othello::legal_moves(board) == 0);
+    REQUIRE_FALSE(othello::is_game_over(board));
+
+    const othello::SearchOptions full_window_options{
+        .max_depth = 5,
+        .use_transposition_table = true,
+        .exact_endgame_empty_threshold = 0,
+        .use_pvs = true,
+    };
+    const othello::SearchOptions aspiration_options{
+        .max_depth = 5,
+        .use_transposition_table = true,
+        .exact_endgame_empty_threshold = 0,
+        .use_pvs = true,
+        .use_aspiration_window = true,
+        .aspiration_window = 50,
+    };
+
+    const othello::SearchResult full_window =
+        othello::search_iterative(board, full_window_options);
+    const othello::SearchResult aspirated =
+        othello::search_iterative(board, aspiration_options);
+
+    CHECK_FALSE(aspirated.best_move.has_value());
+    CHECK(aspirated.score == full_window.score);
+    CHECK(aspirated.depth == full_window.depth);
+    CHECK(aspirated.principal_variation == full_window.principal_variation);
+    CHECK(aspirated.stats.aspiration_searches > 0);
+    CHECK(aspirated.stats.pass_nodes > 0);
+    CHECK(aspirated.stats.pvs_researches + aspirated.stats.pvs_scout_cutoffs ==
+          aspirated.stats.pvs_scouts);
+}
