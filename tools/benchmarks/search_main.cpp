@@ -64,8 +64,11 @@ struct BenchmarkOptions {
     bool by_position = false;
     std::optional<bool> use_transposition_table;
     std::optional<bool> use_pvs;
+    std::optional<bool> use_aspiration_window;
     std::size_t transposition_table_entries = othello::SearchOptions{}.transposition_table_entries;
     int exact_endgame_empty_threshold = othello::SearchOptions{}.exact_endgame_empty_threshold;
+    int aspiration_window = othello::SearchOptions{}.aspiration_window;
+    int aspiration_max_researches = othello::SearchOptions{}.aspiration_max_researches;
 };
 
 struct SearchBenchmarkResult {
@@ -73,6 +76,9 @@ struct SearchBenchmarkResult {
     SearchRunMode mode;
     bool use_transposition_table;
     bool use_pvs;
+    bool use_aspiration_window;
+    int aspiration_window;
+    int aspiration_max_researches;
     std::size_t transposition_table_entries;
     std::uint64_t position_count;
     int depth;
@@ -94,6 +100,9 @@ struct PositionBenchmarkResult {
     SearchRunMode mode;
     bool use_transposition_table;
     bool use_pvs;
+    bool use_aspiration_window;
+    int aspiration_window;
+    int aspiration_max_researches;
     std::size_t transposition_table_entries;
     int depth;
     std::optional<othello::Square> sample_best_move;
@@ -110,7 +119,8 @@ void print_usage(std::string_view program_name) {
               << " [--mode fixed|iterative|both] [--depths 1,2,3,4,5]"
                  " [--repetitions N] [--positions smoke|suite]"
                  " [--describe-positions] [--by-position] [--tt on|off] [--tt-entries N]"
-                 " [--pvs on|off] [--exact-endgame-threshold N]\n"
+                 " [--pvs on|off] [--aspiration on|off] [--aspiration-window N]"
+                 " [--aspiration-max-researches N] [--exact-endgame-threshold N]\n"
               << '\n'
               << "Options:\n"
               << "  --depths LIST       comma-separated positive search depths\n"
@@ -123,6 +133,11 @@ void print_usage(std::string_view program_name) {
               << "  --tt on|off         override the SearchOptions TT default\n"
               << "  --tt-entries N      requested transposition table entry count\n"
               << "  --pvs on|off        override the SearchOptions PVS default\n"
+              << "  --aspiration on|off enable iterative-search aspiration windows\n"
+              << "  --aspiration-window N\n"
+              << "                      positive initial aspiration half-window\n"
+              << "  --aspiration-max-researches N\n"
+              << "                      non-negative aspiration widening retries before full-window fallback\n"
               << "  --exact-endgame-threshold N\n"
               << "                       solve root positions with at most N empties exactly; N <= "
                  "0 disables\n"
@@ -340,6 +355,54 @@ void print_usage(std::string_view program_name) {
             continue;
         }
 
+        if (option == "--aspiration") {
+            ++index;
+            if (index >= args.size()) {
+                std::cerr << "--aspiration requires on or off\n";
+                return std::nullopt;
+            }
+
+            const auto aspiration_setting = othello::tools::parse_on_off(args[index]);
+            if (!aspiration_setting.has_value()) {
+                std::cerr << "--aspiration must be on or off\n";
+                return std::nullopt;
+            }
+            options.use_aspiration_window = aspiration_setting;
+            continue;
+        }
+
+        if (option == "--aspiration-window") {
+            ++index;
+            if (index >= args.size()) {
+                std::cerr << "--aspiration-window requires a positive integer\n";
+                return std::nullopt;
+            }
+
+            const auto window = parse_positive_depth(args[index]);
+            if (!window.has_value()) {
+                std::cerr << "--aspiration-window must be a positive integer\n";
+                return std::nullopt;
+            }
+            options.aspiration_window = *window;
+            continue;
+        }
+
+        if (option == "--aspiration-max-researches") {
+            ++index;
+            if (index >= args.size()) {
+                std::cerr << "--aspiration-max-researches requires a non-negative integer\n";
+                return std::nullopt;
+            }
+
+            const auto researches = parse_int(args[index]);
+            if (!researches.has_value() || *researches < 0) {
+                std::cerr << "--aspiration-max-researches must be a non-negative integer\n";
+                return std::nullopt;
+            }
+            options.aspiration_max_researches = *researches;
+            continue;
+        }
+
         if (option == "--tt-entries") {
             ++index;
             if (index >= args.size()) {
@@ -531,8 +594,13 @@ make_positions(PositionSet position_set) {
     if (options.use_pvs.has_value()) {
         search_options.use_pvs = *options.use_pvs;
     }
+    if (options.use_aspiration_window.has_value()) {
+        search_options.use_aspiration_window = *options.use_aspiration_window;
+    }
     search_options.transposition_table_entries = options.transposition_table_entries;
     search_options.exact_endgame_empty_threshold = options.exact_endgame_empty_threshold;
+    search_options.aspiration_window = options.aspiration_window;
+    search_options.aspiration_max_researches = options.aspiration_max_researches;
     return search_options;
 }
 
@@ -596,6 +664,9 @@ benchmark_search(const std::vector<othello::benchmarks::Position>& positions, in
         .mode = mode,
         .use_transposition_table = search_options.use_transposition_table,
         .use_pvs = search_options.use_pvs,
+        .use_aspiration_window = search_options.use_aspiration_window,
+        .aspiration_window = search_options.aspiration_window,
+        .aspiration_max_researches = search_options.aspiration_max_researches,
         .transposition_table_entries = search_options.transposition_table_entries,
         .position_count = positions.size(),
         .depth = depth,
@@ -644,6 +715,9 @@ benchmark_position(const othello::benchmarks::Position& position, int depth,
         .mode = mode,
         .use_transposition_table = search_options.use_transposition_table,
         .use_pvs = search_options.use_pvs,
+        .use_aspiration_window = search_options.use_aspiration_window,
+        .aspiration_window = search_options.aspiration_window,
+        .aspiration_max_researches = search_options.aspiration_max_researches,
         .transposition_table_entries = search_options.transposition_table_entries,
         .depth = depth,
         .sample_best_move = sample_best_move,
@@ -674,6 +748,8 @@ benchmark_position(const othello::benchmarks::Position& position, int depth,
 void print_search_result_header() {
     std::cout << std::left << std::setw(12) << "benchmark" << "  " << std::setw(10) << "mode"
               << "  " << std::setw(3) << "tt" << "  " << std::setw(3) << "pvs"
+              << "  " << std::setw(3) << "asp" << "  " << std::setw(10) << "asp_window"
+              << "  " << std::setw(11) << "asp_max_re"
               << "  " << std::setw(10) << "tt_entries"
               << "  positions  depth  best_move  score  " << std::setw(28) << "pv"
               << "  searches  elapsed_ms      searches/s  total_nodes         nodes/s"
@@ -682,6 +758,7 @@ void print_search_result_header() {
                  "  tt_lookups  tt_hits  tt_hit_rate  tt_stores  tt_overwrites"
                  "  tt_collisions  tt_rejected_stores  tt_order_probes  tt_order_hits"
                  "  tt_order_used  pvs_scouts  pvs_researches  pvs_scout_cutoffs"
+                 "  asp_searches  asp_researches  asp_fail_lows  asp_fail_highs  asp_fallbacks"
                  "  dyn_nodes  dyn_moves"
                  "  result_checksum  work_checksum\n";
 }
@@ -706,7 +783,10 @@ void print_search_result(const SearchBenchmarkResult& result) {
     std::cout << std::left << std::setw(12) << result.name << "  " << std::setw(10)
               << mode_name(result.mode) << "  " << std::setw(3)
               << (result.use_transposition_table ? "on" : "off") << "  " << std::setw(3)
-              << (result.use_pvs ? "on" : "off") << "  " << std::right << std::setw(10)
+              << (result.use_pvs ? "on" : "off") << "  " << std::setw(3)
+              << (result.use_aspiration_window ? "on" : "off") << "  " << std::right
+              << std::setw(10) << result.aspiration_window << "  " << std::setw(11)
+              << result.aspiration_max_researches << "  " << std::setw(10)
               << result.transposition_table_entries << "  " << std::setw(9) << result.position_count
               << "  " << std::setw(5) << result.depth << "  " << std::left << std::setw(9)
               << (result.sample_best_move.has_value() ? othello::to_string(*result.sample_best_move)
@@ -737,6 +817,11 @@ void print_search_result(const SearchBenchmarkResult& result) {
               << result.total_stats.pvs_scouts << "  " << std::setw(14)
               << result.total_stats.pvs_researches << "  " << std::setw(17)
               << result.total_stats.pvs_scout_cutoffs << "  " << std::setw(9)
+              << result.total_stats.aspiration_searches << "  " << std::setw(14)
+              << result.total_stats.aspiration_researches << "  " << std::setw(13)
+              << result.total_stats.aspiration_fail_lows << "  " << std::setw(14)
+              << result.total_stats.aspiration_fail_highs << "  " << std::setw(13)
+              << result.total_stats.aspiration_full_window_fallbacks << "  " << std::setw(9)
               << result.total_stats.dynamic_ordering_nodes << "  " << std::setw(9)
               << result.total_stats.dynamic_ordering_moves << "  " << result.result_checksum << "  "
               << result.work_checksum << '\n';
@@ -746,6 +831,8 @@ void print_position_result_header() {
     std::cout << std::left << std::setw(28) << "position" << "  " << std::setw(14) << "phase"
               << "  " << std::setw(44) << "tags" << "  " << std::setw(10) << "mode"
               << "  " << std::setw(3) << "tt" << "  " << std::setw(3) << "pvs"
+              << "  " << std::setw(3) << "asp" << "  " << std::setw(10) << "asp_window"
+              << "  " << std::setw(11) << "asp_max_re"
               << "  " << std::setw(10) << "tt_entries"
               << "  depth  best_move  score  " << std::setw(28) << "pv"
               << "  searches  elapsed_ms       nodes  nodes/search         nodes/s"
@@ -753,7 +840,9 @@ void print_position_result_header() {
                  "  beta_cutoffs  beta_cut_first_move_pct"
                  "  tt_lookups  tt_hits  tt_hit_rate  tt_stores  tt_overwrites"
                  "  tt_collisions  tt_rejected_stores  tt_order_probes  tt_order_hits  tt_order_used"
-                 "  pvs_scouts  pvs_researches  pvs_scout_cutoffs  dyn_nodes  dyn_moves\n";
+                 "  pvs_scouts  pvs_researches  pvs_scout_cutoffs"
+                 "  asp_searches  asp_researches  asp_fail_lows  asp_fail_highs  asp_fallbacks"
+                 "  dyn_nodes  dyn_moves\n";
 }
 
 void print_position_result(const PositionBenchmarkResult& result) {
@@ -764,7 +853,10 @@ void print_position_result(const PositionBenchmarkResult& result) {
               << result.phase << "  " << std::setw(44) << (result.tags.empty() ? "-" : result.tags)
               << "  " << std::setw(10) << mode_name(result.mode) << "  " << std::setw(3)
               << (result.use_transposition_table ? "on" : "off") << "  " << std::setw(3)
-              << (result.use_pvs ? "on" : "off") << "  " << std::right << std::setw(10)
+              << (result.use_pvs ? "on" : "off") << "  " << std::setw(3)
+              << (result.use_aspiration_window ? "on" : "off") << "  " << std::right
+              << std::setw(10) << result.aspiration_window << "  " << std::setw(11)
+              << result.aspiration_max_researches << "  " << std::setw(10)
               << result.transposition_table_entries << "  " << std::setw(5) << result.depth << "  "
               << std::left << std::setw(9)
               << (result.sample_best_move.has_value() ? othello::to_string(*result.sample_best_move)
@@ -795,6 +887,11 @@ void print_position_result(const PositionBenchmarkResult& result) {
               << result.total_stats.pvs_scouts << "  " << std::setw(14)
               << result.total_stats.pvs_researches << "  " << std::setw(17)
               << result.total_stats.pvs_scout_cutoffs << "  " << std::setw(9)
+              << result.total_stats.aspiration_searches << "  " << std::setw(14)
+              << result.total_stats.aspiration_researches << "  " << std::setw(13)
+              << result.total_stats.aspiration_fail_lows << "  " << std::setw(14)
+              << result.total_stats.aspiration_fail_highs << "  " << std::setw(13)
+              << result.total_stats.aspiration_full_window_fallbacks << "  " << std::setw(9)
               << result.total_stats.dynamic_ordering_nodes << "  " << std::setw(9)
               << result.total_stats.dynamic_ordering_moves << '\n';
 }
@@ -824,7 +921,7 @@ void print_position_result(const PositionBenchmarkResult& result) {
 
 void print_position_summary_header() {
     std::cout << std::left << std::setw(10) << "mode" << "  " << std::setw(3) << "tt"
-              << "  " << std::setw(3) << "pvs"
+              << "  " << std::setw(3) << "pvs" << "  " << std::setw(3) << "asp"
               << "  depth  positions  total_elapsed_ms  avg_ms_per_position"
                  "  p50_ms_per_position  p95_ms_per_position  max_ms_per_position"
                  "  avg_nodes_per_position  p50_nodes_per_position  p95_nodes_per_position"
@@ -842,6 +939,7 @@ void print_position_summary(std::span<const PositionBenchmarkResult> results, Se
     std::uint64_t total_nodes = 0;
     bool use_transposition_table = false;
     bool use_pvs = false;
+    bool use_aspiration_window = false;
 
     for (const auto& result : results) {
         per_position_ms.push_back(elapsed_ms(result.elapsed));
@@ -850,6 +948,7 @@ void print_position_summary(std::span<const PositionBenchmarkResult> results, Se
         total_nodes += result.total_nodes;
         use_transposition_table = result.use_transposition_table;
         use_pvs = result.use_pvs;
+        use_aspiration_window = result.use_aspiration_window;
     }
 
     const auto position_count = results.size();
@@ -865,7 +964,9 @@ void print_position_summary(std::span<const PositionBenchmarkResult> results, Se
 
     std::cout << std::left << std::setw(10) << mode_name(mode) << "  " << std::setw(3)
               << (use_transposition_table ? "on" : "off") << "  " << std::setw(3)
-              << (use_pvs ? "on" : "off") << "  " << std::right << std::setw(5) << depth << "  "
+              << (use_pvs ? "on" : "off") << "  " << std::setw(3)
+              << (use_aspiration_window ? "on" : "off") << "  " << std::right << std::setw(5)
+              << depth << "  "
               << std::setw(9) << position_count << "  " << std::fixed << std::setprecision(3)
               << std::setw(16) << elapsed_ms(total_elapsed) << "  " << std::setw(19) << avg_ms
               << "  " << std::setw(20) << percentile_value(per_position_ms, 50) << "  "
@@ -990,6 +1091,14 @@ int run_benchmark(std::span<char* const> args) {
               << '\n';
     std::cout << "pvs: "
               << (options.use_pvs.value_or(default_search_options.use_pvs) ? "on" : "off") << '\n';
+    std::cout << "aspiration: "
+              << (options.use_aspiration_window.value_or(
+                      default_search_options.use_aspiration_window)
+                      ? "on"
+                      : "off")
+              << '\n';
+    std::cout << "aspiration window: " << options.aspiration_window << '\n';
+    std::cout << "aspiration max researches: " << options.aspiration_max_researches << '\n';
     std::cout << "tt entries: " << options.transposition_table_entries << '\n';
     std::cout << "exact endgame threshold: " << options.exact_endgame_empty_threshold << '\n';
     if (options.by_position) {

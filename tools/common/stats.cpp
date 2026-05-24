@@ -49,6 +49,11 @@ void add_search_stats(SearchStats& total, const SearchStats& stats) noexcept {
     total.pvs_scouts += stats.pvs_scouts;
     total.pvs_researches += stats.pvs_researches;
     total.pvs_scout_cutoffs += stats.pvs_scout_cutoffs;
+    total.aspiration_searches += stats.aspiration_searches;
+    total.aspiration_researches += stats.aspiration_researches;
+    total.aspiration_fail_lows += stats.aspiration_fail_lows;
+    total.aspiration_fail_highs += stats.aspiration_fail_highs;
+    total.aspiration_full_window_fallbacks += stats.aspiration_full_window_fallbacks;
     total.dynamic_ordering_nodes += stats.dynamic_ordering_nodes;
     total.dynamic_ordering_moves += stats.dynamic_ordering_moves;
 }

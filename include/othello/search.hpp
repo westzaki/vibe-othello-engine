@@ -38,6 +38,12 @@ struct SearchStats {
     std::uint64_t pvs_researches = 0;
     std::uint64_t pvs_scout_cutoffs = 0;
 
+    std::uint64_t aspiration_searches = 0;
+    std::uint64_t aspiration_researches = 0;
+    std::uint64_t aspiration_fail_lows = 0;
+    std::uint64_t aspiration_fail_highs = 0;
+    std::uint64_t aspiration_full_window_fallbacks = 0;
+
     std::uint64_t dynamic_ordering_nodes = 0;
     std::uint64_t dynamic_ordering_moves = 0;
 };
@@ -67,6 +73,11 @@ struct SearchOptions {
     // search. Values <= 0 disable it.
     int exact_endgame_empty_threshold = 12;
     bool use_pvs = false;
+    // Opt-in iterative-search aspiration window. Fixed-depth search ignores
+    // these fields; iterative search still uses a full window for depth 1.
+    bool use_aspiration_window = false;
+    int aspiration_window = 50;
+    int aspiration_max_researches = 4;
 };
 
 [[nodiscard]] SearchResult search(const Board& board, const SearchOptions& options) noexcept;

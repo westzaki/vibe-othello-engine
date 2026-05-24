@@ -149,6 +149,11 @@ TEST_CASE("Search stats aggregation includes search observability counters", "[s
         .eval_calls = 4,
         .pass_nodes = 1,
         .game_over_nodes = 1,
+        .aspiration_searches = 2,
+        .aspiration_researches = 1,
+        .aspiration_fail_lows = 1,
+        .aspiration_fail_highs = 0,
+        .aspiration_full_window_fallbacks = 1,
     };
     const othello::SearchStats stats{
         .nodes = 5,
@@ -159,6 +164,11 @@ TEST_CASE("Search stats aggregation includes search observability counters", "[s
         .eval_calls = 9,
         .pass_nodes = 2,
         .game_over_nodes = 1,
+        .aspiration_searches = 3,
+        .aspiration_researches = 2,
+        .aspiration_fail_lows = 1,
+        .aspiration_fail_highs = 1,
+        .aspiration_full_window_fallbacks = 0,
     };
 
     othello::tools::add_search_stats(total, stats);
@@ -171,6 +181,11 @@ TEST_CASE("Search stats aggregation includes search observability counters", "[s
     CHECK(total.eval_calls == 13);
     CHECK(total.pass_nodes == 3);
     CHECK(total.game_over_nodes == 2);
+    CHECK(total.aspiration_searches == 5);
+    CHECK(total.aspiration_researches == 3);
+    CHECK(total.aspiration_fail_lows == 2);
+    CHECK(total.aspiration_fail_highs == 1);
+    CHECK(total.aspiration_full_window_fallbacks == 1);
     CHECK(othello::tools::beta_cut_first_move_percentage(total) == 60.0);
 }
 
@@ -215,6 +230,7 @@ TEST_CASE("Search uses exact endgame at the root within threshold", "[search]") 
         .use_transposition_table = true,
         .exact_endgame_empty_threshold = 1,
         .use_pvs = true,
+        .use_aspiration_window = true,
     };
 
     const othello::SearchResult result = othello::search(board, options);
@@ -240,6 +256,11 @@ TEST_CASE("Search uses exact endgame at the root within threshold", "[search]") 
     CHECK(result.stats.pvs_scouts == 0);
     CHECK(result.stats.pvs_researches == 0);
     CHECK(result.stats.pvs_scout_cutoffs == 0);
+    CHECK(result.stats.aspiration_searches == 0);
+    CHECK(result.stats.aspiration_researches == 0);
+    CHECK(result.stats.aspiration_fail_lows == 0);
+    CHECK(result.stats.aspiration_fail_highs == 0);
+    CHECK(result.stats.aspiration_full_window_fallbacks == 0);
     CHECK(result.stats.beta_cutoffs == 0);
     CHECK(result.stats.beta_cutoffs_first_move == 0);
     CHECK(result.stats.searched_moves == 0);
@@ -275,6 +296,7 @@ TEST_CASE("Iterative search returns exact result immediately within threshold", 
         .use_transposition_table = true,
         .exact_endgame_empty_threshold = 1,
         .use_pvs = true,
+        .use_aspiration_window = true,
     };
 
     const othello::SearchResult result = othello::search_iterative(board, options);
@@ -289,6 +311,11 @@ TEST_CASE("Iterative search returns exact result immediately within threshold", 
     CHECK(result.stats.pvs_scouts == 0);
     CHECK(result.stats.pvs_researches == 0);
     CHECK(result.stats.pvs_scout_cutoffs == 0);
+    CHECK(result.stats.aspiration_searches == 0);
+    CHECK(result.stats.aspiration_researches == 0);
+    CHECK(result.stats.aspiration_fail_lows == 0);
+    CHECK(result.stats.aspiration_fail_highs == 0);
+    CHECK(result.stats.aspiration_full_window_fallbacks == 0);
     CHECK(result.stats.eval_calls == 0);
     CHECK(result.stats.pass_nodes == 0);
     CHECK(result.stats.dynamic_ordering_nodes == 0);
@@ -774,6 +801,139 @@ TEST_CASE("Iterative PVS final result matches fixed-depth PVS result", "[search]
     CHECK(iterative.stats.pvs_scouts > fixed_depth.stats.pvs_scouts);
     CHECK(iterative.stats.pvs_researches + iterative.stats.pvs_scout_cutoffs ==
           iterative.stats.pvs_scouts);
+}
+
+TEST_CASE("Aspiration disabled leaves iterative search behavior unchanged", "[search]") {
+    const auto board = othello::apply_move(Board::initial(), othello::test::square("d3"));
+    REQUIRE(board.has_value());
+
+    const othello::SearchOptions options{
+        .max_depth = 5,
+        .exact_endgame_empty_threshold = 0,
+        .use_aspiration_window = false,
+    };
+
+    const othello::SearchResult first = othello::search_iterative(*board, options);
+    const othello::SearchResult second = othello::search_iterative(*board, options);
+
+    CHECK(first.best_move == second.best_move);
+    CHECK(first.score == second.score);
+    CHECK(first.depth == second.depth);
+    CHECK(first.nodes == second.nodes);
+    CHECK(first.principal_variation == second.principal_variation);
+    CHECK(first.stats.aspiration_searches == 0);
+    CHECK(first.stats.aspiration_researches == 0);
+    CHECK(first.stats.aspiration_fail_lows == 0);
+    CHECK(first.stats.aspiration_fail_highs == 0);
+    CHECK(first.stats.aspiration_full_window_fallbacks == 0);
+}
+
+TEST_CASE("Aspiration preserves iterative search result", "[search]") {
+    const Board board = othello::test::board_from_text(R"(........
+.B......
+..B.B...
+...BB...
+.WWWWW..
+..B.....
+........
+........
+side=W)");
+
+    const othello::SearchOptions full_window_options{
+        .max_depth = 6,
+        .use_transposition_table = false,
+        .exact_endgame_empty_threshold = 0,
+    };
+    const othello::SearchOptions aspiration_options{
+        .max_depth = 6,
+        .use_transposition_table = false,
+        .exact_endgame_empty_threshold = 0,
+        .use_aspiration_window = true,
+        .aspiration_window = 50,
+    };
+
+    const othello::SearchResult full_window =
+        othello::search_iterative(board, full_window_options);
+    const othello::SearchResult aspirated =
+        othello::search_iterative(board, aspiration_options);
+
+    CHECK(aspirated.best_move == full_window.best_move);
+    CHECK(aspirated.score == full_window.score);
+    CHECK(aspirated.depth == full_window.depth);
+    CHECK(aspirated.principal_variation == full_window.principal_variation);
+    CHECK(aspirated.stats.aspiration_searches > 0);
+    CHECK(aspirated.stats.aspiration_researches ==
+          aspirated.stats.aspiration_fail_lows + aspirated.stats.aspiration_fail_highs);
+}
+
+TEST_CASE("Aspiration preserves iterative TT and PVS result", "[search]") {
+    const auto board = othello::apply_move(Board::initial(), othello::test::square("d3"));
+    REQUIRE(board.has_value());
+
+    const othello::SearchOptions full_window_options{
+        .max_depth = 5,
+        .use_transposition_table = true,
+        .exact_endgame_empty_threshold = 0,
+        .use_pvs = true,
+    };
+    const othello::SearchOptions aspiration_options{
+        .max_depth = 5,
+        .use_transposition_table = true,
+        .exact_endgame_empty_threshold = 0,
+        .use_pvs = true,
+        .use_aspiration_window = true,
+        .aspiration_window = 50,
+    };
+
+    const othello::SearchResult full_window =
+        othello::search_iterative(*board, full_window_options);
+    const othello::SearchResult aspirated =
+        othello::search_iterative(*board, aspiration_options);
+
+    CHECK(aspirated.best_move == full_window.best_move);
+    CHECK(aspirated.score == full_window.score);
+    CHECK(aspirated.depth == full_window.depth);
+    CHECK(aspirated.principal_variation == full_window.principal_variation);
+    CHECK(aspirated.stats.aspiration_searches > 0);
+    CHECK(aspirated.stats.aspiration_researches ==
+          aspirated.stats.aspiration_fail_lows + aspirated.stats.aspiration_fail_highs);
+    CHECK(aspirated.stats.aspiration_full_window_fallbacks <=
+          aspirated.stats.aspiration_researches);
+}
+
+TEST_CASE("Narrow aspiration falls back without changing iterative result", "[search]") {
+    const auto board = othello::apply_move(Board::initial(), othello::test::square("d3"));
+    REQUIRE(board.has_value());
+
+    const othello::SearchOptions full_window_options{
+        .max_depth = 5,
+        .use_transposition_table = true,
+        .exact_endgame_empty_threshold = 0,
+        .use_pvs = true,
+    };
+    const othello::SearchOptions narrow_options{
+        .max_depth = 5,
+        .use_transposition_table = true,
+        .exact_endgame_empty_threshold = 0,
+        .use_pvs = true,
+        .use_aspiration_window = true,
+        .aspiration_window = 1,
+        .aspiration_max_researches = 0,
+    };
+
+    const othello::SearchResult full_window =
+        othello::search_iterative(*board, full_window_options);
+    const othello::SearchResult narrow = othello::search_iterative(*board, narrow_options);
+
+    CHECK(narrow.best_move == full_window.best_move);
+    CHECK(narrow.score == full_window.score);
+    CHECK(narrow.depth == full_window.depth);
+    CHECK(narrow.principal_variation == full_window.principal_variation);
+    CHECK(narrow.stats.aspiration_searches > 0);
+    CHECK(narrow.stats.aspiration_researches ==
+          narrow.stats.aspiration_fail_lows + narrow.stats.aspiration_fail_highs);
+    CHECK(narrow.stats.aspiration_full_window_fallbacks <=
+          narrow.stats.aspiration_researches);
 }
 
 TEST_CASE("Fixed-depth search handles terminal boards", "[search]") {
