@@ -65,6 +65,16 @@ Use this for base/head code comparisons where in-process `search:` players would
 share the same linked evaluator or search implementation. Raw matrix output
 belongs under `runs/`; summarize meaningful snapshots in `docs/perf/baselines/`.
 
+Extract first divergence positions from an existing swap-side base/head JSONL:
+
+```sh
+python3 tools/scripts/extract_divergence_positions.py \
+  --input runs/base-head/my-change/depth-8/match.jsonl
+```
+
+Use those boards with `othello_analyze_position --root-candidates` when a matrix
+regresses but the starting root positions do not explain the difference.
+
 Probe the canonical external engine adapter CLI with the fake engine:
 
 ```sh

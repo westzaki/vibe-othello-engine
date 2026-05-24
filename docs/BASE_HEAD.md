@@ -143,6 +143,14 @@ Root candidate analysis searches each legal candidate independently. Its
 per-candidate node counts, TT stats, and PVS stats are diagnostic and may not
 exactly match the work trace of one normal shared-context root search.
 
+If the first root positions do not explain the regression, extract the first
+base/head divergence positions from the raw depth JSONL and analyze those boards:
+
+```sh
+python3 tools/scripts/extract_divergence_positions.py \
+  --input runs/base-head/my-change/depth-8/match.jsonl
+```
+
 The matrix is deterministic for the selected openings and seed. It is still only
 a sample of positions. Avoid claiming Elo from it, and treat small game counts as
 smoke tests only.
