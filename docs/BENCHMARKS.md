@@ -115,6 +115,11 @@ comparing different benchmark modes, remember that benchmark checksums include
 the mode to make each command reproducible; use them together with best move,
 score, and PV rather than as a mode-independent equality check.
 
+`--tt-entries` requests an approximate number of midgame transposition table
+entries. The engine may round this to a small bucketed power-of-two capacity, so
+use the same setting when comparing TT hit, collision, overwrite, and rejected
+store rates across runs.
+
 ## Exact Endgame Benchmarks
 
 Use the exact endgame benchmark when changing the standalone exact solver,

@@ -75,28 +75,37 @@ struct TranspositionLookup {
 class TranspositionTable {
 public:
     explicit TranspositionTable(const SearchOptions& options) noexcept
-        : entry_count_{normalized_entry_count(options)},
-          entries_{entry_count_ == 0 ? nullptr
-                                     : new (std::nothrow) TranspositionEntry[entry_count_]} {}
+        : bucket_count_{normalized_bucket_count(options)},
+          buckets_{bucket_count_ == 0 ? nullptr
+                                      : new (std::nothrow) Bucket[bucket_count_]} {}
 
     [[nodiscard]] TranspositionLookup lookup(ZobristHash hash, int depth, int alpha, int beta,
                                              bool collect_best_move_hint,
                                              SearchStats& stats) const noexcept {
-        if (entries_ == nullptr) {
+        if (buckets_ == nullptr) {
             return {};
         }
 
         ++stats.tt_lookups;
-        const TranspositionEntry& entry = entries_[entry_index(hash)];
+        const Bucket& bucket = buckets_[bucket_index(hash)];
+        const TranspositionEntry* matching_entry = nullptr;
+        for (const TranspositionEntry& entry : bucket.entries) {
+            if (entry.occupied && entry.hash == hash) {
+                matching_entry = &entry;
+                break;
+            }
+        }
+
         // The same depth guard is used for cutoff and ordering hints. A shallower
         // hint would be correctness-safe, but can perturb iterative search behavior.
-        if (!entry.occupied || entry.hash != hash || entry.depth < depth) {
+        if (matching_entry == nullptr || matching_entry->depth < depth) {
             if (collect_best_move_hint) {
                 ++stats.tt_move_ordering_probes;
             }
             return {};
         }
 
+        const TranspositionEntry& entry = *matching_entry;
         if (entry.bound == TranspositionBound::Exact) {
             ++stats.tt_hits;
             ++stats.tt_exact_hits;
@@ -123,14 +132,12 @@ public:
 
     void store(ZobristHash hash, int depth, int score, int original_alpha, int beta,
                const std::optional<Square>& best_move, SearchStats& stats) noexcept {
-        if (entries_ == nullptr) {
+        if (buckets_ == nullptr) {
             return;
         }
 
-        TranspositionEntry& entry = entries_[entry_index(hash)];
-        // Keep deeper entries when a different position collides in the same direct-mapped slot.
-        // Same-position updates are still allowed so newer bounds can refresh the entry.
-        if (entry.occupied && entry.hash != hash && depth < entry.depth) {
+        TranspositionEntry* entry = replacement_entry(buckets_[bucket_index(hash)], hash, depth);
+        if (entry == nullptr) {
             ++stats.tt_rejected_stores;
             return;
         }
@@ -143,14 +150,14 @@ public:
         }
 
         ++stats.tt_stores;
-        if (entry.occupied) {
+        if (entry->occupied) {
             ++stats.tt_overwrites;
-            if (entry.hash != hash) {
+            if (entry->hash != hash) {
                 ++stats.tt_collisions;
             }
         }
 
-        entry = TranspositionEntry{
+        *entry = TranspositionEntry{
             .hash = hash,
             .depth = depth,
             .score = score,
@@ -161,40 +168,79 @@ public:
     }
 
 private:
+    static constexpr std::size_t bucket_width = 4;
     static constexpr std::size_t default_entry_count = 1 << 18;
 
-    // Direct-mapped indexing uses a bit mask, so non-power-of-two requests are
-    // rounded up to the next power of two. Oversized requests fall back to the default.
+    struct Bucket {
+        std::array<TranspositionEntry, bucket_width> entries{};
+    };
+
+    // SearchOptions requests approximate entry count, not bucket count. Bucket indexing uses a
+    // bit mask, so we round the requested bucket count up to a power of two. Very small positive
+    // requests allocate one full bucket; oversized requests fall back to the default capacity.
     [[nodiscard]] static constexpr std::size_t
-    normalized_entry_count(const SearchOptions& options) noexcept {
+    normalized_bucket_count(const SearchOptions& options) noexcept {
         if (!options.use_transposition_table || options.transposition_table_entries == 0) {
             return 0;
         }
 
         const std::size_t requested = options.transposition_table_entries;
-        if (std::has_single_bit(requested)) {
-            return requested;
-        }
-
         constexpr std::size_t max_power_of_two = std::size_t{1}
                                                  << (std::numeric_limits<std::size_t>::digits - 1);
-        if (requested > max_power_of_two) {
-            return default_entry_count;
+        if (requested > max_power_of_two / bucket_width) {
+            return default_entry_count / bucket_width;
         }
 
-        std::size_t normalized = 1;
-        while (normalized < requested) {
-            normalized <<= 1;
+        const std::size_t requested_buckets =
+            std::max(std::size_t{1}, (requested + bucket_width - 1) / bucket_width);
+        if (std::has_single_bit(requested_buckets)) {
+            return requested_buckets;
         }
-        return normalized;
+
+        std::size_t bucket_count = 1;
+        while (bucket_count < requested_buckets) {
+            bucket_count <<= 1;
+        }
+        return bucket_count;
     }
 
-    std::size_t entry_count_ = 0;
-    std::unique_ptr<TranspositionEntry[]> entries_; // NOLINT(cppcoreguidelines-avoid-c-arrays,
-                                                    // modernize-avoid-c-arrays)
+    std::size_t bucket_count_ = 0;
+    std::unique_ptr<Bucket[]> buckets_; // NOLINT(cppcoreguidelines-avoid-c-arrays,
+                                        // modernize-avoid-c-arrays)
 
-    [[nodiscard]] std::size_t entry_index(ZobristHash hash) const noexcept {
-        return static_cast<std::size_t>(hash) & (entry_count_ - 1);
+    [[nodiscard]] std::size_t bucket_index(ZobristHash hash) const noexcept {
+        return static_cast<std::size_t>(hash) & (bucket_count_ - 1);
+    }
+
+    [[nodiscard]] static TranspositionEntry*
+    replacement_entry(Bucket& bucket, ZobristHash hash, int depth) noexcept {
+        TranspositionEntry* empty_slot = nullptr;
+        TranspositionEntry* shallowest = &bucket.entries.front();
+        for (TranspositionEntry& entry : bucket.entries) {
+            if (entry.occupied && entry.hash == hash) {
+                return &entry;
+            }
+            if (!entry.occupied) {
+                if (empty_slot == nullptr) {
+                    empty_slot = &entry;
+                }
+                continue;
+            }
+            if (entry.depth < shallowest->depth) {
+                shallowest = &entry;
+            }
+        }
+
+        if (empty_slot != nullptr) {
+            return empty_slot;
+        }
+
+        // Keep deeper entries stable under pressure. Equal-depth stores replace the first
+        // shallowest slot deterministically; strictly shallower stores are rejected.
+        if (depth < shallowest->depth) {
+            return nullptr;
+        }
+        return shallowest;
     }
 
     [[nodiscard]] static NodeResult

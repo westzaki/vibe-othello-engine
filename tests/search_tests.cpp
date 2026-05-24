@@ -227,7 +227,13 @@ TEST_CASE("Search uses exact endgame at the root within threshold", "[search]") 
     CHECK(result.principal_variation == exact.principal_variation);
     CHECK(result.stats.tt_lookups == 0);
     CHECK(result.stats.tt_hits == 0);
+    CHECK(result.stats.tt_exact_hits == 0);
+    CHECK(result.stats.tt_lower_hits == 0);
+    CHECK(result.stats.tt_upper_hits == 0);
     CHECK(result.stats.tt_stores == 0);
+    CHECK(result.stats.tt_overwrites == 0);
+    CHECK(result.stats.tt_collisions == 0);
+    CHECK(result.stats.tt_rejected_stores == 0);
     CHECK(result.stats.tt_move_ordering_probes == 0);
     CHECK(result.stats.tt_move_ordering_hits == 0);
     CHECK(result.stats.tt_move_ordering_used == 0);
@@ -550,6 +556,8 @@ TEST_CASE("Search stats count rejected transposition table stores", "[search]") 
     CHECK(first.depth == second.depth);
     CHECK(first.stats.tt_stores > 0);
     CHECK(first.stats.tt_rejected_stores > 0);
+    CHECK(first.stats.tt_collisions <= first.stats.tt_overwrites);
+    CHECK(first.stats.tt_hits <= first.stats.tt_lookups);
 }
 
 TEST_CASE("Search options accept small transposition table sizes", "[search]") {

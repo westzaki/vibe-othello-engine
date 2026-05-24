@@ -679,7 +679,7 @@ void print_search_result_header() {
               << "  searches  elapsed_ms      searches/s  total_nodes         nodes/s"
                  "  nodes/search  searched_moves  legal_nodes  eval_calls  pass_nodes"
                  "  game_over_nodes  beta_cutoffs  beta_cut_first_move_pct"
-                 "  tt_lookups  tt_hits  tt_hit_rate  tt_stores"
+                 "  tt_lookups  tt_hits  tt_hit_rate  tt_stores  tt_overwrites"
                  "  tt_collisions  tt_rejected_stores  tt_order_probes  tt_order_hits"
                  "  tt_order_used  pvs_scouts  pvs_researches  pvs_scout_cutoffs"
                  "  dyn_nodes  dyn_moves"
@@ -728,6 +728,7 @@ void print_search_result(const SearchBenchmarkResult& result) {
               << result.total_stats.tt_hits << "  " << std::setw(11)
               << tt_hit_percentage(result.total_stats) << "  " << std::setw(9)
               << result.total_stats.tt_stores << "  " << std::setw(13)
+              << result.total_stats.tt_overwrites << "  " << std::setw(13)
               << result.total_stats.tt_collisions << "  " << std::setw(18)
               << result.total_stats.tt_rejected_stores << "  " << std::setw(9)
               << result.total_stats.tt_move_ordering_probes << "  " << std::setw(9)
@@ -750,8 +751,8 @@ void print_position_result_header() {
               << "  searches  elapsed_ms       nodes  nodes/search         nodes/s"
                  "  searched_moves  legal_nodes  eval_calls  pass_nodes  game_over_nodes"
                  "  beta_cutoffs  beta_cut_first_move_pct"
-                 "  tt_lookups  tt_hits  tt_hit_rate  tt_stores  tt_collisions"
-                 "  tt_rejected_stores  tt_order_probes  tt_order_hits  tt_order_used"
+                 "  tt_lookups  tt_hits  tt_hit_rate  tt_stores  tt_overwrites"
+                 "  tt_collisions  tt_rejected_stores  tt_order_probes  tt_order_hits  tt_order_used"
                  "  pvs_scouts  pvs_researches  pvs_scout_cutoffs  dyn_nodes  dyn_moves\n";
 }
 
@@ -785,6 +786,7 @@ void print_position_result(const PositionBenchmarkResult& result) {
               << result.total_stats.tt_hits << "  " << std::setw(11)
               << tt_hit_percentage(result.total_stats) << "  " << std::setw(9)
               << result.total_stats.tt_stores << "  " << std::setw(13)
+              << result.total_stats.tt_overwrites << "  " << std::setw(13)
               << result.total_stats.tt_collisions << "  " << std::setw(18)
               << result.total_stats.tt_rejected_stores << "  " << std::setw(9)
               << result.total_stats.tt_move_ordering_probes << "  " << std::setw(9)
