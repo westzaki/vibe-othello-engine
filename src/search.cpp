@@ -626,12 +626,11 @@ ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
 }
 
 [[nodiscard]] SearchResult search_with_context(const Board& board, int depth,
-                                               SearchContext& context,
+                                               SearchContext& context, int alpha, int beta,
                                                std::optional<Square> root_preferred_move,
                                                PrincipalVariationHint pv_hint) noexcept {
-    const NodeResult result =
-        search_node(board, zobrist_hash(board), depth, search_score_min, search_score_max, context,
-                    root_preferred_move, pv_hint, true);
+    const NodeResult result = search_node(board, zobrist_hash(board), depth, alpha, beta, context,
+                                          root_preferred_move, pv_hint, true);
 
     return SearchResult{
         .best_move = result.best_move,
@@ -641,6 +640,94 @@ ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
         .principal_variation = principal_variation_to_vector(result.principal_variation),
         .stats = context.stats,
     };
+}
+
+[[nodiscard]] SearchResult search_with_context(const Board& board, int depth,
+                                               SearchContext& context,
+                                               std::optional<Square> root_preferred_move,
+                                               PrincipalVariationHint pv_hint) noexcept {
+    return search_with_context(board, depth, context, search_score_min, search_score_max,
+                               root_preferred_move, pv_hint);
+}
+
+[[nodiscard]] constexpr int positive_aspiration_window(int window) noexcept {
+    return window <= 0 ? 1 : window;
+}
+
+[[nodiscard]] constexpr int non_negative_research_limit(int researches) noexcept {
+    return researches < 0 ? 0 : researches;
+}
+
+[[nodiscard]] constexpr int clamp_search_score(long long score) noexcept {
+    if (score < search_score_min) {
+        return search_score_min;
+    }
+    if (score > search_score_max) {
+        return search_score_max;
+    }
+    return static_cast<int>(score);
+}
+
+[[nodiscard]] constexpr int aspiration_alpha(int previous_score, int window) noexcept {
+    return clamp_search_score(static_cast<long long>(previous_score) - window);
+}
+
+[[nodiscard]] constexpr int aspiration_beta(int previous_score, int window) noexcept {
+    return clamp_search_score(static_cast<long long>(previous_score) + window);
+}
+
+[[nodiscard]] constexpr int widened_aspiration_window(int window) noexcept {
+    if (window >= search_score_max / 2) {
+        return search_score_max;
+    }
+    return window * 2;
+}
+
+[[nodiscard]] bool failed_low(const SearchResult& result, int alpha) noexcept {
+    return result.score <= alpha;
+}
+
+[[nodiscard]] bool failed_high(const SearchResult& result, int beta) noexcept {
+    return result.score >= beta;
+}
+
+[[nodiscard]] SearchResult search_aspirated_with_context(
+    const Board& board, int depth, SearchContext& context, std::optional<Square> previous_best_move,
+    PrincipalVariationHint pv_hint, int previous_score, const SearchOptions& options) noexcept {
+    ++context.stats.aspiration_searches;
+
+    int window = positive_aspiration_window(options.aspiration_window);
+    const int max_researches = non_negative_research_limit(options.aspiration_max_researches);
+    int researches = 0;
+
+    while (true) {
+        const int alpha = aspiration_alpha(previous_score, window);
+        const int beta = aspiration_beta(previous_score, window);
+        const SearchResult result =
+            search_with_context(board, depth, context, alpha, beta, previous_best_move, pv_hint);
+
+        if (!failed_low(result, alpha) && !failed_high(result, beta)) {
+            return result;
+        }
+
+        if (failed_low(result, alpha)) {
+            ++context.stats.aspiration_fail_lows;
+        } else {
+            ++context.stats.aspiration_fail_highs;
+        }
+
+        ++context.stats.aspiration_researches;
+        if (researches >= max_researches) {
+            ++context.stats.aspiration_full_window_fallbacks;
+            return search_with_context(board, depth, context, search_score_min, search_score_max,
+                                       previous_best_move, pv_hint);
+        }
+
+        ++researches;
+        // Keep the policy easy to audit: re-center on the previous iteration's score
+        // and double the symmetric half-window on each failed attempt.
+        window = widened_aspiration_window(window);
+    }
 }
 
 [[nodiscard]] SearchResult exact_endgame_search_result(const Board& board) noexcept {
@@ -690,6 +777,7 @@ SearchResult search_iterative(const Board& board, const SearchOptions& options) 
 
     SearchResult result;
     std::optional<Square> previous_best_move;
+    std::optional<int> previous_score;
     PrincipalVariation previous_principal_variation;
     for (int depth = 1; depth <= search_depth; ++depth) {
         const PrincipalVariationHint pv_hint{
@@ -698,8 +786,14 @@ SearchResult search_iterative(const Board& board, const SearchOptions& options) 
             .index = 0,
             .matches_prefix = previous_principal_variation.size > 0,
         };
-        result = search_with_context(board, depth, context, previous_best_move, pv_hint);
+        if (options.use_aspiration_window && previous_score.has_value()) {
+            result = search_aspirated_with_context(board, depth, context, previous_best_move,
+                                                   pv_hint, *previous_score, options);
+        } else {
+            result = search_with_context(board, depth, context, previous_best_move, pv_hint);
+        }
         previous_best_move = result.best_move;
+        previous_score = result.score;
         previous_principal_variation = principal_variation_from_vector(result.principal_variation);
     }
 

@@ -120,6 +120,107 @@ entries. The engine may round this to a small bucketed power-of-two capacity, so
 use the same setting when comparing TT hit, collision, overwrite, and rejected
 store rates across runs.
 
+## Comparing Iterative Aspiration Windows
+
+Aspiration windows are opt-in and apply only to `search_iterative()`. They use
+the previous iterative score to narrow the next depth's root alpha/beta window,
+then re-search with wider windows or a final full-window fallback on fail-low or
+fail-high. Defaults keep full-window behavior.
+
+Compare the full-window iterative preset with:
+
+```sh
+./build/othello_search_bench \
+  --mode iterative \
+  --depths 3,4,5,6,7 \
+  --positions suite \
+  --repetitions 3 \
+  --tt on \
+  --pvs on \
+  --exact-endgame-threshold 0
+```
+
+Compare aspiration with:
+
+```sh
+./build/othello_search_bench \
+  --mode iterative \
+  --depths 3,4,5,6,7 \
+  --positions suite \
+  --repetitions 3 \
+  --tt on \
+  --pvs on \
+  --aspiration on \
+  --exact-endgame-threshold 0
+```
+
+Deeper passes are part of the normal baseline check for search changes that may
+only show value after shallow overhead is amortized:
+
+```sh
+./build/othello_search_bench \
+  --mode iterative \
+  --depths 8,9,10 \
+  --positions suite \
+  --repetitions 3 \
+  --tt on \
+  --pvs on \
+  --exact-endgame-threshold 0
+```
+
+```sh
+./build/othello_search_bench \
+  --mode iterative \
+  --depths 8,9,10 \
+  --positions suite \
+  --repetitions 3 \
+  --tt on \
+  --pvs on \
+  --aspiration on \
+  --exact-endgame-threshold 0
+```
+
+Compare a wider window when the default window shows repeated fail-high/fallback
+work:
+
+```sh
+./build/othello_search_bench \
+  --mode iterative \
+  --depths 8,9 \
+  --positions suite \
+  --repetitions 3 \
+  --tt on \
+  --pvs on \
+  --aspiration on \
+  --aspiration-window 100 \
+  --exact-endgame-threshold 0
+```
+
+Stress fail-low/high handling with a deliberately narrow window:
+
+```sh
+./build/othello_search_bench \
+  --mode iterative \
+  --depths 5,6 \
+  --positions suite \
+  --repetitions 3 \
+  --tt on \
+  --pvs on \
+  --aspiration on \
+  --aspiration-window 1 \
+  --aspiration-max-researches 2 \
+  --exact-endgame-threshold 0
+```
+
+When measuring depth-limited midgame search, keep `--exact-endgame-threshold 0`
+explicit. If best move, score, PV, or result checksum changes versus the
+full-window iterative run, treat it as a correctness bug unless a semantic
+change was intentionally documented. Compare nodes, wall-clock time, TT stats,
+PVS stats, `beta_cut_first_move_pct`, and the aspiration counters
+(`asp_searches`, `asp_researches`, `asp_fail_lows`, `asp_fail_highs`,
+`asp_fallbacks`). Work checksum may change when aspiration changes the verified
+search path.
+
 ## Exact Endgame Benchmarks
 
 Use the exact endgame benchmark when changing the standalone exact solver,
