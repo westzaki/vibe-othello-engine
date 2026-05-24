@@ -1,11 +1,15 @@
 #include "core.hpp"
 
+#include "engine_config.hpp"
+#include "external_player.hpp"
+
 #include <algorithm>
 #include <bit>
 #include <chrono>
 #include <optional>
 #include <othello/othello.hpp>
 #include <random>
+#include <utility>
 #include <vector>
 
 namespace othello::match_runner {
@@ -80,6 +84,8 @@ MoveSelection choose_move(const PlayerSpec& spec, const Board& board, std::mt199
                              .elapsed_ms = elapsed_ms,
                              .search_stats = result.stats};
     }
+    case PlayerKind::ExternalNBoard:
+        return MoveSelection{};
     }
 
     return MoveSelection{};
@@ -104,7 +110,8 @@ std::pair<int, int> final_scores(const Board& board) noexcept {
 
 GameRecord run_game(int game_index, const PlayerSpec& black_spec, const PlayerSpec& white_spec,
                     bool black_is_player_a, std::uint64_t seed, int opening_index,
-                    const Opening& opening) {
+                    const Opening& opening, std::span<const ExternalEngineConfig> external_engines,
+                    int external_timeout_ms) {
     constexpr int max_turns = 200;
 
     GameRecord record{
@@ -122,11 +129,62 @@ GameRecord run_game(int game_index, const PlayerSpec& black_spec, const PlayerSp
     };
 
     Board board = opening.start_board;
+    std::vector<std::string> full_moves = opening.moves;
     std::mt19937_64 rng{seed};
+    ExternalNBoardPlayer black_external;
+    ExternalNBoardPlayer white_external;
+
+    auto set_error = [&record](std::string reason) {
+        record.illegal_or_error = true;
+        if (!record.error_reason.has_value()) {
+            record.error_reason = std::move(reason);
+        }
+    };
+    auto finish_record = [&record](const Board& final_board) {
+        const auto [black_score, white_score] = final_scores(final_board);
+        record.black_score = black_score;
+        record.white_score = white_score;
+        record.score_diff_from_black = black_score - white_score;
+        record.score_diff_from_player_a =
+            record.black_is_player_a ? record.score_diff_from_black : -record.score_diff_from_black;
+        record.nodes_player_a = record.black_is_player_a ? record.nodes_black : record.nodes_white;
+        record.nodes_player_b = record.black_is_player_a ? record.nodes_white : record.nodes_black;
+        record.time_ms_player_a =
+            record.black_is_player_a ? record.time_ms_black : record.time_ms_white;
+        record.time_ms_player_b =
+            record.black_is_player_a ? record.time_ms_white : record.time_ms_black;
+
+        if (record.score_diff_from_black > 0) {
+            record.winner = "black";
+        } else if (record.score_diff_from_black < 0) {
+            record.winner = "white";
+        }
+    };
+
+    auto start_external = [&](const PlayerSpec& spec, ExternalNBoardPlayer& player) -> bool {
+        if (spec.kind != PlayerKind::ExternalNBoard) {
+            return true;
+        }
+        const auto config = find_engine_config(spec.external_engine_name, external_engines);
+        if (!config.has_value()) {
+            set_error("missing external engine config: " + spec.external_engine_name);
+            return false;
+        }
+        if (!player.start(**config)) {
+            set_error(player.error());
+            return false;
+        }
+        return true;
+    };
+
+    if (!start_external(black_spec, black_external) || !start_external(white_spec, white_external)) {
+        finish_record(board);
+        return record;
+    }
 
     for (int turn = 0; !is_game_over(board); ++turn) {
         if (turn >= max_turns) {
-            record.illegal_or_error = true;
+            set_error("maximum turn count exceeded");
             break;
         }
 
@@ -134,17 +192,31 @@ GameRecord run_game(int game_index, const PlayerSpec& black_spec, const PlayerSp
         if (moves == 0) {
             const std::optional<Board> next = pass_turn(board);
             if (!next.has_value()) {
-                record.illegal_or_error = true;
+                set_error("pass failed");
                 break;
             }
 
             board = *next;
+            full_moves.push_back("pass");
             ++record.passes;
             continue;
         }
 
         const PlayerSpec& spec = board.side_to_move == Side::Black ? black_spec : white_spec;
-        const MoveSelection selection = choose_move(spec, board, rng);
+        MoveSelection selection;
+        if (spec.kind == PlayerKind::ExternalNBoard) {
+            ExternalNBoardPlayer& player =
+                board.side_to_move == Side::Black ? black_external : white_external;
+            const ExternalMoveResult external_result = player.choose_move(
+                board, full_moves, std::chrono::milliseconds{external_timeout_ms});
+            selection.move = external_result.move;
+            selection.elapsed_ms = external_result.elapsed_ms;
+            if (!external_result.error.empty()) {
+                set_error(external_result.error);
+            }
+        } else {
+            selection = choose_move(spec, board, rng);
+        }
         if (board.side_to_move == Side::Black) {
             record.nodes_black += selection.nodes;
             record.time_ms_black += selection.elapsed_ms;
@@ -155,47 +227,40 @@ GameRecord run_game(int game_index, const PlayerSpec& black_spec, const PlayerSp
 
         const std::optional<Square> move = selection.move;
         if (!move.has_value() || (moves & move->bit()) == 0) {
-            record.illegal_or_error = true;
+            if (!record.error_reason.has_value()) {
+                set_error("player returned no legal move");
+            }
             break;
         }
 
         const std::optional<Board> next = apply_move(board, *move);
         if (!next.has_value()) {
-            record.illegal_or_error = true;
+            set_error("apply_move failed");
             break;
         }
 
         record.moves.push_back(to_string(*move));
+        full_moves.push_back(to_string(*move));
         board = *next;
         ++record.plies;
     }
 
-    const auto [black_score, white_score] = final_scores(board);
-    record.black_score = black_score;
-    record.white_score = white_score;
-    record.score_diff_from_black = black_score - white_score;
-    record.score_diff_from_player_a =
-        record.black_is_player_a ? record.score_diff_from_black : -record.score_diff_from_black;
-    record.nodes_player_a = record.black_is_player_a ? record.nodes_black : record.nodes_white;
-    record.nodes_player_b = record.black_is_player_a ? record.nodes_white : record.nodes_black;
-    record.time_ms_player_a =
-        record.black_is_player_a ? record.time_ms_black : record.time_ms_white;
-    record.time_ms_player_b =
-        record.black_is_player_a ? record.time_ms_white : record.time_ms_black;
-
-    if (record.score_diff_from_black > 0) {
-        record.winner = "black";
-    } else if (record.score_diff_from_black < 0) {
-        record.winner = "white";
-    }
+    finish_record(board);
 
     return record;
 }
 
 GameRecord run_game(int game_index, const PlayerSpec& black_spec, const PlayerSpec& white_spec,
+                    bool black_is_player_a, std::uint64_t seed, int opening_index,
+                    const Opening& opening) {
+    return run_game(game_index, black_spec, white_spec, black_is_player_a, seed, opening_index,
+                    opening, {}, 10000);
+}
+
+GameRecord run_game(int game_index, const PlayerSpec& black_spec, const PlayerSpec& white_spec,
                     bool black_is_player_a, std::uint64_t seed) {
     return run_game(game_index, black_spec, white_spec, black_is_player_a, seed, 0,
-                    default_opening());
+                    default_opening(), {}, 10000);
 }
 
 std::size_t opening_index_for_game(int game_index, bool swap_sides,
@@ -224,7 +289,8 @@ std::vector<GameRecord> run_match(const MatchConfig& config) {
             opening_index_for_game(game_index, config.swap_sides, openings.size());
         records.push_back(run_game(game_index, black_spec, white_spec, !swapped,
                                    config.seed + static_cast<std::uint64_t>(game_index),
-                                   static_cast<int>(opening_index), openings[opening_index]));
+                                   static_cast<int>(opening_index), openings[opening_index],
+                                   config.external_engines, config.external_timeout_ms));
     }
 
     return records;
@@ -236,6 +302,12 @@ MatchSummary summarize(std::span<const GameRecord> records) {
 
     int total_diff_from_player_a = 0;
     for (const GameRecord& record : records) {
+        if (record.illegal_or_error) {
+            ++summary.error_games;
+            continue;
+        }
+
+        ++summary.valid_games;
         total_diff_from_player_a += record.score_diff_from_player_a;
 
         if (record.score_diff_from_player_a > 0) {
@@ -247,9 +319,10 @@ MatchSummary summarize(std::span<const GameRecord> records) {
         }
     }
 
-    if (!records.empty()) {
+    if (summary.valid_games > 0) {
         summary.average_disc_diff_from_player_a =
-            static_cast<double>(total_diff_from_player_a) / static_cast<double>(records.size());
+            static_cast<double>(total_diff_from_player_a) /
+            static_cast<double>(summary.valid_games);
     }
 
     return summary;

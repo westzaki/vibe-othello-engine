@@ -68,7 +68,13 @@ void write_jsonl_record(std::ostream& output, const GameRecord& record) {
         tools::write_json_string(output, record.moves[index]);
     }
     output << "],";
-    output << "\"illegal_or_error\":" << (record.illegal_or_error ? "true" : "false");
+    output << "\"illegal_or_error\":" << (record.illegal_or_error ? "true" : "false") << ',';
+    output << "\"error_reason\":";
+    if (record.error_reason.has_value()) {
+        tools::write_json_string(output, *record.error_reason);
+    } else {
+        output << "null";
+    }
     output << "}\n";
 }
 

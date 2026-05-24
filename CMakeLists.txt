@@ -107,6 +107,10 @@ othello_add_executable(othello_tests
 
 target_link_libraries(othello_tests PRIVATE Catch2::Catch2WithMain)
 target_include_directories(othello_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tools)
+target_compile_definitions(othello_tests
+    PRIVATE
+        OTHELLO_NBOARD_ENGINE_PATH="$<TARGET_FILE:othello_nboard_engine>"
+)
 
 if(OTHELLO_ENABLE_CLANG_TIDY)
     set_target_properties(${OTHELLO_CLANG_TIDY_TARGETS}
