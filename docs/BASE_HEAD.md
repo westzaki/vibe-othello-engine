@@ -139,6 +139,10 @@ printf '........\n........\n........\n...BW...\n...WB...\n........\n........\n..
   --root-candidates
 ```
 
+Root candidate analysis searches each legal candidate independently. Its
+per-candidate node counts, TT stats, and PVS stats are diagnostic and may not
+exactly match the work trace of one normal shared-context root search.
+
 The matrix is deterministic for the selected openings and seed. It is still only
 a sample of positions. Avoid claiming Elo from it, and treat small game counts as
 smoke tests only.
