@@ -79,6 +79,16 @@ target_include_directories(othello
 othello_enable_sanitizers(othello)
 set(OTHELLO_CLANG_TIDY_TARGETS othello)
 
+add_library(othello_match_runner_core OBJECT
+    tools/match_runner/core.cpp
+    tools/match_runner/opening_suite.cpp
+    tools/match_runner/player_spec.cpp
+)
+
+target_link_libraries(othello_match_runner_core PRIVATE othello)
+othello_enable_sanitizers(othello_match_runner_core)
+list(APPEND OTHELLO_CLANG_TIDY_TARGETS othello_match_runner_core)
+
 enable_testing()
 
 othello_add_executable(othello_tests
@@ -94,6 +104,7 @@ othello_add_executable(othello_tests
     tests/rules_tests.cpp
     tests/search_tests.cpp
     tests/square_tests.cpp
+    $<TARGET_OBJECTS:othello_match_runner_core>
 )
 
 target_link_libraries(othello_tests PRIVATE Catch2::Catch2WithMain)
@@ -116,6 +127,7 @@ othello_add_executable(othello_analyze_position
 
 othello_add_executable(othello_match_runner
     tools/match_runner.cpp
+    $<TARGET_OBJECTS:othello_match_runner_core>
 )
 
 othello_add_executable(othello_match_summary

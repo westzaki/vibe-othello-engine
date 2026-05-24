@@ -1,4 +1,4 @@
-#include "../tools/match_runner_core.hpp"
+#include "../tools/match_runner/core.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 #include <vector>
