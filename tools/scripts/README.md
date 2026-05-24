@@ -75,6 +75,22 @@ python3 tools/scripts/extract_divergence_positions.py \
 Use those boards with `othello_analyze_position --root-candidates` when a matrix
 regresses but the starting root positions do not explain the difference.
 
+Force one diagnostic move when a target board is reached by an NBoard engine:
+
+```sh
+python3 tools/scripts/forced_move_nboard_wrapper.py \
+  --target-board-file tools/scripts/fixtures/pr115_divergence_board.txt \
+  --force-move a1 \
+  -- ./build/othello_nboard_engine
+```
+
+This wrapper is diagnostic-only. It proxies the NBoard line protocol to a child
+engine, tracks the current board by replaying `set game` commands, and returns
+the forced move only when the tracked board exactly matches the target and the
+move is legal. Otherwise it forwards commands unchanged. Nested wrappers can be
+used for multi-ply interventions, but no forced-move policy belongs in engine
+core behavior.
+
 Probe the canonical external engine adapter CLI with the fake engine:
 
 ```sh
