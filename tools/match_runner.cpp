@@ -32,7 +32,7 @@ void print_usage(std::string_view program_name) {
               << "  first\n"
               << "  random\n"
               << "  eval\n"
-              << "  search:depth=N\n"
+              << "  search:depth=N[,tt=on|off][,pvs=on|off][,exact=off|N][,tt_entries=N]\n"
               << '\n'
               << "Options:\n"
               << "  --black SPEC        initial black / player A spec\n"
@@ -287,6 +287,14 @@ void write_jsonl_record(std::ostream& output, const othello::match_runner::GameR
     output << "\"white_score\":" << record.white_score << ',';
     output << "\"score_diff_from_black\":" << record.score_diff_from_black << ',';
     output << "\"score_diff_from_player_a\":" << record.score_diff_from_player_a << ',';
+    output << "\"nodes_black\":" << record.nodes_black << ',';
+    output << "\"nodes_white\":" << record.nodes_white << ',';
+    output << "\"nodes_player_a\":" << record.nodes_player_a << ',';
+    output << "\"nodes_player_b\":" << record.nodes_player_b << ',';
+    output << "\"time_ms_black\":" << record.time_ms_black << ',';
+    output << "\"time_ms_white\":" << record.time_ms_white << ',';
+    output << "\"time_ms_player_a\":" << record.time_ms_player_a << ',';
+    output << "\"time_ms_player_b\":" << record.time_ms_player_b << ',';
     output << "\"plies\":" << record.plies << ',';
     output << "\"passes\":" << record.passes << ',';
     output << "\"moves\":[";
