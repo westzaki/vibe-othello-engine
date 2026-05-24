@@ -1,41 +1,22 @@
 #include "player_spec.hpp"
 
-#include <charconv>
+#include "common/cli.hpp"
+
 #include <limits>
 #include <string>
 
 namespace othello::match_runner {
 
 std::optional<int> parse_non_negative_int(std::string_view text) noexcept {
-    int value = 0;
-    const auto* begin = text.data();
-    const auto* end = text.data() + text.size();
-    const auto result = std::from_chars(begin, end, value);
-    if (result.ec != std::errc{} || result.ptr != end || value < 0) {
-        return std::nullopt;
-    }
-    return value;
+    return tools::parse_non_negative_int(text);
 }
 
 std::optional<std::uint64_t> parse_u64(std::string_view text) noexcept {
-    std::uint64_t value = 0;
-    const auto* begin = text.data();
-    const auto* end = text.data() + text.size();
-    const auto result = std::from_chars(begin, end, value);
-    if (result.ec != std::errc{} || result.ptr != end) {
-        return std::nullopt;
-    }
-    return value;
+    return tools::parse_u64(text);
 }
 
 std::optional<bool> parse_on_off(std::string_view text) noexcept {
-    if (text == "on") {
-        return true;
-    }
-    if (text == "off") {
-        return false;
-    }
-    return std::nullopt;
+    return tools::parse_on_off(text);
 }
 
 std::optional<PlayerSpec> parse_player_spec(std::string_view text) {

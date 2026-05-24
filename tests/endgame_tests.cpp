@@ -237,7 +237,7 @@ TEST_CASE("Exact endgame solver preserves selected PVS regression results", "[en
     // Current exact solver expected results; do not update casually.
     constexpr std::array cases{
         ExactRegressionCase{
-            // tools/benchmarks/endgame_positions.hpp: 14-empty-corner-choice
+            // tools/positions/endgame_fixtures.hpp: 14-empty-corner-choice
             .benchmark_name = "14-empty-corner-choice",
             .board_text = R"(.BW.W...
 WWWWWWWB
@@ -253,7 +253,7 @@ side=B)",
             .disc_margin = 24,
         },
         ExactRegressionCase{
-            // tools/benchmarks/endgame_positions.hpp: 16-empty-corner-choice
+            // tools/positions/endgame_fixtures.hpp: 16-empty-corner-choice
             .benchmark_name = "16-empty-corner-choice",
             .board_text = R"(.WB.B.BW
 .WWWWWWW
@@ -269,7 +269,7 @@ side=B)",
             .disc_margin = -14,
         },
         ExactRegressionCase{
-            // tools/benchmarks/endgame_positions.hpp: 18-empty-normal-mobility
+            // tools/positions/endgame_fixtures.hpp: 18-empty-normal-mobility
             .benchmark_name = "18-empty-normal-mobility",
             .board_text = R"(.B.W.BB.
 ..BBBBBB
@@ -294,7 +294,7 @@ side=B)",
 TEST_CASE("Exact endgame solver preserves selected root-pass regression result", "[endgame]") {
     // Current exact solver expected result; do not update casually.
     const ExactRegressionCase test_case{
-        // tools/benchmarks/endgame_positions.hpp: 16-empty-root-pass
+        // tools/positions/endgame_fixtures.hpp: 16-empty-root-pass
         .benchmark_name = "16-empty-root-pass",
         .board_text = R"(........
 BBBBBBBW

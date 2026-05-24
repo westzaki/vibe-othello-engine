@@ -1,4 +1,4 @@
-#include "bench_common.hpp"
+#include "positions/fixtures.hpp"
 
 #include <chrono>
 #include <cstdint>
