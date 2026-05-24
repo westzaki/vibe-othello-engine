@@ -34,6 +34,7 @@ using othello::benchmarks::mobility_bucket;
 using othello::benchmarks::same_board;
 using othello::benchmarks::split_tags;
 using othello::tools::add_search_stats;
+using othello::tools::beta_cut_first_move_percentage;
 using othello::tools::elapsed_ms;
 using othello::tools::format_principal_variation;
 using othello::tools::tt_hit_percentage;
@@ -676,7 +677,9 @@ void print_search_result_header() {
               << "  " << std::setw(10) << "tt_entries"
               << "  positions  depth  best_move  score  " << std::setw(28) << "pv"
               << "  searches  elapsed_ms      searches/s  total_nodes         nodes/s"
-                 "  nodes/search  tt_lookups  tt_hits  tt_hit_rate  tt_stores"
+                 "  nodes/search  searched_moves  legal_nodes  eval_calls  pass_nodes"
+                 "  game_over_nodes  beta_cutoffs  beta_cut_first_move_pct"
+                 "  tt_lookups  tt_hits  tt_hit_rate  tt_stores"
                  "  tt_collisions  tt_rejected_stores  tt_order_probes  tt_order_hits"
                  "  tt_order_used  pvs_scouts  pvs_researches  pvs_scout_cutoffs"
                  "  dyn_nodes  dyn_moves"
@@ -713,9 +716,17 @@ void print_search_result(const SearchBenchmarkResult& result) {
               << result.searches << "  " << std::fixed << std::setprecision(3) << std::setw(10)
               << elapsed_ms << "  " << std::setw(14) << searches_per_second << "  " << std::setw(11)
               << result.total_nodes << "  " << std::setw(14) << nodes_per_second << "  "
-              << std::setw(12) << nodes_per_search << "  " << std::setw(10)
-              << result.total_stats.tt_lookups << "  " << std::setw(7) << result.total_stats.tt_hits
-              << "  " << std::setw(11) << tt_hit_percentage(result.total_stats) << "  " << std::setw(9)
+              << std::setw(12) << nodes_per_search << "  " << std::setw(14)
+              << result.total_stats.searched_moves << "  " << std::setw(11)
+              << result.total_stats.legal_move_nodes << "  " << std::setw(10)
+              << result.total_stats.eval_calls << "  " << std::setw(10)
+              << result.total_stats.pass_nodes << "  " << std::setw(15)
+              << result.total_stats.game_over_nodes << "  " << std::setw(12)
+              << result.total_stats.beta_cutoffs << "  " << std::setw(23)
+              << beta_cut_first_move_percentage(result.total_stats) << "  " << std::setw(10)
+              << result.total_stats.tt_lookups << "  " << std::setw(7)
+              << result.total_stats.tt_hits << "  " << std::setw(11)
+              << tt_hit_percentage(result.total_stats) << "  " << std::setw(9)
               << result.total_stats.tt_stores << "  " << std::setw(13)
               << result.total_stats.tt_collisions << "  " << std::setw(18)
               << result.total_stats.tt_rejected_stores << "  " << std::setw(9)
@@ -737,6 +748,8 @@ void print_position_result_header() {
               << "  " << std::setw(10) << "tt_entries"
               << "  depth  best_move  score  " << std::setw(28) << "pv"
               << "  searches  elapsed_ms       nodes  nodes/search         nodes/s"
+                 "  searched_moves  legal_nodes  eval_calls  pass_nodes  game_over_nodes"
+                 "  beta_cutoffs  beta_cut_first_move_pct"
                  "  tt_lookups  tt_hits  tt_hit_rate  tt_stores  tt_collisions"
                  "  tt_rejected_stores  tt_order_probes  tt_order_hits  tt_order_used"
                  "  pvs_scouts  pvs_researches  pvs_scout_cutoffs  dyn_nodes  dyn_moves\n";
@@ -760,8 +773,16 @@ void print_position_result(const PositionBenchmarkResult& result) {
               << result.searches << "  " << std::fixed << std::setprecision(3) << std::setw(10)
               << elapsed_ms(result.elapsed) << "  " << std::setw(10) << result.total_nodes << "  "
               << std::setw(12) << nodes_per_search(result) << "  " << std::setw(14)
-              << nodes_per_second(result) << "  " << std::setw(10) << result.total_stats.tt_lookups
-              << "  " << std::setw(7) << result.total_stats.tt_hits << "  " << std::setw(11)
+              << nodes_per_second(result) << "  " << std::setw(14)
+              << result.total_stats.searched_moves << "  " << std::setw(11)
+              << result.total_stats.legal_move_nodes << "  " << std::setw(10)
+              << result.total_stats.eval_calls << "  " << std::setw(10)
+              << result.total_stats.pass_nodes << "  " << std::setw(15)
+              << result.total_stats.game_over_nodes << "  " << std::setw(12)
+              << result.total_stats.beta_cutoffs << "  " << std::setw(23)
+              << beta_cut_first_move_percentage(result.total_stats) << "  " << std::setw(10)
+              << result.total_stats.tt_lookups << "  " << std::setw(7)
+              << result.total_stats.tt_hits << "  " << std::setw(11)
               << tt_hit_percentage(result.total_stats) << "  " << std::setw(9)
               << result.total_stats.tt_stores << "  " << std::setw(13)
               << result.total_stats.tt_collisions << "  " << std::setw(18)

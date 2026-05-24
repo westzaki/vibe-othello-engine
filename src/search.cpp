@@ -255,6 +255,11 @@ constexpr int search_score_max = 1'000'000'000;
 // If the terminal score weight in evaluation.cpp changes, update this scale too.
 constexpr int exact_endgame_score_scale = 1'000;
 
+[[nodiscard]] int evaluate_for_search(const Board& board, SearchContext& context) noexcept {
+    ++context.stats.eval_calls;
+    return evaluate_basic(board, board.side_to_move);
+}
+
 [[nodiscard]] bool should_solve_exact_endgame_at_root(const Board& board,
                                                       const SearchOptions& options) noexcept {
     return options.exact_endgame_empty_threshold > 0 &&
@@ -453,8 +458,8 @@ ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
         return *cached.cutoff;
     }
 
-    if (depth <= 0 || is_game_over(board)) {
-        const NodeResult result{.score = evaluate_basic(board, board.side_to_move)};
+    if (depth <= 0) {
+        const NodeResult result{.score = evaluate_for_search(board, context)};
         context.transpositions.store(hash, depth, result.score, original_alpha, beta,
                                      result.best_move, context.stats);
         return result;
@@ -464,12 +469,14 @@ ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
     if (moves == 0) {
         const std::optional<Board> next = pass_turn(board);
         if (!next.has_value()) {
-            const NodeResult result{.score = evaluate_basic(board, board.side_to_move)};
+            ++context.stats.game_over_nodes;
+            const NodeResult result{.score = evaluate_for_search(board, context)};
             context.transpositions.store(hash, depth, result.score, original_alpha, beta,
                                          result.best_move, context.stats);
             return result;
         }
 
+        ++context.stats.pass_nodes;
         const ZobristHash next_hash = hash_after_pass(hash, board.side_to_move);
         assert(next_hash == zobrist_hash(*next));
 
@@ -484,6 +491,7 @@ ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
         return result;
     }
 
+    ++context.stats.legal_move_nodes;
     std::optional<int> best_score;
     std::optional<Square> best_move;
     PrincipalVariation best_principal_variation;
@@ -521,6 +529,7 @@ ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
         const Board next = board_after_move(board, *square, flips);
         const ZobristHash next_hash = hash_after_move(hash, board.side_to_move, *square, flips);
         assert(next_hash == zobrist_hash(next));
+        ++context.stats.searched_moves;
 
         const PrincipalVariationHint child_hint = child_hint_after_move(pv_hint, *square);
         NodeResult child;
@@ -552,13 +561,17 @@ ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
 
         alpha = std::max(alpha, candidate_score);
         if (alpha >= beta) {
+            ++context.stats.beta_cutoffs;
+            if (move == 0) {
+                ++context.stats.beta_cutoffs_first_move;
+            }
             break;
         }
     }
 
     const NodeResult result{
         .best_move = best_move,
-        .score = best_score.value_or(evaluate_basic(board, board.side_to_move)),
+        .score = best_score.value_or(evaluate_for_search(board, context)),
         .principal_variation = best_principal_variation,
     };
     context.transpositions.store(hash, depth, result.score, original_alpha, beta, result.best_move,

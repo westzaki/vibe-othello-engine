@@ -21,8 +21,19 @@ double tt_hit_percentage(const ExactEndgameStats& stats) noexcept {
     return percentage(stats.tt_hits, stats.tt_lookups);
 }
 
+double beta_cut_first_move_percentage(const SearchStats& stats) noexcept {
+    return percentage(stats.beta_cutoffs_first_move, stats.beta_cutoffs);
+}
+
 void add_search_stats(SearchStats& total, const SearchStats& stats) noexcept {
     total.nodes += stats.nodes;
+    total.beta_cutoffs += stats.beta_cutoffs;
+    total.beta_cutoffs_first_move += stats.beta_cutoffs_first_move;
+    total.searched_moves += stats.searched_moves;
+    total.legal_move_nodes += stats.legal_move_nodes;
+    total.eval_calls += stats.eval_calls;
+    total.pass_nodes += stats.pass_nodes;
+    total.game_over_nodes += stats.game_over_nodes;
     total.tt_lookups += stats.tt_lookups;
     total.tt_hits += stats.tt_hits;
     total.tt_exact_hits += stats.tt_exact_hits;

@@ -10,6 +10,7 @@ namespace othello::tools {
 [[nodiscard]] double percentage(std::uint64_t numerator, std::uint64_t denominator) noexcept;
 [[nodiscard]] double tt_hit_percentage(const SearchStats& stats) noexcept;
 [[nodiscard]] double tt_hit_percentage(const ExactEndgameStats& stats) noexcept;
+[[nodiscard]] double beta_cut_first_move_percentage(const SearchStats& stats) noexcept;
 
 void add_search_stats(SearchStats& total, const SearchStats& stats) noexcept;
 void add_exact_endgame_stats(ExactEndgameStats& total,

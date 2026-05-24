@@ -29,6 +29,50 @@ numbers:
 
 Available options may change; use `--help` for current details.
 
+## Midgame Search Baselines
+
+Use Release builds for performance comparisons:
+
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+```
+
+Do not compare Debug and Release numbers. For depth-limited midgame search
+baselines, disable exact root endgame solving so the benchmark measures the
+search pipeline instead of switching small-empty positions to the exact solver:
+
+```sh
+./build/othello_search_bench \
+  --mode both \
+  --depths 3,4,5,6,7 \
+  --positions suite \
+  --repetitions 3 \
+  --exact-endgame-threshold 0
+```
+
+For the stronger existing search path, measure iterative deepening with TT and
+PVS enabled, including per-position rows:
+
+```sh
+./build/othello_search_bench \
+  --mode iterative \
+  --depths 5,6,7 \
+  --positions suite \
+  --repetitions 3 \
+  --tt on \
+  --pvs on \
+  --exact-endgame-threshold 0 \
+  --by-position
+```
+
+Compare node count, wall-clock time, best move, score, result checksum, work
+checksum, TT hit rate, PVS scouts/researches, and
+`beta_cut_first_move_pct`. The first-move beta-cut percentage is a useful move
+ordering signal; deeper midgame search usually benefits more from better ordering
+than from raw NPS alone. If best move, score, or checksum changes, the run is not
+a pure speed comparison.
+
 ## Exact Endgame Benchmarks
 
 Use the exact endgame benchmark when changing the standalone exact solver,
