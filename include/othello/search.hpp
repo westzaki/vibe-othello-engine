@@ -59,6 +59,8 @@ struct SearchResult {
 struct SearchOptions {
     int max_depth = 5;
     bool use_transposition_table = false;
+    // Approximate requested midgame transposition table entries. The internal
+    // table may round this to a bucketed power-of-two capacity.
     std::size_t transposition_table_entries = 1 << 18;
     // Root-only exact endgame cutoff by empty square count. At or below this
     // threshold, search uses the exact endgame solver instead of depth-limited
