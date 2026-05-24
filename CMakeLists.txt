@@ -44,6 +44,10 @@ endfunction()
 function(othello_add_executable target)
     add_executable(${target} ${ARGN})
     target_link_libraries(${target} PRIVATE othello)
+    set_target_properties(${target}
+        PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
+    )
     othello_enable_sanitizers(${target})
 
     list(APPEND OTHELLO_CLANG_TIDY_TARGETS ${target})
@@ -88,6 +92,7 @@ othello_add_executable(othello_tests
     tests/evaluation_tests.cpp
     tests/hash_tests.cpp
     tests/match_runner_tests.cpp
+    tests/nboard_protocol_tests.cpp
     tests/notation_tests.cpp
     tests/player_tests.cpp
     tests/reference_rules.cpp
@@ -96,10 +101,12 @@ othello_add_executable(othello_tests
     tests/search_tests.cpp
     tests/square_tests.cpp
     $<TARGET_OBJECTS:othello_match_runner_core>
+    $<TARGET_OBJECTS:othello_nboard_protocol>
     $<TARGET_OBJECTS:othello_tools_common>
 )
 
 target_link_libraries(othello_tests PRIVATE Catch2::Catch2WithMain)
+target_include_directories(othello_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tools)
 
 if(OTHELLO_ENABLE_CLANG_TIDY)
     set_target_properties(${OTHELLO_CLANG_TIDY_TARGETS}

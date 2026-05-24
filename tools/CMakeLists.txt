@@ -34,6 +34,18 @@ target_include_directories(othello_match_runner_core PRIVATE ${CMAKE_CURRENT_SOU
 othello_enable_sanitizers(othello_match_runner_core)
 list(APPEND OTHELLO_CLANG_TIDY_TARGETS othello_match_runner_core)
 
+add_library(othello_nboard_protocol OBJECT
+    protocols/nboard/game_codec.cpp
+    protocols/nboard/parser.cpp
+    protocols/nboard/protocol.cpp
+    protocols/nboard/process_client.cpp
+)
+
+target_link_libraries(othello_nboard_protocol PRIVATE othello)
+target_include_directories(othello_nboard_protocol PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+othello_enable_sanitizers(othello_nboard_protocol)
+list(APPEND OTHELLO_CLANG_TIDY_TARGETS othello_nboard_protocol)
+
 othello_add_executable(othello_rule_core_bench
     benchmarks/rule_core_main.cpp
     benchmarks/reporters.cpp
@@ -72,5 +84,19 @@ othello_add_executable(othello_match_runner
     $<TARGET_OBJECTS:othello_tools_common>
 )
 target_include_directories(othello_match_runner PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+othello_add_executable(othello_probe_nboard
+    protocols/nboard/probe_main.cpp
+    $<TARGET_OBJECTS:othello_nboard_protocol>
+    $<TARGET_OBJECTS:othello_tools_common>
+)
+target_include_directories(othello_probe_nboard PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+othello_add_executable(othello_nboard_engine
+    protocols/nboard/engine_main.cpp
+    $<TARGET_OBJECTS:othello_nboard_protocol>
+    $<TARGET_OBJECTS:othello_tools_common>
+)
+target_include_directories(othello_nboard_engine PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 set(OTHELLO_CLANG_TIDY_TARGETS ${OTHELLO_CLANG_TIDY_TARGETS} PARENT_SCOPE)
