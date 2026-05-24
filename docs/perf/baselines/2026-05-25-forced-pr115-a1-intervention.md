@@ -137,6 +137,8 @@ Results:
 - `ctest`: 141/141 tests passed
 - Python unittest: 73 tests passed
 - Python compile: passed
+- Tiny wrapper smoke: initial board delegated to child engine (`d3` at depth 1);
+  PR115 target board returned forced `a1`
 
 ## Interpretation
 
