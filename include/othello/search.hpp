@@ -11,6 +11,15 @@ namespace othello {
 
 struct SearchStats {
     std::uint64_t nodes = 0;
+    // Depth-limited search observability. game_over_nodes counts terminal
+    // no-move/no-pass nodes reached by search, not an eager probe on every node.
+    std::uint64_t beta_cutoffs = 0;
+    std::uint64_t beta_cutoffs_first_move = 0;
+    std::uint64_t searched_moves = 0;
+    std::uint64_t legal_move_nodes = 0;
+    std::uint64_t eval_calls = 0;
+    std::uint64_t pass_nodes = 0;
+    std::uint64_t game_over_nodes = 0;
 
     std::uint64_t tt_lookups = 0;
     std::uint64_t tt_hits = 0;

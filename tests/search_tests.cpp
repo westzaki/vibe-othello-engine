@@ -1,5 +1,7 @@
 #include "test_helpers.hpp"
 
+#include "common/stats.hpp"
+
 #include <catch2/catch_test_macros.hpp>
 #include <othello/othello.hpp>
 
@@ -137,6 +139,58 @@ TEST_CASE("Search stats node count mirrors compatibility node field", "[search]"
     CHECK(result.stats.nodes == result.nodes);
 }
 
+TEST_CASE("Search stats aggregation includes search observability counters", "[search]") {
+    othello::SearchStats total{
+        .nodes = 10,
+        .beta_cutoffs = 2,
+        .beta_cutoffs_first_move = 1,
+        .searched_moves = 7,
+        .legal_move_nodes = 3,
+        .eval_calls = 4,
+        .pass_nodes = 1,
+        .game_over_nodes = 1,
+    };
+    const othello::SearchStats stats{
+        .nodes = 5,
+        .beta_cutoffs = 3,
+        .beta_cutoffs_first_move = 2,
+        .searched_moves = 11,
+        .legal_move_nodes = 6,
+        .eval_calls = 9,
+        .pass_nodes = 2,
+        .game_over_nodes = 1,
+    };
+
+    othello::tools::add_search_stats(total, stats);
+
+    CHECK(total.nodes == 15);
+    CHECK(total.beta_cutoffs == 5);
+    CHECK(total.beta_cutoffs_first_move == 3);
+    CHECK(total.searched_moves == 18);
+    CHECK(total.legal_move_nodes == 9);
+    CHECK(total.eval_calls == 13);
+    CHECK(total.pass_nodes == 3);
+    CHECK(total.game_over_nodes == 2);
+    CHECK(othello::tools::beta_cut_first_move_percentage(total) == 60.0);
+}
+
+TEST_CASE("Search observability counters are sane on simple searches", "[search]") {
+    const Board board = Board::initial();
+
+    const othello::SearchResult leaf =
+        othello::search(board, othello::SearchOptions{.max_depth = 0});
+    CHECK(leaf.stats.eval_calls > 0);
+    CHECK(leaf.stats.legal_move_nodes == 0);
+    CHECK(leaf.stats.searched_moves == 0);
+
+    const othello::SearchResult depth_search =
+        othello::search(board, othello::SearchOptions{.max_depth = 2});
+    CHECK(depth_search.stats.legal_move_nodes > 0);
+    CHECK(depth_search.stats.searched_moves > 0);
+    CHECK(depth_search.stats.eval_calls > 0);
+    CHECK(depth_search.stats.beta_cutoffs_first_move <= depth_search.stats.beta_cutoffs);
+}
+
 TEST_CASE("Search threshold disabled keeps depth-limited behavior for small endgames", "[search]") {
     const Board board = one_empty_forced_board();
     const othello::SearchOptions options{
@@ -180,6 +234,13 @@ TEST_CASE("Search uses exact endgame at the root within threshold", "[search]") 
     CHECK(result.stats.pvs_scouts == 0);
     CHECK(result.stats.pvs_researches == 0);
     CHECK(result.stats.pvs_scout_cutoffs == 0);
+    CHECK(result.stats.beta_cutoffs == 0);
+    CHECK(result.stats.beta_cutoffs_first_move == 0);
+    CHECK(result.stats.searched_moves == 0);
+    CHECK(result.stats.legal_move_nodes == 0);
+    CHECK(result.stats.eval_calls == 0);
+    CHECK(result.stats.pass_nodes == 0);
+    CHECK(result.stats.game_over_nodes == 0);
     CHECK(result.stats.dynamic_ordering_nodes == 0);
     CHECK(result.stats.dynamic_ordering_moves == 0);
 }
@@ -222,6 +283,8 @@ TEST_CASE("Iterative search returns exact result immediately within threshold", 
     CHECK(result.stats.pvs_scouts == 0);
     CHECK(result.stats.pvs_researches == 0);
     CHECK(result.stats.pvs_scout_cutoffs == 0);
+    CHECK(result.stats.eval_calls == 0);
+    CHECK(result.stats.pass_nodes == 0);
     CHECK(result.stats.dynamic_ordering_nodes == 0);
 }
 
@@ -397,6 +460,12 @@ TEST_CASE("Search stats leave transposition table counters zero when disabled", 
     CHECK(result.stats.pvs_scouts == 0);
     CHECK(result.stats.pvs_researches == 0);
     CHECK(result.stats.pvs_scout_cutoffs == 0);
+    CHECK(result.stats.searched_moves > 0);
+    CHECK(result.stats.legal_move_nodes > 0);
+    CHECK(result.stats.eval_calls > 0);
+    CHECK(result.stats.beta_cutoffs_first_move <= result.stats.beta_cutoffs);
+    CHECK(result.stats.pass_nodes == 0);
+    CHECK(result.stats.game_over_nodes == 0);
 }
 
 TEST_CASE("Search stats count transposition table work when enabled", "[search]") {
@@ -618,6 +687,38 @@ TEST_CASE("PVS preserves fixed-depth search result without transposition table",
     CHECK(pvs.stats.pvs_researches + pvs.stats.pvs_scout_cutoffs == pvs.stats.pvs_scouts);
 }
 
+TEST_CASE("TT and PVS combinations preserve deterministic fixed-depth result", "[search]") {
+    const auto board = othello::apply_move(Board::initial(), othello::test::square("d3"));
+    REQUIRE(board.has_value());
+
+    const othello::SearchOptions baseline_options{
+        .max_depth = 4,
+        .use_transposition_table = false,
+        .exact_endgame_empty_threshold = 0,
+        .use_pvs = false,
+    };
+    const othello::SearchResult baseline = othello::search(*board, baseline_options);
+
+    for (const bool use_tt : {false, true}) {
+        for (const bool use_pvs : {false, true}) {
+            CAPTURE(use_tt);
+            CAPTURE(use_pvs);
+            const othello::SearchOptions options{
+                .max_depth = 4,
+                .use_transposition_table = use_tt,
+                .exact_endgame_empty_threshold = 0,
+                .use_pvs = use_pvs,
+            };
+
+            const othello::SearchResult result = othello::search(*board, options);
+
+            CHECK(result.best_move == baseline.best_move);
+            CHECK(result.score == baseline.score);
+            CHECK(result.depth == baseline.depth);
+        }
+    }
+}
+
 TEST_CASE("PVS preserves fixed-depth search result with transposition table", "[search]") {
     const auto board = othello::apply_move(Board::initial(), othello::test::square("d3"));
     REQUIRE(board.has_value());
@@ -703,6 +804,8 @@ TEST_CASE("PVS does not scout terminal boards", "[search]") {
     CHECK(result.stats.pvs_scouts == 0);
     CHECK(result.stats.pvs_researches == 0);
     CHECK(result.stats.pvs_scout_cutoffs == 0);
+    CHECK(result.stats.game_over_nodes > 0);
+    CHECK(result.stats.eval_calls > 0);
 }
 
 TEST_CASE("Transposition move ordering does not affect terminal boards", "[search]") {
@@ -748,6 +851,7 @@ TEST_CASE("Fixed-depth search handles pass positions", "[search]") {
     }
     CHECK(result.depth == 2);
     CHECK(result.nodes > 0);
+    CHECK(result.stats.pass_nodes > 0);
 }
 
 TEST_CASE("Iterative search handles pass positions without fake principal variation moves",
