@@ -76,6 +76,26 @@ strength changes:
 - Immediate corner-access semantics were cleaner locally, but the combined
   smoke result worsened at depth 8.
 
+## Corner Tactical Suite
+
+PR117 added reusable fixture files under
+`data/positions/tactical/corner/`:
+
+- `pr115_immediate_corner.txt`: the PR115 board where White can immediately
+  take `a1`;
+- `pr115_after_a1_black_response.txt`: the post-`a1` Black response board where
+  forced diagnostics found `c2` to be high impact.
+
+Future evaluator or search experiments that could affect corner capture should
+check these fixtures before running broader smoke comparisons. Raw forced-sweep
+tables and local JSONL should remain under `runs/`; this page should keep only
+the durable evidence and interpretation.
+
+Do not optimize only for the PR115 board. The sibling and negative-control
+observations matter: `a1`, `b5`, and `b3` were materially better than the
+original `d6` line in the forced sweep, while `c5`, `c6`, and `d6` did not repair
+the regression.
+
 ## Current Interpretation
 
 The PR115 `a1` decision is very likely a primary cause of the phase-aware
