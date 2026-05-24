@@ -1,0 +1,27 @@
+{
+  "runner": "./build/othello_match_runner",
+  "summary_script": "tools/scripts/match_summary.py",
+  "output_dir": "build/matches",
+  "openings": "data/openings/smoke_openings.txt",
+  "defaults": {
+    "games": 4,
+    "swap_sides": true,
+    "seed": 1,
+    "summary": true,
+    "by_opening": true,
+    "allow_errors": false
+  },
+  "experiments": [
+    {
+      "name": "depth4_tt_pvs_vs_plain",
+      "black": "search:depth=4,tt=on,pvs=on,exact=off",
+      "white": "search:depth=4,tt=off,pvs=off,exact=off"
+    },
+    {
+      "name": "depth4_tt_vs_plain",
+      "black": "search:depth=4,tt=on,pvs=off,exact=off",
+      "white": "search:depth=4,tt=off,pvs=off,exact=off",
+      "seed": 2
+    }
+  ]
+}

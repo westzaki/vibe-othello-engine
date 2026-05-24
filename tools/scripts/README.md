@@ -35,6 +35,17 @@ python3 tools/scripts/run_match_experiment.py \
   --by-opening
 ```
 
+Run a small experiment matrix from JSON:
+
+```sh
+python3 tools/scripts/run_experiment_matrix.py \
+  --config tools/scripts/examples/search_ablation_smoke.json \
+  --dry-run
+
+python3 tools/scripts/run_experiment_matrix.py \
+  --config tools/scripts/examples/search_ablation_smoke.json
+```
+
 Python script tests run in CI. Run the same checks locally with:
 
 ```sh
