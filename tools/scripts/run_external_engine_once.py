@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run one external engine request through the generic adapter."""
+"""Run one external engine request through the canonical probe CLI."""
 
 from __future__ import annotations
 
@@ -8,8 +8,9 @@ import sys
 from pathlib import Path
 
 from common import ScriptError
-from external_engines.one_shot import request_best_move
 from external_engines.common import ExternalEngineError
+from external_engines.ntest import NTestConfig, request_best_move as request_ntest_best_move
+from external_engines.one_shot import request_best_move as request_one_shot_best_move
 
 
 def _parse_env(values: list[str]) -> dict[str, str]:
@@ -33,10 +34,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         engine_args = []
 
     parser = argparse.ArgumentParser(
-        description="Run one external engine request through the one-shot adapter.",
+        description="Run one external engine request through an adapter.",
         usage=(
             "%(prog)s (--board-file PATH | --stdin-board) [--timeout-ms N] "
-            "[--workdir PATH] [--env KEY=VALUE] --engine-cmd -- COMMAND [ARGS...]"
+            "[--workdir PATH] [--env KEY=VALUE] [--adapter one-shot|ntest] "
+            "[--protocol nboard|one-shot] [--depth N] --engine-cmd -- COMMAND [ARGS...]"
         ),
     )
     board_input = parser.add_mutually_exclusive_group(required=True)
@@ -44,6 +46,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     board_input.add_argument("--stdin-board", action="store_true", help="read board text from stdin")
     parser.add_argument("--timeout-ms", type=int, default=1000, help="engine timeout in milliseconds")
     parser.add_argument("--workdir", help="working directory for the engine process")
+    parser.add_argument(
+        "--adapter",
+        choices=("one-shot", "ntest"),
+        default="one-shot",
+        help="external engine adapter to use",
+    )
+    parser.add_argument(
+        "--protocol",
+        choices=("nboard", "one-shot"),
+        help="adapter protocol; defaults to one-shot for --adapter one-shot and nboard for --adapter ntest",
+    )
+    parser.add_argument("--depth", type=int, help="NTest NBoard search depth")
     parser.add_argument(
         "--env",
         action="append",
@@ -61,6 +75,21 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     if args.timeout_ms <= 0:
         raise ScriptError("--timeout-ms must be positive")
+
+    if args.adapter == "one-shot":
+        if args.protocol not in (None, "one-shot"):
+            raise ScriptError("--adapter one-shot only allows --protocol one-shot")
+        if args.depth is not None:
+            raise ScriptError("--depth is only valid with --adapter ntest --protocol nboard")
+        args.protocol = "one-shot"
+    else:
+        args.protocol = args.protocol or "nboard"
+        if args.protocol == "one-shot" and args.depth is not None:
+            raise ScriptError("--depth is only valid with --adapter ntest --protocol nboard")
+        if args.protocol == "nboard":
+            args.depth = 26 if args.depth is None else args.depth
+            if args.depth <= 0:
+                raise ScriptError("--depth must be positive")
 
     args.engine_command = engine_args[1:]
     args.env_overrides = _parse_env(args.env)
@@ -92,13 +121,26 @@ def main(argv: list[str] | None = None) -> int:
     try:
         args = parse_args(argv)
         board_text = read_board_text(args)
-        result = request_best_move(
-            args.engine_command,
-            board_text=board_text,
-            timeout_ms=args.timeout_ms,
-            workdir=args.workdir,
-            env=args.env_overrides,
-        )
+        if args.adapter == "ntest":
+            result = request_ntest_best_move(
+                NTestConfig(
+                    command=args.engine_command,
+                    timeout_ms=args.timeout_ms,
+                    workdir=args.workdir,
+                    env=args.env_overrides,
+                    profile=args.protocol,
+                    depth=args.depth or 26,
+                ),
+                board_text,
+            )
+        else:
+            result = request_one_shot_best_move(
+                args.engine_command,
+                board_text=board_text,
+                timeout_ms=args.timeout_ms,
+                workdir=args.workdir,
+                env=args.env_overrides,
+            )
         print_result(result)
         if result.timed_out or result.exit_code != 0 or result.move is None:
             return 1
