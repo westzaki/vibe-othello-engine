@@ -86,6 +86,7 @@ othello_add_executable(othello_tests
     tests/evaluation_tests.cpp
     tests/hash_tests.cpp
     tests/match_runner_tests.cpp
+    tests/match_summary_tests.cpp
     tests/notation_tests.cpp
     tests/player_tests.cpp
     tests/reference_rules.cpp
@@ -115,6 +116,10 @@ othello_add_executable(othello_analyze_position
 
 othello_add_executable(othello_match_runner
     tools/match_runner.cpp
+)
+
+othello_add_executable(othello_match_summary
+    tools/match_summary.cpp
 )
 
 if(OTHELLO_ENABLE_CLANG_TIDY)

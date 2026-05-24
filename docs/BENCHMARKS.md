@@ -75,6 +75,30 @@ detect behavior changes.
 If a checksum, best move, or score changes, do not treat the result as a pure
 speed comparison. First check whether the search behavior changed intentionally.
 
+## Self-Play Match Summaries
+
+Use the match runner for lightweight deterministic self-play checks, then summarize
+the JSONL output with `othello_match_summary`:
+
+```sh
+./build/othello_match_runner \
+  --black search:depth=3 \
+  --white random \
+  --games 8 \
+  --swap-sides true \
+  --seed 1 \
+  --openings data/openings/smoke_openings.txt \
+  --output build/matches/search3_vs_random.jsonl
+
+./build/othello_match_summary \
+  --input build/matches/search3_vs_random.jsonl \
+  --by-opening
+```
+
+The summary reports A/B wins, draws, average disc diff from the player A
+perspective, average plies, average passes, error-game count, and optional
+per-opening rows. It is intentionally not an Elo or significance tool.
+
 ## Reading Results
 
 Performance numbers are environment-dependent. Prefer relative comparisons from
