@@ -22,6 +22,11 @@ namespace othello::match_runner {
                                   std::uint64_t seed, int opening_index, const Opening& opening);
 [[nodiscard]] GameRecord run_game(int game_index, const PlayerSpec& black_spec,
                                   const PlayerSpec& white_spec, bool black_is_player_a,
+                                  std::uint64_t seed, int opening_index, const Opening& opening,
+                                  std::span<const ExternalEngineConfig> external_engines,
+                                  int external_timeout_ms);
+[[nodiscard]] GameRecord run_game(int game_index, const PlayerSpec& black_spec,
+                                  const PlayerSpec& white_spec, bool black_is_player_a,
                                   std::uint64_t seed);
 [[nodiscard]] std::size_t opening_index_for_game(int game_index, bool swap_sides,
                                                  std::size_t opening_count) noexcept;

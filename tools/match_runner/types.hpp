@@ -14,6 +14,7 @@ enum class PlayerKind {
     Random,
     Eval,
     Search,
+    ExternalNBoard,
 };
 
 struct SearchPlayerOptions {
@@ -31,9 +32,20 @@ struct PlayerSpec {
     PlayerKind kind = PlayerKind::First;
     int depth = 0;
     SearchPlayerOptions search_options;
+    std::string external_engine_name;
     std::string text = "first";
 
     [[nodiscard]] friend bool operator==(const PlayerSpec&, const PlayerSpec&) = default;
+};
+
+struct ExternalEngineConfig {
+    std::string name;
+    int depth = 1;
+    std::optional<std::string> cwd;
+    std::vector<std::string> command;
+
+    [[nodiscard]] friend bool operator==(const ExternalEngineConfig&,
+                                         const ExternalEngineConfig&) = default;
 };
 
 struct MoveSelection {
@@ -56,6 +68,8 @@ struct MatchConfig {
     bool swap_sides = false;
     std::uint64_t seed = 1;
     std::vector<Opening> openings;
+    std::vector<ExternalEngineConfig> external_engines;
+    int external_timeout_ms = 10000;
 };
 
 struct GameRecord {
@@ -87,6 +101,7 @@ struct GameRecord {
     int passes = 0;
     std::vector<std::string> moves;
     bool illegal_or_error = false;
+    std::optional<std::string> error_reason;
 
     [[nodiscard]] friend bool operator==(const GameRecord&, const GameRecord&) = default;
 };
@@ -100,6 +115,8 @@ struct OpeningParseResult {
 
 struct MatchSummary {
     int games = 0;
+    int valid_games = 0;
+    int error_games = 0;
     int player_a_wins = 0;
     int player_b_wins = 0;
     int draws = 0;

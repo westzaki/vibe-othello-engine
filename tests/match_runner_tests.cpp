@@ -1,6 +1,9 @@
 #include "../tools/match_runner/core.hpp"
+#include "../tools/match_runner/engine_config.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+#include <optional>
+#include <string>
 #include <vector>
 
 namespace runner = othello::match_runner;
@@ -63,6 +66,55 @@ TEST_CASE("Search player specs reject invalid options", "[match-runner]") {
                     .has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,exact=-1").has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,tt_entries=-1").has_value());
+}
+
+TEST_CASE("External NBoard player specs parse engine names", "[match-runner]") {
+    const auto external = runner::parse_player_spec("external:ntest8");
+
+    REQUIRE(external.has_value());
+    CHECK(external->kind == runner::PlayerKind::ExternalNBoard);
+    CHECK(external->external_engine_name == "ntest8");
+    CHECK(external->text == "external:ntest8");
+    CHECK_FALSE(runner::parse_player_spec("external:").has_value());
+}
+
+TEST_CASE("External engine config parser accepts line-based configs", "[match-runner]") {
+    const runner::EngineConfigParseResult result =
+        runner::parse_engine_config_line("head|5|../head|../build-head/othello_nboard_engine");
+
+    REQUIRE(result.ok);
+    REQUIRE(result.has_config);
+    CHECK(result.config.name == "head");
+    CHECK(result.config.depth == 5);
+    REQUIRE(result.config.cwd.has_value());
+    CHECK(*result.config.cwd == "../head");
+    REQUIRE(result.config.command.size() == 1);
+    CHECK(result.config.command[0] == "../build-head/othello_nboard_engine");
+}
+
+TEST_CASE("External engine config parser handles comments, empty cwd, and args",
+          "[match-runner]") {
+    const runner::EngineConfigParseResult comment = runner::parse_engine_config_line("# comment");
+    const runner::EngineConfigParseResult blank = runner::parse_engine_config_line("   ");
+    const runner::EngineConfigParseResult with_args =
+        runner::parse_engine_config_line("ntest8|8||ntest|x");
+
+    CHECK(comment.ok);
+    CHECK_FALSE(comment.has_config);
+    CHECK(blank.ok);
+    CHECK_FALSE(blank.has_config);
+    REQUIRE(with_args.ok);
+    REQUIRE(with_args.has_config);
+    CHECK(with_args.config.name == "ntest8");
+    CHECK(with_args.config.depth == 8);
+    CHECK_FALSE(with_args.config.cwd.has_value());
+    REQUIRE(with_args.config.command.size() == 2);
+    CHECK(with_args.config.command[0] == "ntest");
+    CHECK(with_args.config.command[1] == "x");
+
+    CHECK_FALSE(runner::parse_engine_config_line("bad|0||cmd").ok);
+    CHECK_FALSE(runner::parse_engine_config_line("bad|1|cwd|").ok);
+    CHECK_FALSE(runner::parse_engine_config_line("bad|1|cwd").ok);
 }
 
 TEST_CASE("Opening parser accepts initial positions", "[match-runner]") {
@@ -304,4 +356,53 @@ TEST_CASE("Run match emits the requested number of games", "[match-runner]") {
         CHECK_FALSE(record.illegal_or_error);
         CHECK(record.black_score + record.white_score == 64);
     }
+}
+
+TEST_CASE("Match summary separates valid and error games", "[match-runner]") {
+    std::vector<runner::GameRecord> records(3);
+    records[0].score_diff_from_player_a = 10;
+    records[1].score_diff_from_player_a = -8;
+    records[1].illegal_or_error = true;
+    records[2].score_diff_from_player_a = 0;
+
+    const runner::MatchSummary summary = runner::summarize(records);
+
+    CHECK(summary.games == 3);
+    CHECK(summary.valid_games == 2);
+    CHECK(summary.error_games == 1);
+    CHECK(summary.player_a_wins == 1);
+    CHECK(summary.player_b_wins == 0);
+    CHECK(summary.draws == 1);
+    CHECK(summary.average_disc_diff_from_player_a == 5.0);
+}
+
+TEST_CASE("Internal NBoard engine can be used as an external player", "[match-runner]") {
+    const auto external = runner::parse_player_spec("external:local");
+    const auto first = runner::parse_player_spec("first");
+    REQUIRE(external.has_value());
+    REQUIRE(first.has_value());
+
+    const runner::ExternalEngineConfig engine{
+        .name = "local",
+        .depth = 1,
+        .cwd = std::nullopt,
+        .command = {OTHELLO_NBOARD_ENGINE_PATH, "--depth", "1"},
+    };
+    const runner::MatchConfig config{
+        .player_a = *external,
+        .player_b = *first,
+        .games = 1,
+        .swap_sides = false,
+        .seed = 1,
+        .external_engines = {engine},
+        .external_timeout_ms = 5000,
+    };
+
+    const std::vector<runner::GameRecord> records = runner::run_match(config);
+
+    REQUIRE(records.size() == 1);
+    CHECK_FALSE(records[0].illegal_or_error);
+    CHECK_FALSE(records[0].error_reason.has_value());
+    CHECK(records[0].black_score + records[0].white_score == 64);
+    CHECK(records[0].black_spec == "external:local");
 }

@@ -25,6 +25,8 @@ list(APPEND OTHELLO_CLANG_TIDY_TARGETS othello_tools_positions)
 
 add_library(othello_match_runner_core OBJECT
     match_runner/core.cpp
+    match_runner/engine_config.cpp
+    match_runner/external_player.cpp
     match_runner/opening_suite.cpp
     match_runner/player_spec.cpp
 )
@@ -81,6 +83,7 @@ othello_add_executable(othello_match_runner
     match_runner/match_runner_main.cpp
     match_runner/jsonl_writer.cpp
     $<TARGET_OBJECTS:othello_match_runner_core>
+    $<TARGET_OBJECTS:othello_nboard_protocol>
     $<TARGET_OBJECTS:othello_tools_common>
 )
 target_include_directories(othello_match_runner PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

@@ -1,4 +1,5 @@
 #include "match_runner/core.hpp"
+#include "match_runner/engine_config.hpp"
 #include "match_runner/jsonl_writer.hpp"
 
 #include "common/cli.hpp"
@@ -22,6 +23,8 @@ struct CliOptions {
     bool swap_sides = false;
     std::uint64_t seed = 1;
     std::string openings_path;
+    std::string engines_path;
+    int external_timeout_ms = 10000;
     std::string output_path;
     bool quiet = false;
 };
@@ -29,13 +32,14 @@ struct CliOptions {
 void print_usage(std::string_view program_name) {
     std::cout << "usage: " << program_name
               << " --black SPEC --white SPEC --games N --swap-sides true|false --seed N"
-                 " [--openings PATH] --output PATH [--format jsonl] [--quiet]\n"
+                 " [--openings PATH] [--engines PATH] --output PATH [--format jsonl] [--quiet]\n"
               << '\n'
               << "Player specs:\n"
               << "  first\n"
               << "  random\n"
               << "  eval\n"
               << "  search:depth=N[,tt=on|off][,pvs=on|off][,exact=off|N][,tt_entries=N]\n"
+              << "  external:NAME\n"
               << '\n'
               << "Options:\n"
               << "  --black SPEC        initial black / player A spec\n"
@@ -44,6 +48,9 @@ void print_usage(std::string_view program_name) {
               << "  --swap-sides BOOL   alternate A/B sides by game when true\n"
               << "  --seed N            base random seed; game i uses seed + i\n"
               << "  --openings PATH     opening suite text file\n"
+              << "  --engines PATH      external NBoard engine config file\n"
+              << "  --external-timeout-ms N\n"
+              << "                      timeout per external NBoard command sequence\n"
               << "  --output PATH       JSONL output path\n"
               << "  --format jsonl      output format\n"
               << "  --quiet             suppress stdout summary\n"
@@ -117,6 +124,22 @@ void print_usage(std::string_view program_name) {
                 return std::nullopt;
             }
             options.openings_path = std::string{*value};
+        } else if (arg == "--engines") {
+            const auto value = othello::tools::next_argument(args, index, arg);
+            if (!value.has_value() || value->empty()) {
+                std::cerr << "invalid --engines value\n";
+                return std::nullopt;
+            }
+            options.engines_path = std::string{*value};
+        } else if (arg == "--external-timeout-ms") {
+            const auto value = othello::tools::next_argument(args, index, arg);
+            const auto timeout =
+                value.has_value() ? othello::tools::parse_positive_int(*value) : std::nullopt;
+            if (!timeout.has_value()) {
+                std::cerr << "invalid --external-timeout-ms value\n";
+                return std::nullopt;
+            }
+            options.external_timeout_ms = *timeout;
         } else if (arg == "--output") {
             const auto value = othello::tools::next_argument(args, index, arg);
             if (!value.has_value() || value->empty()) {
@@ -191,12 +214,55 @@ load_openings_file(const std::filesystem::path& path) {
     return openings;
 }
 
+[[nodiscard]] std::optional<std::vector<othello::match_runner::ExternalEngineConfig>>
+load_engines_file(const std::filesystem::path& path) {
+    std::ifstream input{path};
+    if (!input) {
+        std::cerr << "failed to open engines file: " << path << '\n';
+        return std::nullopt;
+    }
+
+    std::vector<othello::match_runner::ExternalEngineConfig> engines;
+    std::string line;
+    int line_number = 0;
+    while (std::getline(input, line)) {
+        ++line_number;
+        const othello::match_runner::EngineConfigParseResult result =
+            othello::match_runner::parse_engine_config_line(line);
+        if (!result.ok) {
+            std::cerr << "invalid engine config at " << path << ':' << line_number << ": "
+                      << result.error << '\n';
+            return std::nullopt;
+        }
+        if (result.has_config) {
+            engines.push_back(result.config);
+        }
+    }
+
+    if (!input.eof()) {
+        std::cerr << "failed to read engines file: " << path << '\n';
+        return std::nullopt;
+    }
+    if (engines.empty()) {
+        std::cerr << "engines file contains no engines: " << path << '\n';
+        return std::nullopt;
+    }
+
+    return engines;
+}
+
+[[nodiscard]] bool uses_external_player(const othello::match_runner::PlayerSpec& spec) noexcept {
+    return spec.kind == othello::match_runner::PlayerKind::ExternalNBoard;
+}
+
 void print_summary(const CliOptions& options,
                    std::span<const othello::match_runner::GameRecord> records,
                    std::size_t openings_count) {
     const othello::match_runner::MatchSummary summary = othello::match_runner::summarize(records);
 
     std::cout << "games: " << summary.games << '\n';
+    std::cout << "valid games: " << summary.valid_games << '\n';
+    std::cout << "error games: " << summary.error_games << '\n';
     std::cout << "black spec (A initial): " << options.black.text << '\n';
     std::cout << "white spec (B initial): " << options.white.text << '\n';
     std::cout << "A wins: " << summary.player_a_wins << '\n';
@@ -234,6 +300,19 @@ int main(int argc, char** argv) {
         openings = *loaded_openings;
     }
 
+    std::vector<othello::match_runner::ExternalEngineConfig> engines;
+    if (!options->engines_path.empty()) {
+        const std::optional<std::vector<othello::match_runner::ExternalEngineConfig>>
+            loaded_engines = load_engines_file(options->engines_path);
+        if (!loaded_engines.has_value()) {
+            return 2;
+        }
+        engines = *loaded_engines;
+    } else if (uses_external_player(options->black) || uses_external_player(options->white)) {
+        std::cerr << "--engines PATH is required when using external players\n";
+        return 2;
+    }
+
     const othello::match_runner::MatchConfig config{
         .player_a = options->black,
         .player_b = options->white,
@@ -241,6 +320,8 @@ int main(int argc, char** argv) {
         .swap_sides = options->swap_sides,
         .seed = options->seed,
         .openings = openings,
+        .external_engines = engines,
+        .external_timeout_ms = options->external_timeout_ms,
     };
     const std::vector<othello::match_runner::GameRecord> records =
         othello::match_runner::run_match(config);

@@ -30,6 +30,18 @@ std::optional<PlayerSpec> parse_player_spec(std::string_view text) {
         return PlayerSpec{.kind = PlayerKind::Eval, .depth = 0, .text = std::string{text}};
     }
 
+    constexpr std::string_view external_prefix = "external:";
+    if (text.starts_with(external_prefix)) {
+        const std::string_view name = text.substr(external_prefix.size());
+        if (name.empty()) {
+            return std::nullopt;
+        }
+        return PlayerSpec{.kind = PlayerKind::ExternalNBoard,
+                          .depth = 0,
+                          .external_engine_name = std::string{name},
+                          .text = std::string{text}};
+    }
+
     constexpr std::string_view search_prefix = "search:depth=";
     if (text.starts_with(search_prefix)) {
         std::string_view rest = text.substr(search_prefix.size());
