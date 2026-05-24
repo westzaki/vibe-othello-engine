@@ -1,4 +1,6 @@
-#include "match_summary_core.hpp"
+#include "match_summary/json_cursor.hpp"
+#include "match_summary/parser.hpp"
+#include "match_summary/summary.hpp"
 
 #include <filesystem>
 #include <fstream>
