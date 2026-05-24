@@ -1,4 +1,5 @@
-#include "../tools/match_summary_core.hpp"
+#include "../tools/match_summary/parser.hpp"
+#include "../tools/match_summary/summary.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 #include <string>
