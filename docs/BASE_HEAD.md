@@ -76,6 +76,11 @@ For stronger evidence, increase the opening coverage and use 100+ games per
 depth. Keep the openings, depths, seed, timeout, build type, and game count
 stable when comparing one PR against another.
 
+For evaluation PRs, pay special attention to depth 8 and 10. A heavier evaluator
+can look acceptable at shallow depths while increasing deeper fixed-depth time.
+The bundled smoke openings are useful for repeatability, but they are too narrow
+for a strength claim by themselves.
+
 ## Output Layout
 
 Raw output belongs under `runs/`, which is gitignored:
