@@ -64,6 +64,25 @@ is passed to the engine command. The one-shot adapter validates move tokens as
 live in `external_engines/one_shot.py`; persistent/stateful protocol adapters
 should grow separately under `external_engines/persistent.py`.
 
+Probe the NTest proof-of-life adapter with a local wrapper or binary:
+
+```sh
+printf '(;GM[Othello]PC[NBoard]PB[test]PW[test]RE[?]TY[8]BO[8 ---------------------------O*------*O--------------------------- *];)\n' | \
+python3 tools/scripts/run_ntest_once.py \
+  --stdin-board \
+  --workdir /path/to/ntest/build \
+  --timeout-ms 10000 \
+  --ntest-cmd -- /path/to/ntest/build/ntest x
+```
+
+NTest-specific support defaults to the NBoard external viewer protocol exposed
+by NTest's `x` mode: the adapter sends `nboard 2`, `set depth`, `set game`,
+`go`, and `quit`, then reads the `=== MOVE` response. Use `--protocol one-shot`
+for local wrapper commands that accept board text on stdin and print a move such
+as `d3` or `pass` on stdout. CI does not require NTest; it exercises parser
+behavior and process handling with the fake engine. Full-game external-engine
+matches are intentionally left for a later PR.
+
 Python script tests run in CI. Run the same checks locally with:
 
 ```sh
