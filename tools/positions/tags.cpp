@@ -1,5 +1,8 @@
 #include "positions/tags.hpp"
 
+#include <algorithm>
+#include <iostream>
+
 namespace othello::benchmarks {
 
 std::vector<std::string_view> split_tags(std::string_view tags) {
@@ -19,12 +22,33 @@ std::vector<std::string_view> split_tags(std::string_view tags) {
 }
 
 bool has_tag(std::string_view tags, std::string_view tag) {
-    for (const std::string_view current : split_tags(tags)) {
-        if (current == tag) {
-            return true;
-        }
+    const auto split = split_tags(tags);
+    return std::ranges::any_of(split, [tag](std::string_view current) {
+        return current == tag;
+    });
+}
+
+std::string_view mobility_bucket(int legal_move_count) noexcept {
+    if (legal_move_count <= 3) {
+        return "low";
     }
-    return false;
+    if (legal_move_count >= 9) {
+        return "high";
+    }
+    return "normal";
+}
+
+void check_tag_consistency(std::string_view position_name, std::string_view tags,
+                           std::string_view tag, bool expected, int& warning_count) {
+    const auto actual = has_tag(tags, tag);
+    if (actual == expected) {
+        return;
+    }
+
+    ++warning_count;
+    std::cout << "  warning: tag '" << tag << "' is " << (actual ? "present" : "missing")
+              << " but computed value is " << (expected ? "true" : "false") << " for "
+              << position_name << '\n';
 }
 
 } // namespace othello::benchmarks

@@ -1,5 +1,9 @@
 #include "common/cli.hpp"
+#include "common/formatting.hpp"
+#include "common/stats.hpp"
+#include "positions/metrics.hpp"
 #include "positions/search_positions.hpp"
+#include "positions/tags.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -21,6 +25,18 @@
 namespace {
 
 using Clock = std::chrono::steady_clock;
+using othello::benchmarks::check_tag_consistency;
+using othello::benchmarks::corner_bits;
+using othello::benchmarks::count_bits;
+using othello::benchmarks::edge_bits;
+using othello::benchmarks::has_x_square_risk;
+using othello::benchmarks::mobility_bucket;
+using othello::benchmarks::same_board;
+using othello::benchmarks::split_tags;
+using othello::tools::add_search_stats;
+using othello::tools::elapsed_ms;
+using othello::tools::format_principal_variation;
+using othello::tools::tt_hit_percentage;
 
 enum class SearchBenchmarkMode {
     Fixed,
@@ -390,110 +406,6 @@ make_positions(PositionSet position_set) {
     return std::nullopt;
 }
 
-[[nodiscard]] bool same_board(const othello::Board& lhs, const othello::Board& rhs) noexcept {
-    return lhs.black == rhs.black && lhs.white == rhs.white && lhs.side_to_move == rhs.side_to_move;
-}
-
-[[nodiscard]] std::vector<std::string_view> split_tags(std::string_view tags) {
-    std::vector<std::string_view> result;
-    if (tags.empty()) {
-        return result;
-    }
-
-    std::size_t begin = 0;
-    while (begin <= tags.size()) {
-        const auto comma = tags.find(',', begin);
-        const auto end = comma == std::string_view::npos ? tags.size() : comma;
-        const auto tag = tags.substr(begin, end - begin);
-        if (!tag.empty()) {
-            result.push_back(tag);
-        }
-        if (comma == std::string_view::npos) {
-            break;
-        }
-        begin = comma + 1;
-    }
-
-    return result;
-}
-
-[[nodiscard]] bool has_tag(std::string_view tags, std::string_view expected_tag) {
-    const auto split = split_tags(tags);
-    return std::ranges::any_of(
-        split, [expected_tag](std::string_view tag) { return tag == expected_tag; });
-}
-
-[[nodiscard]] int count_bits(othello::Bitboard bits) noexcept {
-    return std::popcount(bits);
-}
-
-[[nodiscard]] constexpr othello::Bitboard corner_bits() noexcept {
-    return (othello::Bitboard{1} << 0) | (othello::Bitboard{1} << 7) |
-           (othello::Bitboard{1} << 56) | (othello::Bitboard{1} << 63);
-}
-
-[[nodiscard]] constexpr othello::Bitboard edge_bits() noexcept {
-    return 0xFF818181818181FFULL;
-}
-
-[[nodiscard]] constexpr othello::Bitboard x_square_bits() noexcept {
-    return (othello::Bitboard{1} << 9) | (othello::Bitboard{1} << 14) |
-           (othello::Bitboard{1} << 49) | (othello::Bitboard{1} << 54);
-}
-
-[[nodiscard]] constexpr othello::Bitboard corner_for_x_square(othello::Bitboard x_square) noexcept {
-    switch (x_square) {
-    case othello::Bitboard{1} << 9:
-        return othello::Bitboard{1} << 0;
-    case othello::Bitboard{1} << 14:
-        return othello::Bitboard{1} << 7;
-    case othello::Bitboard{1} << 49:
-        return othello::Bitboard{1} << 56;
-    case othello::Bitboard{1} << 54:
-        return othello::Bitboard{1} << 63;
-    default:
-        return 0;
-    }
-}
-
-[[nodiscard]] bool has_x_square_risk(const othello::Board& board,
-                                     othello::Bitboard legal_moves) noexcept {
-    auto risky_x_squares = legal_moves & x_square_bits();
-    while (risky_x_squares != 0) {
-        const auto x_square = risky_x_squares & (~risky_x_squares + 1);
-        const auto adjacent_corner = corner_for_x_square(x_square);
-        if (adjacent_corner != 0 && (board.occupied() & adjacent_corner) == 0) {
-            return true;
-        }
-        risky_x_squares &= ~x_square;
-    }
-
-    return false;
-}
-
-[[nodiscard]] std::string_view mobility_bucket(int legal_move_count) noexcept {
-    if (legal_move_count <= 3) {
-        return "low";
-    }
-    if (legal_move_count >= 9) {
-        return "high";
-    }
-    return "normal";
-}
-
-void check_tag_consistency(std::string_view position_name, std::string_view tags,
-                           std::string_view tag, bool expected, int& warning_count) {
-    const auto actual = has_tag(tags, tag);
-    if (actual == expected) {
-        return;
-    }
-
-    ++warning_count;
-    std::cout << "  warning: tag '" << tag << "' is " << (actual ? "present" : "missing")
-              << " but computed value is " << (expected ? "true" : "false") << " for "
-              << position_name << '\n';
-}
-
 [[nodiscard]] bool describe_positions(const std::vector<othello::benchmarks::Position>& positions) {
     std::map<std::string_view, int> phase_counts;
     std::map<std::string_view, int> mobility_counts;
@@ -636,50 +548,6 @@ void check_tag_consistency(std::string_view position_name, std::string_view tags
     return othello::SearchResult{};
 }
 
-[[nodiscard]] std::string
-format_principal_variation(const std::vector<othello::Square>& principal_variation) {
-    if (principal_variation.empty()) {
-        return "-";
-    }
-
-    std::string text;
-    for (const othello::Square square : principal_variation) {
-        if (!text.empty()) {
-            text += "->";
-        }
-        text += othello::to_string(square);
-    }
-    return text;
-}
-
-void add_search_stats(othello::SearchStats& total, const othello::SearchStats& stats) noexcept {
-    total.nodes += stats.nodes;
-    total.tt_lookups += stats.tt_lookups;
-    total.tt_hits += stats.tt_hits;
-    total.tt_exact_hits += stats.tt_exact_hits;
-    total.tt_lower_hits += stats.tt_lower_hits;
-    total.tt_upper_hits += stats.tt_upper_hits;
-    total.tt_stores += stats.tt_stores;
-    total.tt_overwrites += stats.tt_overwrites;
-    total.tt_collisions += stats.tt_collisions;
-    total.tt_rejected_stores += stats.tt_rejected_stores;
-    total.tt_move_ordering_probes += stats.tt_move_ordering_probes;
-    total.tt_move_ordering_hits += stats.tt_move_ordering_hits;
-    total.tt_move_ordering_used += stats.tt_move_ordering_used;
-    total.pvs_scouts += stats.pvs_scouts;
-    total.pvs_researches += stats.pvs_researches;
-    total.pvs_scout_cutoffs += stats.pvs_scout_cutoffs;
-    total.dynamic_ordering_nodes += stats.dynamic_ordering_nodes;
-    total.dynamic_ordering_moves += stats.dynamic_ordering_moves;
-}
-
-[[nodiscard]] double tt_hit_rate(const othello::SearchStats& stats) noexcept {
-    if (stats.tt_lookups == 0) {
-        return 0.0;
-    }
-    return (static_cast<double>(stats.tt_hits) * 100.0) / static_cast<double>(stats.tt_lookups);
-}
-
 [[nodiscard]] SearchBenchmarkResult
 benchmark_search(const std::vector<othello::benchmarks::Position>& positions, int depth,
                  std::uint64_t repetitions, const BenchmarkOptions& benchmark_options,
@@ -787,10 +655,6 @@ benchmark_position(const othello::benchmarks::Position& position, int depth,
     };
 }
 
-[[nodiscard]] double elapsed_ms(std::chrono::nanoseconds elapsed) noexcept {
-    return static_cast<double>(elapsed.count()) / 1'000'000.0;
-}
-
 [[nodiscard]] double nodes_per_search(const PositionBenchmarkResult& result) noexcept {
     if (result.searches == 0) {
         return 0.0;
@@ -851,7 +715,7 @@ void print_search_result(const SearchBenchmarkResult& result) {
               << result.total_nodes << "  " << std::setw(14) << nodes_per_second << "  "
               << std::setw(12) << nodes_per_search << "  " << std::setw(10)
               << result.total_stats.tt_lookups << "  " << std::setw(7) << result.total_stats.tt_hits
-              << "  " << std::setw(11) << tt_hit_rate(result.total_stats) << "  " << std::setw(9)
+              << "  " << std::setw(11) << tt_hit_percentage(result.total_stats) << "  " << std::setw(9)
               << result.total_stats.tt_stores << "  " << std::setw(13)
               << result.total_stats.tt_collisions << "  " << std::setw(18)
               << result.total_stats.tt_rejected_stores << "  " << std::setw(9)
@@ -898,7 +762,7 @@ void print_position_result(const PositionBenchmarkResult& result) {
               << std::setw(12) << nodes_per_search(result) << "  " << std::setw(14)
               << nodes_per_second(result) << "  " << std::setw(10) << result.total_stats.tt_lookups
               << "  " << std::setw(7) << result.total_stats.tt_hits << "  " << std::setw(11)
-              << tt_hit_rate(result.total_stats) << "  " << std::setw(9)
+              << tt_hit_percentage(result.total_stats) << "  " << std::setw(9)
               << result.total_stats.tt_stores << "  " << std::setw(13)
               << result.total_stats.tt_collisions << "  " << std::setw(18)
               << result.total_stats.tt_rejected_stores << "  " << std::setw(9)
