@@ -1,4 +1,5 @@
-#include "endgame_positions.hpp"
+#include "common/cli.hpp"
+#include "positions/endgame_fixtures.hpp"
 
 #include <algorithm>
 #include <array>
@@ -133,14 +134,7 @@ void print_usage(std::string_view program_name) {
 }
 
 [[nodiscard]] std::optional<std::uint64_t> parse_positive_count(std::string_view text) noexcept {
-    std::uint64_t value = 0;
-    const auto* begin = text.data();
-    const auto* end = text.data() + text.size();
-    const auto result = std::from_chars(begin, end, value);
-    if (result.ec != std::errc{} || result.ptr != end || value == 0) {
-        return std::nullopt;
-    }
-    return value;
+    return othello::tools::parse_positive_count(text);
 }
 
 [[nodiscard]] std::optional<int> parse_empty_count(std::string_view text) noexcept {

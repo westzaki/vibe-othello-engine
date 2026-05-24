@@ -1,4 +1,5 @@
-#include "search_positions.hpp"
+#include "common/cli.hpp"
+#include "positions/search_positions.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -8,7 +9,6 @@
 #include <exception>
 #include <iomanip>
 #include <iostream>
-#include <limits>
 #include <map>
 #include <optional>
 #include <set>
@@ -220,38 +220,7 @@ void print_usage(std::string_view program_name) {
 }
 
 [[nodiscard]] std::optional<bool> parse_tt_setting(std::string_view text) {
-    if (text == "on") {
-        return true;
-    }
-    if (text == "off") {
-        return false;
-    }
-
-    return std::nullopt;
-}
-
-[[nodiscard]] std::optional<bool> parse_on_off(std::string_view text) {
-    if (text == "on") {
-        return true;
-    }
-    if (text == "off") {
-        return false;
-    }
-
-    return std::nullopt;
-}
-
-[[nodiscard]] std::optional<std::size_t> parse_entry_count(std::string_view text) noexcept {
-    std::uint64_t value = 0;
-    const auto* begin = text.data();
-    const auto* end = text.data() + text.size();
-    const auto result = std::from_chars(begin, end, value);
-    if (result.ec != std::errc{} || result.ptr != end ||
-        value > std::numeric_limits<std::size_t>::max()) {
-        return std::nullopt;
-    }
-
-    return static_cast<std::size_t>(value);
+    return othello::tools::parse_on_off(text);
 }
 
 [[nodiscard]] std::optional<BenchmarkOptions> parse_options(std::span<char* const> args) {
@@ -345,7 +314,7 @@ void print_usage(std::string_view program_name) {
                 return std::nullopt;
             }
 
-            const auto pvs_setting = parse_on_off(args[index]);
+            const auto pvs_setting = othello::tools::parse_on_off(args[index]);
             if (!pvs_setting.has_value()) {
                 std::cerr << "--pvs must be on or off\n";
                 return std::nullopt;
@@ -361,7 +330,7 @@ void print_usage(std::string_view program_name) {
                 return std::nullopt;
             }
 
-            const auto entry_count = parse_entry_count(args[index]);
+            const auto entry_count = othello::tools::parse_entry_count(args[index]);
             if (!entry_count.has_value()) {
                 std::cerr << "--tt-entries must be a non-negative integer\n";
                 return std::nullopt;

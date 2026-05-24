@@ -1,4 +1,7 @@
 #include "match_runner/core.hpp"
+#include "match_runner/jsonl_writer.hpp"
+
+#include "common/cli.hpp"
 
 #include <filesystem>
 #include <fstream>
@@ -47,27 +50,6 @@ void print_usage(std::string_view program_name) {
               << "  --help              show this help text\n";
 }
 
-[[nodiscard]] std::optional<bool> parse_bool(std::string_view text) noexcept {
-    if (text == "true") {
-        return true;
-    }
-    if (text == "false") {
-        return false;
-    }
-    return std::nullopt;
-}
-
-[[nodiscard]] std::optional<std::string_view>
-next_argument(std::span<char* const> args, std::size_t& index, std::string_view option) {
-    if (index + 1 >= args.size()) {
-        std::cerr << "missing value for " << option << '\n';
-        return std::nullopt;
-    }
-
-    ++index;
-    return std::string_view{args[index]};
-}
-
 [[nodiscard]] std::optional<CliOptions> parse_options(std::span<char* const> args,
                                                       bool& help_requested) {
     std::optional<othello::match_runner::PlayerSpec> black;
@@ -85,7 +67,7 @@ next_argument(std::span<char* const> args, std::size_t& index, std::string_view 
         if (arg == "--quiet") {
             options.quiet = true;
         } else if (arg == "--black") {
-            const auto value = next_argument(args, index, arg);
+            const auto value = othello::tools::next_argument(args, index, arg);
             black = value.has_value() ? othello::match_runner::parse_player_spec(*value)
                                       : std::nullopt;
             if (!black.has_value()) {
@@ -93,7 +75,7 @@ next_argument(std::span<char* const> args, std::size_t& index, std::string_view 
                 return std::nullopt;
             }
         } else if (arg == "--white") {
-            const auto value = next_argument(args, index, arg);
+            const auto value = othello::tools::next_argument(args, index, arg);
             white = value.has_value() ? othello::match_runner::parse_player_spec(*value)
                                       : std::nullopt;
             if (!white.has_value()) {
@@ -101,7 +83,7 @@ next_argument(std::span<char* const> args, std::size_t& index, std::string_view 
                 return std::nullopt;
             }
         } else if (arg == "--games") {
-            const auto value = next_argument(args, index, arg);
+            const auto value = othello::tools::next_argument(args, index, arg);
             const auto games =
                 value.has_value() ? othello::match_runner::parse_non_negative_int(*value)
                                   : std::nullopt;
@@ -111,15 +93,16 @@ next_argument(std::span<char* const> args, std::size_t& index, std::string_view 
             }
             options.games = *games;
         } else if (arg == "--swap-sides") {
-            const auto value = next_argument(args, index, arg);
-            const auto swap_sides = value.has_value() ? parse_bool(*value) : std::nullopt;
+            const auto value = othello::tools::next_argument(args, index, arg);
+            const auto swap_sides =
+                value.has_value() ? othello::tools::parse_bool_true_false(*value) : std::nullopt;
             if (!swap_sides.has_value()) {
                 std::cerr << "invalid --swap-sides value\n";
                 return std::nullopt;
             }
             options.swap_sides = *swap_sides;
         } else if (arg == "--seed") {
-            const auto value = next_argument(args, index, arg);
+            const auto value = othello::tools::next_argument(args, index, arg);
             const auto seed =
                 value.has_value() ? othello::match_runner::parse_u64(*value) : std::nullopt;
             if (!seed.has_value()) {
@@ -128,21 +111,21 @@ next_argument(std::span<char* const> args, std::size_t& index, std::string_view 
             }
             options.seed = *seed;
         } else if (arg == "--openings") {
-            const auto value = next_argument(args, index, arg);
+            const auto value = othello::tools::next_argument(args, index, arg);
             if (!value.has_value() || value->empty()) {
                 std::cerr << "invalid --openings value\n";
                 return std::nullopt;
             }
             options.openings_path = std::string{*value};
         } else if (arg == "--output") {
-            const auto value = next_argument(args, index, arg);
+            const auto value = othello::tools::next_argument(args, index, arg);
             if (!value.has_value() || value->empty()) {
                 std::cerr << "invalid --output value\n";
                 return std::nullopt;
             }
             options.output_path = std::string{*value};
         } else if (arg == "--format") {
-            const auto value = next_argument(args, index, arg);
+            const auto value = othello::tools::next_argument(args, index, arg);
             if (!value.has_value() || *value != "jsonl") {
                 std::cerr << "invalid --format value; only jsonl is supported\n";
                 return std::nullopt;
@@ -208,137 +191,6 @@ load_openings_file(const std::filesystem::path& path) {
     return openings;
 }
 
-[[nodiscard]] std::string json_escape(std::string_view text) {
-    std::string escaped;
-    escaped.reserve(text.size() + 2);
-
-    for (const char character : text) {
-        switch (character) {
-        case '"':
-            escaped += "\\\"";
-            break;
-        case '\\':
-            escaped += "\\\\";
-            break;
-        case '\b':
-            escaped += "\\b";
-            break;
-        case '\f':
-            escaped += "\\f";
-            break;
-        case '\n':
-            escaped += "\\n";
-            break;
-        case '\r':
-            escaped += "\\r";
-            break;
-        case '\t':
-            escaped += "\\t";
-            break;
-        default:
-            escaped += character;
-            break;
-        }
-    }
-
-    return escaped;
-}
-
-void write_json_string(std::ostream& output, std::string_view text) {
-    output << '"' << json_escape(text) << '"';
-}
-
-void write_jsonl_record(std::ostream& output, const othello::match_runner::GameRecord& record) {
-    output << "{";
-    output << "\"game_index\":" << record.game_index << ',';
-    output << "\"seed\":" << record.seed << ',';
-    output << "\"opening_index\":" << record.opening_index << ',';
-    output << "\"opening_name\":";
-    write_json_string(output, record.opening_name);
-    output << ',';
-    output << "\"opening_moves\":[";
-    for (std::size_t index = 0; index < record.opening_moves.size(); ++index) {
-        if (index != 0) {
-            output << ',';
-        }
-        write_json_string(output, record.opening_moves[index]);
-    }
-    output << "],";
-    output << "\"start_board\":";
-    write_json_string(output, record.start_board);
-    output << ',';
-    output << "\"black_spec\":";
-    write_json_string(output, record.black_spec);
-    output << ',';
-    output << "\"white_spec\":";
-    write_json_string(output, record.white_spec);
-    output << ',';
-    output << "\"black_is_player_a\":" << (record.black_is_player_a ? "true" : "false") << ',';
-    output << "\"player_a_spec\":";
-    write_json_string(output, record.player_a_spec);
-    output << ',';
-    output << "\"player_b_spec\":";
-    write_json_string(output, record.player_b_spec);
-    output << ',';
-    output << "\"winner\":";
-    write_json_string(output, record.winner);
-    output << ',';
-    output << "\"black_score\":" << record.black_score << ',';
-    output << "\"white_score\":" << record.white_score << ',';
-    output << "\"score_diff_from_black\":" << record.score_diff_from_black << ',';
-    output << "\"score_diff_from_player_a\":" << record.score_diff_from_player_a << ',';
-    output << "\"nodes_black\":" << record.nodes_black << ',';
-    output << "\"nodes_white\":" << record.nodes_white << ',';
-    output << "\"nodes_player_a\":" << record.nodes_player_a << ',';
-    output << "\"nodes_player_b\":" << record.nodes_player_b << ',';
-    output << "\"time_ms_black\":" << record.time_ms_black << ',';
-    output << "\"time_ms_white\":" << record.time_ms_white << ',';
-    output << "\"time_ms_player_a\":" << record.time_ms_player_a << ',';
-    output << "\"time_ms_player_b\":" << record.time_ms_player_b << ',';
-    output << "\"plies\":" << record.plies << ',';
-    output << "\"passes\":" << record.passes << ',';
-    output << "\"moves\":[";
-    for (std::size_t index = 0; index < record.moves.size(); ++index) {
-        if (index != 0) {
-            output << ',';
-        }
-        write_json_string(output, record.moves[index]);
-    }
-    output << "],";
-    output << "\"illegal_or_error\":" << (record.illegal_or_error ? "true" : "false");
-    output << "}\n";
-}
-
-[[nodiscard]] bool write_jsonl_file(const std::filesystem::path& output_path,
-                                    std::span<const othello::match_runner::GameRecord> records) {
-    if (output_path.has_parent_path()) {
-        std::error_code error;
-        std::filesystem::create_directories(output_path.parent_path(), error);
-        if (error) {
-            std::cerr << "failed to create output directory: " << output_path.parent_path()
-                      << '\n';
-            return false;
-        }
-    }
-
-    std::ofstream output{output_path};
-    if (!output) {
-        std::cerr << "failed to open output file: " << output_path << '\n';
-        return false;
-    }
-
-    for (const othello::match_runner::GameRecord& record : records) {
-        write_jsonl_record(output, record);
-    }
-
-    if (!output) {
-        std::cerr << "failed to write output file: " << output_path << '\n';
-        return false;
-    }
-
-    return true;
-}
-
 void print_summary(const CliOptions& options,
                    std::span<const othello::match_runner::GameRecord> records,
                    std::size_t openings_count) {
@@ -393,7 +245,7 @@ int main(int argc, char** argv) {
     const std::vector<othello::match_runner::GameRecord> records =
         othello::match_runner::run_match(config);
 
-    if (!write_jsonl_file(options->output_path, records)) {
+    if (!othello::match_runner::write_jsonl_file(options->output_path, records)) {
         return 1;
     }
 

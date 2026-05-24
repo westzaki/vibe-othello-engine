@@ -1,25 +1,17 @@
 #pragma once
 
+#include "common/cli.hpp"
+#include "positions/position.hpp"
+
 #include <bit>
-#include <charconv>
 #include <cstdint>
 #include <iostream>
 #include <optional>
 #include <othello/othello.hpp>
 #include <string_view>
-#include <system_error>
 #include <vector>
 
 namespace othello::benchmarks {
-
-struct Position {
-    std::string_view name;
-    std::string_view phase;
-    std::string_view tags;
-    std::string_view board_text;
-    std::string_view notes;
-    Board board;
-};
 
 [[nodiscard]] inline std::uint64_t mix_checksum(std::uint64_t checksum,
                                                 std::uint64_t value) noexcept {
@@ -48,14 +40,7 @@ struct Position {
 
 [[nodiscard]] inline std::optional<std::uint64_t>
 parse_positive_count(std::string_view text) noexcept {
-    std::uint64_t value = 0;
-    const auto* begin = text.data();
-    const auto* end = text.data() + text.size();
-    const auto result = std::from_chars(begin, end, value);
-    if (result.ec != std::errc{} || result.ptr != end || value == 0) {
-        return std::nullopt;
-    }
-    return value;
+    return tools::parse_positive_count(text);
 }
 
 [[nodiscard]] inline std::vector<Square> squares_from_bitboard(Bitboard bits) {

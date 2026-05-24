@@ -1,0 +1,173 @@
+#include "analyze/analysis.hpp"
+#include "common/board_io.hpp"
+#include "common/cli.hpp"
+
+#include <chrono>
+#include <exception>
+#include <iostream>
+#include <optional>
+#include <othello/othello.hpp>
+#include <span>
+#include <string>
+#include <string_view>
+
+namespace {
+
+using Clock = std::chrono::steady_clock;
+using AnalysisMode = othello::tools::analyze::AnalysisMode;
+using AnalysisOptions = othello::tools::analyze::AnalysisOptions;
+
+void print_usage(std::string_view program_name) {
+    std::cout << "usage: " << program_name
+              << " (--board-file PATH | --stdin) [--depth N] [--mode fixed|iterative]"
+                 " [--tt on|off] [--tt-entries N] [--exact-endgame-threshold N]\n"
+              << '\n'
+              << "Options:\n"
+              << "  --board-file PATH  read a board in board_from_string format\n"
+              << "  --stdin            read a board in board_from_string format from stdin\n"
+              << "  --depth N          non-negative search depth (default: 10)\n"
+              << "  --mode MODE        fixed or iterative (default: fixed)\n"
+              << "  --tt on|off        enable or disable transposition table (default: on)\n"
+              << "  --tt-entries N     requested transposition table entry count\n"
+              << "  --exact-endgame-threshold N\n"
+              << "                    solve root positions with at most N empties exactly; N <= 0 "
+                 "disables\n"
+              << "  --help             show this help text\n";
+}
+
+[[nodiscard]] std::optional<AnalysisMode> parse_mode(std::string_view text) noexcept {
+    if (text == "fixed") {
+        return AnalysisMode::Fixed;
+    }
+    if (text == "iterative") {
+        return AnalysisMode::Iterative;
+    }
+    return std::nullopt;
+}
+
+[[nodiscard]] std::optional<AnalysisOptions> parse_options(std::span<char* const> args,
+                                                           bool& help_requested) {
+    AnalysisOptions options;
+
+    for (std::size_t index = 1; index < args.size(); ++index) {
+        const std::string_view arg{args[index]};
+
+        if (arg == "--help") {
+            help_requested = true;
+            return options;
+        }
+
+        if (arg == "--board-file") {
+            const auto value = othello::tools::next_argument(args, index, arg);
+            if (!value.has_value()) {
+                return std::nullopt;
+            }
+            options.board_file = std::string{*value};
+        } else if (arg == "--stdin") {
+            options.read_stdin = true;
+        } else if (arg == "--depth") {
+            const auto value = othello::tools::next_argument(args, index, arg);
+            const auto depth =
+                value.has_value() ? othello::tools::parse_non_negative_int(*value) : std::nullopt;
+            if (!depth.has_value()) {
+                std::cerr << "invalid --depth value\n";
+                return std::nullopt;
+            }
+            options.depth = *depth;
+        } else if (arg == "--mode") {
+            const auto value = othello::tools::next_argument(args, index, arg);
+            const auto mode = value.has_value() ? parse_mode(*value) : std::nullopt;
+            if (!mode.has_value()) {
+                std::cerr << "invalid --mode value\n";
+                return std::nullopt;
+            }
+            options.mode = *mode;
+        } else if (arg == "--tt") {
+            const auto value = othello::tools::next_argument(args, index, arg);
+            const auto tt = value.has_value() ? othello::tools::parse_on_off(*value) : std::nullopt;
+            if (!tt.has_value()) {
+                std::cerr << "invalid --tt value\n";
+                return std::nullopt;
+            }
+            options.use_transposition_table = *tt;
+        } else if (arg == "--tt-entries") {
+            const auto value = othello::tools::next_argument(args, index, arg);
+            const auto entries =
+                value.has_value() ? othello::tools::parse_entry_count(*value) : std::nullopt;
+            if (!entries.has_value()) {
+                std::cerr << "invalid --tt-entries value\n";
+                return std::nullopt;
+            }
+            options.transposition_table_entries = *entries;
+        } else if (arg == "--exact-endgame-threshold") {
+            const auto value = othello::tools::next_argument(args, index, arg);
+            const auto threshold =
+                value.has_value() ? othello::tools::parse_int(*value) : std::nullopt;
+            if (!threshold.has_value()) {
+                std::cerr << "invalid --exact-endgame-threshold value\n";
+                return std::nullopt;
+            }
+            options.exact_endgame_empty_threshold = *threshold;
+        } else {
+            std::cerr << "unknown option: " << arg << '\n';
+            return std::nullopt;
+        }
+    }
+
+    const int input_count = (options.board_file.has_value() ? 1 : 0) + (options.read_stdin ? 1 : 0);
+    if (input_count != 1) {
+        std::cerr << "choose exactly one input source: --board-file PATH or --stdin\n";
+        return std::nullopt;
+    }
+
+    return options;
+}
+
+int run_analysis(std::span<char* const> args) {
+    bool help_requested = false;
+    const std::optional<AnalysisOptions> options = parse_options(args, help_requested);
+
+    if (help_requested) {
+        print_usage(args.empty() ? "othello_analyze_position" : args.front());
+        return 0;
+    }
+
+    if (!options.has_value()) {
+        print_usage(args.empty() ? "othello_analyze_position" : args.front());
+        return 1;
+    }
+
+    const std::optional<std::string> board_text =
+        options->read_stdin ? othello::tools::read_stdin_text()
+                            : othello::tools::read_text_file(*options->board_file);
+    if (!board_text.has_value()) {
+        return 1;
+    }
+
+    const std::optional<othello::Board> board = othello::board_from_string(*board_text);
+    if (!board.has_value()) {
+        std::cerr << "invalid board input: expected 8 board rows followed by side=B or side=W\n";
+        return 1;
+    }
+
+    const auto start = Clock::now();
+    const othello::SearchResult result = othello::tools::analyze::run_search(*board, *options);
+    const auto end = Clock::now();
+
+    othello::tools::analyze::print_report(*board, *options, result, end - start);
+    return 0;
+}
+
+} // namespace
+
+int main(int argc, char** argv) {
+    try {
+        return run_analysis(std::span<char* const>{argv, static_cast<std::size_t>(argc)});
+    } catch (const std::exception& exception) {
+        std::cerr << "analysis failed: " << exception.what() << '\n';
+    } catch (...) {
+        std::cerr << "analysis failed with an unknown exception\n";
+    }
+
+    return 1;
+}

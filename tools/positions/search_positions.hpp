@@ -1,6 +1,6 @@
 #pragma once
 
-#include "bench_common.hpp"
+#include "positions/fixtures.hpp"
 
 #include <optional>
 #include <vector>
