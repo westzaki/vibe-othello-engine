@@ -77,8 +77,8 @@ speed comparison. First check whether the search behavior changed intentionally.
 
 ## Self-Play Match Summaries
 
-Use the match runner for lightweight deterministic self-play checks, then summarize
-the JSONL output with `othello_match_summary`:
+Use the C++ match runner for lightweight deterministic self-play checks, then
+summarize the JSONL output with the canonical Python summary script:
 
 ```sh
 ./build/othello_match_runner \
@@ -90,7 +90,7 @@ the JSONL output with `othello_match_summary`:
   --openings data/openings/smoke_openings.txt \
   --output build/matches/search3_vs_random.jsonl
 
-./build/othello_match_summary \
+python3 tools/scripts/match_summary.py \
   --input build/matches/search3_vs_random.jsonl \
   --by-opening
 ```
@@ -108,7 +108,7 @@ features without changing engine code:
   --openings data/openings/smoke_openings.txt \
   --output build/matches/search4_tt_pvs_vs_plain.jsonl
 
-./build/othello_match_summary \
+python3 tools/scripts/match_summary.py \
   --input build/matches/search4_tt_pvs_vs_plain.jsonl \
   --by-opening
 ```
@@ -119,9 +119,10 @@ same defaults as the existing fixed-depth search path. `tt_entries=N` only sets
 the transposition-table capacity; include `tt=on` when the match should use the
 table.
 
-The summary reports A/B wins, draws, average disc diff from the player A
-perspective, average plies, average passes, error-game count, and optional
-per-opening rows. It is intentionally not an Elo or significance tool.
+The Python summary script reports A/B wins, draws, average disc diff from the
+player A perspective, average plies, average passes, error-game count, optional
+nodes/time averages, and optional per-opening rows. It is intentionally not an
+Elo or significance tool.
 
 ## Reading Results
 
