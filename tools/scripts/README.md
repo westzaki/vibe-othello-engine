@@ -2,7 +2,8 @@
 
 These scripts are lightweight orchestration and reporting helpers for local
 experiments. The C++ tools remain the source of truth for engine execution and
-JSONL generation.
+JSONL generation, while Python is the canonical layer for match summary and
+reporting workflows.
 
 The scripts use only the Python standard library. They do not import the C++
 engine directly.
