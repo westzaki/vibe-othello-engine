@@ -30,10 +30,11 @@ python3 tools/scripts/run_match_experiment.py \
   --seed 1 \
   --openings data/openings/smoke_openings.txt \
   --output build/matches/search4_options_from_python.jsonl \
-  --summary
+  --summary \
+  --by-opening
 ```
 
-Run script tests:
+Python script tests run in CI. Run the same checks locally with:
 
 ```sh
 python3 -m unittest discover tools/scripts/tests
