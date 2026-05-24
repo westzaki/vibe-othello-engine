@@ -258,6 +258,61 @@ position. Diagnostic modes intentionally solve candidates separately:
 Use diagnostic output to understand where time goes. Do not compare total
 candidate time from diagnostic modes directly with the normal benchmark row.
 
+## Evaluation Change Baselines
+
+Evaluation-strength PRs are allowed to change best moves, scores, PVs, and
+result checksums. Treat those checksum changes as expected behavior changes, not
+as pure speed regressions. Still keep the comparison deterministic and explain
+the changed scores with `evaluate_basic_breakdown()` or `othello_analyze_position`.
+
+For phase-aware or feature-weight evaluation PRs, collect at least:
+
+- Release build and full `ctest`
+- `othello_analyze_position` output for a representative input board
+- smoke search benchmark with `--exact-endgame-threshold 0`
+- suite search benchmark using the current opt-in stronger preset
+- a small base/head match-runner comparison when an old evaluator binary is
+  available
+
+Useful commands:
+
+```sh
+./build/othello_search_bench \
+  --mode both \
+  --depths 1,2,3,4,5 \
+  --positions smoke \
+  --repetitions 1 \
+  --exact-endgame-threshold 0
+```
+
+```sh
+./build/othello_search_bench \
+  --mode iterative \
+  --depths 5,6,7 \
+  --positions suite \
+  --repetitions 3 \
+  --tt on \
+  --pvs on \
+  --aspiration on \
+  --exact-endgame-threshold 0
+```
+
+```sh
+./build/othello_search_bench \
+  --mode iterative \
+  --depths 8,9 \
+  --positions suite \
+  --repetitions 3 \
+  --tt on \
+  --pvs on \
+  --aspiration on \
+  --exact-endgame-threshold 0
+```
+
+Do not describe an evaluation PR as a pure speed comparison. Record score,
+best-move/PV, result checksum, work checksum, and a short explanation of the
+new breakdown fields or weights.
+
 ## Comparing Search Changes
 
 Compare one change at a time when possible. Keep the command stable, then record
