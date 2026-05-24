@@ -20,7 +20,10 @@ using AnalysisOptions = othello::tools::analyze::AnalysisOptions;
 void print_usage(std::string_view program_name) {
     std::cout << "usage: " << program_name
               << " (--board-file PATH | --stdin) [--depth N] [--mode fixed|iterative]"
-                 " [--tt on|off] [--tt-entries N] [--exact-endgame-threshold N]\n"
+                 " [--tt on|off] [--tt-entries N] [--pvs on|off]"
+                 " [--aspiration on|off] [--aspiration-window N]"
+                 " [--aspiration-max-researches N] [--exact-endgame-threshold N]"
+                 " [--root-candidates]\n"
               << '\n'
               << "Options:\n"
               << "  --board-file PATH  read a board in board_from_string format\n"
@@ -29,9 +32,17 @@ void print_usage(std::string_view program_name) {
               << "  --mode MODE        fixed or iterative (default: fixed)\n"
               << "  --tt on|off        enable or disable transposition table (default: on)\n"
               << "  --tt-entries N     requested transposition table entry count\n"
+              << "  --pvs on|off       enable or disable PVS (default: off)\n"
+              << "  --aspiration on|off\n"
+              << "                    enable iterative-search aspiration windows (default: off)\n"
+              << "  --aspiration-window N\n"
+              << "                    positive initial aspiration half-window\n"
+              << "  --aspiration-max-researches N\n"
+              << "                    non-negative aspiration widening retries before full-window fallback\n"
               << "  --exact-endgame-threshold N\n"
               << "                    solve root positions with at most N empties exactly; N <= 0 "
                  "disables\n"
+              << "  --root-candidates  analyze each legal root move separately\n"
               << "  --help             show this help text\n";
 }
 
@@ -99,6 +110,42 @@ void print_usage(std::string_view program_name) {
                 return std::nullopt;
             }
             options.transposition_table_entries = *entries;
+        } else if (arg == "--pvs") {
+            const auto value = othello::tools::next_argument(args, index, arg);
+            const auto pvs =
+                value.has_value() ? othello::tools::parse_on_off(*value) : std::nullopt;
+            if (!pvs.has_value()) {
+                std::cerr << "invalid --pvs value\n";
+                return std::nullopt;
+            }
+            options.use_pvs = *pvs;
+        } else if (arg == "--aspiration") {
+            const auto value = othello::tools::next_argument(args, index, arg);
+            const auto aspiration =
+                value.has_value() ? othello::tools::parse_on_off(*value) : std::nullopt;
+            if (!aspiration.has_value()) {
+                std::cerr << "invalid --aspiration value\n";
+                return std::nullopt;
+            }
+            options.use_aspiration_window = *aspiration;
+        } else if (arg == "--aspiration-window") {
+            const auto value = othello::tools::next_argument(args, index, arg);
+            const auto window =
+                value.has_value() ? othello::tools::parse_positive_int(*value) : std::nullopt;
+            if (!window.has_value()) {
+                std::cerr << "invalid --aspiration-window value\n";
+                return std::nullopt;
+            }
+            options.aspiration_window = *window;
+        } else if (arg == "--aspiration-max-researches") {
+            const auto value = othello::tools::next_argument(args, index, arg);
+            const auto researches =
+                value.has_value() ? othello::tools::parse_non_negative_int(*value) : std::nullopt;
+            if (!researches.has_value()) {
+                std::cerr << "invalid --aspiration-max-researches value\n";
+                return std::nullopt;
+            }
+            options.aspiration_max_researches = *researches;
         } else if (arg == "--exact-endgame-threshold") {
             const auto value = othello::tools::next_argument(args, index, arg);
             const auto threshold =
@@ -108,6 +155,8 @@ void print_usage(std::string_view program_name) {
                 return std::nullopt;
             }
             options.exact_endgame_empty_threshold = *threshold;
+        } else if (arg == "--root-candidates" || arg == "--root-breakdown") {
+            options.root_candidates = true;
         } else {
             std::cerr << "unknown option: " << arg << '\n';
             return std::nullopt;

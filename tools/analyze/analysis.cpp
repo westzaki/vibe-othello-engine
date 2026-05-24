@@ -1,13 +1,19 @@
 #include "analyze/analysis.hpp"
 
 #include "common/formatting.hpp"
+#include "common/stats.hpp"
 
+#include <algorithm>
+#include <chrono>
 #include <iomanip>
 #include <iostream>
+#include <vector>
 
 namespace othello::tools::analyze {
 
 namespace {
+
+using Clock = std::chrono::steady_clock;
 
 [[nodiscard]] std::string_view side_name(Side side) noexcept {
     return side == Side::Black ? "black" : "white";
@@ -26,6 +32,111 @@ namespace {
     return "unknown";
 }
 
+[[nodiscard]] SearchOptions make_search_options(const AnalysisOptions& options) noexcept {
+    return SearchOptions{
+        .max_depth = options.depth,
+        .use_transposition_table = options.use_transposition_table,
+        .transposition_table_entries = options.transposition_table_entries,
+        .exact_endgame_empty_threshold = options.exact_endgame_empty_threshold,
+        .use_pvs = options.use_pvs,
+        .use_aspiration_window = options.use_aspiration_window,
+        .aspiration_window = options.aspiration_window,
+        .aspiration_max_researches = options.aspiration_max_researches,
+    };
+}
+
+[[nodiscard]] SearchResult run_search_with_depth(const Board& board, const AnalysisOptions& options,
+                                                 int depth) noexcept {
+    AnalysisOptions child_options = options;
+    child_options.depth = depth < 0 ? 0 : depth;
+    const SearchOptions search_options = make_search_options(child_options);
+
+    if (child_options.mode == AnalysisMode::Fixed) {
+        return search(board, search_options);
+    }
+    return search_iterative(board, search_options);
+}
+
+void print_evaluation_breakdown(const EvaluationBreakdown& evaluation, std::string_view indent) {
+    std::cout << indent << "phase: " << phase_name(evaluation.phase) << '\n'
+              << indent << "occupied_count: " << evaluation.occupied_count << '\n'
+              << indent << "empty_count: " << evaluation.empty_count << '\n'
+              << indent << "terminal: " << (evaluation.terminal ? "yes" : "no") << '\n'
+              << indent << "disc_difference: " << evaluation.disc_difference << '\n'
+              << indent << "disc_difference_weight: " << evaluation.disc_difference_weight << '\n'
+              << indent << "disc_difference_score: " << evaluation.disc_difference_score << '\n'
+              << indent << "mobility: " << evaluation.mobility << '\n'
+              << indent << "mobility_weight: " << evaluation.mobility_weight << '\n'
+              << indent << "mobility_score: " << evaluation.mobility_score << '\n'
+              << indent << "corner_occupancy: " << evaluation.corner_occupancy << '\n'
+              << indent << "corner_occupancy_weight: " << evaluation.corner_occupancy_weight
+              << '\n'
+              << indent << "corner_occupancy_score: " << evaluation.corner_occupancy_score
+              << '\n'
+              << indent << "potential_mobility: " << evaluation.potential_mobility << '\n'
+              << indent << "potential_mobility_weight: "
+              << evaluation.potential_mobility_weight << '\n'
+              << indent << "potential_mobility_score: " << evaluation.potential_mobility_score
+              << '\n'
+              << indent << "corner_access: " << evaluation.corner_access << '\n'
+              << indent << "corner_access_weight: " << evaluation.corner_access_weight << '\n'
+              << indent << "corner_access_score: " << evaluation.corner_access_score << '\n'
+              << indent << "x_square_danger: " << evaluation.x_square_danger << '\n'
+              << indent << "x_square_danger_weight: " << evaluation.x_square_danger_weight
+              << '\n'
+              << indent << "x_square_danger_score: " << evaluation.x_square_danger_score
+              << '\n'
+              << indent << "frontier: " << evaluation.frontier << '\n'
+              << indent << "frontier_weight: " << evaluation.frontier_weight << '\n'
+              << indent << "frontier_score: " << evaluation.frontier_score << '\n'
+              << indent << "terminal_disc_difference: " << evaluation.terminal_disc_difference
+              << '\n'
+              << indent << "terminal_score_weight: " << evaluation.terminal_score_weight << '\n'
+              << indent << "terminal_score: " << evaluation.terminal_score << '\n'
+              << indent << "total: " << evaluation.total << '\n';
+}
+
+[[nodiscard]] double tt_hit_percentage(const SearchStats& stats) noexcept {
+    if (stats.tt_lookups == 0) {
+        return 0.0;
+    }
+    return 100.0 * static_cast<double>(stats.tt_hits) / static_cast<double>(stats.tt_lookups);
+}
+
+void print_candidate_stats(const SearchStats& stats, std::string_view indent) {
+    std::cout << indent << "tt_hit_pct: " << std::fixed << std::setprecision(3)
+              << tt_hit_percentage(stats) << '\n'
+              << indent << "pvs_scouts: " << stats.pvs_scouts << '\n'
+              << indent << "pvs_researches: " << stats.pvs_researches << '\n'
+              << indent << "pvs_scout_cutoffs: " << stats.pvs_scout_cutoffs << '\n'
+              << indent << "beta_cut_first_move_pct: " << std::fixed << std::setprecision(3)
+              << beta_cut_first_move_percentage(stats) << '\n'
+              << indent << "aspiration_searches: " << stats.aspiration_searches << '\n'
+              << indent << "aspiration_researches: " << stats.aspiration_researches << '\n'
+              << indent << "aspiration_fail_lows: " << stats.aspiration_fail_lows << '\n'
+              << indent << "aspiration_fail_highs: " << stats.aspiration_fail_highs << '\n'
+              << indent << "aspiration_fallbacks: "
+              << stats.aspiration_full_window_fallbacks << '\n';
+}
+
+[[nodiscard]] int candidate_sort_index(const RootCandidateAnalysis& candidate) noexcept {
+    if (!candidate.move.has_value()) {
+        return -1;
+    }
+    return candidate.move->index();
+}
+
+[[nodiscard]] std::vector<Square> candidate_principal_variation(
+    std::optional<Square> move, const std::vector<Square>& child_principal_variation) {
+    std::vector<Square> principal_variation;
+    if (move.has_value()) {
+        principal_variation.push_back(*move);
+    }
+    principal_variation.insert(principal_variation.end(), child_principal_variation.begin(),
+                               child_principal_variation.end());
+    return principal_variation;
+}
+
 } // namespace
 
 std::string_view mode_name(AnalysisMode mode) noexcept {
@@ -40,17 +151,79 @@ std::string_view mode_name(AnalysisMode mode) noexcept {
 }
 
 SearchResult run_search(const Board& board, const AnalysisOptions& options) noexcept {
-    const SearchOptions search_options{
-        .max_depth = options.depth,
-        .use_transposition_table = options.use_transposition_table,
-        .transposition_table_entries = options.transposition_table_entries,
-        .exact_endgame_empty_threshold = options.exact_endgame_empty_threshold,
-    };
+    const SearchOptions search_options = make_search_options(options);
 
     if (options.mode == AnalysisMode::Fixed) {
         return search(board, search_options);
     }
     return search_iterative(board, search_options);
+}
+
+std::vector<RootCandidateAnalysis> analyze_root_candidates(const Board& board,
+                                                           const AnalysisOptions& options) {
+    std::vector<RootCandidateAnalysis> candidates;
+    const Side root_side = board.side_to_move;
+    const int child_depth = options.depth <= 0 ? 0 : options.depth - 1;
+    const Bitboard moves = legal_moves(board);
+
+    for (int index = Square::min_index; index <= Square::max_index; ++index) {
+        const std::optional<Square> square = Square::from_index(index);
+        if (!square.has_value() || (moves & square->bit()) == 0) {
+            continue;
+        }
+
+        const std::optional<Board> child_board = apply_move(board, *square);
+        if (!child_board.has_value()) {
+            continue;
+        }
+
+        const auto start = Clock::now();
+        const SearchResult child_search = run_search_with_depth(*child_board, options, child_depth);
+        const auto end = Clock::now();
+
+        candidates.push_back(RootCandidateAnalysis{
+            .move = square,
+            .pass = false,
+            .child_board = *child_board,
+            .depth = child_depth,
+            .score = -child_search.score,
+            .child_search = child_search,
+            .principal_variation =
+                candidate_principal_variation(square, child_search.principal_variation),
+            .evaluation_after_move = evaluate_basic_breakdown(*child_board, root_side),
+            .elapsed = end - start,
+        });
+    }
+
+    if (moves == 0) {
+        const std::optional<Board> passed_board = pass_turn(board);
+        if (passed_board.has_value()) {
+            const auto start = Clock::now();
+            const SearchResult child_search =
+                run_search_with_depth(*passed_board, options, child_depth);
+            const auto end = Clock::now();
+            candidates.push_back(RootCandidateAnalysis{
+                .move = std::nullopt,
+                .pass = true,
+                .child_board = *passed_board,
+                .depth = child_depth,
+                .score = -child_search.score,
+                .child_search = child_search,
+                .principal_variation = child_search.principal_variation,
+                .evaluation_after_move = evaluate_basic_breakdown(*passed_board, root_side),
+                .elapsed = end - start,
+            });
+        }
+    }
+
+    std::ranges::sort(candidates, [](const RootCandidateAnalysis& lhs,
+                                     const RootCandidateAnalysis& rhs) noexcept {
+        if (lhs.score != rhs.score) {
+            return lhs.score > rhs.score;
+        }
+        return candidate_sort_index(lhs) < candidate_sort_index(rhs);
+    });
+    return candidates;
 }
 
 void print_report(const Board& board, const AnalysisOptions& options, const SearchResult& result,
@@ -73,6 +246,10 @@ void print_report(const Board& board, const AnalysisOptions& options, const Sear
               << "depth: " << options.depth << '\n'
               << "tt: " << (options.use_transposition_table ? "on" : "off") << '\n'
               << "tt_entries: " << options.transposition_table_entries << '\n'
+              << "pvs: " << (options.use_pvs ? "on" : "off") << '\n'
+              << "aspiration: " << (options.use_aspiration_window ? "on" : "off") << '\n'
+              << "aspiration_window: " << options.aspiration_window << '\n'
+              << "aspiration_max_researches: " << options.aspiration_max_researches << '\n'
               << "exact_endgame_threshold: " << options.exact_endgame_empty_threshold << '\n'
               << "elapsed_ms: " << std::fixed << std::setprecision(3)
               << elapsed_ms(elapsed) << '\n'
@@ -86,36 +263,39 @@ void print_report(const Board& board, const AnalysisOptions& options, const Sear
               << "pass_available: " << (pass_available ? "yes" : "no") << '\n'
               << '\n'
               << "evaluation_breakdown:\n"
-              << "  side: " << side_name(board.side_to_move) << '\n'
-              << "  phase: " << phase_name(evaluation.phase) << '\n'
-              << "  occupied_count: " << evaluation.occupied_count << '\n'
-              << "  empty_count: " << evaluation.empty_count << '\n'
-              << "  terminal: " << (evaluation.terminal ? "yes" : "no") << '\n'
-              << "  disc_difference: " << evaluation.disc_difference << '\n'
-              << "  disc_difference_weight: " << evaluation.disc_difference_weight << '\n'
-              << "  disc_difference_score: " << evaluation.disc_difference_score << '\n'
-              << "  mobility: " << evaluation.mobility << '\n'
-              << "  mobility_weight: " << evaluation.mobility_weight << '\n'
-              << "  mobility_score: " << evaluation.mobility_score << '\n'
-              << "  corner_occupancy: " << evaluation.corner_occupancy << '\n'
-              << "  corner_occupancy_weight: " << evaluation.corner_occupancy_weight << '\n'
-              << "  corner_occupancy_score: " << evaluation.corner_occupancy_score << '\n'
-              << "  potential_mobility: " << evaluation.potential_mobility << '\n'
-              << "  potential_mobility_weight: " << evaluation.potential_mobility_weight << '\n'
-              << "  potential_mobility_score: " << evaluation.potential_mobility_score << '\n'
-              << "  corner_access: " << evaluation.corner_access << '\n'
-              << "  corner_access_weight: " << evaluation.corner_access_weight << '\n'
-              << "  corner_access_score: " << evaluation.corner_access_score << '\n'
-              << "  x_square_danger: " << evaluation.x_square_danger << '\n'
-              << "  x_square_danger_weight: " << evaluation.x_square_danger_weight << '\n'
-              << "  x_square_danger_score: " << evaluation.x_square_danger_score << '\n'
-              << "  frontier: " << evaluation.frontier << '\n'
-              << "  frontier_weight: " << evaluation.frontier_weight << '\n'
-              << "  frontier_score: " << evaluation.frontier_score << '\n'
-              << "  terminal_disc_difference: " << evaluation.terminal_disc_difference << '\n'
-              << "  terminal_score_weight: " << evaluation.terminal_score_weight << '\n'
-              << "  terminal_score: " << evaluation.terminal_score << '\n'
-              << "  total: " << evaluation.total << '\n';
+              << "  side: " << side_name(board.side_to_move) << '\n';
+    print_evaluation_breakdown(evaluation, "  ");
+
+    if (!options.root_candidates) {
+        return;
+    }
+
+    const std::vector<RootCandidateAnalysis> candidates = analyze_root_candidates(board, options);
+    std::cout << '\n' << "root_candidates:\n";
+    if (candidates.empty()) {
+        std::cout << "  - none\n";
+        return;
+    }
+
+    for (const RootCandidateAnalysis& candidate : candidates) {
+        std::cout << "  - move: "
+                  << (candidate.pass ? "pass" : format_square(candidate.move)) << '\n'
+                  << "    child_side_to_move: " << side_name(candidate.child_board.side_to_move)
+                  << '\n'
+                  << "    depth: " << candidate.depth << '\n'
+                  << "    score: " << candidate.score << '\n'
+                  << "    child_search_score: " << candidate.child_search.score << '\n'
+                  << "    pv: " << format_principal_variation(candidate.principal_variation)
+                  << '\n'
+                  << "    nodes: " << candidate.child_search.nodes << '\n'
+                  << "    elapsed_ms: " << std::fixed << std::setprecision(3)
+                  << elapsed_ms(candidate.elapsed) << '\n'
+                  << "    search_stats:\n";
+        print_candidate_stats(candidate.child_search.stats, "      ");
+        std::cout << "    evaluation_after_move:\n"
+                  << "      side: " << side_name(board.side_to_move) << '\n';
+        print_evaluation_breakdown(candidate.evaluation_after_move, "      ");
+    }
 }
 
 } // namespace othello::tools::analyze
