@@ -2,6 +2,7 @@
 
 #include "search_common.hpp"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -31,56 +32,80 @@ struct ExactTranspositionEntry {
     bool occupied = false;
 };
 
+struct ExactTranspositionLookup {
+    std::optional<NodeResult> cutoff;
+    std::optional<Square> best_move_hint;
+};
+
 class ExactTranspositionTable {
 public:
     explicit ExactTranspositionTable(int root_empties) noexcept
-        : entry_count_{entry_count_for_empties(root_empties)},
-          entries_{entry_count_ == 0 ? nullptr
-                                     : new (std::nothrow) ExactTranspositionEntry[entry_count_]} {}
+        : bucket_count_{bucket_count_for_empties(root_empties)},
+          buckets_{bucket_count_ == 0 ? nullptr : new (std::nothrow) Bucket[bucket_count_]} {}
 
-    [[nodiscard]] std::optional<NodeResult> lookup(ZobristHash hash, int empties, int alpha,
-                                                   int beta,
-                                                   ExactEndgameStats& stats) const noexcept {
-        if (entries_ == nullptr) {
-            return std::nullopt;
+    [[nodiscard]] ExactTranspositionLookup lookup(ZobristHash hash, int empties, int alpha,
+                                                  int beta, bool collect_best_move_hint,
+                                                  ExactEndgameStats& stats) const noexcept {
+        if (buckets_ == nullptr) {
+            return {};
         }
 
         ++stats.tt_lookups;
-        const ExactTranspositionEntry& entry = entries_[entry_index(hash)];
-        if (!entry.occupied || entry.hash != hash || entry.empties < empties) {
-            return std::nullopt;
+        const Bucket& bucket = buckets_[bucket_index(hash)];
+        const ExactTranspositionEntry* matching_entry = nullptr;
+        for (const ExactTranspositionEntry& entry : bucket.entries) {
+            if (entry.occupied && entry.hash == hash) {
+                matching_entry = &entry;
+                break;
+            }
         }
 
+        if (matching_entry == nullptr || matching_entry->empties < empties) {
+            return {};
+        }
+
+        const ExactTranspositionEntry& entry = *matching_entry;
         if (entry.bound == ExactTranspositionBound::Exact) {
             record_hit(stats, entry.bound);
-            return node_result_from_entry(entry);
+            return ExactTranspositionLookup{.cutoff = node_result_from_entry(entry)};
         }
         if (entry.bound == ExactTranspositionBound::Lower && entry.score >= beta) {
             record_hit(stats, entry.bound);
-            return node_result_from_entry(entry);
+            return ExactTranspositionLookup{.cutoff = node_result_from_entry(entry)};
         }
         if (entry.bound == ExactTranspositionBound::Upper && entry.score <= alpha) {
             record_hit(stats, entry.bound);
-            return node_result_from_entry(entry);
+            return ExactTranspositionLookup{.cutoff = node_result_from_entry(entry)};
         }
 
-        return std::nullopt;
+        if (!collect_best_move_hint) {
+            return {};
+        }
+        if (entry.bound != ExactTranspositionBound::Lower) {
+            return {};
+        }
+
+        ++stats.tt_move_ordering_probes;
+        return ExactTranspositionLookup{
+            .best_move_hint = best_move_hint_from_entry(entry, stats),
+        };
     }
 
     void store(ZobristHash hash, int empties, int score, int original_alpha, int beta,
                const std::optional<Square>& best_move, ExactEndgameStats& stats) noexcept {
-        if (entries_ == nullptr) {
+        if (buckets_ == nullptr) {
             return;
         }
 
-        ExactTranspositionEntry& entry = entries_[entry_index(hash)];
-        if (entry.occupied && entry.hash != hash && empties < entry.empties) {
+        ExactTranspositionEntry* entry = replacement_entry(buckets_[bucket_index(hash)], hash,
+                                                           empties);
+        if (entry == nullptr) {
             ++stats.tt_rejected_stores;
             return;
         }
 
-        const bool overwrites_entry = entry.occupied;
-        const bool collides_with_different_hash = entry.occupied && entry.hash != hash;
+        const bool overwrites_entry = entry->occupied;
+        const bool collides_with_different_hash = entry->occupied && entry->hash != hash;
         ExactTranspositionBound bound = ExactTranspositionBound::Exact;
         if (score <= original_alpha) {
             bound = ExactTranspositionBound::Upper;
@@ -88,7 +113,7 @@ public:
             bound = ExactTranspositionBound::Lower;
         }
 
-        entry = ExactTranspositionEntry{
+        *entry = ExactTranspositionEntry{
             .hash = hash,
             .score = score,
             .empties = static_cast<std::int8_t>(empties),
@@ -107,6 +132,12 @@ public:
     }
 
 private:
+    static constexpr std::size_t bucket_width = 4;
+
+    struct Bucket {
+        std::array<ExactTranspositionEntry, bucket_width> entries{};
+    };
+
     [[nodiscard]] static constexpr std::size_t entry_count_for_empties(int empties) noexcept {
         if (empties <= 8) {
             return 0;
@@ -120,18 +151,69 @@ private:
         return 1 << 20;
     }
 
-    std::size_t entry_count_ = 0;
-    std::unique_ptr<ExactTranspositionEntry[]> entries_; // NOLINT(cppcoreguidelines-avoid-c-arrays,
-                                                         // modernize-avoid-c-arrays)
+    [[nodiscard]] static constexpr std::size_t bucket_count_for_empties(int empties) noexcept {
+        return entry_count_for_empties(empties) / bucket_width;
+    }
 
-    [[nodiscard]] std::size_t entry_index(ZobristHash hash) const noexcept {
-        return static_cast<std::size_t>(hash) & (entry_count_ - 1);
+    std::size_t bucket_count_ = 0;
+    std::unique_ptr<Bucket[]> buckets_; // NOLINT(cppcoreguidelines-avoid-c-arrays,
+                                        // modernize-avoid-c-arrays)
+
+    [[nodiscard]] std::size_t bucket_index(ZobristHash hash) const noexcept {
+        return static_cast<std::size_t>(hash) & (bucket_count_ - 1);
+    }
+
+    [[nodiscard]] static ExactTranspositionEntry*
+    replacement_entry(Bucket& bucket, ZobristHash hash, int empties) noexcept {
+        ExactTranspositionEntry* empty_slot = nullptr;
+        ExactTranspositionEntry* shallowest = &bucket.entries.front();
+        for (ExactTranspositionEntry& entry : bucket.entries) {
+            if (entry.occupied && entry.hash == hash) {
+                return &entry;
+            }
+            if (!entry.occupied) {
+                if (empty_slot == nullptr) {
+                    empty_slot = &entry;
+                }
+                continue;
+            }
+            if (entry.empties < shallowest->empties) {
+                shallowest = &entry;
+            }
+        }
+
+        if (empty_slot != nullptr) {
+            return empty_slot;
+        }
+
+        if (empties < shallowest->empties) {
+            return nullptr;
+        }
+        return shallowest;
     }
 
     [[nodiscard]] static NodeResult
     node_result_from_entry(const ExactTranspositionEntry& entry) noexcept {
         return node_result_from_transposition_entry(entry.score,
                                                     static_cast<int>(entry.best_move_index));
+    }
+
+    [[nodiscard]] static std::optional<Square>
+    best_move_hint_from_entry(const ExactTranspositionEntry& entry,
+                              ExactEndgameStats& stats) noexcept {
+        if (entry.best_move_index < Square::min_index ||
+            entry.best_move_index > Square::max_index) {
+            return std::nullopt;
+        }
+
+        const std::optional<Square> best_move =
+            Square::from_index(static_cast<int>(entry.best_move_index));
+        if (!best_move.has_value()) {
+            return std::nullopt;
+        }
+
+        ++stats.tt_move_ordering_hits;
+        return best_move;
     }
 
     static void record_hit(ExactEndgameStats& stats, ExactTranspositionBound bound) noexcept {

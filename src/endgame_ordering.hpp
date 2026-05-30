@@ -9,6 +9,7 @@
 #include <cassert>
 #include <cstddef>
 #include <optional>
+#include <othello/endgame.hpp>
 #include <othello/hash.hpp>
 #include <othello/rules.hpp>
 
@@ -107,6 +108,16 @@ constexpr EndgameMoveOrderingParams default_move_ordering_params{};
     return score;
 }
 
+inline void sort_ordered_moves(OrderedMoveIndexes& candidates) noexcept {
+    std::sort(candidates.moves.begin(), candidates.moves.begin() + candidates.size,
+              [](const OrderedMoveIndexes::Move& lhs, const OrderedMoveIndexes::Move& rhs) {
+                  if (lhs.order_score != rhs.order_score) {
+                      return lhs.order_score > rhs.order_score;
+                  }
+                  return lhs.index < rhs.index;
+              });
+}
+
 [[nodiscard]] inline OrderedMoveIndexes
 ordered_legal_move_indexes(const Board& board, ZobristHash hash, Bitboard moves) noexcept {
     OrderedMoveIndexes result;
@@ -139,15 +150,42 @@ ordered_legal_move_indexes(const Board& board, ZobristHash hash, Bitboard moves)
         ++result.size;
     }
 
-    std::sort(result.moves.begin(), result.moves.begin() + result.size,
-              [](const OrderedMoveIndexes::Move& lhs, const OrderedMoveIndexes::Move& rhs) {
-                  if (lhs.order_score != rhs.order_score) {
-                      return lhs.order_score > rhs.order_score;
-                  }
-                  return lhs.index < rhs.index;
-              });
+    sort_ordered_moves(result);
 
     return result;
+}
+
+[[nodiscard]] inline bool promote_preferred_move(OrderedMoveIndexes& candidates,
+                                                 Square preferred_move) noexcept {
+    const int preferred_index = preferred_move.index();
+    for (std::size_t index = 0; index < candidates.size; ++index) {
+        if (candidates.moves[index].index != preferred_index) {
+            continue;
+        }
+
+        const OrderedMoveIndexes::Move preferred = candidates.moves[index];
+        for (std::size_t shift = index; shift > 0; --shift) {
+            candidates.moves[shift] = candidates.moves[shift - 1];
+        }
+        candidates.moves[0] = preferred;
+        return true;
+    }
+
+    return false;
+}
+
+[[nodiscard]] inline OrderedMoveIndexes
+ordered_legal_move_indexes(const Board& board, ZobristHash hash, Bitboard moves,
+                           std::optional<Square> tt_preferred_move,
+                           ExactEndgameStats& stats) noexcept {
+    OrderedMoveIndexes ordered_moves = ordered_legal_move_indexes(board, hash, moves);
+
+    if (tt_preferred_move.has_value() && (moves & tt_preferred_move->bit()) != 0 &&
+        promote_preferred_move(ordered_moves, *tt_preferred_move)) {
+        ++stats.tt_move_ordering_used;
+    }
+
+    return ordered_moves;
 }
 
 } // namespace othello::endgame_detail
