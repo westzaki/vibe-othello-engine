@@ -16,16 +16,6 @@ constexpr Bitboard corner_squares =
 
 constexpr int terminal_score_weight = 1000;
 
-struct PhaseWeights {
-    int disc_difference = 0;
-    int mobility = 0;
-    int potential_mobility = 0;
-    int corner_occupancy = 0;
-    int corner_access = 0;
-    int x_square_danger = 0;
-    int frontier = 0;
-};
-
 [[nodiscard]] constexpr Board with_side_to_move(const Board& board, Side side) noexcept {
     return Board{
         .black = board.black,
@@ -72,51 +62,29 @@ struct PhaseWeights {
            shift_southwest(bits);
 }
 
-[[nodiscard]] EvaluationPhase phase_for_occupied_count(int occupied_count) noexcept {
-    if (occupied_count <= 20) {
+[[nodiscard]] EvaluationPhase phase_for_occupied_count(
+    int occupied_count, const EvaluationConfig& config) noexcept {
+    if (occupied_count <= config.opening_max_occupied) {
         return EvaluationPhase::Opening;
     }
-    if (occupied_count <= 44) {
+    if (occupied_count <= config.midgame_max_occupied) {
         return EvaluationPhase::Midgame;
     }
     return EvaluationPhase::Late;
 }
 
-[[nodiscard]] constexpr PhaseWeights weights_for_phase(EvaluationPhase phase) noexcept {
+[[nodiscard]] constexpr const EvaluationFeatureWeights&
+weights_for_phase(const EvaluationConfig& config, EvaluationPhase phase) noexcept {
     switch (phase) {
     case EvaluationPhase::Opening:
-        return PhaseWeights{
-            .disc_difference = 0,
-            .mobility = 8,
-            .potential_mobility = 4,
-            .corner_occupancy = 35,
-            .corner_access = 30,
-            .x_square_danger = 25,
-            .frontier = 3,
-        };
+        return config.opening;
     case EvaluationPhase::Midgame:
-        return PhaseWeights{
-            .disc_difference = 1,
-            .mobility = 10,
-            .potential_mobility = 5,
-            .corner_occupancy = 40,
-            .corner_access = 35,
-            .x_square_danger = 30,
-            .frontier = 4,
-        };
+        return config.midgame;
     case EvaluationPhase::Late:
-        return PhaseWeights{
-            .disc_difference = 4,
-            .mobility = 6,
-            .potential_mobility = 2,
-            .corner_occupancy = 45,
-            .corner_access = 20,
-            .x_square_danger = 20,
-            .frontier = 2,
-        };
+        return config.late;
     }
 
-    return {};
+    return config.opening;
 }
 
 [[nodiscard]] int legal_move_count(const Board& board, Side side) noexcept {
@@ -171,10 +139,47 @@ int evaluate_mobility(const Board& board, Side side) noexcept {
     return legal_move_count(board, side) - legal_move_count(board, opponent(side));
 }
 
-EvaluationBreakdown evaluate_basic_breakdown(const Board& board, Side side) noexcept {
+EvaluationConfig evaluation_config_for_preset(EvaluationPreset preset) noexcept {
+    EvaluationConfig config = default_evaluation_config();
+    switch (preset) {
+    case EvaluationPreset::Default:
+        return config;
+    case EvaluationPreset::MobilityPlusSmoke:
+        config.opening.mobility = 10;
+        config.midgame.mobility = 12;
+        config.late.mobility = 8;
+        return config;
+    }
+
+    return config;
+}
+
+std::optional<EvaluationPreset> evaluation_preset_from_name(std::string_view name) noexcept {
+    if (name == "default") {
+        return EvaluationPreset::Default;
+    }
+    if (name == "mobility_plus_smoke") {
+        return EvaluationPreset::MobilityPlusSmoke;
+    }
+    return std::nullopt;
+}
+
+std::string_view evaluation_preset_name(EvaluationPreset preset) noexcept {
+    switch (preset) {
+    case EvaluationPreset::Default:
+        return "default";
+    case EvaluationPreset::MobilityPlusSmoke:
+        return "mobility_plus_smoke";
+    }
+
+    return "unknown";
+}
+
+EvaluationBreakdown evaluate_basic_breakdown(const Board& board, Side side,
+                                             const EvaluationConfig& config) noexcept {
     const int occupied_count = std::popcount(board.occupied());
-    const EvaluationPhase phase = phase_for_occupied_count(occupied_count);
-    const PhaseWeights weights = weights_for_phase(phase);
+    const EvaluationPhase phase = phase_for_occupied_count(occupied_count, config);
+    const EvaluationFeatureWeights& weights = weights_for_phase(config, phase);
 
     EvaluationBreakdown breakdown{
         .phase = phase,
@@ -238,8 +243,16 @@ EvaluationBreakdown evaluate_basic_breakdown(const Board& board, Side side) noex
     return breakdown;
 }
 
+EvaluationBreakdown evaluate_basic_breakdown(const Board& board, Side side) noexcept {
+    return evaluate_basic_breakdown(board, side, default_evaluation_config());
+}
+
+int evaluate_with_config(const Board& board, Side side, const EvaluationConfig& config) noexcept {
+    return evaluate_basic_breakdown(board, side, config).total;
+}
+
 int evaluate_basic(const Board& board, Side side) noexcept {
-    return evaluate_basic_breakdown(board, side).total;
+    return evaluate_with_config(board, side, default_evaluation_config());
 }
 
 } // namespace othello

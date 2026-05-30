@@ -42,6 +42,8 @@ using Clock = std::chrono::steady_clock;
         .use_aspiration_window = options.use_aspiration_window,
         .aspiration_window = options.aspiration_window,
         .aspiration_max_researches = options.aspiration_max_researches,
+        .evaluation_preset = options.evaluation_preset,
+        .evaluation_config = options.evaluation_config,
     };
 }
 
@@ -190,7 +192,8 @@ std::vector<RootCandidateAnalysis> analyze_root_candidates(const Board& board,
             .child_search = child_search,
             .principal_variation =
                 candidate_principal_variation(square, child_search.principal_variation),
-            .evaluation_after_move = evaluate_basic_breakdown(*child_board, root_side),
+            .evaluation_after_move =
+                evaluate_basic_breakdown(*child_board, root_side, options.evaluation_config),
             .elapsed = end - start,
         });
     }
@@ -210,7 +213,8 @@ std::vector<RootCandidateAnalysis> analyze_root_candidates(const Board& board,
                 .score = -child_search.score,
                 .child_search = child_search,
                 .principal_variation = child_search.principal_variation,
-                .evaluation_after_move = evaluate_basic_breakdown(*passed_board, root_side),
+                .evaluation_after_move =
+                    evaluate_basic_breakdown(*passed_board, root_side, options.evaluation_config),
                 .elapsed = end - start,
             });
         }
@@ -233,7 +237,7 @@ void print_report(const Board& board, const AnalysisOptions& options, const Sear
     const bool pass_available = pass_turn(board).has_value();
     const bool game_over = is_game_over(board);
     const EvaluationBreakdown evaluation =
-        evaluate_basic_breakdown(board, board.side_to_move);
+        evaluate_basic_breakdown(board, board.side_to_move, options.evaluation_config);
 
     std::cout << "Othello position analysis\n"
               << '\n'
@@ -251,6 +255,7 @@ void print_report(const Board& board, const AnalysisOptions& options, const Sear
               << "aspiration_window: " << options.aspiration_window << '\n'
               << "aspiration_max_researches: " << options.aspiration_max_researches << '\n'
               << "exact_endgame_threshold: " << options.exact_endgame_empty_threshold << '\n'
+              << "eval_preset: " << evaluation_preset_name(options.evaluation_preset) << '\n'
               << "elapsed_ms: " << std::fixed << std::setprecision(3)
               << elapsed_ms(elapsed) << '\n'
               << "best_move: " << format_square(result.best_move) << '\n'

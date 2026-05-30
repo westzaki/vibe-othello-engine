@@ -12,12 +12,21 @@ namespace {
 
 struct Options {
     int depth = 4;
+    othello::EvaluationPreset evaluation_preset = othello::EvaluationPreset::Default;
+    othello::EvaluationConfig evaluation_config = othello::default_evaluation_config();
     bool verbose = false;
     bool help = false;
 };
 
 void print_usage(std::string_view program) {
-    std::cout << "usage: " << program << " [--depth N] [--verbose] [--help]\n";
+    std::cout << "usage: " << program
+              << " [--depth N] [--eval-preset NAME] [--verbose] [--help]\n"
+              << '\n'
+              << "Options:\n"
+              << "  --depth N          positive search depth (default: 4)\n"
+              << "  --eval-preset NAME builtin evaluator preset: default or mobility_plus_smoke\n"
+              << "  --verbose          log received NBoard commands to stderr\n"
+              << "  --help             show this help text\n";
 }
 
 [[nodiscard]] std::optional<Options> parse_options(std::span<char* const> args) {
@@ -43,6 +52,18 @@ void print_usage(std::string_view program) {
             options.depth = *depth;
             continue;
         }
+        if (arg == "--eval-preset") {
+            const auto value = othello::tools::next_argument(args, index, arg);
+            const auto preset =
+                value.has_value() ? othello::evaluation_preset_from_name(*value) : std::nullopt;
+            if (!preset.has_value()) {
+                std::cerr << "invalid --eval-preset value\n";
+                return std::nullopt;
+            }
+            options.evaluation_preset = *preset;
+            options.evaluation_config = othello::evaluation_config_for_preset(*preset);
+            continue;
+        }
         std::cerr << "unknown option: " << arg << '\n';
         return std::nullopt;
     }
@@ -64,12 +85,15 @@ void print_usage(std::string_view program) {
     return line;
 }
 
-[[nodiscard]] std::optional<othello::Square> choose_move(const othello::Board& board, int depth) {
+[[nodiscard]] std::optional<othello::Square> choose_move(const othello::Board& board,
+                                                         const Options& engine_options) {
     const othello::SearchOptions options{
-        .max_depth = depth,
+        .max_depth = engine_options.depth,
         .use_transposition_table = true,
         .exact_endgame_empty_threshold = 12,
         .use_pvs = true,
+        .evaluation_preset = engine_options.evaluation_preset,
+        .evaluation_config = engine_options.evaluation_config,
     };
     const othello::SearchResult result = othello::search(board, options);
     if (result.best_move.has_value()) {
@@ -139,7 +163,7 @@ int run_engine(Options options) {
             continue;
         }
         if (line == "go") {
-            const auto move = choose_move(board, options.depth);
+            const auto move = choose_move(board, options);
             if (!move.has_value()) {
                 if (othello::pass_turn(board).has_value()) {
                     std::cout << "=== pass\n" << std::flush;

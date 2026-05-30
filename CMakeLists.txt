@@ -124,3 +124,12 @@ endif()
 list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
 include(Catch)
 catch_discover_tests(othello_tests)
+
+add_test(
+    NAME othello_nboard_engine_help_includes_eval_preset
+    COMMAND $<TARGET_FILE:othello_nboard_engine> --help
+)
+set_tests_properties(
+    othello_nboard_engine_help_includes_eval_preset
+    PROPERTIES PASS_REGULAR_EXPRESSION "--eval-preset"
+)

@@ -3,6 +3,9 @@
 #include <catch2/catch_test_macros.hpp>
 #include <othello/othello.hpp>
 
+#include <optional>
+#include <string>
+
 using othello::Bitboard;
 using othello::Board;
 using othello::Side;
@@ -74,6 +77,8 @@ void check_breakdown_matches_basic(const Board& board, Side side) {
         othello::evaluate_basic_breakdown(board, side);
 
     CHECK(breakdown.total == othello::evaluate_basic(board, side));
+    CHECK(breakdown.total ==
+          othello::evaluate_with_config(board, side, othello::default_evaluation_config()));
 }
 
 [[nodiscard]] int non_terminal_score_sum(const othello::EvaluationBreakdown& breakdown) noexcept {
@@ -120,6 +125,60 @@ TEST_CASE("Initial board evaluation is symmetric", "[evaluation]") {
           -othello::evaluate_basic(board, Side::White));
 }
 
+TEST_CASE("Default evaluation config preserves phase-aware weights", "[evaluation]") {
+    const othello::EvaluationConfig config = othello::default_evaluation_config();
+
+    CHECK(config.opening == othello::EvaluationFeatureWeights{.disc_difference = 0,
+                                                              .mobility = 8,
+                                                              .potential_mobility = 4,
+                                                              .corner_occupancy = 35,
+                                                              .corner_access = 30,
+                                                              .x_square_danger = 25,
+                                                              .frontier = 3});
+    CHECK(config.midgame == othello::EvaluationFeatureWeights{.disc_difference = 1,
+                                                              .mobility = 10,
+                                                              .potential_mobility = 5,
+                                                              .corner_occupancy = 40,
+                                                              .corner_access = 35,
+                                                              .x_square_danger = 30,
+                                                              .frontier = 4});
+    CHECK(config.late == othello::EvaluationFeatureWeights{.disc_difference = 4,
+                                                           .mobility = 6,
+                                                           .potential_mobility = 2,
+                                                           .corner_occupancy = 45,
+                                                           .corner_access = 20,
+                                                           .x_square_danger = 20,
+                                                           .frontier = 2});
+    CHECK(config.opening_max_occupied == 20);
+    CHECK(config.midgame_max_occupied == 44);
+    CHECK(othello::evaluation_config_for_preset(othello::EvaluationPreset::Default) == config);
+    CHECK(std::string{othello::evaluation_preset_name(othello::EvaluationPreset::Default)} ==
+          "default");
+    const std::optional<othello::EvaluationPreset> parsed_default =
+        othello::evaluation_preset_from_name("default");
+    REQUIRE(parsed_default.has_value());
+    CHECK(*parsed_default == othello::EvaluationPreset::Default);
+}
+
+TEST_CASE("Smoke evaluation preset is explicit and lightweight", "[evaluation]") {
+    const othello::EvaluationConfig default_config = othello::default_evaluation_config();
+    const othello::EvaluationConfig smoke_config =
+        othello::evaluation_config_for_preset(othello::EvaluationPreset::MobilityPlusSmoke);
+
+    CHECK(std::string{othello::evaluation_preset_name(
+              othello::EvaluationPreset::MobilityPlusSmoke)} == "mobility_plus_smoke");
+    const std::optional<othello::EvaluationPreset> parsed_smoke =
+        othello::evaluation_preset_from_name("mobility_plus_smoke");
+    REQUIRE(parsed_smoke.has_value());
+    CHECK(*parsed_smoke == othello::EvaluationPreset::MobilityPlusSmoke);
+    CHECK_FALSE(othello::evaluation_preset_from_name("unknown").has_value());
+    CHECK(smoke_config.opening.mobility == default_config.opening.mobility + 2);
+    CHECK(smoke_config.midgame.mobility == default_config.midgame.mobility + 2);
+    CHECK(smoke_config.late.mobility == default_config.late.mobility + 2);
+    CHECK(smoke_config.opening.potential_mobility ==
+          default_config.opening.potential_mobility);
+}
+
 TEST_CASE("Corner ownership improves the owning side evaluation", "[evaluation]") {
     const Board board{
         .black = Board::initial().black | othello::test::bit("a1"),
@@ -145,6 +204,39 @@ TEST_CASE("Evaluation breakdown total matches basic evaluator", "[evaluation]") 
           x_square_danger_board(), frontier_sensitive_board(), terminal}) {
         check_breakdown_matches_basic(board, Side::Black);
         check_breakdown_matches_basic(board, Side::White);
+    }
+}
+
+TEST_CASE("Default config matches compatibility evaluator", "[evaluation]") {
+    const Board terminal{
+        .black = ~Bitboard{0},
+        .white = 0,
+        .side_to_move = Side::Black,
+    };
+
+    for (const Board& board :
+         {Board::initial(), midgame_board(), corner_occupancy_board(), corner_access_board(),
+          x_square_danger_board(), frontier_sensitive_board(), terminal}) {
+        for (const Side side : {Side::Black, Side::White}) {
+            CAPTURE(othello::to_string(board));
+            CHECK(othello::evaluate_with_config(board, side,
+                                                othello::default_evaluation_config()) ==
+                  othello::evaluate_basic(board, side));
+            const othello::EvaluationBreakdown configured = othello::evaluate_basic_breakdown(
+                board, side, othello::default_evaluation_config());
+            const othello::EvaluationBreakdown compatibility =
+                othello::evaluate_basic_breakdown(board, side);
+            CHECK(configured.phase == compatibility.phase);
+            CHECK(configured.disc_difference_weight == compatibility.disc_difference_weight);
+            CHECK(configured.mobility_weight == compatibility.mobility_weight);
+            CHECK(configured.corner_occupancy_weight == compatibility.corner_occupancy_weight);
+            CHECK(configured.potential_mobility_weight ==
+                  compatibility.potential_mobility_weight);
+            CHECK(configured.corner_access_weight == compatibility.corner_access_weight);
+            CHECK(configured.x_square_danger_weight == compatibility.x_square_danger_weight);
+            CHECK(configured.frontier_weight == compatibility.frontier_weight);
+            CHECK(configured.total == compatibility.total);
+        }
     }
 }
 
@@ -306,6 +398,25 @@ TEST_CASE("Terminal evaluation breakdown uses terminal score only", "[evaluation
     CHECK(white.total == white.terminal_score);
 }
 
+TEST_CASE("Terminal evaluation keeps fixed score scale across configs", "[evaluation]") {
+    const Board board{
+        .black = ~Bitboard{0},
+        .white = 0,
+        .side_to_move = Side::Black,
+    };
+    othello::EvaluationConfig config = othello::default_evaluation_config();
+    config.opening.disc_difference = 99;
+    config.midgame.mobility = 99;
+    config.late.corner_occupancy = 99;
+
+    const othello::EvaluationBreakdown breakdown =
+        othello::evaluate_basic_breakdown(board, Side::Black, config);
+
+    CHECK(breakdown.terminal);
+    CHECK(breakdown.terminal_score_weight == 1000);
+    CHECK(breakdown.total == othello::score(board, Side::Black) * 1000);
+}
+
 TEST_CASE("Evaluation does not mutate the board", "[evaluation]") {
     const Board board = Board::initial();
     const Board before = board;
@@ -313,6 +424,12 @@ TEST_CASE("Evaluation does not mutate the board", "[evaluation]") {
     static_cast<void>(othello::evaluate_disc_difference(board, Side::Black));
     static_cast<void>(othello::evaluate_mobility(board, Side::Black));
     static_cast<void>(othello::evaluate_basic_breakdown(board, Side::Black));
+    static_cast<void>(othello::evaluate_basic_breakdown(
+        board, Side::Black,
+        othello::evaluation_config_for_preset(othello::EvaluationPreset::MobilityPlusSmoke)));
+    static_cast<void>(othello::evaluate_with_config(
+        board, Side::Black,
+        othello::evaluation_config_for_preset(othello::EvaluationPreset::MobilityPlusSmoke)));
     static_cast<void>(othello::evaluate_basic(board, Side::Black));
 
     CHECK(othello::test::same_board(board, before));

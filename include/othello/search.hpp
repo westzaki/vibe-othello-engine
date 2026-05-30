@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <optional>
 #include <othello/board.hpp>
+#include <othello/evaluation.hpp>
 #include <othello/square.hpp>
 #include <vector>
 
@@ -78,6 +79,8 @@ struct SearchOptions {
     bool use_aspiration_window = false;
     int aspiration_window = 50;
     int aspiration_max_researches = 4;
+    EvaluationPreset evaluation_preset = EvaluationPreset::Default;
+    EvaluationConfig evaluation_config = default_evaluation_config();
 };
 
 [[nodiscard]] SearchResult search(const Board& board, const SearchOptions& options) noexcept;

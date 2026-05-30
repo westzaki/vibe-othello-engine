@@ -23,6 +23,8 @@ struct SearchPlayerOptions {
     std::size_t transposition_table_entries = SearchOptions{}.transposition_table_entries;
     int exact_endgame_empty_threshold = SearchOptions{}.exact_endgame_empty_threshold;
     bool use_pvs = SearchOptions{}.use_pvs;
+    EvaluationPreset evaluation_preset = EvaluationPreset::Default;
+    EvaluationConfig evaluation_config = default_evaluation_config();
 
     [[nodiscard]] friend bool operator==(const SearchPlayerOptions&,
                                          const SearchPlayerOptions&) = default;
