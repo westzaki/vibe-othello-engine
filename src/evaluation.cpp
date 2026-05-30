@@ -726,6 +726,12 @@ EvaluationConfig evaluation_config_for_preset(EvaluationPreset preset) noexcept 
         config.midgame.edge_8_pattern = 8;
         config.late.edge_8_pattern = 10;
         return config;
+    case EvaluationPreset::DefaultEdgePattern8Soft:
+        config = default_evaluation_config();
+        config.opening.edge_8_pattern = 1;
+        config.midgame.edge_8_pattern = 3;
+        config.late.edge_8_pattern = 5;
+        return config;
     }
 
     return config;
@@ -786,6 +792,9 @@ std::optional<EvaluationPreset> evaluation_preset_from_name(std::string_view nam
     if (name == "default_edge_pattern_8_aggressive") {
         return EvaluationPreset::DefaultEdgePattern8Aggressive;
     }
+    if (name == "default_edge_pattern_8_soft") {
+        return EvaluationPreset::DefaultEdgePattern8Soft;
+    }
     return std::nullopt;
 }
 
@@ -827,6 +836,8 @@ std::string_view evaluation_preset_name(EvaluationPreset preset) noexcept {
         return "default_edge_pattern_8_no_edge_lite";
     case EvaluationPreset::DefaultEdgePattern8Aggressive:
         return "default_edge_pattern_8_aggressive";
+    case EvaluationPreset::DefaultEdgePattern8Soft:
+        return "default_edge_pattern_8_soft";
     }
 
     return "unknown";

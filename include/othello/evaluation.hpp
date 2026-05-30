@@ -33,6 +33,7 @@ enum class EvaluationPreset {
     DefaultEdgePattern8V1,
     DefaultEdgePattern8NoEdgeLite,
     DefaultEdgePattern8Aggressive,
+    DefaultEdgePattern8Soft,
 };
 
 enum class Corner2x3PatternCorner {

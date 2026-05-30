@@ -74,6 +74,8 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
         runner::parse_player_spec("search:depth=4,eval=default_edge_pattern_8_no_edge_lite");
     const auto eval_default_edge_aggressive =
         runner::parse_player_spec("search:depth=4,eval=default_edge_pattern_8_aggressive");
+    const auto eval_default_edge_soft =
+        runner::parse_player_spec("search:depth=4,eval=default_edge_pattern_8_soft");
 
     REQUIRE(depth_only.has_value());
     REQUIRE(tt_on.has_value());
@@ -97,6 +99,7 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
     REQUIRE(eval_default_edge_pattern.has_value());
     REQUIRE(eval_default_edge_no_edge_lite.has_value());
     REQUIRE(eval_default_edge_aggressive.has_value());
+    REQUIRE(eval_default_edge_soft.has_value());
 
     const othello::SearchOptions depth_only_options = runner::make_search_options(*depth_only);
     CHECK(depth_only_options.max_depth == 4);
@@ -175,6 +178,8 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
           othello::EvaluationPreset::DefaultEdgePattern8NoEdgeLite);
     CHECK(runner::make_search_options(*eval_default_edge_aggressive).evaluation_preset ==
           othello::EvaluationPreset::DefaultEdgePattern8Aggressive);
+    CHECK(runner::make_search_options(*eval_default_edge_soft).evaluation_preset ==
+          othello::EvaluationPreset::DefaultEdgePattern8Soft);
 }
 
 TEST_CASE("Search player specs reject invalid options", "[match-runner]") {

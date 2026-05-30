@@ -463,6 +463,8 @@ TEST_CASE("Edge 8 pattern presets are explicit and promoted default is named",
     const othello::EvaluationConfig default_edge_aggressive_config =
         othello::evaluation_config_for_preset(
             othello::EvaluationPreset::DefaultEdgePattern8Aggressive);
+    const othello::EvaluationConfig default_edge_soft_config =
+        othello::evaluation_config_for_preset(othello::EvaluationPreset::DefaultEdgePattern8Soft);
 
     CHECK(std::string{othello::evaluation_preset_name(
               othello::EvaluationPreset::EdgePattern8V1)} == "edge_pattern_8_v1");
@@ -478,6 +480,9 @@ TEST_CASE("Edge 8 pattern presets are explicit and promoted default is named",
     CHECK(std::string{othello::evaluation_preset_name(
               othello::EvaluationPreset::DefaultEdgePattern8Aggressive)} ==
           "default_edge_pattern_8_aggressive");
+    CHECK(std::string{othello::evaluation_preset_name(
+              othello::EvaluationPreset::DefaultEdgePattern8Soft)} ==
+          "default_edge_pattern_8_soft");
 
     CHECK(othello::evaluation_preset_from_name("edge_pattern_8_v1") ==
           othello::EvaluationPreset::EdgePattern8V1);
@@ -489,6 +494,8 @@ TEST_CASE("Edge 8 pattern presets are explicit and promoted default is named",
           othello::EvaluationPreset::DefaultEdgePattern8NoEdgeLite);
     CHECK(othello::evaluation_preset_from_name("default_edge_pattern_8_aggressive") ==
           othello::EvaluationPreset::DefaultEdgePattern8Aggressive);
+    CHECK(othello::evaluation_preset_from_name("default_edge_pattern_8_soft") ==
+          othello::EvaluationPreset::DefaultEdgePattern8Soft);
 
     CHECK(legacy_config.opening.edge_8_pattern == 0);
     CHECK(default_config.opening.edge_8_pattern == 2);
@@ -526,6 +533,12 @@ TEST_CASE("Edge 8 pattern presets are explicit and promoted default is named",
     CHECK(default_edge_aggressive_config.opening.edge_8_pattern == 4);
     CHECK(default_edge_aggressive_config.midgame.edge_8_pattern == 8);
     CHECK(default_edge_aggressive_config.late.edge_8_pattern == 10);
+
+    CHECK(default_edge_soft_config.opening.edge_8_pattern == 1);
+    CHECK(default_edge_soft_config.midgame.edge_8_pattern == 3);
+    CHECK(default_edge_soft_config.late.edge_8_pattern == 5);
+    CHECK(default_edge_soft_config.opening.edge_stability_lite ==
+          default_config.opening.edge_stability_lite);
     CHECK(othello::default_evaluation_config() == default_config);
 }
 
