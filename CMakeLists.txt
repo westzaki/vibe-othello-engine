@@ -112,6 +112,7 @@ target_include_directories(othello_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/too
 target_compile_definitions(othello_tests
     PRIVATE
         OTHELLO_NBOARD_ENGINE_PATH="$<TARGET_FILE:othello_nboard_engine>"
+        OTHELLO_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
 )
 
 if(OTHELLO_ENABLE_CLANG_TIDY)
@@ -150,4 +151,53 @@ add_test(
 set_tests_properties(
     othello_search_bench_help_includes_exact_threshold_matrix
     PROPERTIES PASS_REGULAR_EXPRESSION "--exact-endgame-thresholds"
+)
+
+add_test(
+    NAME othello_search_bench_help_includes_eval_config
+    COMMAND $<TARGET_FILE:othello_search_bench> --help
+)
+set_tests_properties(
+    othello_search_bench_help_includes_eval_config
+    PROPERTIES PASS_REGULAR_EXPRESSION "--eval-config"
+)
+
+add_test(
+    NAME othello_analyze_position_help_includes_eval_config
+    COMMAND $<TARGET_FILE:othello_analyze_position> --help
+)
+set_tests_properties(
+    othello_analyze_position_help_includes_eval_config
+    PROPERTIES PASS_REGULAR_EXPRESSION "--eval-config"
+)
+
+set(OTHELLO_SAMPLE_EVAL_CONFIG
+    "${CMAKE_CURRENT_SOURCE_DIR}/data/eval/current_default.eval"
+)
+
+add_test(
+    NAME othello_search_bench_rejects_eval_preset_with_eval_config
+    COMMAND /bin/sh -c
+        "$<TARGET_FILE:othello_search_bench> --eval-preset default --eval-config ${OTHELLO_SAMPLE_EVAL_CONFIG} 2>&1 | grep 'cannot combine --eval-preset and --eval-config'"
+)
+
+add_test(
+    NAME othello_analyze_position_rejects_eval_preset_with_eval_config
+    COMMAND /bin/sh -c
+        "$<TARGET_FILE:othello_analyze_position> --stdin --eval-preset default --eval-config ${OTHELLO_SAMPLE_EVAL_CONFIG} 2>&1 | grep 'cannot combine --eval-preset and --eval-config'"
+)
+
+add_test(
+    NAME othello_nboard_engine_help_includes_eval_config
+    COMMAND $<TARGET_FILE:othello_nboard_engine> --help
+)
+set_tests_properties(
+    othello_nboard_engine_help_includes_eval_config
+    PROPERTIES PASS_REGULAR_EXPRESSION "--eval-config"
+)
+
+add_test(
+    NAME othello_nboard_engine_rejects_eval_preset_with_eval_config
+    COMMAND /bin/sh -c
+        "$<TARGET_FILE:othello_nboard_engine> --eval-preset default --eval-config ${OTHELLO_SAMPLE_EVAL_CONFIG} 2>&1 | grep 'cannot combine --eval-preset and --eval-config'"
 )

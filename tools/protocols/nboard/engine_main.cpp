@@ -1,4 +1,5 @@
 #include "common/cli.hpp"
+#include "common/eval_config_io.hpp"
 #include "protocols/nboard/game_codec.hpp"
 
 #include <iostream>
@@ -14,18 +15,22 @@ struct Options {
     int depth = 4;
     int exact_endgame_empty_threshold = 12;
     othello::EvaluationPreset evaluation_preset = othello::EvaluationPreset::Default;
+    std::optional<othello::EvaluationConfig> evaluation_config_override;
+    std::optional<std::string> evaluation_config_path;
     bool verbose = false;
     bool help = false;
 };
 
 void print_usage(std::string_view program) {
     std::cout << "usage: " << program
-              << " [--depth N] [--eval-preset NAME] [--exact-endgame-threshold N]"
+              << " [--depth N] [--eval-preset NAME] [--eval-config PATH]"
+                 " [--exact-endgame-threshold N]"
                  " [--verbose] [--help]\n"
               << '\n'
               << "Options:\n"
               << "  --depth N          positive search depth (default: 4)\n"
               << "  --eval-preset NAME builtin evaluator preset name\n"
+              << "  --eval-config PATH load evaluator weights from a .eval config file\n"
               << "  --exact-endgame-threshold N\n"
               << "                     solve root positions with at most N empties exactly; N <= 0 "
                  "disables (default: 12)\n"
@@ -35,6 +40,8 @@ void print_usage(std::string_view program) {
 
 [[nodiscard]] std::optional<Options> parse_options(std::span<char* const> args) {
     Options options;
+    bool explicit_eval_preset = false;
+    bool explicit_eval_config = false;
     for (std::size_t index = 1; index < args.size(); ++index) {
         const std::string_view arg{args[index]};
         if (arg == "--help") {
@@ -65,6 +72,30 @@ void print_usage(std::string_view program) {
                 return std::nullopt;
             }
             options.evaluation_preset = *preset;
+            explicit_eval_preset = true;
+            continue;
+        }
+        if (arg == "--eval-config") {
+            const auto value = othello::tools::next_argument(args, index, arg);
+            if (!value.has_value() || value->empty()) {
+                std::cerr << "invalid --eval-config value\n";
+                return std::nullopt;
+            }
+            if (explicit_eval_config) {
+                std::cerr << "--eval-config may only be specified once\n";
+                return std::nullopt;
+            }
+
+            const std::string path{*value};
+            const othello::tools::EvaluationConfigLoadResult loaded =
+                othello::tools::load_evaluation_config_file(path);
+            if (!loaded.ok()) {
+                std::cerr << loaded.error << '\n';
+                return std::nullopt;
+            }
+            options.evaluation_config_override = loaded.config;
+            options.evaluation_config_path = path;
+            explicit_eval_config = true;
             continue;
         }
         if (arg == "--exact-endgame-threshold") {
@@ -79,6 +110,10 @@ void print_usage(std::string_view program) {
             continue;
         }
         std::cerr << "unknown option: " << arg << '\n';
+        return std::nullopt;
+    }
+    if (explicit_eval_preset && explicit_eval_config) {
+        std::cerr << "cannot combine --eval-preset and --eval-config\n";
         return std::nullopt;
     }
     return options;
@@ -107,6 +142,7 @@ void print_usage(std::string_view program) {
         .exact_endgame_empty_threshold = engine_options.exact_endgame_empty_threshold,
         .use_pvs = true,
         .evaluation_preset = engine_options.evaluation_preset,
+        .evaluation_config_override = engine_options.evaluation_config_override,
     };
     const othello::SearchResult result = othello::search(board, options);
     if (result.best_move.has_value()) {

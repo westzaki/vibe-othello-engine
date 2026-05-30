@@ -319,6 +319,46 @@ class EvalExperimentMatrixTests(unittest.TestCase):
         self.assertIn("Search positions: `suite`", report)
         self.assertIn("Search by-position: `on`", report)
 
+    def test_dry_run_with_configs_emits_eval_config_commands(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            candidate = temp_path / "candidate.eval"
+            reference = temp_path / "reference.eval"
+            candidate.write_text("name=candidate_config\n", encoding="utf-8")
+            reference.write_text("name=reference_config\n", encoding="utf-8")
+            args = eval_experiment_matrix.parse_args(
+                [
+                    "--configs",
+                    str(candidate),
+                    "--reference-config",
+                    str(reference),
+                    "--small-depths",
+                    "5",
+                    "--small-games",
+                    "4",
+                    "--openings",
+                    "data/openings/eval_regression_openings.txt",
+                    "--seed",
+                    "20260530",
+                    "--build-dir",
+                    str(temp_path / "build"),
+                    "--out",
+                    str(temp_path / "runs"),
+                    "--dry-run",
+                ]
+            )
+            config = eval_experiment_matrix.config_from_args(args)
+
+            exit_code = eval_experiment_matrix.run_matrix(config, dry_run=True)
+            report = (config.out_dir / "report.md").read_text(encoding="utf-8")
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("--eval-config", report)
+        self.assertIn(f"eval_config={candidate}", report)
+        self.assertIn(f"eval_config={reference}", report)
+        self.assertIn("Candidate configs: `candidate_config`", report)
+        self.assertIn("Reference config: `reference_config`", report)
+
     def test_ntest_sanity_skipped_when_config_unavailable(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             config = replace(experiment_config(Path(temp)), run_ntest_sanity=True)

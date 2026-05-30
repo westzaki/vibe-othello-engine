@@ -28,6 +28,8 @@ struct AnalysisOptions {
     int aspiration_window = SearchOptions{}.aspiration_window;
     int aspiration_max_researches = SearchOptions{}.aspiration_max_researches;
     EvaluationPreset evaluation_preset = EvaluationPreset::Default;
+    std::optional<EvaluationConfig> evaluation_config_override;
+    std::optional<std::string> evaluation_config_path;
     bool root_candidates = false;
 };
 

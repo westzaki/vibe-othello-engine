@@ -1,6 +1,7 @@
 #include "analyze/analysis.hpp"
 #include "common/board_io.hpp"
 #include "common/cli.hpp"
+#include "common/eval_config_io.hpp"
 
 #include <chrono>
 #include <exception>
@@ -23,7 +24,7 @@ void print_usage(std::string_view program_name) {
                  " [--tt on|off] [--tt-entries N] [--pvs on|off]"
                  " [--aspiration on|off] [--aspiration-window N]"
                  " [--aspiration-max-researches N] [--exact-endgame-threshold N]"
-                 " [--eval-preset NAME] [--root-candidates]\n"
+                 " [--eval-preset NAME] [--eval-config PATH] [--root-candidates]\n"
               << '\n'
               << "Options:\n"
               << "  --board-file PATH  read a board in board_from_string format\n"
@@ -44,6 +45,8 @@ void print_usage(std::string_view program_name) {
                  "disables\n"
               << "  --eval-preset NAME\n"
               << "                    builtin evaluator preset name\n"
+              << "  --eval-config PATH\n"
+              << "                    load evaluator weights from a .eval config file\n"
               << "  --root-candidates  analyze each legal root move separately\n"
               << "  --help             show this help text\n";
 }
@@ -61,6 +64,8 @@ void print_usage(std::string_view program_name) {
 [[nodiscard]] std::optional<AnalysisOptions> parse_options(std::span<char* const> args,
                                                            bool& help_requested) {
     AnalysisOptions options;
+    bool explicit_eval_preset = false;
+    bool explicit_eval_config = false;
 
     for (std::size_t index = 1; index < args.size(); ++index) {
         const std::string_view arg{args[index]};
@@ -166,6 +171,28 @@ void print_usage(std::string_view program_name) {
                 return std::nullopt;
             }
             options.evaluation_preset = *preset;
+            explicit_eval_preset = true;
+        } else if (arg == "--eval-config") {
+            const auto value = othello::tools::next_argument(args, index, arg);
+            if (!value.has_value() || value->empty()) {
+                std::cerr << "invalid --eval-config value\n";
+                return std::nullopt;
+            }
+            if (explicit_eval_config) {
+                std::cerr << "--eval-config may only be specified once\n";
+                return std::nullopt;
+            }
+
+            const std::string path{*value};
+            const othello::tools::EvaluationConfigLoadResult loaded =
+                othello::tools::load_evaluation_config_file(path);
+            if (!loaded.ok()) {
+                std::cerr << loaded.error << '\n';
+                return std::nullopt;
+            }
+            options.evaluation_config_override = loaded.config;
+            options.evaluation_config_path = path;
+            explicit_eval_config = true;
         } else if (arg == "--root-candidates" || arg == "--root-breakdown") {
             options.root_candidates = true;
         } else {
@@ -177,6 +204,11 @@ void print_usage(std::string_view program_name) {
     const int input_count = (options.board_file.has_value() ? 1 : 0) + (options.read_stdin ? 1 : 0);
     if (input_count != 1) {
         std::cerr << "choose exactly one input source: --board-file PATH or --stdin\n";
+        return std::nullopt;
+    }
+
+    if (explicit_eval_preset && explicit_eval_config) {
+        std::cerr << "cannot combine --eval-preset and --eval-config\n";
         return std::nullopt;
     }
 

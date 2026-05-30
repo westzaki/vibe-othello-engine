@@ -1,6 +1,7 @@
 #include "player_spec.hpp"
 
 #include "common/cli.hpp"
+#include "common/eval_config_io.hpp"
 
 #include <limits>
 #include <string>
@@ -60,6 +61,7 @@ std::optional<PlayerSpec> parse_player_spec(std::string_view text) {
         bool seen_exact = false;
         bool seen_tt_entries = false;
         bool seen_eval = false;
+        bool seen_eval_config = false;
 
         if (depth_end != std::string_view::npos) {
             rest.remove_prefix(depth_end + 1);
@@ -138,7 +140,7 @@ std::optional<PlayerSpec> parse_player_spec(std::string_view text) {
                         static_cast<std::size_t>(*parsed);
                     seen_tt_entries = true;
                 } else if (key == "eval") {
-                    if (seen_eval) {
+                    if (seen_eval || seen_eval_config) {
                         return std::nullopt;
                     }
                     const std::optional<EvaluationPreset> parsed =
@@ -148,6 +150,17 @@ std::optional<PlayerSpec> parse_player_spec(std::string_view text) {
                     }
                     search_options.evaluation_preset = *parsed;
                     seen_eval = true;
+                } else if (key == "eval_config") {
+                    if (seen_eval || seen_eval_config || value.empty()) {
+                        return std::nullopt;
+                    }
+                    const tools::EvaluationConfigLoadResult loaded =
+                        tools::load_evaluation_config_file(std::string{value});
+                    if (!loaded.ok()) {
+                        return std::nullopt;
+                    }
+                    search_options.evaluation_config_override = loaded.config;
+                    seen_eval_config = true;
                 } else {
                     return std::nullopt;
                 }
@@ -177,6 +190,7 @@ SearchOptions make_search_options(const PlayerSpec& spec) noexcept {
     options.exact_endgame_root_policy = spec.search_options.exact_endgame_root_policy;
     options.use_pvs = spec.search_options.use_pvs;
     options.evaluation_preset = spec.search_options.evaluation_preset;
+    options.evaluation_config_override = spec.search_options.evaluation_config_override;
     return options;
 }
 

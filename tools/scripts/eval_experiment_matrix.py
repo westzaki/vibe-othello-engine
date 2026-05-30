@@ -25,6 +25,25 @@ class GitMetadata:
 
 
 @dataclass(frozen=True)
+class EvalTarget:
+    kind: str
+    value: str
+    label: str
+
+    @property
+    def slug(self) -> str:
+        return slugify(self.label)
+
+    @property
+    def search_option(self) -> str:
+        return "--eval-config" if self.kind == "config" else "--eval-preset"
+
+    @property
+    def player_option(self) -> str:
+        return "eval_config" if self.kind == "config" else "eval"
+
+
+@dataclass(frozen=True)
 class EvalExperimentConfig:
     presets: list[str]
     reference_preset: str
@@ -43,6 +62,8 @@ class EvalExperimentConfig:
     search_bench: Path
     match_runner: Path
     exact_endgame_threshold: int
+    configs: list[EvalTarget] = field(default_factory=list)
+    reference_config: EvalTarget | None = None
     positions: str = "smoke"
     by_position: bool = False
     allow_errors: bool = False
@@ -54,8 +75,31 @@ class EvalExperimentConfig:
     ntest_openings: Path | None = None
 
     @property
+    def preset_targets(self) -> list[EvalTarget]:
+        return [EvalTarget(kind="preset", value=preset, label=preset) for preset in self.presets]
+
+    @property
+    def eval_targets(self) -> list[EvalTarget]:
+        return [*self.preset_targets, *self.configs]
+
+    @property
+    def reference_target(self) -> EvalTarget:
+        if self.reference_config is not None:
+            return self.reference_config
+        return EvalTarget(kind="preset", value=self.reference_preset, label=self.reference_preset)
+
+    @property
+    def candidate_targets(self) -> list[EvalTarget]:
+        reference = self.reference_target
+        return [
+            target
+            for target in self.eval_targets
+            if not (target.kind == reference.kind and target.value == reference.value)
+        ]
+
+    @property
     def candidate_presets(self) -> list[str]:
-        return [preset for preset in self.presets if preset != self.reference_preset]
+        return [target.label for target in self.candidate_targets]
 
     @property
     def search_depths(self) -> list[int]:
@@ -126,6 +170,37 @@ def parse_csv_names(value: str) -> list[str]:
     return names
 
 
+def parse_csv_paths(value: str) -> list[Path]:
+    paths = [Path(part.strip()) for part in value.split(",")]
+    if not paths or any(not str(path) for path in paths):
+        raise ScriptError(f"invalid config list: {value}")
+    return paths
+
+
+def eval_config_label(path: Path) -> str:
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            body = line.split("#", 1)[0].strip()
+            if not body or "=" not in body:
+                continue
+            key, value = (part.strip() for part in body.split("=", 1))
+            if key == "name" and value:
+                return value
+    except OSError:
+        pass
+    return path.stem or str(path)
+
+
+def config_target(path: Path) -> EvalTarget:
+    return EvalTarget(kind="config", value=str(path), label=eval_config_label(path))
+
+
+def eval_target(value: EvalTarget | str) -> EvalTarget:
+    if isinstance(value, EvalTarget):
+        return value
+    return EvalTarget(kind="preset", value=value, label=value)
+
+
 def parse_depth_list(value: str) -> list[int]:
     depths: list[int] = []
     for raw_part in value.split(","):
@@ -180,7 +255,8 @@ def detect_build_type(build_dir: Path) -> str:
     return "unknown"
 
 
-def build_search_bench_command(config: EvalExperimentConfig, preset: str) -> list[str]:
+def build_search_bench_command(config: EvalExperimentConfig, preset: EvalTarget | str) -> list[str]:
+    target = eval_target(preset)
     command = [
         str(config.search_bench),
         "--mode",
@@ -197,8 +273,8 @@ def build_search_bench_command(config: EvalExperimentConfig, preset: str) -> lis
         "on",
         "--aspiration",
         "on",
-        "--eval-preset",
-        preset,
+        target.search_option,
+        target.value,
         "--exact-endgame-threshold",
         str(config.exact_endgame_threshold),
     ]
@@ -207,31 +283,33 @@ def build_search_bench_command(config: EvalExperimentConfig, preset: str) -> lis
     return command
 
 
-def search_output_path(config: EvalExperimentConfig, preset: str) -> Path:
-    return config.out_dir / "search" / f"{slugify(preset)}.txt"
+def search_output_path(config: EvalExperimentConfig, preset: EvalTarget | str) -> Path:
+    return config.out_dir / "search" / f"{eval_target(preset).slug}.txt"
 
 
 def build_match_command(
     config: EvalExperimentConfig,
-    preset: str,
+    preset: EvalTarget | str,
     depth: int,
     *,
     stage: str = "small",
     games: int | None = None,
 ) -> MatchRun:
+    target = eval_target(preset)
+    reference = config.reference_target
     match_games = config.small_games if games is None else games
     output_path = (
         config.out_dir
         / "matches"
         / stage
-        / f"{slugify(preset)}-vs-{slugify(config.reference_preset)}-depth-{depth}.jsonl"
+        / f"{target.slug}-vs-{reference.slug}-depth-{depth}.jsonl"
     )
     command = [
         str(config.match_runner),
         "--black",
-        f"search:depth={depth},tt=on,pvs=on,exact=off,eval={preset}",
+        f"search:depth={depth},tt=on,pvs=on,exact=off,{target.player_option}={target.value}",
         "--white",
-        f"search:depth={depth},tt=on,pvs=on,exact=off,eval={config.reference_preset}",
+        f"search:depth={depth},tt=on,pvs=on,exact=off,{reference.player_option}={reference.value}",
         "--games",
         str(match_games),
         "--swap-sides",
@@ -245,17 +323,18 @@ def build_match_command(
         "--quiet",
     ]
     return MatchRun(
-        preset=preset,
+        preset=target.label,
         stage=stage,
         depth=depth,
         games=match_games,
-        reference_preset=config.reference_preset,
+        reference_preset=reference.label,
         output_path=output_path,
         command=command,
     )
 
 
-def build_ntest_command(config: EvalExperimentConfig, preset: str) -> NTestRun:
+def build_ntest_command(config: EvalExperimentConfig, preset: EvalTarget | str) -> NTestRun:
+    target = eval_target(preset)
     if config.ntest_engine is None:
         raise ScriptError("ntest engine is not configured")
     if config.engines is None:
@@ -266,12 +345,12 @@ def build_ntest_command(config: EvalExperimentConfig, preset: str) -> NTestRun:
     output_path = (
         config.out_dir
         / "ntest"
-        / f"{slugify(preset)}-vs-{slugify(config.ntest_engine)}-depth-{depth}.jsonl"
+        / f"{target.slug}-vs-{slugify(config.ntest_engine)}-depth-{depth}.jsonl"
     )
     command = [
         str(config.match_runner),
         "--black",
-        f"search:depth={depth},tt=on,pvs=on,exact=off,eval={preset}",
+        f"search:depth={depth},tt=on,pvs=on,exact=off,{target.player_option}={target.value}",
         "--white",
         f"external:{config.ntest_engine}",
         "--games",
@@ -288,7 +367,7 @@ def build_ntest_command(config: EvalExperimentConfig, preset: str) -> NTestRun:
         str(output_path),
         "--quiet",
     ]
-    return NTestRun(preset=preset, depth=depth, output_path=output_path, command=command)
+    return NTestRun(preset=target.label, depth=depth, output_path=output_path, command=command)
 
 
 def run_capture(command: list[str]) -> tuple[int, str]:
@@ -554,14 +633,18 @@ def ntest_skipped_reason(config: EvalExperimentConfig) -> str | None:
     return None
 
 
-def select_ntest_presets(config: EvalExperimentConfig, decisions: list[CandidateDecision]) -> list[str]:
-    presets: list[str] = [config.reference_preset]
+def select_ntest_targets(
+    config: EvalExperimentConfig, decisions: list[CandidateDecision]
+) -> list[EvalTarget]:
+    targets: list[EvalTarget] = [config.reference_target]
+    targets_by_label = {target.label: target for target in config.candidate_targets}
     promoted = [decision.preset for decision in decisions if decision.promoted_to_extended]
     fallback = config.candidate_presets[: config.promote_top] if config.promote_top > 0 else []
-    for preset in promoted or fallback:
-        if preset not in presets:
-            presets.append(preset)
-    return presets
+    for label in promoted or fallback:
+        target = targets_by_label.get(label)
+        if target is not None and target not in targets:
+            targets.append(target)
+    return targets
 
 
 def _fmt_ratio(value: float | None) -> str:
@@ -716,6 +799,8 @@ def render_report(
         if run.summary is not None and run.summary.error_games > 0
     ]
 
+    candidate_labels = [target.label for target in config.eval_targets]
+    config_labels = [target.label for target in config.configs]
     rejected = [decision.preset for decision in decisions if decision.status == "rejected"]
     mixed = [decision.preset for decision in decisions if decision.status == "needs_retune"]
     speed = [
@@ -743,6 +828,10 @@ def render_report(
         f"- Build type: `{detect_build_type(config.build_dir)}`",
         f"- Candidate presets: `{','.join(config.presets)}`",
         f"- Reference preset: `{config.reference_preset}`",
+        f"- Candidate configs: `{','.join(config_labels) if config_labels else 'none'}`",
+        f"- Reference config: `{config.reference_config.label if config.reference_config else 'none'}`",
+        f"- Candidate evaluators: `{','.join(candidate_labels)}`",
+        f"- Reference evaluator: `{config.reference_target.label}`",
         f"- Search depths: `{','.join(str(depth) for depth in config.search_depths)}`",
         f"- Small depths: `{','.join(str(depth) for depth in config.small_depths)}`",
         f"- Extended depths: `{','.join(str(depth) for depth in config.extended_depths) or 'none'}`",
@@ -896,34 +985,37 @@ def run_matrix(config: EvalExperimentConfig, *, dry_run: bool) -> int:
     (config.out_dir / "matches" / "extended").mkdir(parents=True, exist_ok=True)
 
     search_runs: list[SearchBenchRun] = []
-    for preset in config.presets:
-        command = build_search_bench_command(config, preset)
-        output_path = search_output_path(config, preset)
-        print(f"search bench {preset}: {quote_command(command)}", flush=True)
+    for target in config.eval_targets:
+        command = build_search_bench_command(config, target)
+        output_path = search_output_path(config, target)
+        print(f"search bench {target.label}: {quote_command(command)}", flush=True)
         if dry_run:
             search_runs.append(
-                SearchBenchRun(preset=preset, command=command, output_path=output_path)
+                SearchBenchRun(preset=target.label, command=command, output_path=output_path)
             )
             continue
         exit_code, output = run_capture(command)
         output_path.write_text(output, encoding="utf-8")
         search_runs.append(
             SearchBenchRun(
-                preset=preset,
+                preset=target.label,
                 command=command,
                 output_path=output_path,
                 exit_code=exit_code,
                 output=output,
             )
-        )
+    )
 
     small_runs: list[MatchRun] = []
-    for preset in config.candidate_presets:
+    for target in config.candidate_targets:
         for depth in config.small_depths:
             run = build_match_command(
-                config, preset, depth, stage="small", games=config.small_games
+                config, target, depth, stage="small", games=config.small_games
             )
-            print(f"small match {preset} depth {depth}: {quote_command(run.command)}", flush=True)
+            print(
+                f"small match {target.label} depth {depth}: {quote_command(run.command)}",
+                flush=True,
+            )
             small_runs.append(run if dry_run else _execute_match_run(run))
 
     if dry_run:
@@ -943,10 +1035,12 @@ def run_matrix(config: EvalExperimentConfig, *, dry_run: bool) -> int:
 
     extended_runs: list[MatchRun] = []
     if config.extended_depths and config.promote_top > 0:
+        targets_by_label = {target.label: target for target in config.candidate_targets}
         for preset in selected_for_extended:
+            target = targets_by_label[preset]
             for depth in config.extended_depths:
                 run = build_match_command(
-                    config, preset, depth, stage="extended", games=config.extended_games
+                    config, target, depth, stage="extended", games=config.extended_games
                 )
                 print(
                     f"extended match {preset} depth {depth}: {quote_command(run.command)}",
@@ -957,9 +1051,9 @@ def run_matrix(config: EvalExperimentConfig, *, dry_run: bool) -> int:
     ntest_runs: list[NTestRun] = []
     skip_reason = ntest_skipped_reason(config)
     if skip_reason is None:
-        for preset in select_ntest_presets(config, decisions):
-            run = build_ntest_command(config, preset)
-            print(f"ntest sanity {preset}: {quote_command(run.command)}", flush=True)
+        for target in select_ntest_targets(config, decisions):
+            run = build_ntest_command(config, target)
+            print(f"ntest sanity {target.label}: {quote_command(run.command)}", flush=True)
             ntest_runs.append(run if dry_run else _execute_ntest_run(run))
 
     report_path = config.out_dir / "report.md"
@@ -1010,12 +1104,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run staged evaluator preset search and match experiments."
     )
-    parser.add_argument("--presets", required=True, help="comma-separated evaluator preset names")
+    parser.add_argument("--presets", default="", help="comma-separated evaluator preset names")
+    parser.add_argument("--configs", default="", help="comma-separated .eval config paths")
     parser.add_argument(
         "--reference-preset",
         default="default",
         help="opponent preset for candidate matches (default: default)",
     )
+    parser.add_argument("--reference-config", help="opponent .eval config path")
     parser.add_argument(
         "--depths",
         help="backward-compatible alias for --small-depths",
@@ -1104,7 +1200,12 @@ def _parse_optional_depths(value: str | None) -> list[int]:
 
 def config_from_args(args: argparse.Namespace) -> EvalExperimentConfig:
     build_dir = Path(args.build_dir)
-    presets = parse_csv_names(args.presets)
+    presets = parse_csv_names(args.presets) if args.presets.strip() else []
+    config_paths = parse_csv_paths(args.configs) if args.configs.strip() else []
+    configs = [config_target(path) for path in config_paths]
+    reference_config = config_target(Path(args.reference_config)) if args.reference_config else None
+    if not presets and not configs:
+        raise ScriptError("at least one evaluator is required; pass --presets or --configs")
     small_depths = _parse_optional_depths(args.small_depths) or _parse_optional_depths(args.depths)
     if not small_depths:
         raise ScriptError("small depths are required; pass --small-depths or --depths")
@@ -1118,6 +1219,7 @@ def config_from_args(args: argparse.Namespace) -> EvalExperimentConfig:
         raise ScriptError(f"promote-top must be nonnegative: {promote_top}")
     if args.smoke_run:
         presets = presets[:2]
+        configs = configs[: max(0, 2 - len(presets))]
         small_depths = small_depths[:1]
         extended_depths = extended_depths[:1]
         small_games = min(small_games, 6)
@@ -1141,6 +1243,8 @@ def config_from_args(args: argparse.Namespace) -> EvalExperimentConfig:
         search_bench=Path(args.search_bench) if args.search_bench else build_dir / "othello_search_bench",
         match_runner=Path(args.match_runner) if args.match_runner else build_dir / "othello_match_runner",
         exact_endgame_threshold=args.exact_endgame_threshold,
+        configs=configs,
+        reference_config=reference_config,
         positions=args.positions,
         by_position=args.by_position,
         allow_errors=args.allow_errors,

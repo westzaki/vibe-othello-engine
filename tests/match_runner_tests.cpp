@@ -3,8 +3,10 @@
 #include "test_helpers.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+#include <filesystem>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace runner = othello::match_runner;
@@ -25,6 +27,10 @@ BBBBBBBB
 BBBBBBBB
 BBBBBBW.
 side=B)");
+}
+
+[[nodiscard]] std::string sample_eval_config_path(std::string_view file_name) {
+    return (std::filesystem::path{OTHELLO_SOURCE_DIR} / "data" / "eval" / file_name).string();
 }
 
 } // namespace
@@ -74,6 +80,9 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
         runner::parse_player_spec("search:depth=4,eval=default_edge_pattern_8_no_edge_lite");
     const auto eval_default_edge_aggressive =
         runner::parse_player_spec("search:depth=4,eval=default_edge_pattern_8_aggressive");
+    const auto eval_config =
+        runner::parse_player_spec("search:depth=4,eval_config=" +
+                                  sample_eval_config_path("default_edge_pattern_8_soft.eval"));
 
     REQUIRE(depth_only.has_value());
     REQUIRE(tt_on.has_value());
@@ -97,6 +106,7 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
     REQUIRE(eval_default_edge_pattern.has_value());
     REQUIRE(eval_default_edge_no_edge_lite.has_value());
     REQUIRE(eval_default_edge_aggressive.has_value());
+    REQUIRE(eval_config.has_value());
 
     const othello::SearchOptions depth_only_options = runner::make_search_options(*depth_only);
     CHECK(depth_only_options.max_depth == 4);
@@ -175,6 +185,13 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
           othello::EvaluationPreset::DefaultEdgePattern8NoEdgeLite);
     CHECK(runner::make_search_options(*eval_default_edge_aggressive).evaluation_preset ==
           othello::EvaluationPreset::DefaultEdgePattern8Aggressive);
+    othello::EvaluationConfig expected_soft = othello::default_evaluation_config();
+    expected_soft.opening.edge_8_pattern = 1;
+    expected_soft.midgame.edge_8_pattern = 3;
+    expected_soft.late.edge_8_pattern = 5;
+    CHECK(runner::make_search_options(*eval_config).evaluation_config_override.has_value());
+    CHECK(othello::resolve_evaluation_config(runner::make_search_options(*eval_config)) ==
+          expected_soft);
 }
 
 TEST_CASE("Search player specs reject invalid options", "[match-runner]") {
@@ -190,6 +207,16 @@ TEST_CASE("Search player specs reject invalid options", "[match-runner]") {
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,tt_entries=-1").has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,eval=unknown").has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,eval=default,eval=default")
+                    .has_value());
+    CHECK_FALSE(runner::parse_player_spec("search:depth=4,eval_config=missing.eval").has_value());
+    CHECK_FALSE(runner::parse_player_spec(
+                    "search:depth=4,eval=default,eval_config=" +
+                    sample_eval_config_path("current_default.eval"))
+                    .has_value());
+    CHECK_FALSE(runner::parse_player_spec(
+                    "search:depth=4,eval_config=" +
+                    sample_eval_config_path("current_default.eval") +
+                    ",eval=default")
                     .has_value());
 }
 

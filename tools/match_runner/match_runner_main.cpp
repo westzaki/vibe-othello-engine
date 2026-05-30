@@ -39,7 +39,7 @@ void print_usage(std::string_view program_name) {
               << "  random\n"
               << "  eval\n"
               << "  search:depth=N[,tt=on|off][,pvs=on|off]"
-                 "[,exact=off|N|adaptive16][,tt_entries=N][,eval=NAME]\n"
+                 "[,exact=off|N|adaptive16][,tt_entries=N][,eval=NAME|eval_config=PATH]\n"
               << "  external:NAME\n"
               << '\n'
               << "Options:\n"

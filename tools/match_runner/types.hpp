@@ -25,6 +25,7 @@ struct SearchPlayerOptions {
     ExactEndgameRootPolicy exact_endgame_root_policy = SearchOptions{}.exact_endgame_root_policy;
     bool use_pvs = SearchOptions{}.use_pvs;
     EvaluationPreset evaluation_preset = EvaluationPreset::Default;
+    std::optional<EvaluationConfig> evaluation_config_override;
 
     [[nodiscard]] friend bool operator==(const SearchPlayerOptions&,
                                          const SearchPlayerOptions&) = default;

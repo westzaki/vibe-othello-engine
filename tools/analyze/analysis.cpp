@@ -43,6 +43,7 @@ using Clock = std::chrono::steady_clock;
         .aspiration_window = options.aspiration_window,
         .aspiration_max_researches = options.aspiration_max_researches,
         .evaluation_preset = options.evaluation_preset,
+        .evaluation_config_override = options.evaluation_config_override,
     };
 }
 
@@ -186,7 +187,7 @@ std::vector<RootCandidateAnalysis> analyze_root_candidates(const Board& board,
     const int child_depth = options.depth <= 0 ? 0 : options.depth - 1;
     const Bitboard moves = legal_moves(board);
     const EvaluationConfig evaluation_config =
-        evaluation_config_for_preset(options.evaluation_preset);
+        resolve_evaluation_config(make_search_options(options));
 
     for (int index = Square::min_index; index <= Square::max_index; ++index) {
         const std::optional<Square> square = Square::from_index(index);
@@ -257,7 +258,7 @@ void print_report(const Board& board, const AnalysisOptions& options, const Sear
     const bool pass_available = pass_turn(board).has_value();
     const bool game_over = is_game_over(board);
     const EvaluationConfig evaluation_config =
-        evaluation_config_for_preset(options.evaluation_preset);
+        resolve_evaluation_config(make_search_options(options));
     const EvaluationBreakdown evaluation =
         evaluate_basic_breakdown(board, board.side_to_move, evaluation_config);
 
@@ -278,6 +279,10 @@ void print_report(const Board& board, const AnalysisOptions& options, const Sear
               << "aspiration_max_researches: " << options.aspiration_max_researches << '\n'
               << "exact_endgame_threshold: " << options.exact_endgame_empty_threshold << '\n'
               << "eval_preset: " << evaluation_preset_name(options.evaluation_preset) << '\n'
+              << "eval_config: "
+              << (options.evaluation_config_path.has_value() ? *options.evaluation_config_path
+                                                             : "-")
+              << '\n'
               << "elapsed_ms: " << std::fixed << std::setprecision(3)
               << elapsed_ms(elapsed) << '\n'
               << "best_move: " << format_square(result.best_move) << '\n'
