@@ -149,6 +149,13 @@ Reference: `phase_aware_v1`.
 This was a sanity comparison to the pre-PR131 evaluator, not the main promotion
 gate.
 
+Interpretation caveat: this phase-aware comparison is not the promotion gate.
+The gate for this PR is the direct head-to-head against the previous default in
+the primary validation table. The phase-aware comparison is only a sanity
+reference, and it can be affected by self-play matchup non-transitivity,
+opening selection, and sample-size differences. Do not use this table alone to
+judge the default promotion.
+
 ## Cross-Seed Check
 
 Reference: previous `default`; seed `20260605`.
@@ -157,6 +164,12 @@ Reference: previous `default`; seed `20260605`.
 | :--- | ---: | ---: | :--- | ---: | ---: | ---: | ---: |
 | `default_edge_pattern_8_v1` | 7 | 192 | 110-79-3 | 6.70 | 1.019 | 1.055 | 0 |
 | `default_edge_pattern_8_v1` | 8 | 384 | 188-175-21 | 1.47 | 0.915 | 0.947 | 0 |
+
+Interpretation caveat: the depth 7 cross-seed row matches the primary depth 7
+row exactly. With this opening/game setup, that slice may have effectively run
+the same game combinations. Treat the depth 7 row as repeat sanity, not as an
+independent Elo-style sample. The depth 8 384-game row is the additional
+cross-seed confirmation in this section.
 
 ## NTest Sanity
 
