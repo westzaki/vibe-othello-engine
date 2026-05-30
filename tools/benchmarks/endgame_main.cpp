@@ -923,7 +923,8 @@ void print_position_results(const std::vector<PositionBenchmarkResult>& results)
               << std::setw(12) << "nodes/s" << "  " << std::setw(12) << "tt_lookups" << "  "
               << std::setw(12) << "tt_hits" << "  " << std::setw(11) << "tt_hit_pct" << "  "
               << std::setw(12) << "tt_stores" << "  " << std::setw(13) << "tt_collisions"
-              << "  " << std::setw(11) << "tt_rejects" << "  pv\n";
+              << "  " << std::setw(11) << "tt_rejects" << "  " << std::setw(12)
+              << "tt_ord_hits" << "  " << std::setw(12) << "tt_ord_used" << "  pv\n";
 
     for (const auto& result : results) {
         std::cout << std::left << std::setw(30) << result.name << "  " << std::right << std::setw(7)
@@ -940,7 +941,9 @@ void print_position_results(const std::vector<PositionBenchmarkResult>& results)
                   << tt_hit_percentage(result.total_stats) << "  "
                   << std::setw(12) << result.total_stats.tt_stores << "  " << std::setw(13)
                   << result.total_stats.tt_collisions << "  " << std::setw(11)
-                  << result.total_stats.tt_rejected_stores << "  "
+                  << result.total_stats.tt_rejected_stores << "  " << std::setw(12)
+                  << result.total_stats.tt_move_ordering_hits << "  " << std::setw(12)
+                  << result.total_stats.tt_move_ordering_used << "  "
                   << format_principal_variation(result.principal_variation) << '\n';
     }
 }
@@ -1013,6 +1016,8 @@ void print_summary_by_empty_count(const std::vector<PositionBenchmarkResult>& re
               << "  " << std::setw(12) << "lower_hits" << "  " << std::setw(12) << "upper_hits"
               << "  " << std::setw(12) << "tt_stores" << "  " << std::setw(13) << "tt_overwrites"
               << "  " << std::setw(13) << "tt_collisions" << "  " << std::setw(11) << "tt_rejects"
+              << "  " << std::setw(14) << "tt_order_hits" << "  " << std::setw(14)
+              << "tt_order_used"
               << '\n';
 
     for (const auto& [empties, group] : by_empty_count) {
@@ -1029,7 +1034,9 @@ void print_summary_by_empty_count(const std::vector<PositionBenchmarkResult>& re
                   << total_stats.tt_lower_hits << "  " << std::setw(12) << total_stats.tt_upper_hits
                   << "  " << std::setw(12) << total_stats.tt_stores << "  " << std::setw(13)
                   << total_stats.tt_overwrites << "  " << std::setw(13) << total_stats.tt_collisions
-                  << "  " << std::setw(11) << total_stats.tt_rejected_stores << '\n';
+                  << "  " << std::setw(11) << total_stats.tt_rejected_stores << "  "
+                  << std::setw(14) << total_stats.tt_move_ordering_hits << "  "
+                  << std::setw(14) << total_stats.tt_move_ordering_used << '\n';
     }
 }
 

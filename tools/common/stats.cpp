@@ -70,6 +70,9 @@ void add_exact_endgame_stats(ExactEndgameStats& total,
     total.tt_overwrites += stats.tt_overwrites;
     total.tt_collisions += stats.tt_collisions;
     total.tt_rejected_stores += stats.tt_rejected_stores;
+    total.tt_move_ordering_probes += stats.tt_move_ordering_probes;
+    total.tt_move_ordering_hits += stats.tt_move_ordering_hits;
+    total.tt_move_ordering_used += stats.tt_move_ordering_used;
 }
 
 } // namespace othello::tools

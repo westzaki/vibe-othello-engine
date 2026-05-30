@@ -75,10 +75,10 @@ constexpr int root_pvs_min_empties = 16;
     ++context.stats.nodes;
     const int original_alpha = alpha;
 
-    const std::optional<NodeResult> cached =
-        context.transpositions.lookup(hash, empties, alpha, beta, context.stats);
-    if (cached.has_value()) {
-        return *cached;
+    const auto cached =
+        context.transpositions.lookup(hash, empties, alpha, beta, true, context.stats);
+    if (cached.cutoff.has_value()) {
+        return *cached.cutoff;
     }
 
     if (is_game_over(board)) {
@@ -121,7 +121,8 @@ constexpr int root_pvs_min_empties = 16;
     std::optional<Square> best_move;
     PrincipalVariation best_principal_variation;
 
-    const OrderedMoveIndexes ordered_moves = ordered_legal_move_indexes(board, hash, moves);
+    const OrderedMoveIndexes ordered_moves =
+        ordered_legal_move_indexes(board, hash, moves, cached.best_move_hint, context.stats);
     const bool use_root_pvs = is_root && should_use_root_pvs(empties, ordered_moves.size);
     for (std::size_t move = 0; move < ordered_moves.size; ++move) {
         const OrderedMoveIndexes::Move& ordered_move = ordered_moves.moves[move];

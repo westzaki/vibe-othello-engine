@@ -22,6 +22,9 @@ struct ExactEndgameStats {
     std::uint64_t tt_overwrites = 0;
     std::uint64_t tt_collisions = 0;
     std::uint64_t tt_rejected_stores = 0;
+    std::uint64_t tt_move_ordering_probes = 0;
+    std::uint64_t tt_move_ordering_hits = 0;
+    std::uint64_t tt_move_ordering_used = 0;
 };
 
 struct ExactEndgameResult {

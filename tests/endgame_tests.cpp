@@ -208,6 +208,9 @@ side=B)");
     CHECK(result.stats.tt_overwrites == 0);
     CHECK(result.stats.tt_collisions == 0);
     CHECK(result.stats.tt_rejected_stores == 0);
+    CHECK(result.stats.tt_move_ordering_probes == 0);
+    CHECK(result.stats.tt_move_ordering_hits == 0);
+    CHECK(result.stats.tt_move_ordering_used == 0);
 }
 
 TEST_CASE("Exact endgame reports TT activity and consistent TT stats when enabled", "[endgame]") {
@@ -231,6 +234,11 @@ side=B)");
     CHECK(result.stats.tt_collisions <= result.stats.tt_overwrites);
     CHECK(result.stats.tt_exact_hits + result.stats.tt_lower_hits + result.stats.tt_upper_hits ==
           result.stats.tt_hits);
+    CHECK(result.stats.tt_move_ordering_probes > 0);
+    CHECK(result.stats.tt_move_ordering_hits > 0);
+    CHECK(result.stats.tt_move_ordering_used > 0);
+    CHECK(result.stats.tt_move_ordering_hits <= result.stats.tt_move_ordering_probes);
+    CHECK(result.stats.tt_move_ordering_used <= result.stats.tt_move_ordering_hits);
 }
 
 TEST_CASE("Exact endgame solver preserves selected PVS regression results", "[endgame]") {
