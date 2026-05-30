@@ -143,7 +143,7 @@ void print_usage(std::string_view program_name) {
               << "  --exact-endgame-threshold N\n"
               << "                       solve root positions with at most N empties exactly; N <= "
                  "0 disables\n"
-              << "  --eval-preset NAME builtin evaluator preset: default or mobility_plus_smoke\n"
+              << "  --eval-preset NAME builtin evaluator preset name\n"
               << "  --help              show this help text\n";
 }
 
@@ -447,7 +447,7 @@ void print_usage(std::string_view program_name) {
 
             const auto preset = othello::evaluation_preset_from_name(args[index]);
             if (!preset.has_value()) {
-                std::cerr << "--eval-preset must be default or mobility_plus_smoke\n";
+                std::cerr << "--eval-preset must name a builtin evaluator preset\n";
                 return std::nullopt;
             }
             options.evaluation_preset = *preset;

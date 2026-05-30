@@ -25,7 +25,7 @@ void print_usage(std::string_view program) {
               << '\n'
               << "Options:\n"
               << "  --depth N          positive search depth (default: 4)\n"
-              << "  --eval-preset NAME builtin evaluator preset: default or mobility_plus_smoke\n"
+              << "  --eval-preset NAME builtin evaluator preset name\n"
               << "  --exact-endgame-threshold N\n"
               << "                     solve root positions with at most N empties exactly; N <= 0 "
                  "disables (default: 12)\n"

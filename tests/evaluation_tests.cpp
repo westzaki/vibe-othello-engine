@@ -179,6 +179,26 @@ TEST_CASE("Smoke evaluation preset is explicit and lightweight", "[evaluation]")
           default_config.opening.potential_mobility);
 }
 
+TEST_CASE("Frontier refinement preset is explicit and keeps default separate", "[evaluation]") {
+    const othello::EvaluationConfig default_config = othello::default_evaluation_config();
+    const othello::EvaluationConfig frontier_config =
+        othello::evaluation_config_for_preset(
+            othello::EvaluationPreset::FrontierOpen2Mid2LatePlus1);
+
+    CHECK(std::string{othello::evaluation_preset_name(
+              othello::EvaluationPreset::FrontierOpen2Mid2LatePlus1)} ==
+          "frontier_open2_mid2_late_plus1");
+    const std::optional<othello::EvaluationPreset> parsed =
+        othello::evaluation_preset_from_name("frontier_open2_mid2_late_plus1");
+    REQUIRE(parsed.has_value());
+    CHECK(*parsed == othello::EvaluationPreset::FrontierOpen2Mid2LatePlus1);
+
+    CHECK(frontier_config.opening.frontier == default_config.opening.frontier + 2);
+    CHECK(frontier_config.midgame.frontier == default_config.midgame.frontier + 2);
+    CHECK(frontier_config.late.frontier == default_config.late.frontier + 1);
+    CHECK(othello::default_evaluation_config() == default_config);
+}
+
 TEST_CASE("Corner ownership improves the owning side evaluation", "[evaluation]") {
     const Board board{
         .black = Board::initial().black | othello::test::bit("a1"),
