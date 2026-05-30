@@ -142,3 +142,12 @@ set_tests_properties(
     othello_nboard_engine_help_includes_exact_threshold
     PROPERTIES PASS_REGULAR_EXPRESSION "--exact-endgame-threshold"
 )
+
+add_test(
+    NAME othello_search_bench_help_includes_exact_threshold_matrix
+    COMMAND $<TARGET_FILE:othello_search_bench> --help
+)
+set_tests_properties(
+    othello_search_bench_help_includes_exact_threshold_matrix
+    PROPERTIES PASS_REGULAR_EXPRESSION "--exact-endgame-thresholds"
+)

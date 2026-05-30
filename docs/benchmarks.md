@@ -110,6 +110,28 @@ ordering signal; deeper midgame search usually benefits more from better orderin
 than from raw NPS alone. If best move, score, or checksum changes, the run is not
 a pure speed comparison.
 
+To decide whether root exact endgame should trigger earlier in the normal search
+pipeline, use the threshold matrix form instead of running separate one-off
+commands:
+
+```sh
+./build/othello_search_bench \
+  --mode iterative \
+  --depths 5,6,7 \
+  --positions suite \
+  --repetitions 3 \
+  --tt on \
+  --pvs on \
+  --exact-endgame-thresholds 0,12,14,16 \
+  --by-position
+```
+
+The matrix output includes the threshold, input empty count, whether the root was
+solved exactly, per-position result/work checksums, TT stats, and per-threshold
+p95/max latency summaries. Treat threshold changes as semantic search changes
+whenever a position becomes root-exact; exact scores, best moves, PVs, and
+checksums may legitimately differ from depth-limited search.
+
 ## Comparing the Existing Stronger Midgame Preset
 
 The current stronger preset is existing behavior, not a default policy change:

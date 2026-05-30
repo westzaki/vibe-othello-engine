@@ -66,7 +66,8 @@ struct BenchmarkOptions {
     std::optional<bool> use_pvs;
     std::optional<bool> use_aspiration_window;
     std::size_t transposition_table_entries = othello::SearchOptions{}.transposition_table_entries;
-    int exact_endgame_empty_threshold = othello::SearchOptions{}.exact_endgame_empty_threshold;
+    std::vector<int> exact_endgame_empty_thresholds{
+        othello::SearchOptions{}.exact_endgame_empty_threshold};
     int aspiration_window = othello::SearchOptions{}.aspiration_window;
     int aspiration_max_researches = othello::SearchOptions{}.aspiration_max_researches;
     othello::EvaluationPreset evaluation_preset = othello::EvaluationPreset::Default;
@@ -81,6 +82,9 @@ struct SearchBenchmarkResult {
     int aspiration_window;
     int aspiration_max_researches;
     std::size_t transposition_table_entries;
+    int exact_endgame_empty_threshold;
+    std::uint64_t exact_root_positions;
+    std::uint64_t exact_root_searches;
     std::uint64_t position_count;
     int depth;
     std::optional<othello::Square> sample_best_move;
@@ -105,6 +109,9 @@ struct PositionBenchmarkResult {
     int aspiration_window;
     int aspiration_max_researches;
     std::size_t transposition_table_entries;
+    int exact_endgame_empty_threshold;
+    int empty_count;
+    bool exact_root;
     int depth;
     std::optional<othello::Square> sample_best_move;
     int sample_score;
@@ -113,6 +120,8 @@ struct PositionBenchmarkResult {
     std::chrono::nanoseconds elapsed;
     std::uint64_t total_nodes;
     othello::SearchStats total_stats;
+    std::uint64_t result_checksum;
+    std::uint64_t work_checksum;
 };
 
 void print_usage(std::string_view program_name) {
@@ -122,6 +131,7 @@ void print_usage(std::string_view program_name) {
                  " [--describe-positions] [--by-position] [--tt on|off] [--tt-entries N]"
                  " [--pvs on|off] [--aspiration on|off] [--aspiration-window N]"
                  " [--aspiration-max-researches N] [--exact-endgame-threshold N]"
+                 " [--exact-endgame-thresholds LIST]"
                  " [--eval-preset NAME]\n"
               << '\n'
               << "Options:\n"
@@ -139,10 +149,13 @@ void print_usage(std::string_view program_name) {
               << "  --aspiration-window N\n"
               << "                      positive initial aspiration half-window\n"
               << "  --aspiration-max-researches N\n"
-              << "                      non-negative aspiration widening retries before full-window fallback\n"
+              << "                      non-negative aspiration widening retries before "
+                 "full-window fallback\n"
               << "  --exact-endgame-threshold N\n"
               << "                       solve root positions with at most N empties exactly; N <= "
                  "0 disables\n"
+              << "  --exact-endgame-thresholds LIST\n"
+              << "                      comma-separated exact root thresholds for matrix runs\n"
               << "  --eval-preset NAME builtin evaluator preset name\n"
               << "  --help              show this help text\n";
 }
@@ -227,6 +240,44 @@ void print_usage(std::string_view program_name) {
     }
 
     return depths;
+}
+
+[[nodiscard]] std::optional<std::vector<int>> parse_int_list(std::string_view text) {
+    std::vector<int> values;
+
+    std::size_t begin = 0;
+    while (begin <= text.size()) {
+        const auto comma = text.find(',', begin);
+        const auto end = comma == std::string_view::npos ? text.size() : comma;
+        const auto token = text.substr(begin, end - begin);
+        const auto value = parse_int(token);
+        if (!value.has_value()) {
+            return std::nullopt;
+        }
+
+        values.push_back(*value);
+        if (comma == std::string_view::npos) {
+            break;
+        }
+        begin = comma + 1;
+    }
+
+    if (values.empty()) {
+        return std::nullopt;
+    }
+
+    return values;
+}
+
+[[nodiscard]] std::string threshold_list_text(std::span<const int> thresholds) {
+    std::string text;
+    for (const int threshold : thresholds) {
+        if (!text.empty()) {
+            text += ',';
+        }
+        text += std::to_string(threshold);
+    }
+    return text;
 }
 
 [[nodiscard]] std::optional<PositionSet> parse_position_set(std::string_view text) {
@@ -434,7 +485,23 @@ void print_usage(std::string_view program_name) {
                 std::cerr << "--exact-endgame-threshold must be an integer\n";
                 return std::nullopt;
             }
-            options.exact_endgame_empty_threshold = *threshold;
+            options.exact_endgame_empty_thresholds = {*threshold};
+            continue;
+        }
+
+        if (option == "--exact-endgame-thresholds") {
+            ++index;
+            if (index >= args.size()) {
+                std::cerr << "--exact-endgame-thresholds requires a comma-separated integer list\n";
+                return std::nullopt;
+            }
+
+            const auto thresholds = parse_int_list(args[index]);
+            if (!thresholds.has_value()) {
+                std::cerr << "--exact-endgame-thresholds must be a comma-separated integer list\n";
+                return std::nullopt;
+            }
+            options.exact_endgame_empty_thresholds = *thresholds;
             continue;
         }
 
@@ -604,8 +671,18 @@ make_positions(PositionSet position_set) {
            tag_warning_count == 0;
 }
 
-[[nodiscard]] othello::SearchOptions make_search_options(const BenchmarkOptions& options,
-                                                         int depth) noexcept {
+[[nodiscard]] int root_empty_count(const othello::Board& board) noexcept {
+    return 64 - othello::disc_count(board, othello::Side::Black) -
+           othello::disc_count(board, othello::Side::White);
+}
+
+[[nodiscard]] bool exact_root_enabled(const othello::Board& board, int threshold) noexcept {
+    return threshold > 0 && root_empty_count(board) <= threshold;
+}
+
+[[nodiscard]] othello::SearchOptions
+make_search_options(const BenchmarkOptions& options, int depth,
+                    int exact_endgame_empty_threshold) noexcept {
     auto search_options = othello::SearchOptions{.max_depth = depth};
     if (options.use_transposition_table.has_value()) {
         search_options.use_transposition_table = *options.use_transposition_table;
@@ -617,7 +694,7 @@ make_positions(PositionSet position_set) {
         search_options.use_aspiration_window = *options.use_aspiration_window;
     }
     search_options.transposition_table_entries = options.transposition_table_entries;
-    search_options.exact_endgame_empty_threshold = options.exact_endgame_empty_threshold;
+    search_options.exact_endgame_empty_threshold = exact_endgame_empty_threshold;
     search_options.aspiration_window = options.aspiration_window;
     search_options.aspiration_max_researches = options.aspiration_max_researches;
     search_options.evaluation_preset = options.evaluation_preset;
@@ -640,16 +717,24 @@ make_positions(PositionSet position_set) {
 [[nodiscard]] SearchBenchmarkResult
 benchmark_search(const std::vector<othello::benchmarks::Position>& positions, int depth,
                  std::uint64_t repetitions, const BenchmarkOptions& benchmark_options,
-                 SearchRunMode mode) {
-    const auto search_options = make_search_options(benchmark_options, depth);
+                 SearchRunMode mode, int exact_endgame_empty_threshold) {
+    const auto search_options =
+        make_search_options(benchmark_options, depth, exact_endgame_empty_threshold);
     std::uint64_t result_checksum = 0;
     std::uint64_t work_checksum = 0;
     std::uint64_t searches = 0;
     std::uint64_t total_nodes = 0;
+    std::uint64_t exact_root_positions = 0;
     othello::SearchStats total_stats;
     std::optional<othello::Square> sample_best_move;
     int sample_score = 0;
     std::vector<othello::Square> sample_principal_variation;
+
+    for (const auto& position : positions) {
+        if (exact_root_enabled(position.board, exact_endgame_empty_threshold)) {
+            ++exact_root_positions;
+        }
+    }
 
     const auto start = Clock::now();
     for (std::uint64_t repetition = 0; repetition < repetitions; ++repetition) {
@@ -688,6 +773,9 @@ benchmark_search(const std::vector<othello::benchmarks::Position>& positions, in
         .aspiration_window = search_options.aspiration_window,
         .aspiration_max_researches = search_options.aspiration_max_researches,
         .transposition_table_entries = search_options.transposition_table_entries,
+        .exact_endgame_empty_threshold = search_options.exact_endgame_empty_threshold,
+        .exact_root_positions = exact_root_positions,
+        .exact_root_searches = exact_root_positions * repetitions,
         .position_count = positions.size(),
         .depth = depth,
         .sample_best_move = sample_best_move,
@@ -705,10 +793,15 @@ benchmark_search(const std::vector<othello::benchmarks::Position>& positions, in
 [[nodiscard]] PositionBenchmarkResult
 benchmark_position(const othello::benchmarks::Position& position, int depth,
                    std::uint64_t repetitions, const BenchmarkOptions& benchmark_options,
-                   SearchRunMode mode) {
-    const auto search_options = make_search_options(benchmark_options, depth);
+                   SearchRunMode mode, int exact_endgame_empty_threshold) {
+    const auto search_options =
+        make_search_options(benchmark_options, depth, exact_endgame_empty_threshold);
+    const int empty_count = root_empty_count(position.board);
+    const bool exact_root = exact_root_enabled(position.board, exact_endgame_empty_threshold);
     std::uint64_t searches = 0;
     std::uint64_t total_nodes = 0;
+    std::uint64_t result_checksum = 0;
+    std::uint64_t work_checksum = 0;
     othello::SearchStats total_stats;
     std::optional<othello::Square> sample_best_move;
     int sample_score = 0;
@@ -717,6 +810,17 @@ benchmark_position(const othello::benchmarks::Position& position, int depth,
     const auto start = Clock::now();
     for (std::uint64_t repetition = 0; repetition < repetitions; ++repetition) {
         const auto result = run_search(position.board, search_options, mode);
+        auto stable_result_checksum =
+            othello::benchmarks::mix_checksum(othello::benchmarks::search_result_checksum(result),
+                                              othello::benchmarks::board_checksum(position.board));
+        stable_result_checksum =
+            othello::benchmarks::mix_checksum(stable_result_checksum, mode_checksum(mode));
+
+        result_checksum =
+            othello::benchmarks::mix_checksum(result_checksum, stable_result_checksum);
+        work_checksum = othello::benchmarks::mix_checksum(work_checksum, stable_result_checksum);
+        work_checksum = othello::benchmarks::mix_checksum(work_checksum, result.nodes);
+
         if (searches == 0) {
             sample_best_move = result.best_move;
             sample_score = result.score;
@@ -739,6 +843,9 @@ benchmark_position(const othello::benchmarks::Position& position, int depth,
         .aspiration_window = search_options.aspiration_window,
         .aspiration_max_researches = search_options.aspiration_max_researches,
         .transposition_table_entries = search_options.transposition_table_entries,
+        .exact_endgame_empty_threshold = search_options.exact_endgame_empty_threshold,
+        .empty_count = empty_count,
+        .exact_root = exact_root,
         .depth = depth,
         .sample_best_move = sample_best_move,
         .sample_score = sample_score,
@@ -747,6 +854,8 @@ benchmark_position(const othello::benchmarks::Position& position, int depth,
         .elapsed = elapsed,
         .total_nodes = total_nodes,
         .total_stats = total_stats,
+        .result_checksum = result_checksum,
+        .work_checksum = work_checksum,
     };
 }
 
@@ -771,7 +880,8 @@ void print_search_result_header() {
               << "  " << std::setw(3) << "asp" << "  " << std::setw(10) << "asp_window"
               << "  " << std::setw(11) << "asp_max_re"
               << "  " << std::setw(10) << "tt_entries"
-              << "  positions  depth  best_move  score  " << std::setw(28) << "pv"
+              << "  exact_thr  exact_pos  exact_roots  positions  depth  best_move  score  "
+              << std::setw(28) << "pv"
               << "  searches  elapsed_ms      searches/s  total_nodes         nodes/s"
                  "  nodes/search  searched_moves  legal_nodes  eval_calls  pass_nodes"
                  "  game_over_nodes  beta_cutoffs  beta_cut_first_move_pct"
@@ -807,8 +917,11 @@ void print_search_result(const SearchBenchmarkResult& result) {
               << (result.use_aspiration_window ? "on" : "off") << "  " << std::right
               << std::setw(10) << result.aspiration_window << "  " << std::setw(11)
               << result.aspiration_max_researches << "  " << std::setw(10)
-              << result.transposition_table_entries << "  " << std::setw(9) << result.position_count
-              << "  " << std::setw(5) << result.depth << "  " << std::left << std::setw(9)
+              << result.transposition_table_entries << "  " << std::setw(9)
+              << result.exact_endgame_empty_threshold << "  " << std::setw(9)
+              << result.exact_root_positions << "  " << std::setw(11) << result.exact_root_searches
+              << "  " << std::setw(9) << result.position_count << "  " << std::setw(5)
+              << result.depth << "  " << std::left << std::setw(9)
               << (result.sample_best_move.has_value() ? othello::to_string(*result.sample_best_move)
                                                       : "-")
               << "  " << std::right << std::setw(5) << result.sample_score << "  " << std::left
@@ -824,10 +937,9 @@ void print_search_result(const SearchBenchmarkResult& result) {
               << result.total_stats.game_over_nodes << "  " << std::setw(12)
               << result.total_stats.beta_cutoffs << "  " << std::setw(23)
               << beta_cut_first_move_percentage(result.total_stats) << "  " << std::setw(10)
-              << result.total_stats.tt_lookups << "  " << std::setw(7)
-              << result.total_stats.tt_hits << "  " << std::setw(11)
-              << tt_hit_percentage(result.total_stats) << "  " << std::setw(9)
-              << result.total_stats.tt_stores << "  " << std::setw(13)
+              << result.total_stats.tt_lookups << "  " << std::setw(7) << result.total_stats.tt_hits
+              << "  " << std::setw(11) << tt_hit_percentage(result.total_stats) << "  "
+              << std::setw(9) << result.total_stats.tt_stores << "  " << std::setw(13)
               << result.total_stats.tt_overwrites << "  " << std::setw(13)
               << result.total_stats.tt_collisions << "  " << std::setw(18)
               << result.total_stats.tt_rejected_stores << "  " << std::setw(9)
@@ -848,21 +960,22 @@ void print_search_result(const SearchBenchmarkResult& result) {
 }
 
 void print_position_result_header() {
-    std::cout << std::left << std::setw(28) << "position" << "  " << std::setw(14) << "phase"
-              << "  " << std::setw(44) << "tags" << "  " << std::setw(10) << "mode"
-              << "  " << std::setw(3) << "tt" << "  " << std::setw(3) << "pvs"
-              << "  " << std::setw(3) << "asp" << "  " << std::setw(10) << "asp_window"
-              << "  " << std::setw(11) << "asp_max_re"
-              << "  " << std::setw(10) << "tt_entries"
-              << "  depth  best_move  score  " << std::setw(28) << "pv"
-              << "  searches  elapsed_ms       nodes  nodes/search         nodes/s"
-                 "  searched_moves  legal_nodes  eval_calls  pass_nodes  game_over_nodes"
-                 "  beta_cutoffs  beta_cut_first_move_pct"
-                 "  tt_lookups  tt_hits  tt_hit_rate  tt_stores  tt_overwrites"
-                 "  tt_collisions  tt_rejected_stores  tt_order_probes  tt_order_hits  tt_order_used"
-                 "  pvs_scouts  pvs_researches  pvs_scout_cutoffs"
-                 "  asp_searches  asp_researches  asp_fail_lows  asp_fail_highs  asp_fallbacks"
-                 "  dyn_nodes  dyn_moves\n";
+    std::cout
+        << std::left << std::setw(28) << "position" << "  " << std::setw(14) << "phase"
+        << "  " << std::setw(44) << "tags" << "  " << std::setw(10) << "mode"
+        << "  " << std::setw(3) << "tt" << "  " << std::setw(3) << "pvs"
+        << "  " << std::setw(3) << "asp" << "  " << std::setw(10) << "asp_window"
+        << "  " << std::setw(11) << "asp_max_re"
+        << "  " << std::setw(10) << "tt_entries"
+        << "  exact_thr  empty  exact_root  depth  best_move  score  " << std::setw(28) << "pv"
+        << "  searches  elapsed_ms       nodes  nodes/search         nodes/s"
+           "  searched_moves  legal_nodes  eval_calls  pass_nodes  game_over_nodes"
+           "  beta_cutoffs  beta_cut_first_move_pct"
+           "  tt_lookups  tt_hits  tt_hit_rate  tt_stores  tt_overwrites"
+           "  tt_collisions  tt_rejected_stores  tt_order_probes  tt_order_hits  tt_order_used"
+           "  pvs_scouts  pvs_researches  pvs_scout_cutoffs"
+           "  asp_searches  asp_researches  asp_fail_lows  asp_fail_highs  asp_fallbacks"
+           "  dyn_nodes  dyn_moves  result_checksum  work_checksum\n";
 }
 
 void print_position_result(const PositionBenchmarkResult& result) {
@@ -877,8 +990,10 @@ void print_position_result(const PositionBenchmarkResult& result) {
               << (result.use_aspiration_window ? "on" : "off") << "  " << std::right
               << std::setw(10) << result.aspiration_window << "  " << std::setw(11)
               << result.aspiration_max_researches << "  " << std::setw(10)
-              << result.transposition_table_entries << "  " << std::setw(5) << result.depth << "  "
-              << std::left << std::setw(9)
+              << result.transposition_table_entries << "  " << std::setw(9)
+              << result.exact_endgame_empty_threshold << "  " << std::setw(5) << result.empty_count
+              << "  " << std::setw(10) << (result.exact_root ? "yes" : "no") << "  " << std::setw(5)
+              << result.depth << "  " << std::left << std::setw(9)
               << (result.sample_best_move.has_value() ? othello::to_string(*result.sample_best_move)
                                                       : "-")
               << "  " << std::right << std::setw(5) << result.sample_score << "  " << std::left
@@ -894,10 +1009,9 @@ void print_position_result(const PositionBenchmarkResult& result) {
               << result.total_stats.game_over_nodes << "  " << std::setw(12)
               << result.total_stats.beta_cutoffs << "  " << std::setw(23)
               << beta_cut_first_move_percentage(result.total_stats) << "  " << std::setw(10)
-              << result.total_stats.tt_lookups << "  " << std::setw(7)
-              << result.total_stats.tt_hits << "  " << std::setw(11)
-              << tt_hit_percentage(result.total_stats) << "  " << std::setw(9)
-              << result.total_stats.tt_stores << "  " << std::setw(13)
+              << result.total_stats.tt_lookups << "  " << std::setw(7) << result.total_stats.tt_hits
+              << "  " << std::setw(11) << tt_hit_percentage(result.total_stats) << "  "
+              << std::setw(9) << result.total_stats.tt_stores << "  " << std::setw(13)
               << result.total_stats.tt_overwrites << "  " << std::setw(13)
               << result.total_stats.tt_collisions << "  " << std::setw(18)
               << result.total_stats.tt_rejected_stores << "  " << std::setw(9)
@@ -913,7 +1027,8 @@ void print_position_result(const PositionBenchmarkResult& result) {
               << result.total_stats.aspiration_fail_highs << "  " << std::setw(13)
               << result.total_stats.aspiration_full_window_fallbacks << "  " << std::setw(9)
               << result.total_stats.dynamic_ordering_nodes << "  " << std::setw(9)
-              << result.total_stats.dynamic_ordering_moves << '\n';
+              << result.total_stats.dynamic_ordering_moves << "  " << result.result_checksum << "  "
+              << result.work_checksum << '\n';
 }
 
 [[nodiscard]] std::size_t nearest_rank_index(std::size_t count, int percentile) noexcept {
@@ -942,14 +1057,15 @@ void print_position_result(const PositionBenchmarkResult& result) {
 void print_position_summary_header() {
     std::cout << std::left << std::setw(10) << "mode" << "  " << std::setw(3) << "tt"
               << "  " << std::setw(3) << "pvs" << "  " << std::setw(3) << "asp"
-              << "  depth  positions  total_elapsed_ms  avg_ms_per_position"
+              << "  exact_thr  exact_pos  exact_roots  depth  positions  total_elapsed_ms"
+                 "  avg_ms_per_position"
                  "  p50_ms_per_position  p95_ms_per_position  max_ms_per_position"
                  "  avg_nodes_per_position  p50_nodes_per_position  p95_nodes_per_position"
                  "  max_nodes_per_position\n";
 }
 
 void print_position_summary(std::span<const PositionBenchmarkResult> results, SearchRunMode mode,
-                            int depth) {
+                            int depth, int exact_endgame_empty_threshold) {
     std::vector<double> per_position_ms;
     std::vector<std::uint64_t> per_position_nodes;
     per_position_ms.reserve(results.size());
@@ -960,6 +1076,8 @@ void print_position_summary(std::span<const PositionBenchmarkResult> results, Se
     bool use_transposition_table = false;
     bool use_pvs = false;
     bool use_aspiration_window = false;
+    std::uint64_t exact_root_positions = 0;
+    std::uint64_t exact_root_searches = 0;
 
     for (const auto& result : results) {
         per_position_ms.push_back(elapsed_ms(result.elapsed));
@@ -969,6 +1087,10 @@ void print_position_summary(std::span<const PositionBenchmarkResult> results, Se
         use_transposition_table = result.use_transposition_table;
         use_pvs = result.use_pvs;
         use_aspiration_window = result.use_aspiration_window;
+        if (result.exact_root) {
+            ++exact_root_positions;
+            exact_root_searches += result.searches;
+        }
     }
 
     const auto position_count = results.size();
@@ -986,37 +1108,43 @@ void print_position_summary(std::span<const PositionBenchmarkResult> results, Se
               << (use_transposition_table ? "on" : "off") << "  " << std::setw(3)
               << (use_pvs ? "on" : "off") << "  " << std::setw(3)
               << (use_aspiration_window ? "on" : "off") << "  " << std::right << std::setw(5)
-              << depth << "  "
-              << std::setw(9) << position_count << "  " << std::fixed << std::setprecision(3)
-              << std::setw(16) << elapsed_ms(total_elapsed) << "  " << std::setw(19) << avg_ms
-              << "  " << std::setw(20) << percentile_value(per_position_ms, 50) << "  "
-              << std::setw(20) << percentile_value(per_position_ms, 95) << "  " << std::setw(19)
-              << max_ms << "  " << std::setw(22) << avg_nodes << "  " << std::setw(22)
+              << exact_endgame_empty_threshold << "  " << std::setw(9) << exact_root_positions
+              << "  " << std::setw(11) << exact_root_searches << "  " << std::setw(5) << depth
+              << "  " << std::setw(9) << position_count << "  " << std::fixed
+              << std::setprecision(3) << std::setw(16) << elapsed_ms(total_elapsed) << "  "
+              << std::setw(19) << avg_ms << "  " << std::setw(20)
+              << percentile_value(per_position_ms, 50) << "  " << std::setw(20)
+              << percentile_value(per_position_ms, 95) << "  " << std::setw(19) << max_ms << "  "
+              << std::setw(22) << avg_nodes << "  " << std::setw(22)
               << percentile_value(per_position_nodes, 50) << "  " << std::setw(22)
               << percentile_value(per_position_nodes, 95) << "  " << std::setw(22) << max_nodes
               << '\n';
 }
 
 void run_requested_benchmarks(const std::vector<othello::benchmarks::Position>& positions,
-                              const BenchmarkOptions& options, int depth) {
+                              const BenchmarkOptions& options, int depth,
+                              int exact_endgame_empty_threshold) {
     if (options.mode == SearchBenchmarkMode::Fixed || options.mode == SearchBenchmarkMode::Both) {
-        print_search_result(
-            benchmark_search(positions, depth, options.repetitions, options, SearchRunMode::Fixed));
+        print_search_result(benchmark_search(positions, depth, options.repetitions, options,
+                                             SearchRunMode::Fixed, exact_endgame_empty_threshold));
     }
 
     if (options.mode == SearchBenchmarkMode::Iterative ||
         options.mode == SearchBenchmarkMode::Both) {
         print_search_result(benchmark_search(positions, depth, options.repetitions, options,
-                                             SearchRunMode::Iterative));
+                                             SearchRunMode::Iterative,
+                                             exact_endgame_empty_threshold));
     }
 }
 
 void run_requested_position_benchmarks(const std::vector<othello::benchmarks::Position>& positions,
                                        const BenchmarkOptions& options, int depth,
+                                       int exact_endgame_empty_threshold,
                                        std::vector<PositionBenchmarkResult>& results) {
     const auto run_mode = [&](SearchRunMode mode) {
         for (const auto& position : positions) {
-            auto result = benchmark_position(position, depth, options.repetitions, options, mode);
+            auto result = benchmark_position(position, depth, options.repetitions, options, mode,
+                                             exact_endgame_empty_threshold);
             print_position_result(result);
             results.push_back(std::move(result));
         }
@@ -1038,27 +1166,30 @@ void print_requested_position_summaries(const std::vector<PositionBenchmarkResul
     std::cout << "elapsed and node percentiles use per-position totals across all repetitions\n";
     print_position_summary_header();
 
-    for (const int depth : options.depths) {
-        const auto print_mode = [&](SearchRunMode mode) {
-            std::vector<PositionBenchmarkResult> group;
-            for (const auto& result : results) {
-                if (result.depth == depth && result.mode == mode) {
-                    group.push_back(result);
+    for (const int threshold : options.exact_endgame_empty_thresholds) {
+        for (const int depth : options.depths) {
+            const auto print_mode = [&](SearchRunMode mode) {
+                std::vector<PositionBenchmarkResult> group;
+                for (const auto& result : results) {
+                    if (result.exact_endgame_empty_threshold == threshold &&
+                        result.depth == depth && result.mode == mode) {
+                        group.push_back(result);
+                    }
                 }
-            }
-            if (!group.empty()) {
-                print_position_summary(group, mode, depth);
-            }
-        };
+                if (!group.empty()) {
+                    print_position_summary(group, mode, depth, threshold);
+                }
+            };
 
-        if (options.mode == SearchBenchmarkMode::Fixed ||
-            options.mode == SearchBenchmarkMode::Both) {
-            print_mode(SearchRunMode::Fixed);
-        }
+            if (options.mode == SearchBenchmarkMode::Fixed ||
+                options.mode == SearchBenchmarkMode::Both) {
+                print_mode(SearchRunMode::Fixed);
+            }
 
-        if (options.mode == SearchBenchmarkMode::Iterative ||
-            options.mode == SearchBenchmarkMode::Both) {
-            print_mode(SearchRunMode::Iterative);
+            if (options.mode == SearchBenchmarkMode::Iterative ||
+                options.mode == SearchBenchmarkMode::Both) {
+                print_mode(SearchRunMode::Iterative);
+            }
         }
     }
 }
@@ -1120,7 +1251,8 @@ int run_benchmark(std::span<char* const> args) {
     std::cout << "aspiration window: " << options.aspiration_window << '\n';
     std::cout << "aspiration max researches: " << options.aspiration_max_researches << '\n';
     std::cout << "tt entries: " << options.transposition_table_entries << '\n';
-    std::cout << "exact endgame threshold: " << options.exact_endgame_empty_threshold << '\n';
+    std::cout << "exact endgame thresholds: "
+              << threshold_list_text(options.exact_endgame_empty_thresholds) << '\n';
     std::cout << "eval preset: " << othello::evaluation_preset_name(options.evaluation_preset)
               << '\n';
     if (options.by_position) {
@@ -1139,18 +1271,24 @@ int run_benchmark(std::span<char* const> args) {
         std::cout << "per-position elapsed_ms and nodes are totals across repetitions\n\n";
 
         std::vector<PositionBenchmarkResult> position_results;
-        position_results.reserve(positions->size() * options.depths.size() * 2);
+        position_results.reserve(positions->size() * options.depths.size() *
+                                 options.exact_endgame_empty_thresholds.size() * 2);
         print_position_result_header();
-        for (const int depth : options.depths) {
-            run_requested_position_benchmarks(*positions, options, depth, position_results);
+        for (const int threshold : options.exact_endgame_empty_thresholds) {
+            for (const int depth : options.depths) {
+                run_requested_position_benchmarks(*positions, options, depth, threshold,
+                                                  position_results);
+            }
         }
         print_requested_position_summaries(position_results, options);
         return 0;
     }
 
     print_search_result_header();
-    for (const int depth : options.depths) {
-        run_requested_benchmarks(*positions, options, depth);
+    for (const int threshold : options.exact_endgame_empty_thresholds) {
+        for (const int depth : options.depths) {
+            run_requested_benchmarks(*positions, options, depth, threshold);
+        }
     }
 
     return 0;

@@ -37,6 +37,18 @@ BBBBBWB.
 side=B)");
 }
 
+[[nodiscard]] Board exact_stats_board() {
+    return othello::test::board_from_text(R"(...B....
+WWBWWW.B
+WWWWWWWW
+WBWWWWW.
+WWWBBWBB
+WBBBWB.B
+WWBWBWBB
+WWWWWWWB
+side=B)");
+}
+
 } // namespace
 
 TEST_CASE("Fixed-depth search at depth zero returns an evaluation-only result", "[search]") {
@@ -360,6 +372,38 @@ TEST_CASE("Exact root search handles pass positions without fake PV moves", "[se
     CHECK((othello::legal_moves(*after_pass) & result.principal_variation.front().bit()) != 0);
     CHECK(result.depth == 1);
     CHECK(result.nodes == result.stats.nodes);
+}
+
+TEST_CASE("Exact root search exposes exact solver TT stats", "[search]") {
+    const Board board = exact_stats_board();
+    const othello::ExactEndgameResult exact = othello::solve_exact_endgame(board);
+    REQUIRE(exact.stats.tt_lookups > 0);
+    REQUIRE(exact.stats.tt_stores > 0);
+    REQUIRE(exact.stats.tt_move_ordering_used > 0);
+
+    const othello::SearchResult result =
+        othello::search(board, othello::SearchOptions{.exact_endgame_empty_threshold = 10});
+
+    CHECK(result.best_move == exact.best_move);
+    CHECK(result.score == exact.disc_margin * exact_endgame_score_scale);
+    CHECK(result.depth == exact.empties);
+    CHECK(result.nodes == exact.nodes);
+    CHECK(result.stats.nodes == exact.stats.nodes);
+    CHECK(result.stats.tt_lookups == exact.stats.tt_lookups);
+    CHECK(result.stats.tt_hits == exact.stats.tt_hits);
+    CHECK(result.stats.tt_exact_hits == exact.stats.tt_exact_hits);
+    CHECK(result.stats.tt_lower_hits == exact.stats.tt_lower_hits);
+    CHECK(result.stats.tt_upper_hits == exact.stats.tt_upper_hits);
+    CHECK(result.stats.tt_stores == exact.stats.tt_stores);
+    CHECK(result.stats.tt_overwrites == exact.stats.tt_overwrites);
+    CHECK(result.stats.tt_collisions == exact.stats.tt_collisions);
+    CHECK(result.stats.tt_rejected_stores == exact.stats.tt_rejected_stores);
+    CHECK(result.stats.tt_move_ordering_probes == exact.stats.tt_move_ordering_probes);
+    CHECK(result.stats.tt_move_ordering_hits == exact.stats.tt_move_ordering_hits);
+    CHECK(result.stats.tt_move_ordering_used == exact.stats.tt_move_ordering_used);
+    CHECK(result.stats.eval_calls == 0);
+    CHECK(result.stats.pvs_scouts == 0);
+    CHECK(result.stats.aspiration_searches == 0);
 }
 
 TEST_CASE("Iterative search returns exact result immediately within threshold", "[search]") {
