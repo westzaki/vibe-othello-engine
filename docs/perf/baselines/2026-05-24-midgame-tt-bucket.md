@@ -1,6 +1,8 @@
 # Midgame TT Bucket Baseline
 
-Status: local numbers collected.
+Status: historical baseline snapshot. Follow-up ideas in this snapshot describe
+what looked useful at the time of collection; they are evidence, not current
+instructions.
 
 ## Environment
 
@@ -101,9 +103,10 @@ PR105 baseline: `docs/perf/baselines/2026-05-24-main-search-iterative-tt-pvs-com
 - The tiny TT stress run still shows substantial collision pressure and rejected
   stores, giving a useful regression surface for replacement policy changes.
 
-## Follow-up Candidate
+## Historical Follow-up Candidate
 
-If the bucketed table remains stable in CI and additional local runs, consider
-one focused follow-up: aspiration windows for iterative search, or a
-stats-driven move-ordering cleanup. Do not combine those with evaluation tuning
-or selective pruning.
+At the time of this snapshot, the suggested follow-up was to consider one
+focused change if the bucketed table remained stable in CI and additional local
+runs: aspiration windows for iterative search, or a stats-driven move-ordering
+cleanup. The snapshot advised not combining those with evaluation tuning or
+selective pruning.

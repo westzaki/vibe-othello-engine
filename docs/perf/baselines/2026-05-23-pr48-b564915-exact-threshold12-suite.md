@@ -3,6 +3,10 @@
 This snapshot records the search benchmark suite after PR48 integrated root-only
 exact endgame solving into the depth-limited search entry points.
 
+Status: historical baseline snapshot. Recommendations in this snapshot describe
+the profile used at the time of collection; they are evidence, not current
+instructions.
+
 ## Context
 
 - Date: 2026-05-23
@@ -99,18 +103,18 @@ threshold enabled.
 | 12 | 2 | 38.584 | 19.292 | 5.620 | 32.964 | 32.964 | 206,934 | 24,623 | 389,245 | 389,245 |
 | 14 | 13 | 5,463.929 | 420.302 | 71.728 | 1,886.312 | 1,886.312 | 5,522,350 | 851,508 | 24,036,129 | 24,036,129 |
 
-## Current Recommendation
+## Historical Analysis Profile
 
-The current recommended analysis setting remains:
+At the time of this snapshot, the analysis profile was:
 
 - fixed-depth search
 - depth 10
 - transposition table on
 - `exact_endgame_empty_threshold = 12`
 
-Threshold `12` gives exact final margins for small endgames while keeping current
-suite latency practical. Threshold `0` remains useful for comparing against the
-old depth-limited behavior without exact root solving.
+Threshold `12` gave exact final margins for small endgames while keeping the
+suite latency practical in this snapshot. Threshold `0` was useful for comparing
+against the old depth-limited behavior without exact root solving.
 
 ## Interpretation
 

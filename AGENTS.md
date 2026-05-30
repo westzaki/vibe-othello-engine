@@ -65,7 +65,8 @@ or product-specific concepts.
 
 Follow [`docs/roadmap.md`](docs/roadmap.md).
 
-The roadmap is a staged capability plan, not a queue of current tasks. Put
+The roadmap describes long-term direction, not a queue of current tasks. Use
+the capability map for durable workstreams that can be revisited as needed. Put
 short-term priorities, task-specific hypotheses, temporary diagnostics, and
 one-off investigation notes in issues, PR descriptions, task prompts, or
 experiment reports instead.

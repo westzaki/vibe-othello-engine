@@ -1,6 +1,10 @@
 # Phase-Aware Evaluation v1 Baseline
 
-Status: local numbers collected.
+Status: historical baseline snapshot.
+
+Recommendations in this snapshot describe follow-up suggested at the time of
+collection. They are evidence, not current instructions, unless referenced by
+the current user task, an active issue, or current project guidance.
 
 ## Environment
 
@@ -245,5 +249,5 @@ Per opening at depth 10:
   process errors.
 - The depth 10 smoke was even on wins over this tiny opening set, with a small
   positive average disc margin for head. It is still too small for a strength
-  claim. A larger base/head match matrix should be a follow-up before tuning
+  claim. A larger base/head match matrix was noted as a follow-up before tuning
   weights further.

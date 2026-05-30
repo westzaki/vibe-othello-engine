@@ -1,6 +1,8 @@
 # Iterative Aspiration Baseline
 
-Status: local numbers collected.
+Status: historical baseline snapshot. Follow-up ideas in this snapshot describe
+what looked useful at the time of collection; they are evidence, not current
+instructions.
 
 ## Environment
 
@@ -166,9 +168,10 @@ ctest --test-dir build --output-on-failure
   both fail-low and fail-high outcomes plus many full-window fallbacks, while
   still preserving result checksum.
 
-## Follow-up Candidate
+## Historical Follow-up Candidate
 
-If aspiration remains result-stable across more positions and CI, keep it
-opt-in while gathering more match and per-position data. A good next focused PR
-would be stats-driven move ordering cleanup, especially around fail-high depth
-and first-move cutoff behavior.
+At the time of this snapshot, the suggested follow-up was to keep aspiration
+opt-in while gathering more match and per-position data if it remained
+result-stable across more positions and CI. A focused follow-up candidate was
+stats-driven move ordering cleanup, especially around fail-high depth and
+first-move cutoff behavior.

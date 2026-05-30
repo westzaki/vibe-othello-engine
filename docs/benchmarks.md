@@ -443,6 +443,11 @@ They are append-only local measurements, not CI thresholds. Add a new snapshot
 when search or exact endgame performance changes meaningfully, and keep older
 files for comparison history.
 
+Treat baseline snapshots as historical evidence, not current instructions.
+Settings such as depths, repetitions, thresholds, and fixture selections describe
+the profile used at the time of collection unless current project guidance or
+the current task explicitly adopts them.
+
 Current exact endgame reference:
 
 - [2026-05-24 PR78 child breakdown exact endgame baseline](perf/baselines/2026-05-24-pr78-8d31a40-exact-endgame-child-breakdown.md)

@@ -1,6 +1,7 @@
 # Documentation Index
 
-This directory contains durable project documentation.
+This directory contains durable project documentation and curated historical
+records.
 
 ## Current project guidance
 

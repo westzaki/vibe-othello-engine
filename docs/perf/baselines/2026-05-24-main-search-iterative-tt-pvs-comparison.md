@@ -1,6 +1,8 @@
 # Main Search Iterative TT PVS Comparison
 
-Status: local numbers collected.
+Status: historical baseline snapshot. Follow-up ideas in this snapshot describe
+what looked useful at the time of collection; they are evidence, not current
+instructions.
 
 ## Environment
 
@@ -78,17 +80,18 @@ ctest --test-dir build --output-on-failure
 - In this local run, iterative+TT+PVS searched more total nodes than fixed plain
   at every measured depth because iterative deepening includes all shallower
   iterations.
-- TT hit rate was roughly 6-8.5% for the stronger preset with the current
-  direct-mapped table.
-- PVS scout cutoffs dominated PVS re-searches, but the current preset did not
-  reduce total node count in this aggregate suite measurement.
+- TT hit rate was roughly 6-8.5% for the stronger preset with the direct-mapped
+  table used at this checkpoint.
+- PVS scout cutoffs dominated PVS re-searches, but the preset measured here did
+  not reduce total node count in this aggregate suite measurement.
 - `beta_cut_first_move_pct` stayed in the same broad range as fixed plain. The
   new counters are useful for future move-ordering and TT replacement work, but
   this snapshot does not by itself justify changing defaults.
 
-## Follow-up Candidate
+## Historical Follow-up Candidate
 
-Use these measurements to choose one focused search improvement in a later PR,
-for example TT replacement/bucketization, aspiration windows for iterative
-search, or a stats-driven move-ordering cleanup. Do not combine those changes
-with this baseline snapshot.
+At the time of this snapshot, these measurements were expected to inform one
+focused search improvement in a later PR, for example TT
+replacement/bucketization, aspiration windows for iterative search, or a
+stats-driven move-ordering cleanup. The snapshot advised not combining those
+changes with this baseline snapshot.
