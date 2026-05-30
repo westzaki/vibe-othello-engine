@@ -157,3 +157,23 @@ TEST_CASE("Position analysis print includes edge 8 pattern breakdown fields", "[
     CHECK(output.find("edge_8_pattern_weight:") != std::string::npos);
     CHECK(output.find("edge_8_pattern_score:") != std::string::npos);
 }
+
+TEST_CASE("Position analysis print includes search score semantics", "[analyze]") {
+    const Board board = Board::initial();
+    othello::tools::analyze::AnalysisOptions options{
+        .depth = 1,
+        .mode = othello::tools::analyze::AnalysisMode::Fixed,
+        .exact_endgame_empty_threshold = 0,
+    };
+    const othello::SearchResult result = othello::tools::analyze::run_search(board, options);
+
+    std::ostringstream captured;
+    std::streambuf* const previous_buffer = std::cout.rdbuf(captured.rdbuf());
+    othello::tools::analyze::print_report(board, options, result, std::chrono::nanoseconds{0});
+    std::cout.rdbuf(previous_buffer);
+
+    const std::string output = captured.str();
+    CHECK(output.find("score_kind: heuristic") != std::string::npos);
+    CHECK(output.find("used_exact_endgame: no") != std::string::npos);
+    CHECK(output.find("exact_disc_margin: none") != std::string::npos);
+}

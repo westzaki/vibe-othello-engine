@@ -71,12 +71,21 @@ struct ExactEndgameRootDecision {
     ExactEndgameRootSkipReason skip_reason = ExactEndgameRootSkipReason::None;
 };
 
+enum class SearchScoreKind {
+    Heuristic,
+    ExactDiscMarginScaled,
+};
+
 struct SearchResult {
     std::optional<Square> best_move;
     // Depth-limited searches report a heuristic score from the search/evaluator.
-    // If SearchOptions::exact_endgame_empty_threshold triggers at the root, this
-    // is the exact final disc margin converted onto the search score scale.
+    // If exact endgame solving is used at the root, this is the exact final disc
+    // margin converted onto the search score scale.
     int score = 0;
+    // Describes the meaning of score without changing its compatibility value.
+    SearchScoreKind score_kind = SearchScoreKind::Heuristic;
+    bool used_exact_endgame = false;
+    std::optional<int> exact_disc_margin = std::nullopt;
     // Requested/effective depth for depth-limited searches. Exact root endgame
     // results report the input board's empty count instead.
     int depth = 0;

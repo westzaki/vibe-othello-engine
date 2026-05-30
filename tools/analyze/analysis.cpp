@@ -32,6 +32,17 @@ using Clock = std::chrono::steady_clock;
     return "unknown";
 }
 
+[[nodiscard]] std::string_view search_score_kind_name(SearchScoreKind kind) noexcept {
+    switch (kind) {
+    case SearchScoreKind::Heuristic:
+        return "heuristic";
+    case SearchScoreKind::ExactDiscMarginScaled:
+        return "exact_disc_margin_scaled";
+    }
+
+    return "unknown";
+}
+
 [[nodiscard]] SearchOptions make_search_options(const AnalysisOptions& options) noexcept {
     return SearchOptions{
         .max_depth = options.depth,
@@ -282,6 +293,15 @@ void print_report(const Board& board, const AnalysisOptions& options, const Sear
               << elapsed_ms(elapsed) << '\n'
               << "best_move: " << format_square(result.best_move) << '\n'
               << "score: " << result.score << '\n'
+              << "score_kind: " << search_score_kind_name(result.score_kind) << '\n'
+              << "used_exact_endgame: " << (result.used_exact_endgame ? "yes" : "no") << '\n'
+              << "exact_disc_margin: ";
+    if (result.exact_disc_margin.has_value()) {
+        std::cout << *result.exact_disc_margin << '\n';
+    } else {
+        std::cout << "none\n";
+    }
+    std::cout
               << "nodes: " << result.nodes << '\n'
               << "principal_variation: " << format_principal_variation(result.principal_variation)
               << '\n'
