@@ -121,7 +121,7 @@ void print_usage(std::string_view program_name) {
               << "                       restrict the selected benchmark positions by exact name\n"
               << "  --exact-tt-entries N\n"
               << "                       override private exact TT entries for diagnostics; 0 disables "
-                 "the exact TT\n"
+                 "the exact TT; huge values fall back to default\n"
               << "  --help                show this help text\n";
 }
 

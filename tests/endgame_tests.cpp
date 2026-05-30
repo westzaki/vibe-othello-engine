@@ -4,6 +4,7 @@
 #include <array>
 #include <catch2/catch_test_macros.hpp>
 #include <cstddef>
+#include <limits>
 #include <optional>
 #include <othello/othello.hpp>
 #include <string>
@@ -260,6 +261,10 @@ side=B)");
         othello::ExactEndgameOptions{.transposition_table_entries = std::size_t{1} << 16});
     const othello::ExactEndgameResult disabled_tt = othello::solve_exact_endgame(
         board, othello::ExactEndgameOptions{.transposition_table_entries = 0});
+    const othello::ExactEndgameResult oversized_size = othello::solve_exact_endgame(
+        board,
+        othello::ExactEndgameOptions{
+            .transposition_table_entries = std::numeric_limits<std::size_t>::max()});
 
     CHECK(larger_size.best_move == default_size.best_move);
     CHECK(larger_size.disc_margin == default_size.disc_margin);
@@ -270,6 +275,13 @@ side=B)");
     CHECK(disabled_tt.principal_variation == default_size.principal_variation);
     CHECK(disabled_tt.stats.tt_lookups == 0);
     CHECK(disabled_tt.stats.tt_stores == 0);
+
+    CHECK(oversized_size.best_move == default_size.best_move);
+    CHECK(oversized_size.disc_margin == default_size.disc_margin);
+    CHECK(oversized_size.principal_variation == default_size.principal_variation);
+    CHECK(oversized_size.nodes == default_size.nodes);
+    CHECK(oversized_size.stats.tt_lookups > 0);
+    CHECK(oversized_size.stats.tt_stores > 0);
 }
 
 TEST_CASE("Endgame empty-region parity ordering scores candidate regions", "[endgame]") {

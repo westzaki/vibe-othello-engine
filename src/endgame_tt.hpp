@@ -6,7 +6,6 @@
 #include <bit>
 #include <cstddef>
 #include <cstdint>
-#include <limits>
 #include <memory>
 #include <new>
 #include <optional>
@@ -43,8 +42,7 @@ class ExactTranspositionTable {
 public:
     explicit ExactTranspositionTable(int root_empties,
                                      std::optional<std::size_t> requested_entries) noexcept
-        : bucket_count_{bucket_count_for_entry_count(
-              requested_entries.value_or(entry_count_for_empties(root_empties)))},
+        : bucket_count_{normalized_bucket_count(root_empties, requested_entries)},
           buckets_{bucket_count_ == 0 ? nullptr : new (std::nothrow) Bucket[bucket_count_]} {}
 
     [[nodiscard]] ExactTranspositionLookup lookup(ZobristHash hash, int empties, int alpha,
@@ -137,6 +135,7 @@ public:
 
 private:
     static constexpr std::size_t bucket_width = 4;
+    static constexpr std::size_t max_diagnostic_entry_count = std::size_t{1} << 22;
 
     struct Bucket {
         std::array<ExactTranspositionEntry, bucket_width> entries{};
@@ -155,8 +154,20 @@ private:
         return 1 << 20;
     }
 
-    [[nodiscard]] static constexpr std::size_t bucket_count_for_empties(int empties) noexcept {
-        return bucket_count_for_entry_count(entry_count_for_empties(empties));
+    [[nodiscard]] static constexpr std::size_t
+    normalized_bucket_count(int root_empties,
+                            std::optional<std::size_t> requested_entries) noexcept {
+        const std::size_t default_entry_count = entry_count_for_empties(root_empties);
+        if (!requested_entries.has_value()) {
+            return bucket_count_for_entry_count(default_entry_count);
+        }
+        if (*requested_entries == 0) {
+            return 0;
+        }
+        if (*requested_entries > max_diagnostic_entry_count) {
+            return bucket_count_for_entry_count(default_entry_count);
+        }
+        return bucket_count_for_entry_count(*requested_entries);
     }
 
     [[nodiscard]] static constexpr std::size_t
@@ -164,12 +175,7 @@ private:
         if (entry_count == 0) {
             return 0;
         }
-        const std::size_t requested_buckets = (entry_count + bucket_width - 1) / bucket_width;
-        constexpr std::size_t max_power_of_two_bucket_count =
-            std::size_t{1} << (std::numeric_limits<std::size_t>::digits - 1);
-        if (requested_buckets > max_power_of_two_bucket_count) {
-            return max_power_of_two_bucket_count;
-        }
+        const std::size_t requested_buckets = ((entry_count - 1) / bucket_width) + 1;
         return std::bit_ceil(requested_buckets);
     }
 

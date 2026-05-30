@@ -321,8 +321,8 @@ position. Diagnostic modes intentionally solve candidates separately:
   without running the whole bucket.
 - `--exact-tt-entries N` overrides the private exact solver TT entry count for
   diagnostics. Omit it for the root-empty-count based default; pass `0` to
-  disable the exact TT. This option is for measurement and does not change the
-  normal search/adaptive16 path.
+  disable the exact TT. Extremely large values fall back to the default capacity.
+  This option is for measurement and does not change the normal search/adaptive16 path.
 
 Use diagnostic output to understand where time goes. Do not compare total
 candidate time from diagnostic modes directly with the normal benchmark row.

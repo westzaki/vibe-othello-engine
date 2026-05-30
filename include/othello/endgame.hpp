@@ -38,8 +38,9 @@ struct ExactEndgameResult {
 };
 
 struct ExactEndgameOptions {
-    // nullopt keeps the root-empty-count based default capacity. A value of 0 disables the
-    // private exact TT for diagnostics.
+    // Diagnostic knob for benchmark tools. nullopt keeps the root-empty-count based default
+    // capacity. A value of 0 disables the private exact TT. Extremely large requested sizes are
+    // treated as invalid and fall back to the default capacity.
     std::optional<std::size_t> transposition_table_entries = std::nullopt;
 };
 
