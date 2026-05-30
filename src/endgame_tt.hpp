@@ -3,8 +3,10 @@
 #include "search_common.hpp"
 
 #include <array>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <new>
 #include <optional>
@@ -39,8 +41,10 @@ struct ExactTranspositionLookup {
 
 class ExactTranspositionTable {
 public:
-    explicit ExactTranspositionTable(int root_empties) noexcept
-        : bucket_count_{bucket_count_for_empties(root_empties)},
+    explicit ExactTranspositionTable(int root_empties,
+                                     std::optional<std::size_t> requested_entries) noexcept
+        : bucket_count_{bucket_count_for_entry_count(
+              requested_entries.value_or(entry_count_for_empties(root_empties)))},
           buckets_{bucket_count_ == 0 ? nullptr : new (std::nothrow) Bucket[bucket_count_]} {}
 
     [[nodiscard]] ExactTranspositionLookup lookup(ZobristHash hash, int empties, int alpha,
@@ -152,7 +156,21 @@ private:
     }
 
     [[nodiscard]] static constexpr std::size_t bucket_count_for_empties(int empties) noexcept {
-        return entry_count_for_empties(empties) / bucket_width;
+        return bucket_count_for_entry_count(entry_count_for_empties(empties));
+    }
+
+    [[nodiscard]] static constexpr std::size_t
+    bucket_count_for_entry_count(std::size_t entry_count) noexcept {
+        if (entry_count == 0) {
+            return 0;
+        }
+        const std::size_t requested_buckets = (entry_count + bucket_width - 1) / bucket_width;
+        constexpr std::size_t max_power_of_two_bucket_count =
+            std::size_t{1} << (std::numeric_limits<std::size_t>::digits - 1);
+        if (requested_buckets > max_power_of_two_bucket_count) {
+            return max_power_of_two_bucket_count;
+        }
+        return std::bit_ceil(requested_buckets);
     }
 
     std::size_t bucket_count_ = 0;
@@ -233,8 +251,10 @@ private:
 };
 
 struct ExactEndgameContext {
-    explicit ExactEndgameContext(int root_empties) noexcept
-        : root_empties{root_empties}, transpositions{root_empties} {}
+    explicit ExactEndgameContext(int root_empties,
+                                 const ExactEndgameOptions& options = {}) noexcept
+        : root_empties{root_empties},
+          transpositions{root_empties, options.transposition_table_entries} {}
 
     int root_empties = 0;
     ExactEndgameStats stats;

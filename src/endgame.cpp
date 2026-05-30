@@ -230,8 +230,9 @@ empty_region_parity_ordering_policy(int root_empties, int empties) noexcept {
 
 } // namespace
 
-ExactEndgameResult solve_exact_endgame(const Board& board) noexcept {
-    ExactEndgameContext context{empty_count(board)};
+ExactEndgameResult solve_exact_endgame(const Board& board,
+                                       const ExactEndgameOptions& options) noexcept {
+    ExactEndgameContext context{empty_count(board), options};
     const NodeResult result =
         solve_node(board, zobrist_hash(board), exact_score_min, exact_score_max, context, true);
 
@@ -243,6 +244,10 @@ ExactEndgameResult solve_exact_endgame(const Board& board) noexcept {
         .principal_variation = principal_variation_to_vector(result.principal_variation),
         .stats = context.stats,
     };
+}
+
+ExactEndgameResult solve_exact_endgame(const Board& board) noexcept {
+    return solve_exact_endgame(board, ExactEndgameOptions{});
 }
 
 } // namespace othello
