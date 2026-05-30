@@ -1,8 +1,44 @@
 # Benchmarks
 
-Use benchmarks to compare search and rule-core changes with repeatable evidence.
+This is the canonical benchmark and measurement guide for the engine.
+
+Benchmarks are measurement workflows, not permanent pass/fail thresholds. Use
+them to compare changes with repeatable evidence, then explain what changed and
+why it matters.
+
 Keep benchmark notes practical: record the build type, machine, command, and the
-commit being compared.
+commit being compared. Concrete depths, repetitions, and game counts are profile
+parameters, not permanent standards. Keep parameters stable within one
+comparison, but update profile defaults as engine speed, evaluator cost, and
+measurement needs change.
+
+## Benchmark Families
+
+The current benchmark and measurement families are:
+
+- rule core: low-level rule operation cost and correctness-adjacent performance
+- search: depth-limited and iterative search behavior, speed, and observability
+- exact endgame: exact solver speed, stats, and diagnostic breakdowns
+- evaluation: score, best-move, PV, checksum, and breakdown changes
+- match/self-play: deterministic game samples inside one build
+- base/head comparison: external-process old-code-versus-new-code measurement
+
+## Benchmark Profiles
+
+Choose a profile by intent before choosing exact parameters:
+
+- smoke: quick sanity check for obvious regressions
+- standard: everyday PR evidence with stable local settings
+- deep: slower or broader check for changes that only show value at larger depth,
+  more positions, or more games
+- diagnostic: focused investigation of one position, opening, fixture, or search
+  behavior; diagnostic totals may not be comparable to normal benchmark totals
+- promotion: stronger evidence before changing defaults, presets, or public
+  guidance
+
+The command examples below show current useful profiles. Treat their depths,
+repetitions, empty counts, and game counts as examples to keep stable within a
+comparison, not as durable thresholds for all future work.
 
 ## Build
 
@@ -16,10 +52,10 @@ cmake --build build
 Do not compare Debug numbers with Release numbers. Use the same machine, build
 type, tool options, and position set when comparing two commits.
 
-## Quick smoke checks
+## Quick Smoke Checks
 
-Run a small set first to catch obvious regressions before collecting longer
-numbers:
+Run a small smoke profile first to catch obvious regressions before collecting
+longer numbers. Current examples:
 
 ```sh
 ./build/othello_rule_core_bench
@@ -29,7 +65,7 @@ numbers:
 
 Available options may change; use `--help` for current details.
 
-## Midgame Search Baselines
+## Search Benchmarks
 
 Use Release builds for performance comparisons:
 
@@ -51,8 +87,9 @@ search pipeline instead of switching small-empty positions to the exact solver:
   --exact-endgame-threshold 0
 ```
 
-For the stronger existing search path, measure iterative deepening with TT and
-PVS enabled, including per-position rows:
+For the stronger existing search path, the current standard-profile example
+measures iterative deepening with TT and PVS enabled, including per-position
+rows:
 
 ```sh
 ./build/othello_search_bench \
@@ -154,8 +191,8 @@ Compare aspiration with:
   --exact-endgame-threshold 0
 ```
 
-Deeper passes are part of the normal baseline check for search changes that may
-only show value after shallow overhead is amortized:
+A deep profile is useful for search changes that may only show value after
+shallow overhead is amortized. Current examples:
 
 ```sh
 ./build/othello_search_bench \
@@ -226,7 +263,7 @@ search path.
 Use the exact endgame benchmark when changing the standalone exact solver,
 endgame fixtures, or exact endgame observability:
 
-Standard benchmark commands:
+Current standard-profile examples:
 
 ```sh
 ./build/othello_endgame_bench --empties 14 --repetitions 1
@@ -235,7 +272,7 @@ Standard benchmark commands:
 ./build/othello_endgame_bench --empties 20 --repetitions 1
 ```
 
-Diagnostic commands:
+Current diagnostic examples:
 
 ```sh
 ./build/othello_endgame_bench --empties 20 --repetitions 1 --root-breakdown
@@ -258,20 +295,21 @@ position. Diagnostic modes intentionally solve candidates separately:
 Use diagnostic output to understand where time goes. Do not compare total
 candidate time from diagnostic modes directly with the normal benchmark row.
 
-## Evaluation Change Baselines
+## Evaluation Measurements
 
 Evaluation-strength PRs are allowed to change best moves, scores, PVs, and
 result checksums. Treat those checksum changes as expected behavior changes, not
 as pure speed regressions. Still keep the comparison deterministic and explain
 the changed scores with `evaluate_basic_breakdown()` or `othello_analyze_position`.
 
-For phase-aware or feature-weight evaluation PRs, collect at least:
+For phase-aware or feature-weight evaluation PRs, a useful current profile
+usually includes:
 
 - Release build and full `ctest`
 - `othello_analyze_position` output for a representative input board
 - smoke search benchmark with `--exact-endgame-threshold 0`
 - suite search benchmark using the current opt-in stronger preset
-- a base/head match matrix when an old evaluator binary is available
+- a base/head comparison when an old evaluator binary is available
 
 Useful commands:
 
@@ -312,12 +350,21 @@ Do not describe an evaluation PR as a pure speed comparison. Record score,
 best-move/PV, result checksum, work checksum, and a short explanation of the
 new breakdown fields or weights.
 
-For strength-changing PRs, prefer the external-process base/head matrix in
-[`docs/BASE_HEAD.md`](BASE_HEAD.md). Do not compare two in-process `search:`
-players when the code itself changed, because both players use the same linked
-engine. Quick smoke: depths 4 and 8 with 12 games. Useful local check: depths
-4, 6, 8, and 10 with 40 games. Stronger claims need broader openings and 100+
-games per depth.
+## Base/Head Comparison
+
+Use the specialized external-process base/head workflow when a change may affect
+playing strength and an old-code-versus-new-code comparison is needed:
+[`docs/BASE_HEAD.md`](BASE_HEAD.md).
+
+Do not compare two in-process `search:` players when the code itself changed,
+because both players use the same linked engine. Base/head depths, game counts,
+openings, and timeouts are profile parameters. Keep them stable within one
+comparison, then update the profile defaults when engine speed, evaluator cost,
+or measurement needs change.
+
+The current base/head smoke and standard-profile examples live in
+[`docs/BASE_HEAD.md`](BASE_HEAD.md). Stronger claims need broader openings,
+larger game counts, and careful explanation of changed match outcomes.
 
 ## Comparing Search Changes
 
@@ -402,7 +449,9 @@ Current exact endgame reference:
 
 ## Position Analysis
 
-Use the analysis tool for a focused position check rather than a benchmark suite:
+Use the analysis tool for a focused position check rather than a benchmark suite.
+The current example uses a deeper search profile; adjust depth and options to
+match the comparison intent:
 
 ```sh
 ./build/othello_analyze_position --stdin --depth 10 --mode iterative --tt on
