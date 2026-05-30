@@ -4,10 +4,12 @@ This directory contains durable project documentation.
 
 ## Current project guidance
 
-- [ROADMAP.md](ROADMAP.md): long-term development direction
-- [CAPABILITY_MAP.md](CAPABILITY_MAP.md): durable engine workstreams
-- [BENCHMARKS.md](BENCHMARKS.md): benchmark guidance
-- [BASE_HEAD.md](BASE_HEAD.md): base/head comparison workflow
+- [roadmap.md](roadmap.md): long-term development direction
+- [capability-map.md](capability-map.md): durable engine workstreams
+- [benchmarks.md](benchmarks.md): benchmark and measurement entry point
+
+Specialized measurement workflows, including base/head comparison, are linked
+from [benchmarks.md](benchmarks.md).
 
 ## Historical or experimental records
 

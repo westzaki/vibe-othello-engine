@@ -36,12 +36,12 @@ conventions.
 
 Read [docs/README.md](docs/README.md) for the documentation index.
 
-Read [docs/ROADMAP.md](docs/ROADMAP.md) for the long-term development direction.
+Read [docs/roadmap.md](docs/roadmap.md) for the long-term development direction.
 
-Read [docs/CAPABILITY_MAP.md](docs/CAPABILITY_MAP.md) for the durable engine
+Read [docs/capability-map.md](docs/capability-map.md) for the durable engine
 capability map and workstreams.
 
-Read [docs/BENCHMARKS.md](docs/BENCHMARKS.md) for lightweight benchmark guidance.
+Read [docs/benchmarks.md](docs/benchmarks.md) for lightweight benchmark guidance.
 
 ## Documentation Model
 
