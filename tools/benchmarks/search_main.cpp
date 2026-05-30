@@ -927,13 +927,13 @@ make_search_options(const BenchmarkOptions& options, int depth,
     return othello::SearchResult{
         .best_move = exact.best_move,
         .score = exact.disc_margin * exact_endgame_score_scale,
-        .score_kind = othello::SearchScoreKind::ExactDiscMarginScaled,
-        .used_exact_endgame = true,
-        .exact_disc_margin = exact.disc_margin,
         .depth = exact.empties,
         .nodes = exact.nodes,
         .principal_variation = std::move(exact.principal_variation),
         .stats = stats,
+        .score_kind = othello::SearchScoreKind::ExactDiscMarginScaled,
+        .used_exact_endgame = true,
+        .exact_disc_margin = exact.disc_margin,
     };
 }
 

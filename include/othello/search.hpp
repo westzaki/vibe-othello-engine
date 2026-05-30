@@ -82,16 +82,16 @@ struct SearchResult {
     // If exact endgame solving is used at the root, this is the exact final disc
     // margin converted onto the search score scale.
     int score = 0;
-    // Describes the meaning of score without changing its compatibility value.
-    SearchScoreKind score_kind = SearchScoreKind::Heuristic;
-    bool used_exact_endgame = false;
-    std::optional<int> exact_disc_margin = std::nullopt;
     // Requested/effective depth for depth-limited searches. Exact root endgame
     // results report the input board's empty count instead.
     int depth = 0;
     std::uint64_t nodes = 0;
     std::vector<Square> principal_variation;
     SearchStats stats;
+    // Describes the meaning of score without changing its compatibility value.
+    SearchScoreKind score_kind = SearchScoreKind::Heuristic;
+    bool used_exact_endgame = false;
+    std::optional<int> exact_disc_margin = std::nullopt;
 };
 
 struct SearchOptions {

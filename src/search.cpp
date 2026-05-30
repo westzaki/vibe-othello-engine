@@ -647,13 +647,13 @@ ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
     return SearchResult{
         .best_move = result.best_move,
         .score = result.score,
-        .score_kind = SearchScoreKind::Heuristic,
-        .used_exact_endgame = false,
-        .exact_disc_margin = std::nullopt,
         .depth = depth,
         .nodes = context.stats.nodes,
         .principal_variation = principal_variation_to_vector(result.principal_variation),
         .stats = context.stats,
+        .score_kind = SearchScoreKind::Heuristic,
+        .used_exact_endgame = false,
+        .exact_disc_margin = std::nullopt,
     };
 }
 
@@ -766,13 +766,13 @@ ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
     return SearchResult{
         .best_move = exact.best_move,
         .score = exact.disc_margin * exact_endgame_score_scale,
-        .score_kind = SearchScoreKind::ExactDiscMarginScaled,
-        .used_exact_endgame = true,
-        .exact_disc_margin = exact.disc_margin,
         .depth = exact.empties,
         .nodes = exact.nodes,
         .principal_variation = std::move(exact.principal_variation),
         .stats = stats,
+        .score_kind = SearchScoreKind::ExactDiscMarginScaled,
+        .used_exact_endgame = true,
+        .exact_disc_margin = exact.disc_margin,
     };
 }
 
