@@ -23,7 +23,20 @@ enum class EvaluationPreset {
     ClassicFeaturesLiteV1,
     ClassicFeaturesLiteAggressive,
     FrontierClassicFeaturesLiteV1,
+    CornerPattern2x3V1,
+    CornerPattern2x3Aggressive,
+    FrontierCornerPattern2x3V1,
+    FrontierCornerPatternEdgeLiteV1,
 };
+
+enum class Corner2x3PatternCorner {
+    A1,
+    H1,
+    A8,
+    H8,
+};
+
+inline constexpr int corner_2x3_pattern_table_size = 729;
 
 struct EvaluationFeatureWeights {
     int disc_difference = 0;
@@ -34,6 +47,7 @@ struct EvaluationFeatureWeights {
     int x_square_danger = 0;
     int frontier = 0;
     int corner_local_2x3 = 0;
+    int corner_2x3_pattern = 0;
     int edge_stability_lite = 0;
 
     [[nodiscard]] friend bool operator==(const EvaluationFeatureWeights&,
@@ -126,6 +140,10 @@ struct EvaluationBreakdown {
     int corner_local_2x3_weight = 0;
     int corner_local_2x3_score = 0;
 
+    int corner_2x3_pattern = 0;
+    int corner_2x3_pattern_weight = 0;
+    int corner_2x3_pattern_score = 0;
+
     int edge_stability_lite = 0;
     int edge_stability_lite_weight = 0;
     int edge_stability_lite_score = 0;
@@ -140,6 +158,11 @@ struct EvaluationBreakdown {
 
 [[nodiscard]] int evaluate_disc_difference(const Board& board, Side side) noexcept;
 [[nodiscard]] int evaluate_mobility(const Board& board, Side side) noexcept;
+[[nodiscard]] int corner_2x3_pattern_index(const Board& board, Side side,
+                                           Corner2x3PatternCorner corner) noexcept;
+[[nodiscard]] int corner_2x3_pattern_table_value(int index) noexcept;
+[[nodiscard]] int corner_2x3_pattern_value(const Board& board, Side side) noexcept;
+[[nodiscard]] int corner_2x3_pattern_score(const Board& board, Side side) noexcept;
 [[nodiscard]] EvaluationBreakdown evaluate_basic_breakdown(const Board& board,
                                                            Side side) noexcept;
 [[nodiscard]] EvaluationBreakdown evaluate_basic_breakdown(const Board& board, Side side,

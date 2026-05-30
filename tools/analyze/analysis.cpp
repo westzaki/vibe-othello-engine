@@ -95,6 +95,11 @@ void print_evaluation_breakdown(const EvaluationBreakdown& evaluation, std::stri
               << evaluation.corner_local_2x3_weight << '\n'
               << indent << "corner_local_2x3_score: " << evaluation.corner_local_2x3_score
               << '\n'
+              << indent << "corner_2x3_pattern: " << evaluation.corner_2x3_pattern << '\n'
+              << indent << "corner_2x3_pattern_weight: "
+              << evaluation.corner_2x3_pattern_weight << '\n'
+              << indent << "corner_2x3_pattern_score: "
+              << evaluation.corner_2x3_pattern_score << '\n'
               << indent << "edge_stability_lite: " << evaluation.edge_stability_lite << '\n'
               << indent << "edge_stability_lite_weight: "
               << evaluation.edge_stability_lite_weight << '\n'
