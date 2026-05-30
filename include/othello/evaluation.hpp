@@ -17,6 +17,7 @@ enum class EvaluationPhase {
 enum class EvaluationPreset {
     Default,
     MobilityPlusSmoke,
+    FrontierOpen2Mid2LatePlus1,
 };
 
 struct EvaluationFeatureWeights {

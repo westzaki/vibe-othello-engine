@@ -43,7 +43,7 @@ void print_usage(std::string_view program_name) {
               << "                    solve root positions with at most N empties exactly; N <= 0 "
                  "disables\n"
               << "  --eval-preset NAME\n"
-              << "                    builtin evaluator preset: default or mobility_plus_smoke\n"
+              << "                    builtin evaluator preset name\n"
               << "  --root-candidates  analyze each legal root move separately\n"
               << "  --help             show this help text\n";
 }

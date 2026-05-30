@@ -32,6 +32,8 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
     const auto eval_default = runner::parse_player_spec("search:depth=4,eval=default");
     const auto eval_smoke =
         runner::parse_player_spec("search:depth=4,eval=mobility_plus_smoke");
+    const auto eval_frontier =
+        runner::parse_player_spec("search:depth=4,eval=frontier_open2_mid2_late_plus1");
 
     REQUIRE(depth_only.has_value());
     REQUIRE(tt_on.has_value());
@@ -40,6 +42,7 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
     REQUIRE(tt_entries.has_value());
     REQUIRE(eval_default.has_value());
     REQUIRE(eval_smoke.has_value());
+    REQUIRE(eval_frontier.has_value());
 
     const othello::SearchOptions depth_only_options = runner::make_search_options(*depth_only);
     CHECK(depth_only_options.max_depth == 4);
@@ -71,6 +74,13 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
           othello::EvaluationPreset::MobilityPlusSmoke);
     CHECK(othello::resolve_evaluation_config(runner::make_search_options(*eval_smoke)) ==
           othello::evaluation_config_for_preset(othello::EvaluationPreset::MobilityPlusSmoke));
+    CHECK(eval_frontier->search_options.evaluation_preset ==
+          othello::EvaluationPreset::FrontierOpen2Mid2LatePlus1);
+    CHECK(runner::make_search_options(*eval_frontier).evaluation_preset ==
+          othello::EvaluationPreset::FrontierOpen2Mid2LatePlus1);
+    CHECK(othello::resolve_evaluation_config(runner::make_search_options(*eval_frontier)) ==
+          othello::evaluation_config_for_preset(
+              othello::EvaluationPreset::FrontierOpen2Mid2LatePlus1));
 }
 
 TEST_CASE("Search player specs reject invalid options", "[match-runner]") {

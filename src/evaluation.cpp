@@ -149,6 +149,11 @@ EvaluationConfig evaluation_config_for_preset(EvaluationPreset preset) noexcept 
         config.midgame.mobility = 12;
         config.late.mobility = 8;
         return config;
+    case EvaluationPreset::FrontierOpen2Mid2LatePlus1:
+        config.opening.frontier = 5;
+        config.midgame.frontier = 6;
+        config.late.frontier = 3;
+        return config;
     }
 
     return config;
@@ -161,6 +166,9 @@ std::optional<EvaluationPreset> evaluation_preset_from_name(std::string_view nam
     if (name == "mobility_plus_smoke") {
         return EvaluationPreset::MobilityPlusSmoke;
     }
+    if (name == "frontier_open2_mid2_late_plus1") {
+        return EvaluationPreset::FrontierOpen2Mid2LatePlus1;
+    }
     return std::nullopt;
 }
 
@@ -170,6 +178,8 @@ std::string_view evaluation_preset_name(EvaluationPreset preset) noexcept {
         return "default";
     case EvaluationPreset::MobilityPlusSmoke:
         return "mobility_plus_smoke";
+    case EvaluationPreset::FrontierOpen2Mid2LatePlus1:
+        return "frontier_open2_mid2_late_plus1";
     }
 
     return "unknown";

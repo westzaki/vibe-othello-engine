@@ -1,0 +1,41 @@
+# Deterministic opening suite for evaluator match regression.
+# Lines are legal move sequences from the standard initial board.
+# With --swap-sides true, 24 games cover the first 12 openings and 48 games
+# cover the first 24 openings.
+initial:
+g0_p0_4_s0: f5 d6 c5 f4
+g1_p0_4_s1: e6 f6 c4 e7
+g2_p0_4_s2: d3 c3 f5 d2
+g3_p0_4_s3: c4 e3 f2 c3
+g4_p0_4_s4: f5 f6 d3 f4
+g5_p0_4_s5: e6 f4 e3 d6
+g6_p0_4_s6: d3 e3 f5 c3
+g7_p0_4_s7: c4 c5 f6 f3
+g8_p0_4_s8: f5 f4 c3 g6
+g9_p0_4_s9: e6 d6 c4 d3
+g10_p0_4_s10: d3 c5 d6 e7
+g11_p0_4_s11: c4 c3 e6 f6
+g12_p0_5_s0: f5 d6 c5 f4 e7
+g13_p0_5_s1: e6 f6 c4 e7 e8
+g14_p0_5_s2: d3 c3 f5 d2 d1
+g15_p0_5_s3: c4 e3 f2 c3 f4
+g16_p0_5_s4: f5 f6 d3 f4 g6
+g17_p0_5_s5: e6 f4 e3 d6 c6
+g18_p0_5_s6: d3 e3 f5 c3 b2
+g19_p0_5_s7: c4 c5 f6 f3 e3
+g20_p0_5_s8: f5 f4 c3 g6 g3
+g21_p0_5_s9: e6 d6 c4 d3 e2
+g22_p0_5_s10: d3 c5 d6 e7 b6
+g23_p0_5_s11: c4 c3 e6 f6 d3
+g24_p0_6_s0: f5 d6 c5 f4 e7 d7
+g25_p0_6_s1: e6 f6 c4 e7 e8 c3
+g26_p0_6_s2: d3 c3 f5 d2 d1 e3
+g27_p0_6_s3: c4 e3 f2 c3 f4 c5
+g28_p0_6_s4: f5 f6 d3 f4 g6 c5
+g29_p0_6_s5: e6 f4 e3 d6 c6 e7
+g30_p0_6_s6: d3 e3 f5 c3 b2 c5
+g31_p0_6_s7: c4 c5 f6 f3 e3 c3
+g32_p0_6_s8: f5 f4 c3 g6 g3 c4
+g33_p0_6_s9: e6 d6 c4 d3 e2 d2
+g34_p0_6_s10: d3 c5 d6 e7 b6 d2
+g35_p0_6_s11: c4 c3 e6 f6 d3 d6
