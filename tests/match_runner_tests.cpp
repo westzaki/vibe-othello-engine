@@ -34,6 +34,16 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
         runner::parse_player_spec("search:depth=4,eval=mobility_plus_smoke");
     const auto eval_frontier =
         runner::parse_player_spec("search:depth=4,eval=frontier_open2_mid2_late_plus1");
+    const auto eval_classic_corner =
+        runner::parse_player_spec("search:depth=4,eval=classic_corner_lite_v1");
+    const auto eval_classic_edge =
+        runner::parse_player_spec("search:depth=4,eval=classic_edge_lite_v1");
+    const auto eval_classic_features =
+        runner::parse_player_spec("search:depth=4,eval=classic_features_lite_v1");
+    const auto eval_classic_aggressive =
+        runner::parse_player_spec("search:depth=4,eval=classic_features_lite_aggressive");
+    const auto eval_frontier_classic =
+        runner::parse_player_spec("search:depth=4,eval=frontier_classic_features_lite_v1");
 
     REQUIRE(depth_only.has_value());
     REQUIRE(tt_on.has_value());
@@ -43,6 +53,11 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
     REQUIRE(eval_default.has_value());
     REQUIRE(eval_smoke.has_value());
     REQUIRE(eval_frontier.has_value());
+    REQUIRE(eval_classic_corner.has_value());
+    REQUIRE(eval_classic_edge.has_value());
+    REQUIRE(eval_classic_features.has_value());
+    REQUIRE(eval_classic_aggressive.has_value());
+    REQUIRE(eval_frontier_classic.has_value());
 
     const othello::SearchOptions depth_only_options = runner::make_search_options(*depth_only);
     CHECK(depth_only_options.max_depth == 4);
@@ -81,6 +96,16 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
     CHECK(othello::resolve_evaluation_config(runner::make_search_options(*eval_frontier)) ==
           othello::evaluation_config_for_preset(
               othello::EvaluationPreset::FrontierOpen2Mid2LatePlus1));
+    CHECK(eval_classic_corner->search_options.evaluation_preset ==
+          othello::EvaluationPreset::ClassicCornerLiteV1);
+    CHECK(runner::make_search_options(*eval_classic_edge).evaluation_preset ==
+          othello::EvaluationPreset::ClassicEdgeLiteV1);
+    CHECK(runner::make_search_options(*eval_classic_features).evaluation_preset ==
+          othello::EvaluationPreset::ClassicFeaturesLiteV1);
+    CHECK(runner::make_search_options(*eval_classic_aggressive).evaluation_preset ==
+          othello::EvaluationPreset::ClassicFeaturesLiteAggressive);
+    CHECK(runner::make_search_options(*eval_frontier_classic).evaluation_preset ==
+          othello::EvaluationPreset::FrontierClassicFeaturesLiteV1);
 }
 
 TEST_CASE("Search player specs reject invalid options", "[match-runner]") {

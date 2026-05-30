@@ -18,6 +18,11 @@ enum class EvaluationPreset {
     Default,
     MobilityPlusSmoke,
     FrontierOpen2Mid2LatePlus1,
+    ClassicCornerLiteV1,
+    ClassicEdgeLiteV1,
+    ClassicFeaturesLiteV1,
+    ClassicFeaturesLiteAggressive,
+    FrontierClassicFeaturesLiteV1,
 };
 
 struct EvaluationFeatureWeights {
@@ -28,6 +33,8 @@ struct EvaluationFeatureWeights {
     int corner_access = 0;
     int x_square_danger = 0;
     int frontier = 0;
+    int corner_local_2x3 = 0;
+    int edge_stability_lite = 0;
 
     [[nodiscard]] friend bool operator==(const EvaluationFeatureWeights&,
                                          const EvaluationFeatureWeights&) = default;
@@ -114,6 +121,14 @@ struct EvaluationBreakdown {
     int frontier = 0;
     int frontier_weight = 0;
     int frontier_score = 0;
+
+    int corner_local_2x3 = 0;
+    int corner_local_2x3_weight = 0;
+    int corner_local_2x3_score = 0;
+
+    int edge_stability_lite = 0;
+    int edge_stability_lite_weight = 0;
+    int edge_stability_lite_score = 0;
 
     bool terminal = false;
     int terminal_disc_difference = 0;

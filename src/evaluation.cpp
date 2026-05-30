@@ -3,6 +3,8 @@
 #include <othello/evaluation.hpp>
 #include <othello/rules.hpp>
 
+#include <array>
+
 namespace othello {
 namespace {
 
@@ -15,6 +17,44 @@ constexpr Bitboard corner_squares =
     (Bitboard{1} << 0) | (Bitboard{1} << 7) | (Bitboard{1} << 56) | (Bitboard{1} << 63);
 
 constexpr int terminal_score_weight = 1000;
+
+struct CornerLocalSpec {
+    int corner_index = 0;
+    int x_square_index = 0;
+    std::array<int, 2> c_square_indexes{};
+};
+
+struct EdgeRaySpec {
+    int first_index = 0;
+    int step = 0;
+};
+
+struct EdgeCornerSpec {
+    int corner_index = 0;
+    std::array<EdgeRaySpec, 2> rays{};
+};
+
+constexpr std::array<CornerLocalSpec, 4> corner_local_specs{{
+    {.corner_index = 0, .x_square_index = 9, .c_square_indexes = {1, 8}},
+    {.corner_index = 7, .x_square_index = 14, .c_square_indexes = {6, 15}},
+    {.corner_index = 56, .x_square_index = 49, .c_square_indexes = {57, 48}},
+    {.corner_index = 63, .x_square_index = 54, .c_square_indexes = {62, 55}},
+}};
+
+constexpr std::array<EdgeCornerSpec, 4> edge_corner_specs{{
+    {.corner_index = 0, .rays = {{{.first_index = 1, .step = 1},
+                                  {.first_index = 8, .step = 8}}}},
+    {.corner_index = 7, .rays = {{{.first_index = 6, .step = -1},
+                                  {.first_index = 15, .step = 8}}}},
+    {.corner_index = 56, .rays = {{{.first_index = 57, .step = 1},
+                                   {.first_index = 48, .step = -8}}}},
+    {.corner_index = 63, .rays = {{{.first_index = 62, .step = -1},
+                                   {.first_index = 55, .step = -8}}}},
+}};
+
+[[nodiscard]] constexpr Bitboard square_bit(int index) noexcept {
+    return Bitboard{1} << index;
+}
 
 [[nodiscard]] constexpr Board with_side_to_move(const Board& board, Side side) noexcept {
     return Board{
@@ -129,6 +169,83 @@ weights_for_phase(const EvaluationConfig& config, EvaluationPhase phase) noexcep
     return count;
 }
 
+[[nodiscard]] int corner_local_2x3_value_for_side(const Board& board, Side side) noexcept {
+    int value = 0;
+    const Bitboard occupied = board.occupied();
+    const Bitboard discs = board.discs(side);
+
+    for (const CornerLocalSpec& spec : corner_local_specs) {
+        const Bitboard corner = square_bit(spec.corner_index);
+        if ((occupied & corner) == 0) {
+            if ((discs & square_bit(spec.x_square_index)) != 0) {
+                value -= 2;
+            }
+            for (const int c_square_index : spec.c_square_indexes) {
+                if ((discs & square_bit(c_square_index)) != 0) {
+                    --value;
+                }
+            }
+            continue;
+        }
+
+        if ((discs & corner) != 0) {
+            for (const int c_square_index : spec.c_square_indexes) {
+                if ((discs & square_bit(c_square_index)) != 0) {
+                    ++value;
+                }
+            }
+        }
+    }
+
+    return value;
+}
+
+[[nodiscard]] int corner_local_2x3_score(const Board& board, Side side) noexcept {
+    return corner_local_2x3_value_for_side(board, side) -
+           corner_local_2x3_value_for_side(board, opponent(side));
+}
+
+[[nodiscard]] Bitboard anchored_edge_ray_squares(const Board& board, Side side,
+                                                 const EdgeRaySpec& ray) noexcept {
+    Bitboard squares = 0;
+    const Bitboard discs = board.discs(side);
+    int index = ray.first_index;
+    for (int distance = 0; distance < 7; ++distance) {
+        const Bitboard square = square_bit(index);
+        if ((discs & square) == 0) {
+            break;
+        }
+        squares |= square;
+        index += ray.step;
+    }
+    return squares;
+}
+
+[[nodiscard]] int edge_stability_lite_value_for_side(const Board& board, Side side) noexcept {
+    Bitboard stable_edge_squares = 0;
+    const Bitboard discs = board.discs(side);
+
+    // This is a stability-lite approximation: collect continuous edge rays
+    // anchored at owned corners, then count unique found squares only once. A
+    // ray excludes its anchor corner but may include the opposite corner when
+    // the whole edge is continuous.
+    for (const EdgeCornerSpec& spec : edge_corner_specs) {
+        if ((discs & square_bit(spec.corner_index)) == 0) {
+            continue;
+        }
+        for (const EdgeRaySpec& ray : spec.rays) {
+            stable_edge_squares |= anchored_edge_ray_squares(board, side, ray);
+        }
+    }
+
+    return std::popcount(stable_edge_squares);
+}
+
+[[nodiscard]] int edge_stability_lite_score(const Board& board, Side side) noexcept {
+    return edge_stability_lite_value_for_side(board, side) -
+           edge_stability_lite_value_for_side(board, opponent(side));
+}
+
 } // namespace
 
 int evaluate_disc_difference(const Board& board, Side side) noexcept {
@@ -154,6 +271,43 @@ EvaluationConfig evaluation_config_for_preset(EvaluationPreset preset) noexcept 
         config.midgame.frontier = 6;
         config.late.frontier = 3;
         return config;
+    case EvaluationPreset::ClassicCornerLiteV1:
+        config.opening.corner_local_2x3 = 8;
+        config.midgame.corner_local_2x3 = 10;
+        config.late.corner_local_2x3 = 6;
+        return config;
+    case EvaluationPreset::ClassicEdgeLiteV1:
+        config.opening.edge_stability_lite = 2;
+        config.midgame.edge_stability_lite = 4;
+        config.late.edge_stability_lite = 8;
+        return config;
+    case EvaluationPreset::ClassicFeaturesLiteV1:
+        config.opening.corner_local_2x3 = 8;
+        config.midgame.corner_local_2x3 = 10;
+        config.late.corner_local_2x3 = 6;
+        config.opening.edge_stability_lite = 2;
+        config.midgame.edge_stability_lite = 4;
+        config.late.edge_stability_lite = 8;
+        return config;
+    case EvaluationPreset::ClassicFeaturesLiteAggressive:
+        config.opening.corner_local_2x3 = 14;
+        config.midgame.corner_local_2x3 = 18;
+        config.late.corner_local_2x3 = 10;
+        config.opening.edge_stability_lite = 4;
+        config.midgame.edge_stability_lite = 8;
+        config.late.edge_stability_lite = 12;
+        return config;
+    case EvaluationPreset::FrontierClassicFeaturesLiteV1:
+        config.opening.frontier = 5;
+        config.midgame.frontier = 6;
+        config.late.frontier = 3;
+        config.opening.corner_local_2x3 = 8;
+        config.midgame.corner_local_2x3 = 10;
+        config.late.corner_local_2x3 = 6;
+        config.opening.edge_stability_lite = 2;
+        config.midgame.edge_stability_lite = 4;
+        config.late.edge_stability_lite = 8;
+        return config;
     }
 
     return config;
@@ -169,6 +323,21 @@ std::optional<EvaluationPreset> evaluation_preset_from_name(std::string_view nam
     if (name == "frontier_open2_mid2_late_plus1") {
         return EvaluationPreset::FrontierOpen2Mid2LatePlus1;
     }
+    if (name == "classic_corner_lite_v1") {
+        return EvaluationPreset::ClassicCornerLiteV1;
+    }
+    if (name == "classic_edge_lite_v1") {
+        return EvaluationPreset::ClassicEdgeLiteV1;
+    }
+    if (name == "classic_features_lite_v1") {
+        return EvaluationPreset::ClassicFeaturesLiteV1;
+    }
+    if (name == "classic_features_lite_aggressive") {
+        return EvaluationPreset::ClassicFeaturesLiteAggressive;
+    }
+    if (name == "frontier_classic_features_lite_v1") {
+        return EvaluationPreset::FrontierClassicFeaturesLiteV1;
+    }
     return std::nullopt;
 }
 
@@ -180,6 +349,16 @@ std::string_view evaluation_preset_name(EvaluationPreset preset) noexcept {
         return "mobility_plus_smoke";
     case EvaluationPreset::FrontierOpen2Mid2LatePlus1:
         return "frontier_open2_mid2_late_plus1";
+    case EvaluationPreset::ClassicCornerLiteV1:
+        return "classic_corner_lite_v1";
+    case EvaluationPreset::ClassicEdgeLiteV1:
+        return "classic_edge_lite_v1";
+    case EvaluationPreset::ClassicFeaturesLiteV1:
+        return "classic_features_lite_v1";
+    case EvaluationPreset::ClassicFeaturesLiteAggressive:
+        return "classic_features_lite_aggressive";
+    case EvaluationPreset::FrontierClassicFeaturesLiteV1:
+        return "frontier_classic_features_lite_v1";
     }
 
     return "unknown";
@@ -202,6 +381,8 @@ EvaluationBreakdown evaluate_basic_breakdown(const Board& board, Side side,
         .corner_access_weight = weights.corner_access,
         .x_square_danger_weight = weights.x_square_danger,
         .frontier_weight = weights.frontier,
+        .corner_local_2x3_weight = weights.corner_local_2x3,
+        .edge_stability_lite_weight = weights.edge_stability_lite,
         .terminal_score_weight = terminal_score_weight,
     };
 
@@ -246,10 +427,23 @@ EvaluationBreakdown evaluate_basic_breakdown(const Board& board, Side side,
     breakdown.frontier = frontier_count(board, opponent(side)) - frontier_count(board, side);
     breakdown.frontier_score = breakdown.frontier * breakdown.frontier_weight;
 
+    if (breakdown.corner_local_2x3_weight != 0) {
+        breakdown.corner_local_2x3 = corner_local_2x3_score(board, side);
+    }
+    breakdown.corner_local_2x3_score =
+        breakdown.corner_local_2x3 * breakdown.corner_local_2x3_weight;
+
+    if (breakdown.edge_stability_lite_weight != 0) {
+        breakdown.edge_stability_lite = edge_stability_lite_score(board, side);
+    }
+    breakdown.edge_stability_lite_score =
+        breakdown.edge_stability_lite * breakdown.edge_stability_lite_weight;
+
     breakdown.total = breakdown.disc_difference_score + breakdown.mobility_score +
                       breakdown.corner_occupancy_score + breakdown.potential_mobility_score +
                       breakdown.corner_access_score + breakdown.x_square_danger_score +
-                      breakdown.frontier_score;
+                      breakdown.frontier_score + breakdown.corner_local_2x3_score +
+                      breakdown.edge_stability_lite_score;
     return breakdown;
 }
 
