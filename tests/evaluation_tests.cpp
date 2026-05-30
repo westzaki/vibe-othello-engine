@@ -167,7 +167,8 @@ TEST_CASE("Initial board evaluation is symmetric", "[evaluation]") {
           -othello::evaluate_basic(board, Side::White));
 }
 
-TEST_CASE("Default evaluation config preserves phase-aware weights", "[evaluation]") {
+TEST_CASE("Default evaluation config promotes frontier corner pattern edge weights",
+          "[evaluation]") {
     const othello::EvaluationConfig config = othello::default_evaluation_config();
 
     CHECK(config.opening == othello::EvaluationFeatureWeights{.disc_difference = 0,
@@ -176,30 +177,30 @@ TEST_CASE("Default evaluation config preserves phase-aware weights", "[evaluatio
                                                               .corner_occupancy = 35,
                                                               .corner_access = 30,
                                                               .x_square_danger = 25,
-                                                              .frontier = 3,
+                                                              .frontier = 5,
                                                               .corner_local_2x3 = 0,
-                                                              .corner_2x3_pattern = 0,
-                                                              .edge_stability_lite = 0});
+                                                              .corner_2x3_pattern = 4,
+                                                              .edge_stability_lite = 2});
     CHECK(config.midgame == othello::EvaluationFeatureWeights{.disc_difference = 1,
                                                               .mobility = 10,
                                                               .potential_mobility = 5,
                                                               .corner_occupancy = 40,
                                                               .corner_access = 35,
                                                               .x_square_danger = 30,
-                                                              .frontier = 4,
+                                                              .frontier = 6,
                                                               .corner_local_2x3 = 0,
-                                                              .corner_2x3_pattern = 0,
-                                                              .edge_stability_lite = 0});
+                                                              .corner_2x3_pattern = 6,
+                                                              .edge_stability_lite = 4});
     CHECK(config.late == othello::EvaluationFeatureWeights{.disc_difference = 4,
                                                            .mobility = 6,
                                                            .potential_mobility = 2,
                                                            .corner_occupancy = 45,
                                                            .corner_access = 20,
                                                            .x_square_danger = 20,
-                                                           .frontier = 2,
+                                                           .frontier = 3,
                                                            .corner_local_2x3 = 0,
-                                                           .corner_2x3_pattern = 0,
-                                                           .edge_stability_lite = 0});
+                                                           .corner_2x3_pattern = 4,
+                                                           .edge_stability_lite = 8});
     CHECK(config.opening_max_occupied == 20);
     CHECK(config.midgame_max_occupied == 44);
     CHECK(othello::evaluation_config_for_preset(othello::EvaluationPreset::Default) == config);
@@ -209,10 +210,39 @@ TEST_CASE("Default evaluation config preserves phase-aware weights", "[evaluatio
         othello::evaluation_preset_from_name("default");
     REQUIRE(parsed_default.has_value());
     CHECK(*parsed_default == othello::EvaluationPreset::Default);
+    CHECK(config == othello::evaluation_config_for_preset(
+                        othello::EvaluationPreset::FrontierCornerPatternEdgeLiteV1));
+}
+
+TEST_CASE("Phase-aware v1 preset preserves the previous default evaluator",
+          "[evaluation]") {
+    const othello::EvaluationConfig legacy =
+        othello::evaluation_config_for_preset(othello::EvaluationPreset::PhaseAwareV1);
+
+    CHECK(std::string{othello::evaluation_preset_name(
+              othello::EvaluationPreset::PhaseAwareV1)} == "phase_aware_v1");
+    CHECK(othello::evaluation_preset_from_name("phase_aware_v1") ==
+          othello::EvaluationPreset::PhaseAwareV1);
+    CHECK(othello::evaluation_preset_from_name("legacy_phase_aware_v1") ==
+          othello::EvaluationPreset::PhaseAwareV1);
+
+    CHECK(legacy.opening.frontier == 3);
+    CHECK(legacy.midgame.frontier == 4);
+    CHECK(legacy.late.frontier == 2);
+    CHECK(legacy.opening.corner_local_2x3 == 0);
+    CHECK(legacy.midgame.corner_local_2x3 == 0);
+    CHECK(legacy.late.corner_local_2x3 == 0);
+    CHECK(legacy.opening.corner_2x3_pattern == 0);
+    CHECK(legacy.midgame.corner_2x3_pattern == 0);
+    CHECK(legacy.late.corner_2x3_pattern == 0);
+    CHECK(legacy.opening.edge_stability_lite == 0);
+    CHECK(legacy.midgame.edge_stability_lite == 0);
+    CHECK(legacy.late.edge_stability_lite == 0);
 }
 
 TEST_CASE("Smoke evaluation preset is explicit and lightweight", "[evaluation]") {
-    const othello::EvaluationConfig default_config = othello::default_evaluation_config();
+    const othello::EvaluationConfig legacy_config =
+        othello::evaluation_config_for_preset(othello::EvaluationPreset::PhaseAwareV1);
     const othello::EvaluationConfig smoke_config =
         othello::evaluation_config_for_preset(othello::EvaluationPreset::MobilityPlusSmoke);
 
@@ -223,15 +253,18 @@ TEST_CASE("Smoke evaluation preset is explicit and lightweight", "[evaluation]")
     REQUIRE(parsed_smoke.has_value());
     CHECK(*parsed_smoke == othello::EvaluationPreset::MobilityPlusSmoke);
     CHECK_FALSE(othello::evaluation_preset_from_name("unknown").has_value());
-    CHECK(smoke_config.opening.mobility == default_config.opening.mobility + 2);
-    CHECK(smoke_config.midgame.mobility == default_config.midgame.mobility + 2);
-    CHECK(smoke_config.late.mobility == default_config.late.mobility + 2);
+    CHECK(smoke_config.opening.mobility == legacy_config.opening.mobility + 2);
+    CHECK(smoke_config.midgame.mobility == legacy_config.midgame.mobility + 2);
+    CHECK(smoke_config.late.mobility == legacy_config.late.mobility + 2);
     CHECK(smoke_config.opening.potential_mobility ==
-          default_config.opening.potential_mobility);
+          legacy_config.opening.potential_mobility);
+    CHECK(smoke_config.opening.corner_2x3_pattern == 0);
+    CHECK(smoke_config.opening.edge_stability_lite == 0);
 }
 
-TEST_CASE("Frontier refinement preset is explicit and keeps default separate", "[evaluation]") {
-    const othello::EvaluationConfig default_config = othello::default_evaluation_config();
+TEST_CASE("Frontier refinement preset keeps its previous explicit semantics", "[evaluation]") {
+    const othello::EvaluationConfig legacy_config =
+        othello::evaluation_config_for_preset(othello::EvaluationPreset::PhaseAwareV1);
     const othello::EvaluationConfig frontier_config =
         othello::evaluation_config_for_preset(
             othello::EvaluationPreset::FrontierOpen2Mid2LatePlus1);
@@ -244,14 +277,16 @@ TEST_CASE("Frontier refinement preset is explicit and keeps default separate", "
     REQUIRE(parsed.has_value());
     CHECK(*parsed == othello::EvaluationPreset::FrontierOpen2Mid2LatePlus1);
 
-    CHECK(frontier_config.opening.frontier == default_config.opening.frontier + 2);
-    CHECK(frontier_config.midgame.frontier == default_config.midgame.frontier + 2);
-    CHECK(frontier_config.late.frontier == default_config.late.frontier + 1);
-    CHECK(othello::default_evaluation_config() == default_config);
+    CHECK(frontier_config.opening.frontier == legacy_config.opening.frontier + 2);
+    CHECK(frontier_config.midgame.frontier == legacy_config.midgame.frontier + 2);
+    CHECK(frontier_config.late.frontier == legacy_config.late.frontier + 1);
+    CHECK(frontier_config.opening.corner_2x3_pattern == 0);
+    CHECK(frontier_config.opening.edge_stability_lite == 0);
 }
 
 TEST_CASE("Classic lite presets are explicit and keep default separate", "[evaluation]") {
-    const othello::EvaluationConfig default_config = othello::default_evaluation_config();
+    const othello::EvaluationConfig legacy_config =
+        othello::evaluation_config_for_preset(othello::EvaluationPreset::PhaseAwareV1);
     const othello::EvaluationConfig corner_config =
         othello::evaluation_config_for_preset(othello::EvaluationPreset::ClassicCornerLiteV1);
     const othello::EvaluationConfig edge_config =
@@ -289,15 +324,15 @@ TEST_CASE("Classic lite presets are explicit and keep default separate", "[evalu
     CHECK(othello::evaluation_preset_from_name("frontier_classic_features_lite_v1") ==
           othello::EvaluationPreset::FrontierClassicFeaturesLiteV1);
 
-    CHECK(default_config.opening.corner_local_2x3 == 0);
-    CHECK(default_config.midgame.corner_local_2x3 == 0);
-    CHECK(default_config.late.corner_local_2x3 == 0);
-    CHECK(default_config.opening.corner_2x3_pattern == 0);
-    CHECK(default_config.midgame.corner_2x3_pattern == 0);
-    CHECK(default_config.late.corner_2x3_pattern == 0);
-    CHECK(default_config.opening.edge_stability_lite == 0);
-    CHECK(default_config.midgame.edge_stability_lite == 0);
-    CHECK(default_config.late.edge_stability_lite == 0);
+    CHECK(legacy_config.opening.corner_local_2x3 == 0);
+    CHECK(legacy_config.midgame.corner_local_2x3 == 0);
+    CHECK(legacy_config.late.corner_local_2x3 == 0);
+    CHECK(legacy_config.opening.corner_2x3_pattern == 0);
+    CHECK(legacy_config.midgame.corner_2x3_pattern == 0);
+    CHECK(legacy_config.late.corner_2x3_pattern == 0);
+    CHECK(legacy_config.opening.edge_stability_lite == 0);
+    CHECK(legacy_config.midgame.edge_stability_lite == 0);
+    CHECK(legacy_config.late.edge_stability_lite == 0);
 
     CHECK(corner_config.opening.corner_local_2x3 == 8);
     CHECK(corner_config.midgame.corner_local_2x3 == 10);
@@ -315,14 +350,18 @@ TEST_CASE("Classic lite presets are explicit and keep default separate", "[evalu
     CHECK(aggressive_config.opening.corner_local_2x3 == 14);
     CHECK(aggressive_config.midgame.corner_local_2x3 == 18);
     CHECK(aggressive_config.late.edge_stability_lite == 12);
-    CHECK(frontier_classic_config.opening.frontier == default_config.opening.frontier + 2);
-    CHECK(frontier_classic_config.midgame.frontier == default_config.midgame.frontier + 2);
-    CHECK(frontier_classic_config.late.frontier == default_config.late.frontier + 1);
-    CHECK(othello::default_evaluation_config() == default_config);
+    CHECK(frontier_classic_config.opening.frontier == legacy_config.opening.frontier + 2);
+    CHECK(frontier_classic_config.midgame.frontier == legacy_config.midgame.frontier + 2);
+    CHECK(frontier_classic_config.late.frontier == legacy_config.late.frontier + 1);
+    CHECK(othello::evaluation_config_for_preset(othello::EvaluationPreset::PhaseAwareV1) ==
+          legacy_config);
 }
 
-TEST_CASE("Corner pattern presets are explicit and keep default separate", "[evaluation]") {
+TEST_CASE("Corner pattern presets are explicit and promoted default is named",
+          "[evaluation]") {
     const othello::EvaluationConfig default_config = othello::default_evaluation_config();
+    const othello::EvaluationConfig legacy_config =
+        othello::evaluation_config_for_preset(othello::EvaluationPreset::PhaseAwareV1);
     const othello::EvaluationConfig pattern_config =
         othello::evaluation_config_for_preset(othello::EvaluationPreset::CornerPattern2x3V1);
     const othello::EvaluationConfig aggressive_config =
@@ -356,23 +395,25 @@ TEST_CASE("Corner pattern presets are explicit and keep default separate", "[eva
     CHECK(othello::evaluation_preset_from_name("frontier_corner_pattern_edge_lite_v1") ==
           othello::EvaluationPreset::FrontierCornerPatternEdgeLiteV1);
 
-    CHECK(default_config.opening.corner_2x3_pattern == 0);
+    CHECK(legacy_config.opening.corner_2x3_pattern == 0);
     CHECK(pattern_config.opening.corner_2x3_pattern == 4);
     CHECK(pattern_config.midgame.corner_2x3_pattern == 6);
     CHECK(pattern_config.late.corner_2x3_pattern == 4);
     CHECK(pattern_config.opening.corner_local_2x3 == 0);
-    CHECK(pattern_config.opening.frontier == default_config.opening.frontier);
+    CHECK(pattern_config.opening.frontier == legacy_config.opening.frontier);
+    CHECK(pattern_config.opening.edge_stability_lite == 0);
     CHECK(aggressive_config.opening.corner_2x3_pattern == 8);
     CHECK(aggressive_config.midgame.corner_2x3_pattern == 10);
     CHECK(aggressive_config.late.corner_2x3_pattern == 6);
-    CHECK(frontier_pattern_config.opening.frontier == default_config.opening.frontier + 2);
-    CHECK(frontier_pattern_config.midgame.frontier == default_config.midgame.frontier + 2);
-    CHECK(frontier_pattern_config.late.frontier == default_config.late.frontier + 1);
+    CHECK(frontier_pattern_config.opening.frontier == legacy_config.opening.frontier + 2);
+    CHECK(frontier_pattern_config.midgame.frontier == legacy_config.midgame.frontier + 2);
+    CHECK(frontier_pattern_config.late.frontier == legacy_config.late.frontier + 1);
     CHECK(frontier_pattern_config.opening.corner_2x3_pattern == 4);
     CHECK(frontier_pattern_config.opening.corner_local_2x3 == 0);
     CHECK(frontier_pattern_edge_config.opening.edge_stability_lite == 2);
     CHECK(frontier_pattern_edge_config.midgame.edge_stability_lite == 4);
     CHECK(frontier_pattern_edge_config.late.edge_stability_lite == 8);
+    CHECK(frontier_pattern_edge_config == default_config);
     CHECK(othello::default_evaluation_config() == default_config);
 }
 

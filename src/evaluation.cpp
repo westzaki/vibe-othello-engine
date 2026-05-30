@@ -399,10 +399,46 @@ int corner_2x3_pattern_score(const Board& board, Side side) noexcept {
     return corner_2x3_pattern_value(board, side);
 }
 
+[[nodiscard]] constexpr EvaluationConfig phase_aware_v1_evaluation_config() noexcept {
+    return EvaluationConfig{
+        .opening = EvaluationFeatureWeights{
+            .disc_difference = 0,
+            .mobility = 8,
+            .potential_mobility = 4,
+            .corner_occupancy = 35,
+            .corner_access = 30,
+            .x_square_danger = 25,
+            .frontier = 3,
+        },
+        .midgame = EvaluationFeatureWeights{
+            .disc_difference = 1,
+            .mobility = 10,
+            .potential_mobility = 5,
+            .corner_occupancy = 40,
+            .corner_access = 35,
+            .x_square_danger = 30,
+            .frontier = 4,
+        },
+        .late = EvaluationFeatureWeights{
+            .disc_difference = 4,
+            .mobility = 6,
+            .potential_mobility = 2,
+            .corner_occupancy = 45,
+            .corner_access = 20,
+            .x_square_danger = 20,
+            .frontier = 2,
+        },
+        .opening_max_occupied = 20,
+        .midgame_max_occupied = 44,
+    };
+}
+
 EvaluationConfig evaluation_config_for_preset(EvaluationPreset preset) noexcept {
-    EvaluationConfig config = default_evaluation_config();
+    EvaluationConfig config = phase_aware_v1_evaluation_config();
     switch (preset) {
     case EvaluationPreset::Default:
+        return default_evaluation_config();
+    case EvaluationPreset::PhaseAwareV1:
         return config;
     case EvaluationPreset::MobilityPlusSmoke:
         config.opening.mobility = 10;
@@ -489,6 +525,9 @@ std::optional<EvaluationPreset> evaluation_preset_from_name(std::string_view nam
     if (name == "default") {
         return EvaluationPreset::Default;
     }
+    if (name == "phase_aware_v1" || name == "legacy_phase_aware_v1") {
+        return EvaluationPreset::PhaseAwareV1;
+    }
     if (name == "mobility_plus_smoke") {
         return EvaluationPreset::MobilityPlusSmoke;
     }
@@ -529,6 +568,8 @@ std::string_view evaluation_preset_name(EvaluationPreset preset) noexcept {
     switch (preset) {
     case EvaluationPreset::Default:
         return "default";
+    case EvaluationPreset::PhaseAwareV1:
+        return "phase_aware_v1";
     case EvaluationPreset::MobilityPlusSmoke:
         return "mobility_plus_smoke";
     case EvaluationPreset::FrontierOpen2Mid2LatePlus1:
