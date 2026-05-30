@@ -105,6 +105,10 @@ void print_evaluation_breakdown(const EvaluationBreakdown& evaluation, std::stri
               << evaluation.edge_stability_lite_weight << '\n'
               << indent << "edge_stability_lite_score: " << evaluation.edge_stability_lite_score
               << '\n'
+              << indent << "edge_8_pattern: " << evaluation.edge_8_pattern << '\n'
+              << indent << "edge_8_pattern_weight: " << evaluation.edge_8_pattern_weight << '\n'
+              << indent << "edge_8_pattern_score: " << evaluation.edge_8_pattern_score
+              << '\n'
               << indent << "terminal_disc_difference: " << evaluation.terminal_disc_difference
               << '\n'
               << indent << "terminal_score_weight: " << evaluation.terminal_score_weight << '\n'
