@@ -14,6 +14,7 @@ namespace othello {
 namespace {
 
 using endgame_detail::ExactEndgameContext;
+using endgame_detail::EndgameMoveOrderingPolicy;
 using endgame_detail::hash_after_pass;
 using endgame_detail::last_n_specialized_empties;
 using endgame_detail::ordered_legal_move_indexes;
@@ -31,9 +32,28 @@ constexpr int exact_score_min = -1'000;
 constexpr int exact_score_max = 1'000;
 constexpr int final_disc_margin_max = 64;
 constexpr int root_pvs_min_empties = 16;
+constexpr int full_empty_region_parity_max_root_empties = 14;
+constexpr int reduced_empty_region_parity_max_current_empties = 4;
 
 [[nodiscard]] bool should_use_root_pvs(int empties, std::size_t legal_move_count) noexcept {
     return empties >= root_pvs_min_empties && legal_move_count > 1;
+}
+
+[[nodiscard]] EndgameMoveOrderingPolicy
+empty_region_parity_ordering_policy(int root_empties, int empties) noexcept {
+    EndgameMoveOrderingPolicy policy;
+    if (root_empties <= full_empty_region_parity_max_root_empties) {
+        policy.use_empty_region_parity = true;
+        return policy;
+    }
+
+    // Broader activation made 16/18-empty roots noisier; keep only the last ordered layer weakly
+    // parity-aware. The 0-3 empty tail uses the specialized solver instead of this ordering path.
+    policy.use_empty_region_parity = empties <= reduced_empty_region_parity_max_current_empties;
+    policy.params.singleton_region_bonus = 4'000;
+    policy.params.odd_region_bonus = 1'000;
+    policy.params.even_region_penalty = 0;
+    return policy;
 }
 
 [[nodiscard]] int root_candidate_required_score(int best_score, Square candidate,
@@ -122,7 +142,9 @@ constexpr int root_pvs_min_empties = 16;
     PrincipalVariation best_principal_variation;
 
     const OrderedMoveIndexes ordered_moves =
-        ordered_legal_move_indexes(board, hash, moves, cached.best_move_hint, context.stats);
+        ordered_legal_move_indexes(board, hash, moves, cached.best_move_hint, context.stats,
+                                   empty_region_parity_ordering_policy(context.root_empties,
+                                                                       empties));
     const bool use_root_pvs = is_root && should_use_root_pvs(empties, ordered_moves.size);
     for (std::size_t move = 0; move < ordered_moves.size; ++move) {
         const OrderedMoveIndexes::Move& ordered_move = ordered_moves.moves[move];

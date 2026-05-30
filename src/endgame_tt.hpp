@@ -233,8 +233,10 @@ private:
 };
 
 struct ExactEndgameContext {
-    explicit ExactEndgameContext(int root_empties) noexcept : transpositions{root_empties} {}
+    explicit ExactEndgameContext(int root_empties) noexcept
+        : root_empties{root_empties}, transpositions{root_empties} {}
 
+    int root_empties = 0;
     ExactEndgameStats stats;
     ExactTranspositionTable transpositions;
 };
