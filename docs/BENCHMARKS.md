@@ -354,7 +354,7 @@ new breakdown fields or weights.
 
 Use the specialized external-process base/head workflow when a change may affect
 playing strength and an old-code-versus-new-code comparison is needed:
-[`docs/BASE_HEAD.md`](BASE_HEAD.md).
+[`docs/benchmarks/base-head.md`](benchmarks/base-head.md).
 
 Do not compare two in-process `search:` players when the code itself changed,
 because both players use the same linked engine. Base/head depths, game counts,
@@ -363,8 +363,9 @@ comparison, then update the profile defaults when engine speed, evaluator cost,
 or measurement needs change.
 
 The current base/head smoke and standard-profile examples live in
-[`docs/BASE_HEAD.md`](BASE_HEAD.md). Stronger claims need broader openings,
-larger game counts, and careful explanation of changed match outcomes.
+[`docs/benchmarks/base-head.md`](benchmarks/base-head.md). Stronger claims need
+broader openings, larger game counts, and careful explanation of changed match
+outcomes.
 
 ## Comparing Search Changes
 
