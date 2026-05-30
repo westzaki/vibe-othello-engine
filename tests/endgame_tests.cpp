@@ -1,3 +1,4 @@
+#include "../src/endgame_ordering.hpp"
 #include "test_helpers.hpp"
 
 #include <array>
@@ -239,6 +240,40 @@ side=B)");
     CHECK(result.stats.tt_move_ordering_used > 0);
     CHECK(result.stats.tt_move_ordering_hits <= result.stats.tt_move_ordering_probes);
     CHECK(result.stats.tt_move_ordering_used <= result.stats.tt_move_ordering_hits);
+}
+
+TEST_CASE("Endgame empty-region parity ordering scores candidate regions", "[endgame]") {
+    using othello::endgame_detail::default_move_ordering_params;
+    using othello::endgame_detail::empty_region_parity_order_score;
+    using othello::endgame_detail::empty_region_sizes;
+    using othello::endgame_detail::empty_region_size_containing;
+
+    // a1-b1 is even, d1-e1-f1 is odd, and h1 is a singleton.
+    constexpr othello::Bitboard empty = (othello::Bitboard{1} << 0) |
+                                        (othello::Bitboard{1} << 1) |
+                                        (othello::Bitboard{1} << 3) |
+                                        (othello::Bitboard{1} << 4) |
+                                        (othello::Bitboard{1} << 5) |
+                                        (othello::Bitboard{1} << 7);
+    const auto region_sizes = empty_region_sizes(empty);
+
+    CHECK(empty_region_size_containing(empty, 0) == 2);
+    CHECK(empty_region_size_containing(empty, 4) == 3);
+    CHECK(empty_region_size_containing(empty, 7) == 1);
+    CHECK(empty_region_size_containing(empty, 2) == 0);
+    CHECK(region_sizes.by_square[0] == 2);
+    CHECK(region_sizes.by_square[4] == 3);
+    CHECK(region_sizes.by_square[7] == 1);
+    CHECK(region_sizes.by_square[2] == 0);
+
+    CHECK(empty_region_parity_order_score(region_sizes.by_square[0],
+                                          default_move_ordering_params) == -1'000);
+    CHECK(empty_region_parity_order_score(region_sizes.by_square[4],
+                                          default_move_ordering_params) == 4'000);
+    CHECK(empty_region_parity_order_score(region_sizes.by_square[7],
+                                          default_move_ordering_params) == 12'000);
+    CHECK(empty_region_parity_order_score(region_sizes.by_square[2],
+                                          default_move_ordering_params) == 0);
 }
 
 TEST_CASE("Exact endgame solver preserves selected PVS regression results", "[endgame]") {
