@@ -8,7 +8,13 @@ This is not an Elo estimate. It records the local evidence for preserving
 ## Metadata
 
 - Date: `2026-05-30`
-- Head SHA during run: `d3c56408fd915c103fcf5c609d74011cbe89676f`
+- Base SHA: `d3c56408fd915c103fcf5c609d74011cbe89676f`
+- PR head SHA for the evaluated code: `3d1b6b4e25dbaaa625df5165b3374d13f9fb64d4`
+- Experiment source: local working tree based on the base SHA with the frontier
+  preset changes applied before they were committed. Those same evaluator code
+  changes were later committed in this PR as
+  `3d1b6b4e25dbaaa625df5165b3374d13f9fb64d4`; later documentation-only commits
+  in the PR do not change the measured code behavior.
 - Build type: `Release`
 - Opening suite: `data/openings/eval_regression_openings.txt`
 - Full local report: `runs/eval/20260530-151321-frontier-refinement-sweep/report.md`
@@ -50,9 +56,12 @@ Candidate was player A, default was player B. All runs used
 
 ## Base/Head External Process Check
 
-Base was `origin/main` with `--eval-preset default`. Head was this branch with
+Base was the base SHA with `--eval-preset default`. Head was a local working
+tree based on the base SHA with the frontier preset changes applied, using
 `--eval-preset frontier_open2_mid2_late_plus1`. Both used
-`--exact-endgame-threshold 0`.
+`--exact-endgame-threshold 0`. The generated local base/head report may show the
+head git SHA as the base SHA because the experiment ran before the frontier
+preset changes were committed.
 
 | depth | games | head wins | base wins | draws | avg diff head | errors |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
