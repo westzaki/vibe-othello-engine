@@ -3,6 +3,7 @@
 #include "search_common.hpp"
 
 #include <array>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -39,8 +40,9 @@ struct ExactTranspositionLookup {
 
 class ExactTranspositionTable {
 public:
-    explicit ExactTranspositionTable(int root_empties) noexcept
-        : bucket_count_{bucket_count_for_empties(root_empties)},
+    explicit ExactTranspositionTable(int root_empties,
+                                     std::optional<std::size_t> requested_entries) noexcept
+        : bucket_count_{normalized_bucket_count(root_empties, requested_entries)},
           buckets_{bucket_count_ == 0 ? nullptr : new (std::nothrow) Bucket[bucket_count_]} {}
 
     [[nodiscard]] ExactTranspositionLookup lookup(ZobristHash hash, int empties, int alpha,
@@ -133,6 +135,7 @@ public:
 
 private:
     static constexpr std::size_t bucket_width = 4;
+    static constexpr std::size_t max_diagnostic_entry_count = std::size_t{1} << 22;
 
     struct Bucket {
         std::array<ExactTranspositionEntry, bucket_width> entries{};
@@ -151,8 +154,29 @@ private:
         return 1 << 20;
     }
 
-    [[nodiscard]] static constexpr std::size_t bucket_count_for_empties(int empties) noexcept {
-        return entry_count_for_empties(empties) / bucket_width;
+    [[nodiscard]] static constexpr std::size_t
+    normalized_bucket_count(int root_empties,
+                            std::optional<std::size_t> requested_entries) noexcept {
+        const std::size_t default_entry_count = entry_count_for_empties(root_empties);
+        if (!requested_entries.has_value()) {
+            return bucket_count_for_entry_count(default_entry_count);
+        }
+        if (*requested_entries == 0) {
+            return 0;
+        }
+        if (*requested_entries > max_diagnostic_entry_count) {
+            return bucket_count_for_entry_count(default_entry_count);
+        }
+        return bucket_count_for_entry_count(*requested_entries);
+    }
+
+    [[nodiscard]] static constexpr std::size_t
+    bucket_count_for_entry_count(std::size_t entry_count) noexcept {
+        if (entry_count == 0) {
+            return 0;
+        }
+        const std::size_t requested_buckets = ((entry_count - 1) / bucket_width) + 1;
+        return std::bit_ceil(requested_buckets);
     }
 
     std::size_t bucket_count_ = 0;
@@ -233,8 +257,10 @@ private:
 };
 
 struct ExactEndgameContext {
-    explicit ExactEndgameContext(int root_empties) noexcept
-        : root_empties{root_empties}, transpositions{root_empties} {}
+    explicit ExactEndgameContext(int root_empties,
+                                 const ExactEndgameOptions& options = {}) noexcept
+        : root_empties{root_empties},
+          transpositions{root_empties, options.transposition_table_entries} {}
 
     int root_empties = 0;
     ExactEndgameStats stats;
