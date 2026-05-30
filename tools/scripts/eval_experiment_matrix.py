@@ -32,6 +32,9 @@ class EvalExperimentConfig:
     search_bench: Path
     match_runner: Path
     exact_endgame_threshold: int
+    positions: str = "smoke"
+    by_position: bool = False
+    allow_errors: bool = False
 
 
 @dataclass(frozen=True)
@@ -116,14 +119,14 @@ def detect_build_type(build_dir: Path) -> str:
 
 
 def build_search_bench_command(config: EvalExperimentConfig, preset: str) -> list[str]:
-    return [
+    command = [
         str(config.search_bench),
         "--mode",
         "iterative",
         "--depths",
         ",".join(str(depth) for depth in config.depths),
         "--positions",
-        "smoke",
+        config.positions,
         "--repetitions",
         "1",
         "--tt",
@@ -137,6 +140,9 @@ def build_search_bench_command(config: EvalExperimentConfig, preset: str) -> lis
         "--exact-endgame-threshold",
         str(config.exact_endgame_threshold),
     ]
+    if config.by_position:
+        command.append("--by-position")
+    return command
 
 
 def build_match_command(config: EvalExperimentConfig, preset: str, depth: int) -> MatchRun:
@@ -190,6 +196,22 @@ def summarize_match(run: MatchRun) -> MatchRun:
     )
 
 
+def matrix_has_failures(
+    search_runs: list[SearchBenchRun],
+    match_runs: list[MatchRun],
+    *,
+    allow_errors: bool,
+) -> bool:
+    if any(run.exit_code != 0 for run in search_runs):
+        return True
+    for run in match_runs:
+        if run.exit_code != 0 or run.summary is None:
+            return True
+        if run.summary.error_games > 0 and not allow_errors:
+            return True
+    return False
+
+
 def render_report(
     config: EvalExperimentConfig,
     search_runs: list[SearchBenchRun],
@@ -201,6 +223,11 @@ def render_report(
     timestamp = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
     failed = [run for run in search_runs if run.exit_code != 0]
     failed.extend(run for run in match_runs if run.exit_code != 0 or run.summary is None)
+    error_game_runs = [
+        run
+        for run in match_runs
+        if run.summary is not None and run.summary.error_games > 0
+    ]
 
     lines = [
         "# Evaluation Experiment Matrix",
@@ -222,6 +249,9 @@ def render_report(
         f"- Seed: `{config.seed}`",
         f"- Openings: `{config.openings}`",
         f"- Exact endgame threshold: `{config.exact_endgame_threshold}`",
+        f"- Search positions: `{config.positions}`",
+        f"- Search by-position: `{'on' if config.by_position else 'off'}`",
+        f"- Allow error games: `{'true' if config.allow_errors else 'false'}`",
         "",
         "## Commands",
         "",
@@ -256,6 +286,9 @@ def render_report(
         elif run.summary is None:
             lines.append(f"- Error: {run.error or 'summary unavailable'}")
         else:
+            lines.append(f"- Error games: `{run.summary.error_games}`")
+            if run.summary.error_games > 0 and not config.allow_errors:
+                lines.append("- Failure: match summary contains error games.")
             lines.extend(("", "```text", run.summary_text.rstrip(), "```"))
         lines.append("")
 
@@ -267,8 +300,14 @@ def render_report(
             "- Negative: small smoke runs only prove wiring and reproducibility plumbing.",
         )
     )
-    if failed:
+    if failed and not dry_run:
         lines.append(f"- Failures: {len(failed)} command(s) need inspection.")
+    if error_game_runs:
+        total_error_games = sum(run.summary.error_games for run in error_game_runs if run.summary)
+        if config.allow_errors:
+            lines.append(f"- Error games allowed: {total_error_games} error game(s) were reported.")
+        else:
+            lines.append(f"- Failure: {total_error_games} error game(s) were reported.")
     return "\n".join(lines) + "\n"
 
 
@@ -333,9 +372,7 @@ def run_matrix(config: EvalExperimentConfig, *, dry_run: bool) -> int:
 
     if dry_run:
         return 0
-    if any(run.exit_code != 0 for run in search_runs):
-        return 1
-    if any(run.exit_code != 0 or run.summary is None for run in match_runs):
+    if matrix_has_failures(search_runs, match_runs, allow_errors=config.allow_errors):
         return 1
     return 0
 
@@ -366,6 +403,22 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=0,
         type=int,
         help="search bench exact endgame threshold; default disables exact root solving",
+    )
+    parser.add_argument(
+        "--positions",
+        default="smoke",
+        choices=("smoke", "suite"),
+        help="search bench position set (default: smoke)",
+    )
+    parser.add_argument(
+        "--by-position",
+        action="store_true",
+        help="include per-position search bench rows and summaries",
+    )
+    parser.add_argument(
+        "--allow-errors",
+        action="store_true",
+        help="return success even if match summaries contain error games",
     )
     parser.add_argument(
         "--search-bench",
@@ -404,6 +457,9 @@ def config_from_args(args: argparse.Namespace) -> EvalExperimentConfig:
         search_bench=Path(args.search_bench) if args.search_bench else build_dir / "othello_search_bench",
         match_runner=Path(args.match_runner) if args.match_runner else build_dir / "othello_match_runner",
         exact_endgame_threshold=args.exact_endgame_threshold,
+        positions=args.positions,
+        by_position=args.by_position,
+        allow_errors=args.allow_errors,
     )
 
 

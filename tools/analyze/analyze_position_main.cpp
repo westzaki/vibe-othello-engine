@@ -166,7 +166,6 @@ void print_usage(std::string_view program_name) {
                 return std::nullopt;
             }
             options.evaluation_preset = *preset;
-            options.evaluation_config = othello::evaluation_config_for_preset(*preset);
         } else if (arg == "--root-candidates" || arg == "--root-breakdown") {
             options.root_candidates = true;
         } else {

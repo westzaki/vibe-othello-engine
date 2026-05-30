@@ -70,7 +70,6 @@ struct BenchmarkOptions {
     int aspiration_window = othello::SearchOptions{}.aspiration_window;
     int aspiration_max_researches = othello::SearchOptions{}.aspiration_max_researches;
     othello::EvaluationPreset evaluation_preset = othello::EvaluationPreset::Default;
-    othello::EvaluationConfig evaluation_config = othello::default_evaluation_config();
 };
 
 struct SearchBenchmarkResult {
@@ -452,7 +451,6 @@ void print_usage(std::string_view program_name) {
                 return std::nullopt;
             }
             options.evaluation_preset = *preset;
-            options.evaluation_config = othello::evaluation_config_for_preset(*preset);
             continue;
         }
 
@@ -623,7 +621,6 @@ make_positions(PositionSet position_set) {
     search_options.aspiration_window = options.aspiration_window;
     search_options.aspiration_max_researches = options.aspiration_max_researches;
     search_options.evaluation_preset = options.evaluation_preset;
-    search_options.evaluation_config = options.evaluation_config;
     return search_options;
 }
 

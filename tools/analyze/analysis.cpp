@@ -43,7 +43,6 @@ using Clock = std::chrono::steady_clock;
         .aspiration_window = options.aspiration_window,
         .aspiration_max_researches = options.aspiration_max_researches,
         .evaluation_preset = options.evaluation_preset,
-        .evaluation_config = options.evaluation_config,
     };
 }
 
@@ -167,6 +166,8 @@ std::vector<RootCandidateAnalysis> analyze_root_candidates(const Board& board,
     const Side root_side = board.side_to_move;
     const int child_depth = options.depth <= 0 ? 0 : options.depth - 1;
     const Bitboard moves = legal_moves(board);
+    const EvaluationConfig evaluation_config =
+        evaluation_config_for_preset(options.evaluation_preset);
 
     for (int index = Square::min_index; index <= Square::max_index; ++index) {
         const std::optional<Square> square = Square::from_index(index);
@@ -193,7 +194,7 @@ std::vector<RootCandidateAnalysis> analyze_root_candidates(const Board& board,
             .principal_variation =
                 candidate_principal_variation(square, child_search.principal_variation),
             .evaluation_after_move =
-                evaluate_basic_breakdown(*child_board, root_side, options.evaluation_config),
+                evaluate_basic_breakdown(*child_board, root_side, evaluation_config),
             .elapsed = end - start,
         });
     }
@@ -214,7 +215,7 @@ std::vector<RootCandidateAnalysis> analyze_root_candidates(const Board& board,
                 .child_search = child_search,
                 .principal_variation = child_search.principal_variation,
                 .evaluation_after_move =
-                    evaluate_basic_breakdown(*passed_board, root_side, options.evaluation_config),
+                    evaluate_basic_breakdown(*passed_board, root_side, evaluation_config),
                 .elapsed = end - start,
             });
         }
@@ -236,8 +237,10 @@ void print_report(const Board& board, const AnalysisOptions& options, const Sear
     const bool no_legal_moves = moves == 0;
     const bool pass_available = pass_turn(board).has_value();
     const bool game_over = is_game_over(board);
+    const EvaluationConfig evaluation_config =
+        evaluation_config_for_preset(options.evaluation_preset);
     const EvaluationBreakdown evaluation =
-        evaluate_basic_breakdown(board, board.side_to_move, options.evaluation_config);
+        evaluate_basic_breakdown(board, board.side_to_move, evaluation_config);
 
     std::cout << "Othello position analysis\n"
               << '\n'

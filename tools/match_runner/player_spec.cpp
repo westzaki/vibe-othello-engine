@@ -139,7 +139,6 @@ std::optional<PlayerSpec> parse_player_spec(std::string_view text) {
                         return std::nullopt;
                     }
                     search_options.evaluation_preset = *parsed;
-                    search_options.evaluation_config = evaluation_config_for_preset(*parsed);
                     seen_eval = true;
                 } else {
                     return std::nullopt;
@@ -169,7 +168,6 @@ SearchOptions make_search_options(const PlayerSpec& spec) noexcept {
     options.exact_endgame_empty_threshold = spec.search_options.exact_endgame_empty_threshold;
     options.use_pvs = spec.search_options.use_pvs;
     options.evaluation_preset = spec.search_options.evaluation_preset;
-    options.evaluation_config = spec.search_options.evaluation_config;
     return options;
 }
 

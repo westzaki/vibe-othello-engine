@@ -18,6 +18,14 @@
 #include <vector>
 
 namespace othello {
+
+EvaluationConfig resolve_evaluation_config(const SearchOptions& options) noexcept {
+    if (options.evaluation_config_override.has_value()) {
+        return *options.evaluation_config_override;
+    }
+    return evaluation_config_for_preset(options.evaluation_preset);
+}
+
 namespace {
 
 using search_detail::board_after_move;
@@ -286,7 +294,7 @@ constexpr MoveOrderingParams default_move_ordering_params{};
 struct SearchContext {
     explicit SearchContext(const SearchOptions& options, bool enable_dynamic_move_ordering) noexcept
         : transpositions{options}, dynamic_move_ordering{enable_dynamic_move_ordering},
-          use_pvs{options.use_pvs}, evaluation_config{options.evaluation_config} {}
+          use_pvs{options.use_pvs}, evaluation_config{resolve_evaluation_config(options)} {}
 
     SearchStats stats;
     TranspositionTable transpositions;

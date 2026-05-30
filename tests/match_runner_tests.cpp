@@ -63,13 +63,13 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
           othello::EvaluationPreset::Default);
     CHECK(runner::make_search_options(*eval_default).evaluation_preset ==
           othello::EvaluationPreset::Default);
-    CHECK(runner::make_search_options(*eval_default).evaluation_config ==
+    CHECK(othello::resolve_evaluation_config(runner::make_search_options(*eval_default)) ==
           othello::default_evaluation_config());
     CHECK(eval_smoke->search_options.evaluation_preset ==
           othello::EvaluationPreset::MobilityPlusSmoke);
     CHECK(runner::make_search_options(*eval_smoke).evaluation_preset ==
           othello::EvaluationPreset::MobilityPlusSmoke);
-    CHECK(runner::make_search_options(*eval_smoke).evaluation_config ==
+    CHECK(othello::resolve_evaluation_config(runner::make_search_options(*eval_smoke)) ==
           othello::evaluation_config_for_preset(othello::EvaluationPreset::MobilityPlusSmoke));
 }
 

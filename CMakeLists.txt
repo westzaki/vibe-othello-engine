@@ -133,3 +133,12 @@ set_tests_properties(
     othello_nboard_engine_help_includes_eval_preset
     PROPERTIES PASS_REGULAR_EXPRESSION "--eval-preset"
 )
+
+add_test(
+    NAME othello_nboard_engine_help_includes_exact_threshold
+    COMMAND $<TARGET_FILE:othello_nboard_engine> --help
+)
+set_tests_properties(
+    othello_nboard_engine_help_includes_exact_threshold
+    PROPERTIES PASS_REGULAR_EXPRESSION "--exact-endgame-threshold"
+)
