@@ -1,6 +1,7 @@
 #pragma once
 
 #include "search_common.hpp"
+#include "tt_common.hpp"
 
 #include <array>
 #include <bit>
@@ -17,19 +18,16 @@ namespace othello::endgame_detail {
 
 using search_detail::node_result_from_transposition_entry;
 using search_detail::NodeResult;
-
-enum class ExactTranspositionBound : std::uint8_t {
-    Exact,
-    Lower,
-    Upper,
-};
+using tt_detail::BoundKind;
+using tt_detail::bound_for_score;
+using tt_detail::proves_cutoff;
 
 struct ExactTranspositionEntry {
     ZobristHash hash = 0;
     int score = 0;
     std::int8_t empties = -1;
     std::int8_t best_move_index = -1;
-    ExactTranspositionBound bound = ExactTranspositionBound::Exact;
+    BoundKind bound = BoundKind::Exact;
     bool occupied = false;
 };
 
@@ -67,15 +65,7 @@ public:
         }
 
         const ExactTranspositionEntry& entry = *matching_entry;
-        if (entry.bound == ExactTranspositionBound::Exact) {
-            record_hit(stats, entry.bound);
-            return ExactTranspositionLookup{.cutoff = node_result_from_entry(entry)};
-        }
-        if (entry.bound == ExactTranspositionBound::Lower && entry.score >= beta) {
-            record_hit(stats, entry.bound);
-            return ExactTranspositionLookup{.cutoff = node_result_from_entry(entry)};
-        }
-        if (entry.bound == ExactTranspositionBound::Upper && entry.score <= alpha) {
+        if (proves_cutoff(entry.bound, entry.score, alpha, beta)) {
             record_hit(stats, entry.bound);
             return ExactTranspositionLookup{.cutoff = node_result_from_entry(entry)};
         }
@@ -83,7 +73,7 @@ public:
         if (!collect_best_move_hint) {
             return {};
         }
-        if (entry.bound != ExactTranspositionBound::Lower) {
+        if (entry.bound != BoundKind::Lower) {
             return {};
         }
 
@@ -108,12 +98,7 @@ public:
 
         const bool overwrites_entry = entry->occupied;
         const bool collides_with_different_hash = entry->occupied && entry->hash != hash;
-        ExactTranspositionBound bound = ExactTranspositionBound::Exact;
-        if (score <= original_alpha) {
-            bound = ExactTranspositionBound::Upper;
-        } else if (score >= beta) {
-            bound = ExactTranspositionBound::Lower;
-        }
+        const BoundKind bound = bound_for_score(score, original_alpha, beta);
 
         *entry = ExactTranspositionEntry{
             .hash = hash,
@@ -240,16 +225,16 @@ private:
         return best_move;
     }
 
-    static void record_hit(ExactEndgameStats& stats, ExactTranspositionBound bound) noexcept {
+    static void record_hit(ExactEndgameStats& stats, BoundKind bound) noexcept {
         ++stats.tt_hits;
         switch (bound) {
-        case ExactTranspositionBound::Exact:
+        case BoundKind::Exact:
             ++stats.tt_exact_hits;
             break;
-        case ExactTranspositionBound::Lower:
+        case BoundKind::Lower:
             ++stats.tt_lower_hits;
             break;
-        case ExactTranspositionBound::Upper:
+        case BoundKind::Upper:
             ++stats.tt_upper_hits;
             break;
         }

@@ -1,6 +1,7 @@
 #include "bitboard_ops.hpp"
 #include "hash_update.hpp"
 #include "search_common.hpp"
+#include "tt_common.hpp"
 
 #include <algorithm>
 #include <array>
@@ -45,6 +46,9 @@ using search_detail::principal_variation_from_vector;
 using search_detail::principal_variation_to_vector;
 using search_detail::principal_variation_with_move;
 using search_detail::PrincipalVariation;
+using tt_detail::BoundKind;
+using tt_detail::bound_for_score;
+using tt_detail::proves_cutoff;
 
 struct PrincipalVariationHint {
     const PrincipalVariation* principal_variation = nullptr;
@@ -63,18 +67,12 @@ struct OrderedMoveIndexes {
     std::size_t size = 0;
 };
 
-enum class TranspositionBound {
-    Exact,
-    Lower,
-    Upper,
-};
-
 struct TranspositionEntry {
     ZobristHash hash = 0;
     int depth = -1;
     int score = 0;
     int best_move_index = -1;
-    TranspositionBound bound = TranspositionBound::Exact;
+    BoundKind bound = BoundKind::Exact;
     bool occupied = false;
 };
 
@@ -117,19 +115,8 @@ public:
         }
 
         const TranspositionEntry& entry = *matching_entry;
-        if (entry.bound == TranspositionBound::Exact) {
-            ++stats.tt_hits;
-            ++stats.tt_exact_hits;
-            return TranspositionLookup{.cutoff = node_result_from_entry(entry)};
-        }
-        if (entry.bound == TranspositionBound::Lower && entry.score >= beta) {
-            ++stats.tt_hits;
-            ++stats.tt_lower_hits;
-            return TranspositionLookup{.cutoff = node_result_from_entry(entry)};
-        }
-        if (entry.bound == TranspositionBound::Upper && entry.score <= alpha) {
-            ++stats.tt_hits;
-            ++stats.tt_upper_hits;
+        if (proves_cutoff(entry.bound, entry.score, alpha, beta)) {
+            record_hit(stats, entry.bound);
             return TranspositionLookup{.cutoff = node_result_from_entry(entry)};
         }
 
@@ -153,12 +140,7 @@ public:
             return;
         }
 
-        TranspositionBound bound = TranspositionBound::Exact;
-        if (score <= original_alpha) {
-            bound = TranspositionBound::Upper;
-        } else if (score >= beta) {
-            bound = TranspositionBound::Lower;
-        }
+        const BoundKind bound = bound_for_score(score, original_alpha, beta);
 
         ++stats.tt_stores;
         if (entry->occupied) {
@@ -273,6 +255,21 @@ private:
 
         ++stats.tt_move_ordering_hits;
         return best_move;
+    }
+
+    static void record_hit(SearchStats& stats, BoundKind bound) noexcept {
+        ++stats.tt_hits;
+        switch (bound) {
+        case BoundKind::Exact:
+            ++stats.tt_exact_hits;
+            break;
+        case BoundKind::Lower:
+            ++stats.tt_lower_hits;
+            break;
+        case BoundKind::Upper:
+            ++stats.tt_upper_hits;
+            break;
+        }
     }
 };
 
