@@ -394,4 +394,210 @@ namespace othello::benchmarks {
     return positions;
 }
 
+[[nodiscard]] inline std::optional<std::vector<Position>> make_search_threshold_positions() {
+    auto positions = make_search_suite_positions();
+    if (!positions.has_value()) {
+        return std::nullopt;
+    }
+    positions->reserve(positions->size() + 12);
+
+    if (!add_position(*positions, "threshold-15-gated-exact",
+                      "...W.BBW\n"
+                      "....BBBB\n"
+                      "WB.BBWBB\n"
+                      ".BBBWWBB\n"
+                      ".BWBWBBB\n"
+                      ".BWWWBBB\n"
+                      ".BWWW.BB\n"
+                      "BBBBW.WB\n"
+                      "side=W",
+                      "threshold_endgame", "experimental_15,high_mobility,edge_heavy",
+                      "15-empty exact threshold fixture; expected adaptive16 exact root at "
+                      "legal_moves_current <= 10")) {
+        return std::nullopt;
+    }
+
+    if (!add_position(*positions, "threshold-15-gated-skip",
+                      "BBB..W.B\n"
+                      "BWWBB.B.\n"
+                      ".W.BBBWW\n"
+                      "WWBWBBWW\n"
+                      "..WWWBWW\n"
+                      ".BBWWWWW\n"
+                      "BBBBBBBB\n"
+                      "..B.W.W.\n"
+                      "side=W",
+                      "threshold_endgame",
+                      "experimental_15,high_mobility,corner_available,edge_heavy",
+                      "15-empty exact threshold fixture; expected adaptive16 skip for "
+                      "legal_moves_current")) {
+        return std::nullopt;
+    }
+
+    if (!add_position(*positions, "threshold-15-low-branching",
+                      "...WBW..\n"
+                      "..WWB.WW\n"
+                      ".WWWBWW.\n"
+                      ".WBBBBB.\n"
+                      "WBWBBBBW\n"
+                      "BBBBBWWW\n"
+                      "BBBBWWWW\n"
+                      "BW.B.WW.\n"
+                      "side=W",
+                      "threshold_endgame", "experimental_15,low_mobility,edge_heavy",
+                      "15-empty exact threshold fixture; expected adaptive16 exact root")) {
+        return std::nullopt;
+    }
+
+    if (!add_position(*positions, "threshold-15-parity-ish",
+                      "...WB...\n"
+                      "....B..B\n"
+                      "BBBBBWBB\n"
+                      ".BBBBBWB\n"
+                      "BWBWBWBB\n"
+                      "WWWBWBB.\n"
+                      "WWWWWWB.\n"
+                      "WWWWWWWB\n"
+                      "side=W",
+                      "threshold_endgame",
+                      "experimental_15,high_mobility,edge_heavy,x_square_risk",
+                      "15-empty exact threshold fixture; expected adaptive16 exact root at "
+                      "legal_moves_current <= 10")) {
+        return std::nullopt;
+    }
+
+    if (!add_position(*positions, "threshold-16-low-mobility",
+                      "...W.B.W\n"
+                      "....BBWB\n"
+                      "WB.BBWBB\n"
+                      ".BBBWWBB\n"
+                      ".BWBWBBB\n"
+                      ".BWWWBBB\n"
+                      ".BWWW.BB\n"
+                      "BBBBW.WB\n"
+                      "side=B",
+                      "threshold_endgame", "experimental_16,low_mobility,edge_heavy",
+                      "16-empty exact threshold fixture; expected adaptive16 exact root")) {
+        return std::nullopt;
+    }
+
+    if (!add_position(*positions, "threshold-16-normal-mobility",
+                      "BBB..W.B\n"
+                      "BWWB..B.\n"
+                      ".W.WWBWW\n"
+                      "WWBWBBWW\n"
+                      "..WWWBWW\n"
+                      ".BBWWWWW\n"
+                      "BBBBBBBB\n"
+                      "..B.W.W.\n"
+                      "side=B",
+                      "threshold_endgame",
+                      "experimental_16,normal_mobility,edge_heavy,balanced_count",
+                      "16-empty exact threshold fixture; expected adaptive16 exact root")) {
+        return std::nullopt;
+    }
+
+    if (!add_position(
+            *positions, "threshold-16-high-mobility",
+            "...W.W..\n"
+            "..WWW.WW\n"
+            ".WWWBWW.\n"
+            ".WBBBBB.\n"
+            "WBWBBBBW\n"
+            "BBBBBWWW\n"
+            "BBBBWWWW\n"
+            "BW.B.WW.\n"
+            "side=B",
+            "threshold_endgame",
+            "experimental_16,high_mobility,corner_available,corner_choice,edge_heavy,"
+            "balanced_count,x_square_risk",
+            "16-empty exact threshold fixture; expected adaptive16 skip for legal_moves_current")) {
+        return std::nullopt;
+    }
+
+    if (!add_position(*positions, "threshold-16-root-pass",
+                      "........\n"
+                      "BBBBBBBW\n"
+                      "BBWWBBB.\n"
+                      "BBBBBBBB\n"
+                      ".BBBBWBB\n"
+                      "..BBBWBB\n"
+                      "..BBBWWW\n"
+                      "..BBBBBW\n"
+                      "side=B",
+                      "threshold_endgame",
+                      "experimental_16,pass,low_mobility,edge_heavy,score_lopsided",
+                      "16-empty exact threshold fixture; expected adaptive16 skip for root pass")) {
+        return std::nullopt;
+    }
+
+    if (!add_position(*positions, "threshold-16-corner-choice",
+                      ".WB.B.BW\n"
+                      ".WWWWWWW\n"
+                      ".WBWWWWB\n"
+                      "W.WBWWW.\n"
+                      "WWBBBW.W\n"
+                      "WBBBB.W.\n"
+                      "WBBBBB..\n"
+                      "WBW...B.\n"
+                      "side=B",
+                      "threshold_endgame",
+                      "experimental_16,corner_choice,corner_available,edge_heavy,high_mobility",
+                      "16-empty exact threshold fixture; expected adaptive16 exact root")) {
+        return std::nullopt;
+    }
+
+    if (!add_position(*positions, "threshold-16-corner-race",
+                      ".BBBB...\n"
+                      "..WWWB..\n"
+                      ".WWWWW..\n"
+                      "WWWBWWWW\n"
+                      "WWWBWWWW\n"
+                      "W.BWWWWW\n"
+                      "WBBBWWW.\n"
+                      "B.WWWW..\n"
+                      "side=B",
+                      "threshold_endgame",
+                      "experimental_16,corner_race,corner_available,edge_heavy,high_mobility,"
+                      "x_square_risk,score_lopsided",
+                      "16-empty exact threshold fixture; expected adaptive16 exact root")) {
+        return std::nullopt;
+    }
+
+    if (!add_position(*positions, "threshold-16-edge-heavy",
+                      ".B....BW\n"
+                      ".WWWWWW.\n"
+                      ".WWWWBWW\n"
+                      ".WBWWWWW\n"
+                      "WWBWWBWW\n"
+                      ".WWWBBWW\n"
+                      "WWBBBBW.\n"
+                      "W...B.W.\n"
+                      "side=B",
+                      "threshold_endgame",
+                      "experimental_16,corner_available,high_mobility,score_lopsided",
+                      "16-empty exact threshold fixture; expected adaptive16 skip for "
+                      "legal_moves_current")) {
+        return std::nullopt;
+    }
+
+    if (!add_position(*positions, "threshold-16-parity-ish",
+                      "...W....\n"
+                      "....W..B\n"
+                      "BBBBBWBB\n"
+                      ".BBBBBWB\n"
+                      "BWBWBWBB\n"
+                      "WWWBWBB.\n"
+                      "WWWWWWB.\n"
+                      "WWWWWWWB\n"
+                      "side=B",
+                      "threshold_endgame",
+                      "experimental_16,parity-ish,balanced_count,edge_heavy,x_square_risk",
+                      "16-empty exact threshold fixture; expected adaptive16 exact root")) {
+        return std::nullopt;
+    }
+
+    return positions;
+}
+
 } // namespace othello::benchmarks

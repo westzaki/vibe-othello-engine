@@ -309,6 +309,9 @@ constexpr int search_score_max = 1'000'000'000;
 // Keep exact root endgame scores comparable with evaluate_basic terminal scores.
 // If the terminal score weight in evaluation.cpp changes, update this scale too.
 constexpr int exact_endgame_score_scale = 1'000;
+constexpr int adaptive_exact_always_max_empties = 14;
+constexpr int adaptive_exact_max_empties = 16;
+constexpr int adaptive_exact_max_legal_moves = 10;
 
 [[nodiscard]] int evaluate_for_search(const Board& board, SearchContext& context) noexcept {
     ++context.stats.eval_calls;
@@ -317,8 +320,7 @@ constexpr int exact_endgame_score_scale = 1'000;
 
 [[nodiscard]] bool should_solve_exact_endgame_at_root(const Board& board,
                                                       const SearchOptions& options) noexcept {
-    return options.exact_endgame_empty_threshold > 0 &&
-           empty_count(board) <= options.exact_endgame_empty_threshold;
+    return decide_exact_endgame_root(board, options).solve_exact;
 }
 
 [[nodiscard]] constexpr bool
@@ -768,6 +770,52 @@ ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
 }
 
 } // namespace
+
+ExactEndgameRootDecision
+decide_exact_endgame_root(const Board& board, const SearchOptions& options) noexcept {
+    ExactEndgameRootDecision decision{
+        .empty_count = empty_count(board),
+        .legal_moves_current = static_cast<int>(std::popcount(legal_moves(board))),
+    };
+
+    if (options.exact_endgame_empty_threshold <= 0) {
+        decision.skip_reason = ExactEndgameRootSkipReason::Disabled;
+        return decision;
+    }
+
+    if (options.exact_endgame_root_policy == ExactEndgameRootPolicy::FixedThreshold) {
+        if (decision.empty_count > options.exact_endgame_empty_threshold) {
+            decision.skip_reason = ExactEndgameRootSkipReason::AboveThreshold;
+            return decision;
+        }
+
+        decision.solve_exact = true;
+        return decision;
+    }
+
+    if (decision.empty_count <= adaptive_exact_always_max_empties) {
+        decision.solve_exact = true;
+        return decision;
+    }
+    if (decision.empty_count > adaptive_exact_max_empties) {
+        decision.skip_reason = ExactEndgameRootSkipReason::AboveThreshold;
+        return decision;
+    }
+
+    const bool root_pass =
+        decision.legal_moves_current == 0 && pass_turn(board).has_value();
+    if (root_pass) {
+        decision.skip_reason = ExactEndgameRootSkipReason::AdaptiveRootPass;
+        return decision;
+    }
+    if (decision.legal_moves_current > adaptive_exact_max_legal_moves) {
+        decision.skip_reason = ExactEndgameRootSkipReason::AdaptiveTooManyLegalMoves;
+        return decision;
+    }
+
+    decision.solve_exact = true;
+    return decision;
+}
 
 SearchResult search(const Board& board, const SearchOptions& options) noexcept {
     if (should_solve_exact_endgame_at_root(board, options)) {
