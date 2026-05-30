@@ -7,6 +7,7 @@ records.
 
 - [roadmap.md](roadmap.md): long-term development direction
 - [capability-map.md](capability-map.md): durable engine workstreams
+- [evaluation.md](evaluation.md): durable evaluation-improvement guidance
 - [benchmarks.md](benchmarks.md): benchmark and measurement entry point
 
 Specialized measurement workflows, including base/head comparison, are linked
