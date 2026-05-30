@@ -10,18 +10,19 @@ The exact solver core is unchanged. The new search option only decides whether
 the existing root exact handoff should happen before depth-limited search starts.
 No forward pruning, MPC, ProbCut, or eval-based pruning was added.
 
-## Profile
+## Final Profile
 
 `adaptive16` uses this root-only gate:
 
 - `empties <= 14`: solve exactly at the root
 - `empties == 15 || empties == 16`: solve exactly only when the root is not a
-  pass and `legal_moves_current <= 10`
+  pass, `legal_moves_current <= 10`, and `legal_moves_opponent <= 10`
 - otherwise: keep depth-limited search
 
 The benchmark prints `exact_profile`, `exact_root`, and `exact_skip_reason` in
-`--by-position` output. Adaptive skip reasons are
-`adaptive_root_pass` and `adaptive_too_many_legal_moves`.
+`--by-position` output. Adaptive skip reasons include `adaptive_root_pass`,
+`adaptive_too_many_legal_moves`, and
+`adaptive_opponent_too_many_legal_moves`.
 
 ## Commands
 
@@ -42,7 +43,7 @@ ctest --test-dir build/release --output-on-failure
   --repetitions 3 \
   --tt on \
   --pvs on \
-  --exact-endgame-thresholds 0,12,14,16,adaptive16 \
+  --exact-endgame-thresholds 14,16,adaptive16_current,adaptive16_cap8,adaptive16_cap6,adaptive16_opp10,adaptive16_shape,adaptive16_split,adaptive16 \
   --by-position
 
 ./build/release/othello_search_bench \
@@ -52,7 +53,7 @@ ctest --test-dir build/release --output-on-failure
   --repetitions 3 \
   --tt on \
   --pvs on \
-  --exact-endgame-thresholds 0,12,14,16,adaptive16
+  --exact-endgame-thresholds 14,16,adaptive16_current,adaptive16_cap8,adaptive16_cap6,adaptive16_opp10,adaptive16_shape,adaptive16_split,adaptive16
 ```
 
 `ctest` passed: 173/173.
@@ -62,58 +63,79 @@ The `threshold` position set contains the normal search suite plus 12 focused
 12 `threshold_endgame` positions, no duplicate hashes, successful parse and
 round-trip validation, and 0 tag consistency warnings.
 
-## Matrix
+## Gate Candidate Matrix
 
 The latency columns below come from `--by-position` totals across 3 repetitions.
 The node, TT, and checksum columns come from the aggregate matrix run with the
-same options.
+same options. `adaptive16_current` is the original PR133 gate
+`!root_pass && legal_moves_current <= 10`; `adaptive16_opp10` is the adopted
+gate and matches the final `adaptive16` rows.
 
 | profile | depth | exact positions | exact searches | elapsed ms | p95 ms | max ms | nodes | tt hits | tt stores | tt collisions | tt rejects | tt order used | result checksum | work checksum |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 0 | 5 | 0 | 0 | 87.947 | 3.636 | 4.272 | 157749 | 12951 | 144798 | 0 | 0 | 261 | 9742978052958068980 | 8286569838420371183 |
-| 0 | 6 | 0 | 0 | 162.556 | 11.099 | 11.317 | 427200 | 35730 | 391470 | 0 | 0 | 1152 | 747427656184018066 | 12567274672448995021 |
-| 0 | 7 | 0 | 0 | 322.800 | 20.473 | 25.187 | 1285968 | 103857 | 1182111 | 54 | 0 | 3516 | 11611330869328382833 | 17813850696896623080 |
-| 12 | 5 | 3 | 9 | 86.886 | 3.951 | 5.738 | 218604 | 13968 | 150657 | 6 | 0 | 669 | 11642763057894049690 | 1248946792561648365 |
-| 12 | 6 | 3 | 9 | 149.209 | 7.395 | 8.908 | 486039 | 36600 | 395460 | 6 | 0 | 1560 | 6901725352926766295 | 2213546040478333137 |
-| 12 | 7 | 3 | 9 | 317.069 | 18.042 | 26.688 | 1339329 | 104235 | 1181115 | 60 | 0 | 3864 | 1847053620713117447 | 4767190252559119238 |
-| 14 | 5 | 4 | 12 | 136.942 | 5.731 | 45.982 | 659088 | 27051 | 220695 | 6 | 0 | 699 | 16862106491899255446 | 17090911097487390677 |
-| 14 | 6 | 4 | 12 | 191.765 | 8.975 | 45.302 | 924798 | 49605 | 463851 | 6 | 0 | 1590 | 11074444395529033897 | 3133197338037304321 |
-| 14 | 7 | 4 | 12 | 359.486 | 24.971 | 45.775 | 1775226 | 117024 | 1246860 | 60 | 0 | 3894 | 2058012177191467732 | 8733970900851853078 |
-| 16 | 5 | 16 | 48 | 7263.918 | 1069.571 | 1757.451 | 79012149 | 1381614 | 10717047 | 377763 | 36504 | 124089 | 10771908028756078351 | 7026922321084717132 |
-| 16 | 6 | 16 | 48 | 7274.907 | 1078.737 | 1736.245 | 79197249 | 1396383 | 10887378 | 377763 | 36504 | 124755 | 17951627163408822685 | 11621785751850506781 |
-| 16 | 7 | 16 | 48 | 7445.538 | 1073.569 | 1760.354 | 79835559 | 1441935 | 11480136 | 377817 | 36504 | 126633 | 10447987388750384557 | 4785386902644746397 |
-| adaptive16 | 5 | 12 | 36 | 2744.514 | 359.152 | 804.469 | 27717135 | 557337 | 4399017 | 26268 | 1479 | 60318 | 8457168178253632463 | 14766315611800480939 |
-| adaptive16 | 6 | 12 | 36 | 2808.483 | 345.300 | 812.747 | 27935847 | 574875 | 4600191 | 26268 | 1479 | 61044 | 15426617469385266235 | 10348856323092117873 |
-| adaptive16 | 7 | 12 | 36 | 2929.440 | 347.010 | 796.783 | 28680435 | 632001 | 5287653 | 26322 | 1479 | 62988 | 12836715295151725146 | 8463101136174543138 |
+| 14 | 5 | 4 | 12 | 126.925 | 5.513 | 42.035 | 659088 | 27051 | 220695 | 6 | 0 | 699 | 16862106491899255446 | 17090911097487390677 |
+| 14 | 6 | 4 | 12 | 174.487 | 7.579 | 41.838 | 924798 | 49605 | 463851 | 6 | 0 | 1590 | 11074444395529033897 | 3133197338037304321 |
+| 14 | 7 | 4 | 12 | 333.777 | 23.684 | 41.649 | 1775226 | 117024 | 1246860 | 60 | 0 | 3894 | 2058012177191467732 | 8733970900851853078 |
+| 16 | 5 | 16 | 48 | 6715.330 | 1004.994 | 1604.970 | 79012149 | 1381614 | 10717047 | 377763 | 36504 | 124089 | 10771908028756078351 | 7026922321084717132 |
+| 16 | 6 | 16 | 48 | 6778.948 | 1005.553 | 1614.348 | 79197249 | 1396383 | 10887378 | 377763 | 36504 | 124755 | 17951627163408822685 | 11621785751850506781 |
+| 16 | 7 | 16 | 48 | 6894.126 | 993.378 | 1642.823 | 79835559 | 1441935 | 11480136 | 377817 | 36504 | 126633 | 10447987388750384557 | 4785386902644746397 |
+| adaptive16_current | 5 | 12 | 36 | 2557.911 | 318.621 | 741.720 | 27717135 | 557337 | 4399017 | 26268 | 1479 | 60318 | 8457168178253632463 | 14766315611800480939 |
+| adaptive16_current | 6 | 12 | 36 | 2597.080 | 318.139 | 741.259 | 27935847 | 574875 | 4600191 | 26268 | 1479 | 61044 | 15426617469385266235 | 10348856323092117873 |
+| adaptive16_current | 7 | 12 | 36 | 2729.945 | 319.651 | 743.875 | 28680435 | 632001 | 5287653 | 26322 | 1479 | 62988 | 12836715295151725146 | 8463101136174543138 |
+| adaptive16_cap8 | 5 | 8 | 24 | 1527.978 | 320.121 | 734.482 | 16622019 | 346896 | 2625921 | 25305 | 1398 | 22962 | 18268349999238356251 | 151241845288489049 |
+| adaptive16_cap8 | 6 | 8 | 24 | 1563.991 | 313.615 | 729.913 | 16860477 | 365853 | 2845422 | 25305 | 1398 | 23700 | 11276078617595851465 | 3959157466303351326 |
+| adaptive16_cap8 | 7 | 8 | 24 | 1769.665 | 321.988 | 767.491 | 17678274 | 430137 | 3598935 | 25359 | 1398 | 25956 | 15509322700832126615 | 6959567710591792128 |
+| adaptive16_cap6 | 5 | 8 | 24 | 1521.575 | 313.452 | 736.814 | 16622019 | 346896 | 2625921 | 25305 | 1398 | 22962 | 18268349999238356251 | 151241845288489049 |
+| adaptive16_cap6 | 6 | 8 | 24 | 1585.323 | 313.370 | 746.336 | 16860477 | 365853 | 2845422 | 25305 | 1398 | 23700 | 11276078617595851465 | 3959157466303351326 |
+| adaptive16_cap6 | 7 | 8 | 24 | 1722.815 | 316.123 | 730.055 | 17678274 | 430137 | 3598935 | 25359 | 1398 | 25956 | 15509322700832126615 | 6959567710591792128 |
+| adaptive16_opp10 | 5 | 9 | 27 | 1388.751 | 259.783 | 319.270 | 14764290 | 300858 | 2461776 | 1296 | 84 | 39861 | 6201606973134274868 | 4654120057371283909 |
+| adaptive16_opp10 | 6 | 9 | 27 | 1431.550 | 254.103 | 321.688 | 15007614 | 321906 | 2684052 | 1296 | 84 | 40740 | 17607187514542259604 | 10746489409953566585 |
+| adaptive16_opp10 | 7 | 9 | 27 | 1595.481 | 263.102 | 318.322 | 15776253 | 381075 | 3393522 | 1350 | 84 | 42708 | 9711819699844517000 | 6669751809884779164 |
+| adaptive16_shape | 5 | 4 | 12 | 121.982 | 5.498 | 41.125 | 659088 | 27051 | 220695 | 6 | 0 | 699 | 16862106491899255446 | 17090911097487390677 |
+| adaptive16_shape | 6 | 4 | 12 | 174.132 | 7.606 | 41.159 | 924798 | 49605 | 463851 | 6 | 0 | 1590 | 11074444395529033897 | 3133197338037304321 |
+| adaptive16_shape | 7 | 4 | 12 | 332.308 | 23.715 | 41.161 | 1775226 | 117024 | 1246860 | 60 | 0 | 3894 | 2058012177191467732 | 8733970900851853078 |
+| adaptive16_split | 5 | 10 | 30 | 2003.461 | 313.635 | 737.871 | 21826962 | 456447 | 3487896 | 25668 | 1419 | 47229 | 11224400053047128387 | 2458974580397796028 |
+| adaptive16_split | 6 | 10 | 30 | 2073.149 | 321.060 | 750.447 | 22056027 | 474606 | 3698802 | 25668 | 1419 | 47955 | 5285062416457847840 | 6897818971380706463 |
+| adaptive16_split | 7 | 10 | 30 | 2197.541 | 312.251 | 742.037 | 22842516 | 536343 | 4423554 | 25722 | 1419 | 50109 | 17397038825450070186 | 8498196892420521694 |
+| adaptive16 | 5 | 9 | 27 | 1386.733 | 262.326 | 319.353 | 14764290 | 300858 | 2461776 | 1296 | 84 | 39861 | 6201606973134274868 | 4654120057371283909 |
+| adaptive16 | 6 | 9 | 27 | 1438.560 | 254.805 | 318.821 | 15007614 | 321906 | 2684052 | 1296 | 84 | 40740 | 17607187514542259604 | 10746489409953566585 |
+| adaptive16 | 7 | 9 | 27 | 1580.552 | 255.427 | 319.369 | 15776253 | 381075 | 3393522 | 1350 | 84 | 42708 | 9711819699844517000 | 6669751809884779164 |
 
-Fixed `exact=16` is unsafe as a default candidate on this threshold suite: at
-depth 7 it exact-solves all 15/16 fixtures, pushes p95 per-position latency to
-about 1074 ms, and reaches a max of about 1760 ms.
+Fixed `exact=16` remains unsafe as a default candidate on this threshold suite:
+at depth 7 it exact-solves all 15/16 fixtures, pushes p95 per-position latency
+to about 993 ms, and reaches a max of about 1643 ms.
 
-`adaptive16` is much lighter than fixed `exact=16`: at depth 7 it reduces p95
-from 1073.569 ms to 347.010 ms and max from 1760.354 ms to 796.783 ms while
-still exact-solving 8 of the 12 focused 15/16-empty fixtures. It is still far
-heavier than `exact=14`, so this remains an experimental opt-in profile rather
-than a default.
+The original current gate (`adaptive16_current`) is much lighter than fixed 16,
+but still keeps a heavy 16-empty low-current-mobility root with high opponent
+mobility. Adding the opponent mobility cap (`adaptive16_opp10`) reduces depth-7
+p95 from 319.651 ms to 263.102 ms and max from 743.875 ms to 318.322 ms while
+still exact-solving 5 of the 12 focused 15/16-empty fixtures.
 
-## Adaptive Root Decisions
+`adaptive16_cap8`, `adaptive16_cap6`, and `adaptive16_split` reduce exactized
+roots but still keep the same worst 16-empty opponent-heavy roots, so max latency
+stays around 730-767 ms. `adaptive16_shape` is very light, but exactizes none of
+the focused 15/16-empty fixtures and collapses back to `exact=14` behavior for
+this suite.
 
-Depth 7 by-position rows for the focused threshold fixtures:
+## Final Adaptive Root Decisions
 
-| position | empty | legal moves | pass | adaptive16 | skip reason | elapsed ms | nodes | best move | score |
-| --- | ---: | ---: | --- | --- | --- | ---: | ---: | --- | ---: |
-| threshold-15-gated-exact | 15 | 10 | no | yes | - | 275.439 | 2598279 | c7 | -2000 |
-| threshold-15-gated-skip | 15 | 12 | no | no | adaptive_too_many_legal_moves | 11.532 | 46398 | h1 | 113 |
-| threshold-15-low-branching | 15 | 3 | no | yes | - | 345.546 | 3956346 | c1 | -36000 |
-| threshold-15-parity-ish | 15 | 10 | no | yes | - | 246.335 | 2613789 | f7 | 45000 |
-| threshold-16-low-mobility | 16 | 3 | no | yes | - | 107.500 | 965775 | f1 | 2000 |
-| threshold-16-normal-mobility | 16 | 6 | no | yes | - | 796.783 | 8038125 | h7 | -4000 |
-| threshold-16-high-mobility | 16 | 14 | no | no | adaptive_too_many_legal_moves | 10.070 | 42216 | c1 | 461 |
-| threshold-16-root-pass | 16 | 0 | yes | no | adaptive_root_pass | 4.708 | 15234 | - | -465 |
-| threshold-16-corner-choice | 16 | 9 | no | yes | - | 229.272 | 2204412 | d1 | -14000 |
-| threshold-16-corner-race | 16 | 10 | no | yes | - | 347.010 | 3697179 | g6 | 34000 |
-| threshold-16-edge-heavy | 16 | 13 | no | no | adaptive_too_many_legal_moves | 14.123 | 60309 | h1 | 35 |
-| threshold-16-parity-ish | 16 | 4 | no | yes | - | 272.130 | 3011688 | f8 | -43000 |
+Depth 7 by-position rows for the focused threshold fixtures with final
+`adaptive16`:
+
+| position | empty | legal current | legal opponent | pass | adaptive16 | skip reason | elapsed ms | nodes | best move | score |
+| --- | ---: | ---: | ---: | --- | --- | --- | ---: | ---: | --- | ---: |
+| threshold-15-gated-exact | 15 | 10 | 2 | no | yes | - | 255.383 | 2598279 | c7 | -2000 |
+| threshold-15-gated-skip | 15 | 12 | 4 | no | no | adaptive_too_many_legal_moves | 10.755 | 46398 | h1 | 113 |
+| threshold-15-low-branching | 15 | 3 | 13 | no | no | adaptive_opponent_too_many_legal_moves | 4.338 | 13986 | c1 | -321 |
+| threshold-15-parity-ish | 15 | 10 | 3 | no | yes | - | 226.451 | 2613789 | f7 | 45000 |
+| threshold-16-low-mobility | 16 | 3 | 11 | no | no | adaptive_opponent_too_many_legal_moves | 4.417 | 11310 | g8 | 164 |
+| threshold-16-normal-mobility | 16 | 6 | 12 | no | no | adaptive_opponent_too_many_legal_moves | 7.504 | 30768 | h7 | 88 |
+| threshold-16-high-mobility | 16 | 14 | 3 | no | no | adaptive_too_many_legal_moves | 8.766 | 42216 | c1 | 461 |
+| threshold-16-root-pass | 16 | 0 | 13 | yes | no | adaptive_root_pass | 4.268 | 15234 | - | -465 |
+| threshold-16-corner-choice | 16 | 9 | 8 | no | yes | - | 214.468 | 2204412 | d1 | -14000 |
+| threshold-16-corner-race | 16 | 10 | 5 | no | yes | - | 319.369 | 3697179 | g6 | 34000 |
+| threshold-16-edge-heavy | 16 | 13 | 5 | no | no | adaptive_too_many_legal_moves | 13.268 | 60309 | h1 | 35 |
+| threshold-16-parity-ish | 16 | 4 | 9 | no | yes | - | 255.427 | 3011688 | f8 | -43000 |
 
 ## Semantic Changes
 
@@ -129,8 +151,9 @@ the gate returns false, the normal depth-limited search path runs unchanged.
 
 ## Decision
 
-Keep the default threshold behavior unchanged. `adaptive16` is useful evidence
-for a conservative 15/16-empty opt-in profile, but the remaining tail is too
-large for default promotion. Next steps should test a larger threshold fixture
-set and consider a stricter 15/16 gate, such as a lower legal-move cap or a
-simple root-shape metric, before exposing it as a recommended profile.
+Keep the default threshold behavior unchanged. Adopt the opponent-mobility guard
+inside the experimental `adaptive16` profile because it is substantially lighter
+than fixed `exact=16`, improves p95/max over the original current gate, and still
+exact-solves a non-trivial subset of 15/16-empty roots. This remains an
+experimental opt-in profile; more 15/16 fixtures and match-level checks are
+needed before recommending it as a default or normal profile.

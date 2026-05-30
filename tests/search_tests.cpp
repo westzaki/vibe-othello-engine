@@ -50,6 +50,18 @@ side=B)");
 }
 
 [[nodiscard]] Board adaptive_exact_allowed_board() {
+    return othello::test::board_from_text(R"(.WB.B.BW
+.WWWWWWW
+.WBWWWWB
+W.WBWWW.
+WWBBBW.W
+WBBBB.W.
+WBBBBB..
+WBW...B.
+side=B)");
+}
+
+[[nodiscard]] Board adaptive_exact_opponent_high_mobility_board() {
     return othello::test::board_from_text(R"(...W.B.W
 ....BBWB
 WB.BBWBB
@@ -480,7 +492,8 @@ TEST_CASE("Adaptive exact root policy solves conservative sixteen-empty roots", 
 
     CHECK(decision.solve_exact);
     CHECK(decision.empty_count == 16);
-    CHECK(decision.legal_moves_current == 3);
+    CHECK(decision.legal_moves_current == 9);
+    CHECK(decision.legal_moves_opponent == 8);
     CHECK(decision.skip_reason == othello::ExactEndgameRootSkipReason::None);
     CHECK(result.best_move == exact.best_move);
     CHECK(result.score == exact.disc_margin * exact_endgame_score_scale);
@@ -523,6 +536,15 @@ TEST_CASE("Adaptive exact root policy gates fifteen-empty roots by mobility", "[
     CHECK(skipped_decision.legal_moves_current == 12);
     CHECK(skipped_decision.skip_reason ==
           othello::ExactEndgameRootSkipReason::AdaptiveTooManyLegalMoves);
+
+    const othello::ExactEndgameRootDecision opponent_decision =
+        othello::decide_exact_endgame_root(adaptive_exact_opponent_high_mobility_board(), options);
+    CHECK_FALSE(opponent_decision.solve_exact);
+    CHECK(opponent_decision.empty_count == 16);
+    CHECK(opponent_decision.legal_moves_current == 3);
+    CHECK(opponent_decision.legal_moves_opponent == 11);
+    CHECK(opponent_decision.skip_reason ==
+          othello::ExactEndgameRootSkipReason::AdaptiveOpponentTooManyLegalMoves);
 }
 
 TEST_CASE("Adaptive exact root policy skips heavy sixteen-empty roots", "[search]") {

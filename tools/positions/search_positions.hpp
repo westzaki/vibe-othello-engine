@@ -445,7 +445,8 @@ namespace othello::benchmarks {
                       "BW.B.WW.\n"
                       "side=W",
                       "threshold_endgame", "experimental_15,low_mobility,edge_heavy",
-                      "15-empty exact threshold fixture; expected adaptive16 exact root")) {
+                      "15-empty exact threshold fixture; expected adaptive16 skip for "
+                      "legal_moves_opponent")) {
         return std::nullopt;
     }
 
@@ -477,7 +478,8 @@ namespace othello::benchmarks {
                       "BBBBW.WB\n"
                       "side=B",
                       "threshold_endgame", "experimental_16,low_mobility,edge_heavy",
-                      "16-empty exact threshold fixture; expected adaptive16 exact root")) {
+                      "16-empty exact threshold fixture; expected adaptive16 skip for "
+                      "legal_moves_opponent")) {
         return std::nullopt;
     }
 
@@ -493,7 +495,8 @@ namespace othello::benchmarks {
                       "side=B",
                       "threshold_endgame",
                       "experimental_16,normal_mobility,edge_heavy,balanced_count",
-                      "16-empty exact threshold fixture; expected adaptive16 exact root")) {
+                      "16-empty exact threshold fixture; expected adaptive16 skip for "
+                      "legal_moves_opponent")) {
         return std::nullopt;
     }
 

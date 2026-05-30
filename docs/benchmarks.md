@@ -132,10 +132,10 @@ threshold/profile, input empty count, whether the root was solved exactly, skip
 reason for non-exact roots, per-position result/work checksums, TT stats, and
 per-threshold p95/max latency summaries. The `adaptive16` profile is
 experimental: roots at 14 empties or fewer solve exactly, while 15/16-empty roots
-solve only when the current side has a move and `legal_moves_current <= 10`.
-Treat threshold/profile changes as semantic search changes whenever a position
-becomes root-exact; exact scores, best moves, PVs, and checksums may legitimately
-differ from depth-limited search.
+solve only when the current side has a move, `legal_moves_current <= 10`, and
+`legal_moves_opponent <= 10`. Treat threshold/profile changes as semantic search
+changes whenever a position becomes root-exact; exact scores, best moves, PVs,
+and checksums may legitimately differ from depth-limited search.
 
 ## Comparing the Existing Stronger Midgame Preset
 

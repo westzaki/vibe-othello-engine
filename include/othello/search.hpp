@@ -60,12 +60,14 @@ enum class ExactEndgameRootSkipReason {
     AboveThreshold,
     AdaptiveRootPass,
     AdaptiveTooManyLegalMoves,
+    AdaptiveOpponentTooManyLegalMoves,
 };
 
 struct ExactEndgameRootDecision {
     bool solve_exact = false;
     int empty_count = 0;
     int legal_moves_current = 0;
+    int legal_moves_opponent = 0;
     ExactEndgameRootSkipReason skip_reason = ExactEndgameRootSkipReason::None;
 };
 
@@ -94,7 +96,7 @@ struct SearchOptions {
     int exact_endgame_empty_threshold = 12;
     // Adaptive16 is an experimental root-only profile: <=14 empties solve
     // exactly, while 15/16 empties solve only for conservative low-branching
-    // roots.
+    // roots with bounded opponent mobility.
     ExactEndgameRootPolicy exact_endgame_root_policy =
         ExactEndgameRootPolicy::FixedThreshold;
     bool use_pvs = false;

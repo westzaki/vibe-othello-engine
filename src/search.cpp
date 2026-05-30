@@ -312,6 +312,7 @@ constexpr int exact_endgame_score_scale = 1'000;
 constexpr int adaptive_exact_always_max_empties = 14;
 constexpr int adaptive_exact_max_empties = 16;
 constexpr int adaptive_exact_max_legal_moves = 10;
+constexpr int adaptive_exact_max_opponent_legal_moves = 10;
 
 [[nodiscard]] int evaluate_for_search(const Board& board, SearchContext& context) noexcept {
     ++context.stats.eval_calls;
@@ -773,9 +774,13 @@ ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
 
 ExactEndgameRootDecision
 decide_exact_endgame_root(const Board& board, const SearchOptions& options) noexcept {
+    Board opponent_board = board;
+    opponent_board.side_to_move = opponent(board.side_to_move);
+
     ExactEndgameRootDecision decision{
         .empty_count = empty_count(board),
         .legal_moves_current = static_cast<int>(std::popcount(legal_moves(board))),
+        .legal_moves_opponent = static_cast<int>(std::popcount(legal_moves(opponent_board))),
     };
 
     if (options.exact_endgame_empty_threshold <= 0) {
@@ -810,6 +815,10 @@ decide_exact_endgame_root(const Board& board, const SearchOptions& options) noex
     }
     if (decision.legal_moves_current > adaptive_exact_max_legal_moves) {
         decision.skip_reason = ExactEndgameRootSkipReason::AdaptiveTooManyLegalMoves;
+        return decision;
+    }
+    if (decision.legal_moves_opponent > adaptive_exact_max_opponent_legal_moves) {
+        decision.skip_reason = ExactEndgameRootSkipReason::AdaptiveOpponentTooManyLegalMoves;
         return decision;
     }
 

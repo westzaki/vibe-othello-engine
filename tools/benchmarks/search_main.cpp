@@ -20,6 +20,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -39,6 +40,8 @@ using othello::tools::elapsed_ms;
 using othello::tools::format_principal_variation;
 using othello::tools::tt_hit_percentage;
 
+constexpr int exact_endgame_score_scale = 1'000;
+
 enum class SearchBenchmarkMode {
     Fixed,
     Iterative,
@@ -56,10 +59,21 @@ enum class PositionSet {
     Threshold,
 };
 
+enum class ExactRootProfileKind {
+    Engine,
+    Adaptive16Current,
+    Adaptive16Cap8,
+    Adaptive16Cap6,
+    Adaptive16Opponent10,
+    Adaptive16Shape,
+    Adaptive16Split,
+};
+
 struct ExactRootProfile {
     std::string label;
     int threshold = 0;
     othello::ExactEndgameRootPolicy policy = othello::ExactEndgameRootPolicy::FixedThreshold;
+    ExactRootProfileKind kind = ExactRootProfileKind::Engine;
 };
 
 [[nodiscard]] ExactRootProfile fixed_exact_root_profile(int threshold) {
@@ -74,6 +88,15 @@ struct ExactRootProfile {
         .label = "adaptive16",
         .threshold = 16,
         .policy = othello::ExactEndgameRootPolicy::Adaptive16,
+    };
+}
+
+[[nodiscard]] ExactRootProfile experimental_exact_root_profile(std::string label,
+                                                               ExactRootProfileKind kind) {
+    return ExactRootProfile{
+        .label = std::move(label),
+        .threshold = 16,
+        .kind = kind,
     };
 }
 
@@ -147,6 +170,14 @@ struct PositionBenchmarkResult {
     std::uint64_t work_checksum;
 };
 
+struct BenchmarkExactRootDecision {
+    bool solve_exact = false;
+    int empty_count = 0;
+    int legal_moves_current = 0;
+    int legal_moves_opponent = 0;
+    std::string_view skip_reason = "-";
+};
+
 void print_usage(std::string_view program_name) {
     std::cout << "usage: " << program_name
               << " [--mode fixed|iterative|both] [--depths 1,2,3,4,5]"
@@ -179,7 +210,9 @@ void print_usage(std::string_view program_name) {
                  "experimental adaptive16 root profile; N <= 0 disables\n"
               << "  --exact-endgame-thresholds LIST\n"
               << "                      comma-separated exact root thresholds/profiles for matrix "
-                 "runs; tokens may include adaptive16\n"
+                 "runs; tokens may include adaptive16, adaptive16_current, "
+                 "adaptive16_cap8, adaptive16_cap6, adaptive16_opp10, "
+                 "adaptive16_shape, or adaptive16_split\n"
               << "  --eval-preset NAME builtin evaluator preset name\n"
               << "  --help              show this help text\n";
 }
@@ -271,6 +304,30 @@ void print_usage(std::string_view program_name) {
 [[nodiscard]] std::optional<ExactRootProfile> parse_exact_root_profile(std::string_view text) {
     if (text == "adaptive16") {
         return adaptive16_exact_root_profile();
+    }
+    if (text == "adaptive16_current") {
+        return experimental_exact_root_profile("adaptive16_current",
+                                               ExactRootProfileKind::Adaptive16Current);
+    }
+    if (text == "adaptive16_cap8") {
+        return experimental_exact_root_profile("adaptive16_cap8",
+                                               ExactRootProfileKind::Adaptive16Cap8);
+    }
+    if (text == "adaptive16_cap6") {
+        return experimental_exact_root_profile("adaptive16_cap6",
+                                               ExactRootProfileKind::Adaptive16Cap6);
+    }
+    if (text == "adaptive16_opp10") {
+        return experimental_exact_root_profile("adaptive16_opp10",
+                                               ExactRootProfileKind::Adaptive16Opponent10);
+    }
+    if (text == "adaptive16_shape") {
+        return experimental_exact_root_profile("adaptive16_shape",
+                                               ExactRootProfileKind::Adaptive16Shape);
+    }
+    if (text == "adaptive16_split") {
+        return experimental_exact_root_profile("adaptive16_split",
+                                               ExactRootProfileKind::Adaptive16Split);
     }
 
     const auto threshold = parse_int(text);
@@ -721,6 +778,20 @@ make_positions(PositionSet position_set) {
            othello::disc_count(board, othello::Side::White);
 }
 
+[[nodiscard]] int opponent_legal_move_count(const othello::Board& board) noexcept {
+    auto opponent_board = board;
+    opponent_board.side_to_move = othello::opponent(board.side_to_move);
+    return count_bits(othello::legal_moves(opponent_board));
+}
+
+[[nodiscard]] bool root_is_edge_heavy(const othello::Board& board) noexcept {
+    return count_bits(board.occupied() & edge_bits()) >= 13;
+}
+
+[[nodiscard]] bool profile_uses_engine_gate(const ExactRootProfile& profile) noexcept {
+    return profile.kind == ExactRootProfileKind::Engine;
+}
+
 [[nodiscard]] std::string_view
 exact_root_skip_reason_name(othello::ExactEndgameRootSkipReason reason) noexcept {
     switch (reason) {
@@ -734,9 +805,82 @@ exact_root_skip_reason_name(othello::ExactEndgameRootSkipReason reason) noexcept
         return "adaptive_root_pass";
     case othello::ExactEndgameRootSkipReason::AdaptiveTooManyLegalMoves:
         return "adaptive_too_many_legal_moves";
+    case othello::ExactEndgameRootSkipReason::AdaptiveOpponentTooManyLegalMoves:
+        return "adaptive_opponent_too_many_legal_moves";
     }
 
     return "unknown";
+}
+
+[[nodiscard]] BenchmarkExactRootDecision
+benchmark_exact_root_decision(const othello::Board& board, const othello::SearchOptions& options,
+                              const ExactRootProfile& profile) noexcept {
+    if (profile_uses_engine_gate(profile)) {
+        const auto decision = othello::decide_exact_endgame_root(board, options);
+        return BenchmarkExactRootDecision{
+            .solve_exact = decision.solve_exact,
+            .empty_count = decision.empty_count,
+            .legal_moves_current = decision.legal_moves_current,
+            .legal_moves_opponent = decision.legal_moves_opponent,
+            .skip_reason = exact_root_skip_reason_name(decision.skip_reason),
+        };
+    }
+
+    BenchmarkExactRootDecision decision{
+        .empty_count = root_empty_count(board),
+        .legal_moves_current = count_bits(othello::legal_moves(board)),
+        .legal_moves_opponent = opponent_legal_move_count(board),
+    };
+
+    if (profile.threshold <= 0) {
+        decision.skip_reason = "disabled";
+        return decision;
+    }
+    if (decision.empty_count <= 14) {
+        decision.solve_exact = true;
+        return decision;
+    }
+    if (decision.empty_count > 16) {
+        decision.skip_reason = "above_threshold";
+        return decision;
+    }
+
+    const bool root_pass =
+        decision.legal_moves_current == 0 && othello::pass_turn(board).has_value();
+    if (root_pass) {
+        decision.skip_reason = "adaptive_root_pass";
+        return decision;
+    }
+
+    int current_legal_cap = 10;
+    if (profile.kind == ExactRootProfileKind::Adaptive16Cap8) {
+        current_legal_cap = 8;
+    } else if (profile.kind == ExactRootProfileKind::Adaptive16Cap6) {
+        current_legal_cap = 6;
+    } else if (profile.kind == ExactRootProfileKind::Adaptive16Split &&
+               decision.empty_count == 16) {
+        current_legal_cap = 8;
+    }
+
+    if (decision.legal_moves_current > current_legal_cap) {
+        decision.skip_reason = "adaptive_too_many_legal_moves";
+        return decision;
+    }
+
+    if (profile.kind == ExactRootProfileKind::Adaptive16Opponent10 &&
+        decision.legal_moves_opponent > 10) {
+        decision.skip_reason = "adaptive_opponent_too_many_legal_moves";
+        return decision;
+    }
+
+    if (profile.kind == ExactRootProfileKind::Adaptive16Shape &&
+        (decision.legal_moves_current >= 9 || root_is_edge_heavy(board))) {
+        decision.skip_reason = "adaptive_shape_guard";
+        return decision;
+    }
+
+    decision.solve_exact = true;
+    return decision;
 }
 
 [[nodiscard]] othello::SearchOptions
@@ -753,7 +897,8 @@ make_search_options(const BenchmarkOptions& options, int depth,
         search_options.use_aspiration_window = *options.use_aspiration_window;
     }
     search_options.transposition_table_entries = options.transposition_table_entries;
-    search_options.exact_endgame_empty_threshold = exact_root_profile.threshold;
+    search_options.exact_endgame_empty_threshold =
+        profile_uses_engine_gate(exact_root_profile) ? exact_root_profile.threshold : 0;
     search_options.exact_endgame_root_policy = exact_root_profile.policy;
     search_options.aspiration_window = options.aspiration_window;
     search_options.aspiration_max_researches = options.aspiration_max_researches;
@@ -761,9 +906,43 @@ make_search_options(const BenchmarkOptions& options, int depth,
     return search_options;
 }
 
+[[nodiscard]] othello::SearchResult exact_endgame_search_result(const othello::Board& board) {
+    othello::ExactEndgameResult exact = othello::solve_exact_endgame(board);
+    const othello::SearchStats stats{
+        .nodes = exact.nodes,
+        .tt_lookups = exact.stats.tt_lookups,
+        .tt_hits = exact.stats.tt_hits,
+        .tt_exact_hits = exact.stats.tt_exact_hits,
+        .tt_lower_hits = exact.stats.tt_lower_hits,
+        .tt_upper_hits = exact.stats.tt_upper_hits,
+        .tt_stores = exact.stats.tt_stores,
+        .tt_overwrites = exact.stats.tt_overwrites,
+        .tt_collisions = exact.stats.tt_collisions,
+        .tt_rejected_stores = exact.stats.tt_rejected_stores,
+        .tt_move_ordering_probes = exact.stats.tt_move_ordering_probes,
+        .tt_move_ordering_hits = exact.stats.tt_move_ordering_hits,
+        .tt_move_ordering_used = exact.stats.tt_move_ordering_used,
+    };
+
+    return othello::SearchResult{
+        .best_move = exact.best_move,
+        .score = exact.disc_margin * exact_endgame_score_scale,
+        .depth = exact.empties,
+        .nodes = exact.nodes,
+        .principal_variation = std::move(exact.principal_variation),
+        .stats = stats,
+    };
+}
+
 [[nodiscard]] othello::SearchResult run_search(const othello::Board& board,
                                                const othello::SearchOptions& options,
-                                               SearchRunMode mode) noexcept {
+                                               SearchRunMode mode,
+                                               const ExactRootProfile& exact_root_profile) {
+    if (!profile_uses_engine_gate(exact_root_profile) &&
+        benchmark_exact_root_decision(board, options, exact_root_profile).solve_exact) {
+        return exact_endgame_search_result(board);
+    }
+
     switch (mode) {
     case SearchRunMode::Fixed:
         return othello::search(board, options);
@@ -791,7 +970,8 @@ benchmark_search(const std::vector<othello::benchmarks::Position>& positions, in
     std::vector<othello::Square> sample_principal_variation;
 
     for (const auto& position : positions) {
-        if (othello::decide_exact_endgame_root(position.board, search_options).solve_exact) {
+        if (benchmark_exact_root_decision(position.board, search_options, exact_root_profile)
+                .solve_exact) {
             ++exact_root_positions;
         }
     }
@@ -799,7 +979,7 @@ benchmark_search(const std::vector<othello::benchmarks::Position>& positions, in
     const auto start = Clock::now();
     for (std::uint64_t repetition = 0; repetition < repetitions; ++repetition) {
         for (const auto& position : positions) {
-            const auto result = run_search(position.board, search_options, mode);
+            const auto result = run_search(position.board, search_options, mode, exact_root_profile);
             auto stable_result_checksum = othello::benchmarks::mix_checksum(
                 othello::benchmarks::search_result_checksum(result),
                 othello::benchmarks::board_checksum(position.board));
@@ -857,7 +1037,8 @@ benchmark_position(const othello::benchmarks::Position& position, int depth,
     const auto search_options =
         make_search_options(benchmark_options, depth, exact_root_profile);
     const int empty_count = root_empty_count(position.board);
-    const auto exact_decision = othello::decide_exact_endgame_root(position.board, search_options);
+    const auto exact_decision =
+        benchmark_exact_root_decision(position.board, search_options, exact_root_profile);
     const bool exact_root = exact_decision.solve_exact;
     std::uint64_t searches = 0;
     std::uint64_t total_nodes = 0;
@@ -870,7 +1051,7 @@ benchmark_position(const othello::benchmarks::Position& position, int depth,
 
     const auto start = Clock::now();
     for (std::uint64_t repetition = 0; repetition < repetitions; ++repetition) {
-        const auto result = run_search(position.board, search_options, mode);
+        const auto result = run_search(position.board, search_options, mode, exact_root_profile);
         auto stable_result_checksum =
             othello::benchmarks::mix_checksum(othello::benchmarks::search_result_checksum(result),
                                               othello::benchmarks::board_checksum(position.board));
@@ -907,8 +1088,7 @@ benchmark_position(const othello::benchmarks::Position& position, int depth,
         .exact_root_profile = exact_root_profile.label,
         .empty_count = empty_count,
         .exact_root = exact_root,
-        .exact_skip_reason =
-            std::string{exact_root_skip_reason_name(exact_decision.skip_reason)},
+        .exact_skip_reason = std::string{exact_decision.skip_reason},
         .depth = depth,
         .sample_best_move = sample_best_move,
         .sample_score = sample_score,
