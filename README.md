@@ -34,6 +34,8 @@ ctest --test-dir build --output-on-failure
 Read [AGENTS.md](AGENTS.md) for Codex/agent instructions and repository
 conventions.
 
+Read [docs/README.md](docs/README.md) for the documentation index.
+
 Read [docs/ROADMAP.md](docs/ROADMAP.md) for the long-term development direction.
 
 Read [docs/CAPABILITY_MAP.md](docs/CAPABILITY_MAP.md) for the durable engine
