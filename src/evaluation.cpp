@@ -4,6 +4,7 @@
 #include <othello/rules.hpp>
 
 #include <array>
+#include <cstddef>
 
 namespace othello {
 namespace {
@@ -34,6 +35,11 @@ struct EdgeCornerSpec {
     std::array<EdgeRaySpec, 2> rays{};
 };
 
+struct Corner2x3PatternSpec {
+    Corner2x3PatternCorner corner = Corner2x3PatternCorner::A1;
+    std::array<int, 6> square_indexes{};
+};
+
 constexpr std::array<CornerLocalSpec, 4> corner_local_specs{{
     {.corner_index = 0, .x_square_index = 9, .c_square_indexes = {1, 8}},
     {.corner_index = 7, .x_square_index = 14, .c_square_indexes = {6, 15}},
@@ -52,8 +58,34 @@ constexpr std::array<EdgeCornerSpec, 4> edge_corner_specs{{
                                    {.first_index = 55, .step = -8}}}},
 }};
 
+// Canonical order is side-relative and mirrored for each corner:
+// corner, horizontal C-square, horizontal far edge, vertical C-square, X-square,
+// inner support. For a1 this is a1, b1, c1, a2, b2, c2.
+constexpr std::array<Corner2x3PatternSpec, 4> corner_2x3_pattern_specs{{
+    {.corner = Corner2x3PatternCorner::A1, .square_indexes = {0, 1, 2, 8, 9, 10}},
+    {.corner = Corner2x3PatternCorner::H1, .square_indexes = {7, 6, 5, 15, 14, 13}},
+    {.corner = Corner2x3PatternCorner::A8, .square_indexes = {56, 57, 58, 48, 49, 50}},
+    {.corner = Corner2x3PatternCorner::H8, .square_indexes = {63, 62, 61, 55, 54, 53}},
+}};
+
 [[nodiscard]] constexpr Bitboard square_bit(int index) noexcept {
     return Bitboard{1} << index;
+}
+
+[[nodiscard]] constexpr const Corner2x3PatternSpec&
+corner_2x3_pattern_spec(Corner2x3PatternCorner corner) noexcept {
+    switch (corner) {
+    case Corner2x3PatternCorner::A1:
+        return corner_2x3_pattern_specs[0];
+    case Corner2x3PatternCorner::H1:
+        return corner_2x3_pattern_specs[1];
+    case Corner2x3PatternCorner::A8:
+        return corner_2x3_pattern_specs[2];
+    case Corner2x3PatternCorner::H8:
+        return corner_2x3_pattern_specs[3];
+    }
+
+    return corner_2x3_pattern_specs[0];
 }
 
 [[nodiscard]] constexpr Board with_side_to_move(const Board& board, Side side) noexcept {
@@ -169,6 +201,75 @@ weights_for_phase(const EvaluationConfig& config, EvaluationPhase phase) noexcep
     return count;
 }
 
+[[nodiscard]] constexpr int corner_2x3_signed_state(int state) noexcept {
+    if (state == 1) {
+        return 1;
+    }
+    if (state == 2) {
+        return -1;
+    }
+    return 0;
+}
+
+[[nodiscard]] constexpr int clamp_corner_2x3_pattern_value(int value) noexcept {
+    if (value < -6) {
+        return -6;
+    }
+    if (value > 6) {
+        return 6;
+    }
+    return value;
+}
+
+[[nodiscard]] constexpr int corner_2x3_pattern_state_at(int index, int cell) noexcept {
+    for (int current = 0; current < cell; ++current) {
+        index /= 3;
+    }
+    return index % 3;
+}
+
+[[nodiscard]] constexpr int corner_2x3_rule_value(int index) noexcept {
+    const int corner = corner_2x3_pattern_state_at(index, 0);
+    const int horizontal_c = corner_2x3_pattern_state_at(index, 1);
+    const int horizontal_far = corner_2x3_pattern_state_at(index, 2);
+    const int vertical_c = corner_2x3_pattern_state_at(index, 3);
+    const int x_square = corner_2x3_pattern_state_at(index, 4);
+    const int inner_support = corner_2x3_pattern_state_at(index, 5);
+
+    int value = 0;
+    if (corner == 1) {
+        value += 4;
+    } else if (corner == 2) {
+        value -= 4;
+    }
+
+    const int adjacent_support =
+        corner_2x3_signed_state(horizontal_c) + corner_2x3_signed_state(vertical_c);
+    if (corner == 0) {
+        value -= adjacent_support;
+        value -= 3 * corner_2x3_signed_state(x_square);
+        value -= corner_2x3_signed_state(horizontal_far);
+    } else {
+        value += adjacent_support;
+        value += corner_2x3_signed_state(horizontal_far);
+        value += corner_2x3_signed_state(inner_support);
+    }
+
+    return clamp_corner_2x3_pattern_value(value);
+}
+
+[[nodiscard]] constexpr std::array<int, corner_2x3_pattern_table_size>
+make_corner_2x3_pattern_table() noexcept {
+    std::array<int, corner_2x3_pattern_table_size> table{};
+    for (int index = 0; index < corner_2x3_pattern_table_size; ++index) {
+        table[index] = corner_2x3_rule_value(index);
+    }
+    return table;
+}
+
+constexpr std::array<int, corner_2x3_pattern_table_size> corner_2x3_pattern_table =
+    make_corner_2x3_pattern_table();
+
 [[nodiscard]] int corner_local_2x3_value_for_side(const Board& board, Side side) noexcept {
     int value = 0;
     const Bitboard occupied = board.occupied();
@@ -256,6 +357,48 @@ int evaluate_mobility(const Board& board, Side side) noexcept {
     return legal_move_count(board, side) - legal_move_count(board, opponent(side));
 }
 
+int corner_2x3_pattern_index(const Board& board, Side side,
+                             Corner2x3PatternCorner corner) noexcept {
+    const Corner2x3PatternSpec& spec = corner_2x3_pattern_spec(corner);
+    const Bitboard own_discs = board.discs(side);
+    const Bitboard opponent_discs = board.discs(opponent(side));
+
+    int index = 0;
+    int place_value = 1;
+    for (const int square_index : spec.square_indexes) {
+        const Bitboard square = square_bit(square_index);
+        int state = 0;
+        if ((own_discs & square) != 0) {
+            state = 1;
+        } else if ((opponent_discs & square) != 0) {
+            state = 2;
+        }
+        index += state * place_value;
+        place_value *= 3;
+    }
+    return index;
+}
+
+int corner_2x3_pattern_table_value(int index) noexcept {
+    if (index < 0 || index >= corner_2x3_pattern_table_size) {
+        return 0;
+    }
+    return corner_2x3_pattern_table[static_cast<std::size_t>(index)];
+}
+
+int corner_2x3_pattern_value(const Board& board, Side side) noexcept {
+    int value = 0;
+    for (const Corner2x3PatternSpec& spec : corner_2x3_pattern_specs) {
+        value += corner_2x3_pattern_table_value(
+            corner_2x3_pattern_index(board, side, spec.corner));
+    }
+    return value;
+}
+
+int corner_2x3_pattern_score(const Board& board, Side side) noexcept {
+    return corner_2x3_pattern_value(board, side);
+}
+
 EvaluationConfig evaluation_config_for_preset(EvaluationPreset preset) noexcept {
     EvaluationConfig config = default_evaluation_config();
     switch (preset) {
@@ -308,6 +451,35 @@ EvaluationConfig evaluation_config_for_preset(EvaluationPreset preset) noexcept 
         config.midgame.edge_stability_lite = 4;
         config.late.edge_stability_lite = 8;
         return config;
+    case EvaluationPreset::CornerPattern2x3V1:
+        config.opening.corner_2x3_pattern = 4;
+        config.midgame.corner_2x3_pattern = 6;
+        config.late.corner_2x3_pattern = 4;
+        return config;
+    case EvaluationPreset::CornerPattern2x3Aggressive:
+        config.opening.corner_2x3_pattern = 8;
+        config.midgame.corner_2x3_pattern = 10;
+        config.late.corner_2x3_pattern = 6;
+        return config;
+    case EvaluationPreset::FrontierCornerPattern2x3V1:
+        config.opening.frontier = 5;
+        config.midgame.frontier = 6;
+        config.late.frontier = 3;
+        config.opening.corner_2x3_pattern = 4;
+        config.midgame.corner_2x3_pattern = 6;
+        config.late.corner_2x3_pattern = 4;
+        return config;
+    case EvaluationPreset::FrontierCornerPatternEdgeLiteV1:
+        config.opening.frontier = 5;
+        config.midgame.frontier = 6;
+        config.late.frontier = 3;
+        config.opening.corner_2x3_pattern = 4;
+        config.midgame.corner_2x3_pattern = 6;
+        config.late.corner_2x3_pattern = 4;
+        config.opening.edge_stability_lite = 2;
+        config.midgame.edge_stability_lite = 4;
+        config.late.edge_stability_lite = 8;
+        return config;
     }
 
     return config;
@@ -338,6 +510,18 @@ std::optional<EvaluationPreset> evaluation_preset_from_name(std::string_view nam
     if (name == "frontier_classic_features_lite_v1") {
         return EvaluationPreset::FrontierClassicFeaturesLiteV1;
     }
+    if (name == "corner_pattern_2x3_v1") {
+        return EvaluationPreset::CornerPattern2x3V1;
+    }
+    if (name == "corner_pattern_2x3_aggressive") {
+        return EvaluationPreset::CornerPattern2x3Aggressive;
+    }
+    if (name == "frontier_corner_pattern_2x3_v1") {
+        return EvaluationPreset::FrontierCornerPattern2x3V1;
+    }
+    if (name == "frontier_corner_pattern_edge_lite_v1") {
+        return EvaluationPreset::FrontierCornerPatternEdgeLiteV1;
+    }
     return std::nullopt;
 }
 
@@ -359,6 +543,14 @@ std::string_view evaluation_preset_name(EvaluationPreset preset) noexcept {
         return "classic_features_lite_aggressive";
     case EvaluationPreset::FrontierClassicFeaturesLiteV1:
         return "frontier_classic_features_lite_v1";
+    case EvaluationPreset::CornerPattern2x3V1:
+        return "corner_pattern_2x3_v1";
+    case EvaluationPreset::CornerPattern2x3Aggressive:
+        return "corner_pattern_2x3_aggressive";
+    case EvaluationPreset::FrontierCornerPattern2x3V1:
+        return "frontier_corner_pattern_2x3_v1";
+    case EvaluationPreset::FrontierCornerPatternEdgeLiteV1:
+        return "frontier_corner_pattern_edge_lite_v1";
     }
 
     return "unknown";
@@ -382,6 +574,7 @@ EvaluationBreakdown evaluate_basic_breakdown(const Board& board, Side side,
         .x_square_danger_weight = weights.x_square_danger,
         .frontier_weight = weights.frontier,
         .corner_local_2x3_weight = weights.corner_local_2x3,
+        .corner_2x3_pattern_weight = weights.corner_2x3_pattern,
         .edge_stability_lite_weight = weights.edge_stability_lite,
         .terminal_score_weight = terminal_score_weight,
     };
@@ -433,6 +626,12 @@ EvaluationBreakdown evaluate_basic_breakdown(const Board& board, Side side,
     breakdown.corner_local_2x3_score =
         breakdown.corner_local_2x3 * breakdown.corner_local_2x3_weight;
 
+    if (breakdown.corner_2x3_pattern_weight != 0) {
+        breakdown.corner_2x3_pattern = corner_2x3_pattern_score(board, side);
+    }
+    breakdown.corner_2x3_pattern_score =
+        breakdown.corner_2x3_pattern * breakdown.corner_2x3_pattern_weight;
+
     if (breakdown.edge_stability_lite_weight != 0) {
         breakdown.edge_stability_lite = edge_stability_lite_score(board, side);
     }
@@ -443,6 +642,7 @@ EvaluationBreakdown evaluate_basic_breakdown(const Board& board, Side side,
                       breakdown.corner_occupancy_score + breakdown.potential_mobility_score +
                       breakdown.corner_access_score + breakdown.x_square_danger_score +
                       breakdown.frontier_score + breakdown.corner_local_2x3_score +
+                      breakdown.corner_2x3_pattern_score +
                       breakdown.edge_stability_lite_score;
     return breakdown;
 }

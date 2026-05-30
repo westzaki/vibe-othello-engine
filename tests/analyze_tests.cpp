@@ -5,6 +5,8 @@
 #include <othello/othello.hpp>
 
 #include <bit>
+#include <iostream>
+#include <sstream>
 
 using othello::Board;
 using othello::Side;
@@ -108,4 +110,27 @@ TEST_CASE("Root candidate analysis reports no candidates for terminal root", "[a
         othello::tools::analyze::analyze_root_candidates(board, candidate_options());
 
     CHECK(candidates.empty());
+}
+
+TEST_CASE("Position analysis print includes corner pattern breakdown fields", "[analyze]") {
+    const Board board = Board::initial();
+    othello::tools::analyze::AnalysisOptions options{
+        .depth = 1,
+        .mode = othello::tools::analyze::AnalysisMode::Fixed,
+        .use_transposition_table = true,
+        .exact_endgame_empty_threshold = 0,
+        .use_pvs = true,
+        .evaluation_preset = othello::EvaluationPreset::CornerPattern2x3V1,
+    };
+    const othello::SearchResult result = othello::tools::analyze::run_search(board, options);
+
+    std::ostringstream captured;
+    std::streambuf* const previous_buffer = std::cout.rdbuf(captured.rdbuf());
+    othello::tools::analyze::print_report(board, options, result, std::chrono::nanoseconds{0});
+    std::cout.rdbuf(previous_buffer);
+
+    const std::string output = captured.str();
+    CHECK(output.find("corner_2x3_pattern:") != std::string::npos);
+    CHECK(output.find("corner_2x3_pattern_weight:") != std::string::npos);
+    CHECK(output.find("corner_2x3_pattern_score:") != std::string::npos);
 }

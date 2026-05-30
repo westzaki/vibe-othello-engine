@@ -96,6 +96,7 @@ void check_breakdown_matches_basic(const Board& board, Side side) {
            breakdown.corner_occupancy_score + breakdown.potential_mobility_score +
            breakdown.corner_access_score + breakdown.x_square_danger_score +
            breakdown.frontier_score + breakdown.corner_local_2x3_score +
+           breakdown.corner_2x3_pattern_score +
            breakdown.edge_stability_lite_score;
 }
 
@@ -112,6 +113,14 @@ void check_breakdown_matches_basic(const Board& board, Side side) {
         .opening = othello::EvaluationFeatureWeights{.edge_stability_lite = weight},
         .midgame = othello::EvaluationFeatureWeights{.edge_stability_lite = weight},
         .late = othello::EvaluationFeatureWeights{.edge_stability_lite = weight},
+    };
+}
+
+[[nodiscard]] othello::EvaluationConfig corner_pattern_only_config(int weight) noexcept {
+    return othello::EvaluationConfig{
+        .opening = othello::EvaluationFeatureWeights{.corner_2x3_pattern = weight},
+        .midgame = othello::EvaluationFeatureWeights{.corner_2x3_pattern = weight},
+        .late = othello::EvaluationFeatureWeights{.corner_2x3_pattern = weight},
     };
 }
 
@@ -136,6 +145,8 @@ void check_non_terminal_breakdown_math(const Board& board, Side side) {
     CHECK(breakdown.frontier_score == breakdown.frontier * breakdown.frontier_weight);
     CHECK(breakdown.corner_local_2x3_score ==
           breakdown.corner_local_2x3 * breakdown.corner_local_2x3_weight);
+    CHECK(breakdown.corner_2x3_pattern_score ==
+          breakdown.corner_2x3_pattern * breakdown.corner_2x3_pattern_weight);
     CHECK(breakdown.edge_stability_lite_score ==
           breakdown.edge_stability_lite * breakdown.edge_stability_lite_weight);
     CHECK(breakdown.terminal_disc_difference == 0);
@@ -167,6 +178,7 @@ TEST_CASE("Default evaluation config preserves phase-aware weights", "[evaluatio
                                                               .x_square_danger = 25,
                                                               .frontier = 3,
                                                               .corner_local_2x3 = 0,
+                                                              .corner_2x3_pattern = 0,
                                                               .edge_stability_lite = 0});
     CHECK(config.midgame == othello::EvaluationFeatureWeights{.disc_difference = 1,
                                                               .mobility = 10,
@@ -176,6 +188,7 @@ TEST_CASE("Default evaluation config preserves phase-aware weights", "[evaluatio
                                                               .x_square_danger = 30,
                                                               .frontier = 4,
                                                               .corner_local_2x3 = 0,
+                                                              .corner_2x3_pattern = 0,
                                                               .edge_stability_lite = 0});
     CHECK(config.late == othello::EvaluationFeatureWeights{.disc_difference = 4,
                                                            .mobility = 6,
@@ -185,6 +198,7 @@ TEST_CASE("Default evaluation config preserves phase-aware weights", "[evaluatio
                                                            .x_square_danger = 20,
                                                            .frontier = 2,
                                                            .corner_local_2x3 = 0,
+                                                           .corner_2x3_pattern = 0,
                                                            .edge_stability_lite = 0});
     CHECK(config.opening_max_occupied == 20);
     CHECK(config.midgame_max_occupied == 44);
@@ -278,6 +292,9 @@ TEST_CASE("Classic lite presets are explicit and keep default separate", "[evalu
     CHECK(default_config.opening.corner_local_2x3 == 0);
     CHECK(default_config.midgame.corner_local_2x3 == 0);
     CHECK(default_config.late.corner_local_2x3 == 0);
+    CHECK(default_config.opening.corner_2x3_pattern == 0);
+    CHECK(default_config.midgame.corner_2x3_pattern == 0);
+    CHECK(default_config.late.corner_2x3_pattern == 0);
     CHECK(default_config.opening.edge_stability_lite == 0);
     CHECK(default_config.midgame.edge_stability_lite == 0);
     CHECK(default_config.late.edge_stability_lite == 0);
@@ -294,12 +311,68 @@ TEST_CASE("Classic lite presets are explicit and keep default separate", "[evalu
 
     CHECK(features_config.opening.corner_local_2x3 == 8);
     CHECK(features_config.midgame.edge_stability_lite == 4);
+    CHECK(features_config.opening.corner_2x3_pattern == 0);
     CHECK(aggressive_config.opening.corner_local_2x3 == 14);
     CHECK(aggressive_config.midgame.corner_local_2x3 == 18);
     CHECK(aggressive_config.late.edge_stability_lite == 12);
     CHECK(frontier_classic_config.opening.frontier == default_config.opening.frontier + 2);
     CHECK(frontier_classic_config.midgame.frontier == default_config.midgame.frontier + 2);
     CHECK(frontier_classic_config.late.frontier == default_config.late.frontier + 1);
+    CHECK(othello::default_evaluation_config() == default_config);
+}
+
+TEST_CASE("Corner pattern presets are explicit and keep default separate", "[evaluation]") {
+    const othello::EvaluationConfig default_config = othello::default_evaluation_config();
+    const othello::EvaluationConfig pattern_config =
+        othello::evaluation_config_for_preset(othello::EvaluationPreset::CornerPattern2x3V1);
+    const othello::EvaluationConfig aggressive_config =
+        othello::evaluation_config_for_preset(
+            othello::EvaluationPreset::CornerPattern2x3Aggressive);
+    const othello::EvaluationConfig frontier_pattern_config =
+        othello::evaluation_config_for_preset(
+            othello::EvaluationPreset::FrontierCornerPattern2x3V1);
+    const othello::EvaluationConfig frontier_pattern_edge_config =
+        othello::evaluation_config_for_preset(
+            othello::EvaluationPreset::FrontierCornerPatternEdgeLiteV1);
+
+    CHECK(std::string{othello::evaluation_preset_name(
+              othello::EvaluationPreset::CornerPattern2x3V1)} == "corner_pattern_2x3_v1");
+    CHECK(std::string{othello::evaluation_preset_name(
+              othello::EvaluationPreset::CornerPattern2x3Aggressive)} ==
+          "corner_pattern_2x3_aggressive");
+    CHECK(std::string{othello::evaluation_preset_name(
+              othello::EvaluationPreset::FrontierCornerPattern2x3V1)} ==
+          "frontier_corner_pattern_2x3_v1");
+    CHECK(std::string{othello::evaluation_preset_name(
+              othello::EvaluationPreset::FrontierCornerPatternEdgeLiteV1)} ==
+          "frontier_corner_pattern_edge_lite_v1");
+
+    CHECK(othello::evaluation_preset_from_name("corner_pattern_2x3_v1") ==
+          othello::EvaluationPreset::CornerPattern2x3V1);
+    CHECK(othello::evaluation_preset_from_name("corner_pattern_2x3_aggressive") ==
+          othello::EvaluationPreset::CornerPattern2x3Aggressive);
+    CHECK(othello::evaluation_preset_from_name("frontier_corner_pattern_2x3_v1") ==
+          othello::EvaluationPreset::FrontierCornerPattern2x3V1);
+    CHECK(othello::evaluation_preset_from_name("frontier_corner_pattern_edge_lite_v1") ==
+          othello::EvaluationPreset::FrontierCornerPatternEdgeLiteV1);
+
+    CHECK(default_config.opening.corner_2x3_pattern == 0);
+    CHECK(pattern_config.opening.corner_2x3_pattern == 4);
+    CHECK(pattern_config.midgame.corner_2x3_pattern == 6);
+    CHECK(pattern_config.late.corner_2x3_pattern == 4);
+    CHECK(pattern_config.opening.corner_local_2x3 == 0);
+    CHECK(pattern_config.opening.frontier == default_config.opening.frontier);
+    CHECK(aggressive_config.opening.corner_2x3_pattern == 8);
+    CHECK(aggressive_config.midgame.corner_2x3_pattern == 10);
+    CHECK(aggressive_config.late.corner_2x3_pattern == 6);
+    CHECK(frontier_pattern_config.opening.frontier == default_config.opening.frontier + 2);
+    CHECK(frontier_pattern_config.midgame.frontier == default_config.midgame.frontier + 2);
+    CHECK(frontier_pattern_config.late.frontier == default_config.late.frontier + 1);
+    CHECK(frontier_pattern_config.opening.corner_2x3_pattern == 4);
+    CHECK(frontier_pattern_config.opening.corner_local_2x3 == 0);
+    CHECK(frontier_pattern_edge_config.opening.edge_stability_lite == 2);
+    CHECK(frontier_pattern_edge_config.midgame.edge_stability_lite == 4);
+    CHECK(frontier_pattern_edge_config.late.edge_stability_lite == 8);
     CHECK(othello::default_evaluation_config() == default_config);
 }
 
@@ -360,6 +433,8 @@ TEST_CASE("Default config matches compatibility evaluator", "[evaluation]") {
             CHECK(configured.x_square_danger_weight == compatibility.x_square_danger_weight);
             CHECK(configured.frontier_weight == compatibility.frontier_weight);
             CHECK(configured.corner_local_2x3_weight == compatibility.corner_local_2x3_weight);
+            CHECK(configured.corner_2x3_pattern_weight ==
+                  compatibility.corner_2x3_pattern_weight);
             CHECK(configured.edge_stability_lite_weight ==
                   compatibility.edge_stability_lite_weight);
             CHECK(configured.total == compatibility.total);
@@ -535,6 +610,106 @@ TEST_CASE("Corner-local 2x3 lite rewards owned-corner adjacent support", "[evalu
     CHECK(opponent_owned_breakdown.corner_local_2x3_score == -20);
 }
 
+TEST_CASE("Corner 2x3 pattern index is deterministic across symmetric corners",
+          "[evaluation]") {
+    using Corner = othello::Corner2x3PatternCorner;
+
+    CHECK(othello::corner_2x3_pattern_table_size == 729);
+    CHECK(othello::corner_2x3_pattern_table_value(0) == 0);
+    CHECK(othello::corner_2x3_pattern_table_value(-1) == 0);
+    CHECK(othello::corner_2x3_pattern_table_value(729) == 0);
+    CHECK(othello::corner_2x3_pattern_index(Board::initial(), Side::Black, Corner::A1) == 0);
+
+    const Board mixed = extra_disc_board(othello::test::bit("a1") |
+                                             othello::test::bit("a2"),
+                                         othello::test::bit("b1") |
+                                             othello::test::bit("b2"));
+    CHECK(othello::corner_2x3_pattern_index(mixed, Side::Black, Corner::A1) == 196);
+    CHECK(othello::corner_2x3_pattern_index(mixed, Side::Black, Corner::A1) >= 0);
+    CHECK(othello::corner_2x3_pattern_index(mixed, Side::Black, Corner::A1) < 729);
+
+    for (const auto [corner, corner_square, c_square, x_square] : {
+             std::tuple{Corner::A1, "a1", "b1", "b2"},
+             std::tuple{Corner::H1, "h1", "g1", "g2"},
+             std::tuple{Corner::A8, "a8", "b8", "b7"},
+             std::tuple{Corner::H8, "h8", "g8", "g7"},
+         }) {
+        const Board board = extra_disc_board(othello::test::bit(corner_square) |
+                                             othello::test::bit(c_square) |
+                                             othello::test::bit(x_square));
+        CHECK(othello::corner_2x3_pattern_index(board, Side::Black, corner) == 85);
+    }
+}
+
+TEST_CASE("Corner 2x3 pattern table follows conservative corner-local rules",
+          "[evaluation]") {
+    const othello::EvaluationConfig config = corner_pattern_only_config(10);
+    const Board own_x = extra_disc_board(othello::test::bit("b2"));
+    const Board opponent_x = extra_disc_board(0, othello::test::bit("b2"));
+    const Board own_c = extra_disc_board(othello::test::bit("b1"));
+    const Board opponent_c = extra_disc_board(0, othello::test::bit("b1"));
+    const Board owned_support =
+        extra_disc_board(othello::test::bit("a1") | othello::test::bit("b1") |
+                         othello::test::bit("a2"));
+    const Board opponent_owned_support =
+        extra_disc_board(0, othello::test::bit("a1") | othello::test::bit("b1") |
+                                othello::test::bit("a2"));
+
+    CHECK(othello::corner_2x3_pattern_score(Board::initial(), Side::Black) == 0);
+    CHECK(othello::corner_2x3_pattern_score(own_x, Side::Black) == -3);
+    CHECK(othello::corner_2x3_pattern_score(opponent_x, Side::Black) == 3);
+    CHECK(othello::corner_2x3_pattern_score(own_c, Side::Black) == -1);
+    CHECK(othello::corner_2x3_pattern_score(opponent_c, Side::Black) == 1);
+    CHECK(othello::corner_2x3_pattern_score(owned_support, Side::Black) == 6);
+    CHECK(othello::corner_2x3_pattern_score(opponent_owned_support, Side::Black) == -6);
+
+    const othello::EvaluationBreakdown own_x_breakdown =
+        othello::evaluate_basic_breakdown(own_x, Side::Black, config);
+    const othello::EvaluationBreakdown opponent_x_breakdown =
+        othello::evaluate_basic_breakdown(opponent_x, Side::Black, config);
+    const othello::EvaluationBreakdown own_c_breakdown =
+        othello::evaluate_basic_breakdown(own_c, Side::Black, config);
+    const othello::EvaluationBreakdown opponent_c_breakdown =
+        othello::evaluate_basic_breakdown(opponent_c, Side::Black, config);
+
+    CHECK(own_x_breakdown.corner_2x3_pattern == -3);
+    CHECK(own_x_breakdown.corner_2x3_pattern_weight == 10);
+    CHECK(own_x_breakdown.corner_2x3_pattern_score == -30);
+    CHECK(opponent_x_breakdown.corner_2x3_pattern == 3);
+    CHECK(opponent_x_breakdown.corner_2x3_pattern_score == 30);
+    CHECK(own_c_breakdown.corner_2x3_pattern == -1);
+    CHECK(own_c_breakdown.corner_2x3_pattern_score == -10);
+    CHECK(opponent_c_breakdown.corner_2x3_pattern == 1);
+    CHECK(opponent_c_breakdown.corner_2x3_pattern_score == 10);
+}
+
+TEST_CASE("Corner 2x3 pattern is symmetric across colors and contributes to total",
+          "[evaluation]") {
+    const othello::EvaluationConfig config = corner_pattern_only_config(5);
+    const Board board =
+        extra_disc_board(othello::test::bit("a1") | othello::test::bit("b1") |
+                             othello::test::bit("b2"),
+                         othello::test::bit("a2"));
+    const Board swapped = swapped_colors(board);
+
+    CHECK(othello::corner_2x3_pattern_score(board, Side::Black) ==
+          -othello::corner_2x3_pattern_score(swapped, Side::Black));
+    CHECK(othello::evaluate_with_config(board, Side::Black, config) ==
+          -othello::evaluate_with_config(swapped, Side::Black, config));
+
+    const Board supported =
+        extra_disc_board(othello::test::bit("a1") | othello::test::bit("b1") |
+                         othello::test::bit("a2"));
+    const othello::EvaluationBreakdown breakdown =
+        othello::evaluate_basic_breakdown(supported, Side::Black, config);
+
+    CHECK(breakdown.corner_2x3_pattern == 6);
+    CHECK(breakdown.corner_2x3_pattern_weight == 5);
+    CHECK(breakdown.corner_2x3_pattern_score == 30);
+    CHECK(breakdown.total == non_terminal_score_sum(breakdown));
+    CHECK(breakdown.total == 30);
+}
+
 TEST_CASE("Edge stability lite counts only corner-anchored continuous edge discs",
           "[evaluation]") {
     const othello::EvaluationConfig config = edge_stability_only_config(3);
@@ -679,6 +854,7 @@ TEST_CASE("Terminal evaluation breakdown uses terminal score only", "[evaluation
     CHECK(black.x_square_danger_score == 0);
     CHECK(black.frontier_score == 0);
     CHECK(black.corner_local_2x3_score == 0);
+    CHECK(black.corner_2x3_pattern_score == 0);
     CHECK(black.edge_stability_lite_score == 0);
 
     CHECK(white.terminal);
@@ -698,6 +874,7 @@ TEST_CASE("Terminal evaluation keeps fixed score scale across configs", "[evalua
     config.midgame.mobility = 99;
     config.late.corner_occupancy = 99;
     config.opening.corner_local_2x3 = 99;
+    config.opening.corner_2x3_pattern = 99;
     config.midgame.edge_stability_lite = 99;
 
     const othello::EvaluationBreakdown breakdown =
@@ -721,12 +898,18 @@ TEST_CASE("Evaluation does not mutate the board", "[evaluation]") {
     static_cast<void>(othello::evaluate_basic_breakdown(
         board, Side::Black,
         othello::evaluation_config_for_preset(othello::EvaluationPreset::ClassicFeaturesLiteV1)));
+    static_cast<void>(othello::evaluate_basic_breakdown(
+        board, Side::Black,
+        othello::evaluation_config_for_preset(othello::EvaluationPreset::CornerPattern2x3V1)));
     static_cast<void>(othello::evaluate_with_config(
         board, Side::Black,
         othello::evaluation_config_for_preset(othello::EvaluationPreset::MobilityPlusSmoke)));
     static_cast<void>(othello::evaluate_with_config(
         board, Side::Black,
         othello::evaluation_config_for_preset(othello::EvaluationPreset::ClassicFeaturesLiteV1)));
+    static_cast<void>(othello::evaluate_with_config(
+        board, Side::Black,
+        othello::evaluation_config_for_preset(othello::EvaluationPreset::CornerPattern2x3V1)));
     static_cast<void>(othello::evaluate_basic(board, Side::Black));
 
     CHECK(othello::test::same_board(board, before));
