@@ -1,3 +1,5 @@
+#include "bitboard_ops.hpp"
+
 #include <bit>
 #include <othello/board.hpp>
 #include <othello/evaluation.hpp>
@@ -9,15 +11,11 @@
 namespace othello {
 namespace {
 
-constexpr Bitboard a_file = 0x0101010101010101ULL;
-constexpr Bitboard h_file = 0x8080808080808080ULL;
-constexpr Bitboard not_a_file = ~a_file;
-constexpr Bitboard not_h_file = ~h_file;
-
-constexpr Bitboard corner_squares =
-    (Bitboard{1} << 0) | (Bitboard{1} << 7) | (Bitboard{1} << 56) | (Bitboard{1} << 63);
-
 constexpr int terminal_score_weight = 1000;
+
+using bitboard_detail::adjacent_squares;
+using bitboard_detail::corner_squares;
+using bitboard_detail::is_x_square_next_to_empty_corner;
 
 struct CornerLocalSpec {
     int corner_index = 0;
@@ -126,44 +124,6 @@ edge_8_pattern_spec(Edge8PatternEdge edge) noexcept {
     };
 }
 
-[[nodiscard]] constexpr Bitboard shift_east(Bitboard bits) noexcept {
-    return (bits & not_h_file) << 1;
-}
-
-[[nodiscard]] constexpr Bitboard shift_west(Bitboard bits) noexcept {
-    return (bits & not_a_file) >> 1;
-}
-
-[[nodiscard]] constexpr Bitboard shift_north(Bitboard bits) noexcept {
-    return bits << 8;
-}
-
-[[nodiscard]] constexpr Bitboard shift_south(Bitboard bits) noexcept {
-    return bits >> 8;
-}
-
-[[nodiscard]] constexpr Bitboard shift_northeast(Bitboard bits) noexcept {
-    return (bits & not_h_file) << 9;
-}
-
-[[nodiscard]] constexpr Bitboard shift_northwest(Bitboard bits) noexcept {
-    return (bits & not_a_file) << 7;
-}
-
-[[nodiscard]] constexpr Bitboard shift_southeast(Bitboard bits) noexcept {
-    return (bits & not_h_file) >> 7;
-}
-
-[[nodiscard]] constexpr Bitboard shift_southwest(Bitboard bits) noexcept {
-    return (bits & not_a_file) >> 9;
-}
-
-[[nodiscard]] constexpr Bitboard adjacent_squares(Bitboard bits) noexcept {
-    return shift_east(bits) | shift_west(bits) | shift_north(bits) | shift_south(bits) |
-           shift_northeast(bits) | shift_northwest(bits) | shift_southeast(bits) |
-           shift_southwest(bits);
-}
-
 [[nodiscard]] EvaluationPhase phase_for_occupied_count(
     int occupied_count, const EvaluationConfig& config) noexcept {
     if (occupied_count <= config.opening_max_occupied) {
@@ -216,18 +176,18 @@ weights_for_phase(const EvaluationConfig& config, EvaluationPhase phase) noexcep
     const Bitboard occupied = board.occupied();
     const Bitboard discs = board.discs(side);
 
-    const auto count_if_dangerous = [&](int corner_index, int x_square_index) noexcept {
-        const Bitboard corner = Bitboard{1} << corner_index;
+    const auto count_if_dangerous = [&](int x_square_index) noexcept {
         const Bitboard x_square = Bitboard{1} << x_square_index;
-        if ((occupied & corner) == 0 && (discs & x_square) != 0) {
+        if ((discs & x_square) != 0 &&
+            is_x_square_next_to_empty_corner(x_square_index, occupied)) {
             ++count;
         }
     };
 
-    count_if_dangerous(0, 9);   // a1 / b2
-    count_if_dangerous(7, 14);  // h1 / g2
-    count_if_dangerous(56, 49); // a8 / b7
-    count_if_dangerous(63, 54); // h8 / g7
+    count_if_dangerous(9);  // a1 / b2
+    count_if_dangerous(14); // h1 / g2
+    count_if_dangerous(49); // a8 / b7
+    count_if_dangerous(54); // h8 / g7
     return count;
 }
 

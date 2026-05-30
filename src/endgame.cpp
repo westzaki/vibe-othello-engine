@@ -1,5 +1,6 @@
 #include "endgame_last_n.hpp"
 #include "endgame_ordering.hpp"
+#include "hash_update.hpp"
 #include "search_common.hpp"
 
 #include <algorithm>
@@ -15,7 +16,7 @@ namespace {
 
 using endgame_detail::ExactEndgameContext;
 using endgame_detail::EndgameMoveOrderingPolicy;
-using endgame_detail::hash_after_pass;
+using hash_detail::hash_after_pass;
 using endgame_detail::last_n_specialized_empties;
 using endgame_detail::ordered_legal_move_indexes;
 using endgame_detail::OrderedMoveIndexes;

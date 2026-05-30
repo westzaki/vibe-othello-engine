@@ -22,39 +22,6 @@ struct NodeResult {
     PrincipalVariation principal_variation;
 };
 
-constexpr Bitboard corner_squares =
-    (Bitboard{1} << 0) | (Bitboard{1} << 7) | (Bitboard{1} << 56) | (Bitboard{1} << 63);
-
-[[nodiscard]] constexpr bool is_corner(int index) noexcept {
-    return index == 0 || index == 7 || index == 56 || index == 63;
-}
-
-[[nodiscard]] constexpr bool is_x_square(int index) noexcept {
-    return index == 9 || index == 14 || index == 49 || index == 54;
-}
-
-[[nodiscard]] constexpr bool is_edge(int index) noexcept {
-    const int file = index % 8;
-    const int rank = index / 8;
-    return file == 0 || file == 7 || rank == 0 || rank == 7;
-}
-
-[[nodiscard]] constexpr bool is_x_square_next_to_empty_corner(int index,
-                                                              Bitboard occupied) noexcept {
-    switch (index) {
-    case 9:
-        return (occupied & (Bitboard{1} << 0)) == 0;
-    case 14:
-        return (occupied & (Bitboard{1} << 7)) == 0;
-    case 49:
-        return (occupied & (Bitboard{1} << 56)) == 0;
-    case 54:
-        return (occupied & (Bitboard{1} << 63)) == 0;
-    default:
-        return false;
-    }
-}
-
 [[nodiscard]] inline int empty_count(const Board& board) noexcept {
     return std::popcount(board.empty());
 }
