@@ -9,14 +9,26 @@ the local validation gate used for a default evaluator change.
 ## Source
 
 - Date: `2026-05-30`
-- Base SHA validated before promotion: `f01d05b0686b653414f90e1d5e928bb0ea87920d`
+- Validation base SHA: `f01d05b0686b653414f90e1d5e928bb0ea87920d`
+- PR base SHA after the branch was rebased for this clarification:
+  `2f4aee000247d2d357129314ba722b6fc68d5512`
+- Promotion branch head SHA at the time of the PR-base sanity re-run:
+  `0bad95a46638484680a487df3b3d7388a3458b3b` (a later documentation-only
+  clarification commit may advance the PR head without changing code behavior)
 - Branch: `codex/promote-frontier-corner-pattern-default`
-- Experiment source: latest main with `frontier_corner_pattern_edge_lite_v1`
-  selected explicitly, then a local working tree that makes the same config the
-  default evaluator.
+- Validation source: local latest main at the validation base SHA with
+  `frontier_corner_pattern_edge_lite_v1` selected explicitly.
+- Promotion source: the PR branch changes that make the same config the default
+  evaluator and preserve the previous default as `phase_aware_v1`.
+- Re-run note: the full promotion matrix below was not re-run after the PR base
+  advanced to `2f4aee000247d2d357129314ba722b6fc68d5512`; a smaller PR-base
+  sanity matrix was re-run and is recorded below.
 - Build type: `Release`
 - Opening suite: `data/openings/eval_regression_openings.txt`
-- Local run dir: `runs/eval/20260530-210437-frontier-corner-pattern-default-promotion-gate`
+- Full validation run dir:
+  `runs/eval/20260530-210437-frontier-corner-pattern-default-promotion-gate`
+- PR-base sanity run dir:
+  `runs/eval/20260530-223000-pr131-base-2f4aee-sanity`
 
 Raw run output stays under `runs/` and is not committed.
 
@@ -44,6 +56,12 @@ changed by this promotion.
 
 All validation used exact endgame disabled via `--exact-endgame-threshold 0`.
 Candidate was player A and the reference preset was player B.
+
+The full matrix was run on the validation base SHA. PR128/PR129/PR130 changed
+exact-endgame and exact-threshold benchmarking paths, but the evaluator match
+validation here explicitly used `exact=off`, so exact root endgame behavior was
+not part of the strength-direction signal below. Correctness coverage for the
+new PR base is provided by CTest and the smaller PR-base exact-off sanity run.
 
 ### Versus Previous Default
 
@@ -76,6 +94,22 @@ Reference: `frontier_open2_mid2_late_plus1`, seed `20260603`.
 | ---: | ---: | :--- | ---: | ---: | ---: | ---: |
 | 7 | 192 | 103-84-5 | 4.52 | 0.956 | 1.031 | 0 |
 | 8 | 384 | 194-175-15 | 2.52 | 0.920 | 0.988 | 0 |
+
+### PR-Base Sanity Re-Run
+
+After rebasing the branch onto PR base
+`2f4aee000247d2d357129314ba722b6fc68d5512`, a smaller exact-off sanity matrix
+was re-run. This is not a replacement for the full matrix above.
+
+All runs used `data/openings/eval_regression_openings.txt`, seed `20260606`,
+24 games, `--swap-sides true`, and `exact=off`.
+
+| reference | depth | games | W-L-D | avg diff | errors |
+| :--- | ---: | ---: | :--- | ---: | ---: |
+| `phase_aware_v1` | 5 | 24 | 15-9-0 | 6.58 | 0 |
+| `phase_aware_v1` | 6 | 24 | 18-6-0 | 11.42 | 0 |
+| `frontier_open2_mid2_late_plus1` | 5 | 24 | 15-9-0 | 7.92 | 0 |
+| `frontier_open2_mid2_late_plus1` | 6 | 24 | 15-8-1 | 6.17 | 0 |
 
 ## NTest Sanity
 
@@ -128,6 +162,17 @@ ctest --test-dir build --output-on-failure
 python3 -m unittest discover tools/scripts/tests
 git diff --check
 ```
+
+After rebasing onto PR base `2f4aee000247d2d357129314ba722b6fc68d5512`, these
+checks were re-run:
+
+```sh
+cmake --build build
+ctest --test-dir build --output-on-failure
+python3 -m unittest discover tools/scripts/tests
+```
+
+Result: CTest `169/169` passed; Python unittest `98/98` passed.
 
 Analyze visibility was checked with `--eval-preset default`; output includes
 `corner_2x3_pattern`, `corner_2x3_pattern_weight`,
