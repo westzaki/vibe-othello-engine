@@ -26,7 +26,7 @@ namespace othello::benchmarks {
 
 [[nodiscard]] std::optional<std::vector<EndgamePosition>> make_endgame_positions() {
     std::vector<EndgamePosition> positions;
-    positions.reserve(66);
+    positions.reserve(71);
 
     if (!add_endgame_position(positions, "one-empty-forced", 1, "low_mobility",
                               "BBBBBBBB\n"
@@ -652,6 +652,60 @@ namespace othello::benchmarks {
         return std::nullopt;
     }
 
+    if (!add_endgame_position(
+            positions, "adaptive16-heavy-g12-ply45", 15,
+            "diagnostic_adaptive16,experimental_15,edge_heavy,high_mobility",
+            "..BBWW..\n"
+            "..BBWW..\n"
+            "BBBWBWB.\n"
+            "BBWWBBBB\n"
+            "BBBBBWBB\n"
+            ".WBBBBWB\n"
+            ".BWWBWWW\n"
+            "B..WB..B\n"
+            "side=W",
+            "match diagnostic root from g12_p0_5_s0 at ply 45; 15 empties, 10 current legal "
+            "moves, and a high exact-root node count",
+            false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(
+            positions, "adaptive16-heavy-g25-ply45", 15,
+            "diagnostic_adaptive16,experimental_15,edge_heavy,low_opponent_mobility",
+            ".BBBBB..\n"
+            "WBBBBB..\n"
+            "WWBBBBB.\n"
+            "WBWBBB..\n"
+            "WBWWWW..\n"
+            "WBWBWW..\n"
+            "WBBBBWW.\n"
+            "WBBB..WW\n"
+            "side=W",
+            "match diagnostic root from g25_p0_6_s1 at ply 45; adaptive16 exactized this "
+            "15-empty low-opponent-mobility root",
+            false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(
+            positions, "adaptive16-heavy-g27-ply45", 15,
+            "diagnostic_adaptive16,experimental_15,edge_heavy,high_mobility",
+            "BBB.B...\n"
+            "..BBBB..\n"
+            "WWBWBWB.\n"
+            "WWBBWB..\n"
+            "WWBBBBB.\n"
+            "WWBWWBBB\n"
+            "WWBWBWW.\n"
+            "..BBBBWW\n"
+            "side=W",
+            "match diagnostic root from g27_p0_6_s3 at ply 45; slowest adaptive16 root in the "
+            "targeted regression subset",
+            false)) {
+        return std::nullopt;
+    }
+
     if (!add_endgame_position(positions, "16-empty-low-mobility", 16,
                               "experimental_16,low_mobility,edge_heavy",
                               "...W.B.W\n"
@@ -666,6 +720,42 @@ namespace othello::benchmarks {
                               "fixed-seed legal playout fixture, seed 41 policy 0, three legal "
                               "root moves",
                               false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(
+            positions, "adaptive16-heavy-g12-ply44", 16,
+            "diagnostic_adaptive16,experimental_16,edge_heavy,high_mobility",
+            "..BBWW..\n"
+            "..BBWW..\n"
+            "BBWWBWB.\n"
+            "WWWWBBBB\n"
+            ".WBBBWBB\n"
+            ".WBBBBWB\n"
+            ".BWWBWWW\n"
+            "B..WB..B\n"
+            "side=B",
+            "match diagnostic root from g12_p0_5_s0 at ply 44; 16 empties, 10 current legal "
+            "moves, and the highest node count in the targeted subset",
+            false)) {
+        return std::nullopt;
+    }
+
+    if (!add_endgame_position(
+            positions, "adaptive16-heavy-g27-ply44", 16,
+            "diagnostic_adaptive16,experimental_16,edge_heavy,normal_mobility",
+            "BBB.B...\n"
+            "..BBBB..\n"
+            "WWBWBWB.\n"
+            "WWBBWW..\n"
+            "WWBWWW..\n"
+            "WWBWWWBB\n"
+            "WWBWWWW.\n"
+            "..BBBBWW\n"
+            "side=B",
+            "match diagnostic root from g27_p0_6_s3 at ply 44; 16-empty root with bounded "
+            "current mobility but high opponent mobility",
+            false)) {
         return std::nullopt;
     }
 

@@ -1,4 +1,5 @@
-#include "hash_detail.hpp"
+#include "bitboard_ops.hpp"
+#include "hash_update.hpp"
 #include "search_common.hpp"
 
 #include <algorithm>
@@ -28,14 +29,16 @@ EvaluationConfig resolve_evaluation_config(const SearchOptions& options) noexcep
 
 namespace {
 
+using bitboard_detail::corner_squares;
+using bitboard_detail::is_corner;
+using bitboard_detail::is_edge;
+using bitboard_detail::is_x_square;
+using bitboard_detail::is_x_square_next_to_empty_corner;
+using hash_detail::hash_after_move;
+using hash_detail::hash_after_pass;
 using search_detail::board_after_move;
-using search_detail::corner_squares;
 using search_detail::empty_count;
 using search_detail::is_better_best_move;
-using search_detail::is_corner;
-using search_detail::is_edge;
-using search_detail::is_x_square;
-using search_detail::is_x_square_next_to_empty_corner;
 using search_detail::node_result_from_transposition_entry;
 using search_detail::NodeResult;
 using search_detail::principal_variation_from_vector;
@@ -472,30 +475,6 @@ ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
 
 [[nodiscard]] PrincipalVariationHint child_hint_after_pass(PrincipalVariationHint hint) noexcept {
     return hint;
-}
-
-[[nodiscard]] ZobristHash hash_after_pass(ZobristHash hash, Side side_to_move) noexcept {
-    hash ^= detail::zobrist_side_hash(side_to_move);
-    hash ^= detail::zobrist_side_hash(opponent(side_to_move));
-    return hash;
-}
-
-[[nodiscard]] ZobristHash hash_after_move(ZobristHash hash, Side side_to_move, Square square,
-                                          Bitboard flips) noexcept {
-    const Side next_side = opponent(side_to_move);
-
-    hash ^= detail::zobrist_side_hash(side_to_move);
-    hash ^= detail::zobrist_side_hash(next_side);
-    hash ^= detail::zobrist_piece_hash(side_to_move, square.index());
-
-    while (flips != 0) {
-        const int square_index = std::countr_zero(flips);
-        hash ^= detail::zobrist_piece_hash(next_side, square_index);
-        hash ^= detail::zobrist_piece_hash(side_to_move, square_index);
-        flips &= flips - 1;
-    }
-
-    return hash;
 }
 
 // Fixed-depth negamax is easiest to audit as direct recursion at this stage.

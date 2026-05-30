@@ -9,6 +9,7 @@
 #include <optional>
 #include <othello/othello.hpp>
 #include <random>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -56,6 +57,52 @@ namespace {
     return best_move;
 }
 
+[[nodiscard]] std::string side_name(Side side) {
+    return side == Side::Black ? "black" : "white";
+}
+
+[[nodiscard]] ExactRootTraceStats exact_root_trace_stats(const SearchStats& stats) noexcept {
+    return ExactRootTraceStats{
+        .nodes = stats.nodes,
+        .tt_lookups = stats.tt_lookups,
+        .tt_hits = stats.tt_hits,
+        .tt_exact_hits = stats.tt_exact_hits,
+        .tt_lower_hits = stats.tt_lower_hits,
+        .tt_upper_hits = stats.tt_upper_hits,
+        .tt_stores = stats.tt_stores,
+        .tt_overwrites = stats.tt_overwrites,
+        .tt_collisions = stats.tt_collisions,
+        .tt_rejected_stores = stats.tt_rejected_stores,
+        .tt_move_ordering_probes = stats.tt_move_ordering_probes,
+        .tt_move_ordering_hits = stats.tt_move_ordering_hits,
+        .tt_move_ordering_used = stats.tt_move_ordering_used,
+    };
+}
+
+[[nodiscard]] ExactRootTrace exact_root_trace(const Board& board, const MoveSelection& selection,
+                                             int ply, bool black_is_player_a) {
+    const bool player_a =
+        board.side_to_move == Side::Black ? black_is_player_a : !black_is_player_a;
+    return ExactRootTrace{
+        .ply = ply,
+        .side = side_name(board.side_to_move),
+        .player = player_a ? "A" : "B",
+        .board = to_string(board),
+        .empties = selection.exact_root_decision.empty_count,
+        .legal_moves_current = selection.exact_root_decision.legal_moves_current,
+        .legal_moves_opponent = selection.exact_root_decision.legal_moves_opponent,
+        .best_move = selection.move,
+        .score = selection.score,
+        .depth = selection.depth,
+        .nodes = selection.nodes,
+        .elapsed_ms = selection.elapsed_ms,
+        .stats = selection.search_stats.has_value()
+                     ? exact_root_trace_stats(*selection.search_stats)
+                     : ExactRootTraceStats{},
+        .principal_variation = selection.principal_variation,
+    };
+}
+
 } // namespace
 
 MoveSelection choose_move(const PlayerSpec& spec, const Board& board, std::mt19937_64& rng) {
@@ -75,8 +122,8 @@ MoveSelection choose_move(const PlayerSpec& spec, const Board& board, std::mt199
         return MoveSelection{.move = best_eval_move(board)};
     case PlayerKind::Search: {
         const SearchOptions search_options = make_search_options(spec);
-        const bool exact_root_search =
-            decide_exact_endgame_root(board, search_options).solve_exact;
+        const ExactEndgameRootDecision exact_root_decision =
+            decide_exact_endgame_root(board, search_options);
         const auto started = std::chrono::steady_clock::now();
         const SearchResult result = search(board, search_options);
         const auto finished = std::chrono::steady_clock::now();
@@ -85,7 +132,11 @@ MoveSelection choose_move(const PlayerSpec& spec, const Board& board, std::mt199
         return MoveSelection{.move = result.best_move,
                              .nodes = result.nodes,
                              .elapsed_ms = elapsed_ms,
-                             .exact_root_searches = exact_root_search ? 1U : 0U,
+                             .exact_root_searches = exact_root_decision.solve_exact ? 1U : 0U,
+                             .exact_root_decision = exact_root_decision,
+                             .score = result.score,
+                             .depth = result.depth,
+                             .principal_variation = result.principal_variation,
                              .search_stats = result.stats};
     }
     case PlayerKind::ExternalNBoard:
@@ -233,6 +284,11 @@ GameRecord run_game(int game_index, const PlayerSpec& black_spec, const PlayerSp
             record.nodes_white += selection.nodes;
             record.time_ms_white += selection.elapsed_ms;
             record.exact_roots_white += selection.exact_root_searches;
+        }
+        if (selection.exact_root_searches > 0) {
+            record.exact_root_events.push_back(
+                exact_root_trace(board, selection, static_cast<int>(full_moves.size()),
+                                 record.black_is_player_a));
         }
 
         const std::optional<Square> move = selection.move;

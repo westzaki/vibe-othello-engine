@@ -201,3 +201,12 @@ add_test(
     COMMAND /bin/sh -c
         "$<TARGET_FILE:othello_nboard_engine> --eval-preset default --eval-config ${OTHELLO_SAMPLE_EVAL_CONFIG} 2>&1 | grep 'cannot combine --eval-preset and --eval-config'"
 )
+
+add_test(
+    NAME othello_endgame_bench_help_includes_exact_tt_entries
+    COMMAND $<TARGET_FILE:othello_endgame_bench> --help
+)
+set_tests_properties(
+    othello_endgame_bench_help_includes_exact_tt_entries
+    PROPERTIES PASS_REGULAR_EXPRESSION "--exact-tt-entries"
+)

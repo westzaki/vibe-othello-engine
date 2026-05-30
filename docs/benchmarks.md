@@ -305,6 +305,7 @@ Current diagnostic examples:
 ./build/othello_endgame_bench --empties 20 --repetitions 1 --root-breakdown
 ./build/othello_endgame_bench --empties 20 --repetitions 1 --root-breakdown --expand-worst-candidate
 ./build/othello_endgame_bench --breakdown-position 20-empty-high-mobility-lite --repetitions 1 --root-breakdown --expand-worst-candidate
+./build/othello_endgame_bench --breakdown-position adaptive16-heavy-g12-ply44 --repetitions 1 --root-breakdown --expand-worst-candidate --exact-tt-entries 2097152
 ```
 
 The standard exact endgame rows measure one normal `solve_exact_endgame` call per
@@ -318,6 +319,10 @@ position. Diagnostic modes intentionally solve candidates separately:
 - `--breakdown-position NAME` restricts the selected benchmark positions by exact
   fixture name. This is useful when inspecting one heavy 18/20-empty fixture
   without running the whole bucket.
+- `--exact-tt-entries N` overrides the private exact solver TT entry count for
+  diagnostics. Omit it for the root-empty-count based default; pass `0` to
+  disable the exact TT. Extremely large values fall back to the default capacity.
+  This option is for measurement and does not change the normal search/adaptive16 path.
 
 Use diagnostic output to understand where time goes. Do not compare total
 candidate time from diagnostic modes directly with the normal benchmark row.
@@ -469,8 +474,12 @@ python3 tools/scripts/match_summary.py \
 
 The Python summary script reports A/B wins, draws, average disc diff from the
 player A perspective, average plies, average passes, error-game count, optional
-nodes/time averages, exact-root counts, and optional per-opening rows. It is
-intentionally not an Elo or significance tool.
+nodes/time averages, exact-root counts, and optional per-opening rows. Match
+JSONL records also include `exact_root_events` for each fired exact root, with
+the ply, board, legal move counts, elapsed time, node count, TT counters, best
+move, score, and PV. Those events are intended for diagnosing heavy adaptive
+endgame roots before changing gates or exact-solver ordering. The summary script
+is intentionally not an Elo or significance tool.
 
 ## Reading Results
 

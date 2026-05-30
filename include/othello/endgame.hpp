@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <othello/board.hpp>
@@ -36,8 +37,17 @@ struct ExactEndgameResult {
     ExactEndgameStats stats;
 };
 
+struct ExactEndgameOptions {
+    // Diagnostic knob for benchmark tools. nullopt keeps the root-empty-count based default
+    // capacity. A value of 0 disables the private exact TT. Extremely large requested sizes are
+    // treated as invalid and fall back to the default capacity.
+    std::optional<std::size_t> transposition_table_entries = std::nullopt;
+};
+
 // Solves by exhaustive exact search to game end. This is intended for small-empty-count
 // endgame positions; calling it on midgame or initial positions can be extremely expensive.
 [[nodiscard]] ExactEndgameResult solve_exact_endgame(const Board& board) noexcept;
+[[nodiscard]] ExactEndgameResult solve_exact_endgame(const Board& board,
+                                                     const ExactEndgameOptions& options) noexcept;
 
 } // namespace othello

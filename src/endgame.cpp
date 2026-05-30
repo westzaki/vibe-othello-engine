@@ -1,5 +1,6 @@
 #include "endgame_last_n.hpp"
 #include "endgame_ordering.hpp"
+#include "hash_update.hpp"
 #include "search_common.hpp"
 
 #include <algorithm>
@@ -15,7 +16,7 @@ namespace {
 
 using endgame_detail::ExactEndgameContext;
 using endgame_detail::EndgameMoveOrderingPolicy;
-using endgame_detail::hash_after_pass;
+using hash_detail::hash_after_pass;
 using endgame_detail::last_n_specialized_empties;
 using endgame_detail::ordered_legal_move_indexes;
 using endgame_detail::OrderedMoveIndexes;
@@ -230,8 +231,9 @@ empty_region_parity_ordering_policy(int root_empties, int empties) noexcept {
 
 } // namespace
 
-ExactEndgameResult solve_exact_endgame(const Board& board) noexcept {
-    ExactEndgameContext context{empty_count(board)};
+ExactEndgameResult solve_exact_endgame(const Board& board,
+                                       const ExactEndgameOptions& options) noexcept {
+    ExactEndgameContext context{empty_count(board), options};
     const NodeResult result =
         solve_node(board, zobrist_hash(board), exact_score_min, exact_score_max, context, true);
 
@@ -243,6 +245,10 @@ ExactEndgameResult solve_exact_endgame(const Board& board) noexcept {
         .principal_variation = principal_variation_to_vector(result.principal_variation),
         .stats = context.stats,
     };
+}
+
+ExactEndgameResult solve_exact_endgame(const Board& board) noexcept {
+    return solve_exact_endgame(board, ExactEndgameOptions{});
 }
 
 } // namespace othello

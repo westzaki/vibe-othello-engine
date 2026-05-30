@@ -52,6 +52,7 @@ struct BenchmarkOptions {
     bool root_breakdown = false;
     bool expand_worst_candidate = false;
     std::optional<std::string_view> breakdown_position;
+    std::optional<std::size_t> exact_tt_entries;
     bool help = false;
 };
 
@@ -103,7 +104,8 @@ void print_usage(std::string_view program_name) {
     std::cout << "usage: " << program_name
               << " [--positions smoke|suite|endgame] [--empties 1,2,4,6,8,10,12,14,16,18,20]"
                  " [--repetitions N] [--describe-positions] [--root-breakdown]"
-                 " [--expand-worst-candidate] [--breakdown-position NAME] [--help]\n"
+                 " [--expand-worst-candidate] [--breakdown-position NAME]"
+                 " [--exact-tt-entries N] [--help]\n"
               << '\n'
               << "Options:\n"
               << "  --positions SET       smoke, suite, or endgame (default: smoke)\n"
@@ -117,6 +119,9 @@ void print_usage(std::string_view program_name) {
                  "one ply\n"
               << "  --breakdown-position NAME\n"
               << "                       restrict the selected benchmark positions by exact name\n"
+              << "  --exact-tt-entries N\n"
+              << "                       override private exact TT entries for diagnostics; 0 disables "
+                 "the exact TT; huge values fall back to default\n"
               << "  --help                show this help text\n";
 }
 
@@ -207,6 +212,21 @@ void print_usage(std::string_view program_name) {
                 return std::nullopt;
             }
             options.breakdown_position = std::string_view{args[index]};
+            continue;
+        }
+
+        if (option == "--exact-tt-entries") {
+            ++index;
+            if (index >= args.size()) {
+                std::cerr << "--exact-tt-entries requires a non-negative integer\n";
+                return std::nullopt;
+            }
+            const auto entries = othello::tools::parse_entry_count(args[index]);
+            if (!entries.has_value()) {
+                std::cerr << "--exact-tt-entries must be a non-negative integer\n";
+                return std::nullopt;
+            }
+            options.exact_tt_entries = *entries;
             continue;
         }
 
@@ -448,6 +468,13 @@ validate_positions(const std::vector<othello::benchmarks::EndgamePosition>& posi
     return true;
 }
 
+[[nodiscard]] othello::ExactEndgameOptions
+exact_endgame_options(const BenchmarkOptions& options) {
+    return othello::ExactEndgameOptions{
+        .transposition_table_entries = options.exact_tt_entries,
+    };
+}
+
 [[nodiscard]] std::vector<othello::Square>
 root_candidate_principal_variation(othello::Square root_move,
                                    const std::vector<othello::Square>& child_pv) {
@@ -459,14 +486,15 @@ root_candidate_principal_variation(othello::Square root_move,
 }
 
 [[nodiscard]] std::optional<PositionBenchmarkResult>
-run_benchmark(const othello::benchmarks::EndgamePosition& position, std::uint64_t repetitions) {
+run_benchmark(const othello::benchmarks::EndgamePosition& position, std::uint64_t repetitions,
+              const othello::ExactEndgameOptions& exact_options) {
     std::optional<othello::ExactEndgameResult> sample;
     std::uint64_t total_nodes = 0;
     othello::ExactEndgameStats total_stats;
 
     const auto started = Clock::now();
     for (std::uint64_t repetition = 0; repetition < repetitions; ++repetition) {
-        const auto result = othello::solve_exact_endgame(position.board);
+        const auto result = othello::solve_exact_endgame(position.board, exact_options);
         if (!validate_solver_result(position, result)) {
             return std::nullopt;
         }
@@ -629,7 +657,8 @@ board_after_root_candidate(const othello::benchmarks::EndgamePosition& position,
 
 [[nodiscard]] std::optional<std::vector<RootCandidateBreakdown>>
 run_root_breakdown(const othello::benchmarks::EndgamePosition& position,
-                   const PositionBenchmarkResult& benchmark_result) {
+                   const PositionBenchmarkResult& benchmark_result,
+                   const othello::ExactEndgameOptions& exact_options) {
     std::vector<RootCandidateBreakdown> candidates;
 
     if (othello::is_game_over(position.board)) {
@@ -646,7 +675,7 @@ run_root_breakdown(const othello::benchmarks::EndgamePosition& position,
         }
 
         const auto started = Clock::now();
-        const auto child_result = othello::solve_exact_endgame(*after_pass);
+        const auto child_result = othello::solve_exact_endgame(*after_pass, exact_options);
         const auto elapsed =
             std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - started);
 
@@ -687,7 +716,7 @@ run_root_breakdown(const othello::benchmarks::EndgamePosition& position,
         }
 
         const auto started = Clock::now();
-        const auto child_result = othello::solve_exact_endgame(*child_board);
+        const auto child_result = othello::solve_exact_endgame(*child_board, exact_options);
         const auto elapsed =
             std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - started);
 
@@ -792,7 +821,8 @@ validate_expanded_child_breakdown(const std::string& root_move,
 
 [[nodiscard]] std::optional<std::vector<ExpandedChildBreakdown>>
 run_expanded_child_breakdown(const othello::benchmarks::EndgamePosition& position,
-                             const RootCandidateBreakdown& root_candidate) {
+                             const RootCandidateBreakdown& root_candidate,
+                             const othello::ExactEndgameOptions& exact_options) {
     const auto expanded_board = board_after_root_candidate(position, root_candidate);
     if (!expanded_board.has_value()) {
         std::cerr << "failed to expand root candidate " << format_root_move(root_candidate)
@@ -801,7 +831,7 @@ run_expanded_child_breakdown(const othello::benchmarks::EndgamePosition& positio
     }
 
     const std::string root_move = format_root_move(root_candidate);
-    const auto expanded_result = othello::solve_exact_endgame(*expanded_board);
+    const auto expanded_result = othello::solve_exact_endgame(*expanded_board, exact_options);
     std::vector<ExpandedChildBreakdown> candidates;
 
     if (othello::is_game_over(*expanded_board)) {
@@ -822,7 +852,7 @@ run_expanded_child_breakdown(const othello::benchmarks::EndgamePosition& positio
         }
 
         const auto started = Clock::now();
-        const auto child_result = othello::solve_exact_endgame(*after_pass);
+        const auto child_result = othello::solve_exact_endgame(*after_pass, exact_options);
         const auto elapsed =
             std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - started);
         const int margin_node = -child_result.disc_margin;
@@ -868,7 +898,7 @@ run_expanded_child_breakdown(const othello::benchmarks::EndgamePosition& positio
         }
 
         const auto started = Clock::now();
-        const auto child_result = othello::solve_exact_endgame(*child_board);
+        const auto child_result = othello::solve_exact_endgame(*child_board, exact_options);
         const auto elapsed =
             std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - started);
         const int margin_node = -child_result.disc_margin;
@@ -1325,11 +1355,13 @@ int run_benchmark(std::span<char* const> args) {
         return 0;
     }
 
+    const othello::ExactEndgameOptions exact_options = exact_endgame_options(*options);
+
     std::vector<PositionBenchmarkResult> results;
     results.reserve(selected_positions.size());
 
     for (const auto& position : selected_positions) {
-        const auto result = run_benchmark(position, options->repetitions);
+        const auto result = run_benchmark(position, options->repetitions, exact_options);
         if (!result.has_value()) {
             return 1;
         }
@@ -1345,7 +1377,8 @@ int run_benchmark(std::span<char* const> args) {
         std::vector<RootCandidateBreakdown> root_breakdowns;
         std::vector<ExpandedChildBreakdown> expanded_child_breakdowns;
         for (std::size_t index = 0; index < selected_positions.size(); ++index) {
-            const auto breakdown = run_root_breakdown(selected_positions[index], results[index]);
+            const auto breakdown =
+                run_root_breakdown(selected_positions[index], results[index], exact_options);
             if (!breakdown.has_value()) {
                 return 1;
             }
@@ -1356,7 +1389,7 @@ int run_benchmark(std::span<char* const> args) {
                         return lhs.elapsed < rhs.elapsed;
                     });
                 const auto expanded =
-                    run_expanded_child_breakdown(selected_positions[index], *worst);
+                    run_expanded_child_breakdown(selected_positions[index], *worst, exact_options);
                 if (!expanded.has_value()) {
                     return 1;
                 }
