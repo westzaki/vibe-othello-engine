@@ -743,6 +743,18 @@ ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
     ExactEndgameResult exact = solve_exact_endgame(board);
     const SearchStats stats{
         .nodes = exact.nodes,
+        .tt_lookups = exact.stats.tt_lookups,
+        .tt_hits = exact.stats.tt_hits,
+        .tt_exact_hits = exact.stats.tt_exact_hits,
+        .tt_lower_hits = exact.stats.tt_lower_hits,
+        .tt_upper_hits = exact.stats.tt_upper_hits,
+        .tt_stores = exact.stats.tt_stores,
+        .tt_overwrites = exact.stats.tt_overwrites,
+        .tt_collisions = exact.stats.tt_collisions,
+        .tt_rejected_stores = exact.stats.tt_rejected_stores,
+        .tt_move_ordering_probes = exact.stats.tt_move_ordering_probes,
+        .tt_move_ordering_hits = exact.stats.tt_move_ordering_hits,
+        .tt_move_ordering_used = exact.stats.tt_move_ordering_used,
     };
 
     return SearchResult{

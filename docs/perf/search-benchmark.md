@@ -42,6 +42,7 @@ latency across the suite:
 
 Historical snapshots include:
 
+- [2026-05-30 PR129 exact threshold gate](baselines/2026-05-30-pr129-exact-threshold-gate.md)
 - [2026-05-23 PR48 exact threshold-12 suite baseline](baselines/2026-05-23-pr48-b564915-exact-threshold12-suite.md)
 - [2026-05-17 PR44 depth-10 suite baseline](baselines/2026-05-17-pr44-bedc534-depth10-suite.md)
 - [2026-05-17 PR37 depth-10 suite baseline](baselines/2026-05-17-pr37-5568457-depth10-suite.md)
