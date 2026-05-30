@@ -134,3 +134,26 @@ TEST_CASE("Position analysis print includes corner pattern breakdown fields", "[
     CHECK(output.find("corner_2x3_pattern_weight:") != std::string::npos);
     CHECK(output.find("corner_2x3_pattern_score:") != std::string::npos);
 }
+
+TEST_CASE("Position analysis print includes edge 8 pattern breakdown fields", "[analyze]") {
+    const Board board = Board::initial();
+    othello::tools::analyze::AnalysisOptions options{
+        .depth = 1,
+        .mode = othello::tools::analyze::AnalysisMode::Fixed,
+        .use_transposition_table = true,
+        .exact_endgame_empty_threshold = 0,
+        .use_pvs = true,
+        .evaluation_preset = othello::EvaluationPreset::EdgePattern8V1,
+    };
+    const othello::SearchResult result = othello::tools::analyze::run_search(board, options);
+
+    std::ostringstream captured;
+    std::streambuf* const previous_buffer = std::cout.rdbuf(captured.rdbuf());
+    othello::tools::analyze::print_report(board, options, result, std::chrono::nanoseconds{0});
+    std::cout.rdbuf(previous_buffer);
+
+    const std::string output = captured.str();
+    CHECK(output.find("edge_8_pattern:") != std::string::npos);
+    CHECK(output.find("edge_8_pattern_weight:") != std::string::npos);
+    CHECK(output.find("edge_8_pattern_score:") != std::string::npos);
+}

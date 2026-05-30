@@ -28,6 +28,11 @@ enum class EvaluationPreset {
     CornerPattern2x3Aggressive,
     FrontierCornerPattern2x3V1,
     FrontierCornerPatternEdgeLiteV1,
+    EdgePattern8V1,
+    EdgePattern8Aggressive,
+    DefaultEdgePattern8V1,
+    DefaultEdgePattern8NoEdgeLite,
+    DefaultEdgePattern8Aggressive,
 };
 
 enum class Corner2x3PatternCorner {
@@ -38,6 +43,15 @@ enum class Corner2x3PatternCorner {
 };
 
 inline constexpr int corner_2x3_pattern_table_size = 729;
+
+enum class Edge8PatternEdge {
+    Top,
+    Bottom,
+    Left,
+    Right,
+};
+
+inline constexpr int edge_8_pattern_table_size = 6561;
 
 struct EvaluationFeatureWeights {
     int disc_difference = 0;
@@ -50,6 +64,7 @@ struct EvaluationFeatureWeights {
     int corner_local_2x3 = 0;
     int corner_2x3_pattern = 0;
     int edge_stability_lite = 0;
+    int edge_8_pattern = 0;
 
     [[nodiscard]] friend bool operator==(const EvaluationFeatureWeights&,
                                          const EvaluationFeatureWeights&) = default;
@@ -66,6 +81,7 @@ struct EvaluationConfig {
         .frontier = 5,
         .corner_2x3_pattern = 4,
         .edge_stability_lite = 2,
+        .edge_8_pattern = 2,
     };
     EvaluationFeatureWeights midgame{
         .disc_difference = 1,
@@ -77,6 +93,7 @@ struct EvaluationConfig {
         .frontier = 6,
         .corner_2x3_pattern = 6,
         .edge_stability_lite = 4,
+        .edge_8_pattern = 4,
     };
     EvaluationFeatureWeights late{
         .disc_difference = 4,
@@ -88,6 +105,7 @@ struct EvaluationConfig {
         .frontier = 3,
         .corner_2x3_pattern = 4,
         .edge_stability_lite = 8,
+        .edge_8_pattern = 6,
     };
     int opening_max_occupied = 20;
     int midgame_max_occupied = 44;
@@ -155,6 +173,10 @@ struct EvaluationBreakdown {
     int edge_stability_lite_weight = 0;
     int edge_stability_lite_score = 0;
 
+    int edge_8_pattern = 0;
+    int edge_8_pattern_weight = 0;
+    int edge_8_pattern_score = 0;
+
     bool terminal = false;
     int terminal_disc_difference = 0;
     int terminal_score_weight = 1000;
@@ -170,6 +192,11 @@ struct EvaluationBreakdown {
 [[nodiscard]] int corner_2x3_pattern_table_value(int index) noexcept;
 [[nodiscard]] int corner_2x3_pattern_value(const Board& board, Side side) noexcept;
 [[nodiscard]] int corner_2x3_pattern_score(const Board& board, Side side) noexcept;
+[[nodiscard]] int edge_8_pattern_index(const Board& board, Side side,
+                                       Edge8PatternEdge edge) noexcept;
+[[nodiscard]] int edge_8_pattern_table_value(int index) noexcept;
+[[nodiscard]] int edge_8_pattern_value(const Board& board, Side side) noexcept;
+[[nodiscard]] int edge_8_pattern_score(const Board& board, Side side) noexcept;
 [[nodiscard]] EvaluationBreakdown evaluate_basic_breakdown(const Board& board,
                                                            Side side) noexcept;
 [[nodiscard]] EvaluationBreakdown evaluate_basic_breakdown(const Board& board, Side side,
