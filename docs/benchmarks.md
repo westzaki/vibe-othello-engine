@@ -442,15 +442,35 @@ python3 tools/scripts/match_summary.py \
 ```
 
 Supported search player options are `tt=on|off`, `pvs=on|off`,
-`exact=off|N`, and `tt_entries=N`. The plain `search:depth=N` form keeps the
-same defaults as the existing fixed-depth search path. `tt_entries=N` only sets
-the transposition-table capacity; include `tt=on` when the match should use the
-table.
+`exact=off|N|adaptive16`, and `tt_entries=N`. The plain `search:depth=N` form
+keeps the same defaults as the existing fixed-depth search path. `exact=N` uses
+the fixed root threshold, while `exact=adaptive16` is an experimental opt-in
+profile that solves roots up to 14 empties and conservatively gates 15/16-empty
+roots. `tt_entries=N` only sets the transposition-table capacity; include
+`tt=on` when the match should use the table.
+
+For match-level adaptive16 smoke tests, keep the comparison deterministic and
+swap sides across the same openings:
+
+```sh
+./build/othello_match_runner \
+  --black search:depth=5,tt=on,pvs=on,exact=14 \
+  --white search:depth=5,tt=on,pvs=on,exact=adaptive16 \
+  --games 40 \
+  --swap-sides true \
+  --seed 20260531 \
+  --openings data/openings/smoke_openings.txt \
+  --output build/matches/exact14_vs_adaptive16.jsonl
+
+python3 tools/scripts/match_summary.py \
+  --input build/matches/exact14_vs_adaptive16.jsonl \
+  --by-opening
+```
 
 The Python summary script reports A/B wins, draws, average disc diff from the
 player A perspective, average plies, average passes, error-game count, optional
-nodes/time averages, and optional per-opening rows. It is intentionally not an
-Elo or significance tool.
+nodes/time averages, exact-root counts, and optional per-opening rows. It is
+intentionally not an Elo or significance tool.
 
 ## Reading Results
 

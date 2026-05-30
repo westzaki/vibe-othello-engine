@@ -74,14 +74,18 @@ MoveSelection choose_move(const PlayerSpec& spec, const Board& board, std::mt199
     case PlayerKind::Eval:
         return MoveSelection{.move = best_eval_move(board)};
     case PlayerKind::Search: {
+        const SearchOptions search_options = make_search_options(spec);
+        const bool exact_root_search =
+            decide_exact_endgame_root(board, search_options).solve_exact;
         const auto started = std::chrono::steady_clock::now();
-        const SearchResult result = search(board, make_search_options(spec));
+        const SearchResult result = search(board, search_options);
         const auto finished = std::chrono::steady_clock::now();
         const double elapsed_ms =
             std::chrono::duration<double, std::milli>{finished - started}.count();
         return MoveSelection{.move = result.best_move,
                              .nodes = result.nodes,
                              .elapsed_ms = elapsed_ms,
+                             .exact_root_searches = exact_root_search ? 1U : 0U,
                              .search_stats = result.stats};
     }
     case PlayerKind::ExternalNBoard:
@@ -149,6 +153,10 @@ GameRecord run_game(int game_index, const PlayerSpec& black_spec, const PlayerSp
             record.black_is_player_a ? record.score_diff_from_black : -record.score_diff_from_black;
         record.nodes_player_a = record.black_is_player_a ? record.nodes_black : record.nodes_white;
         record.nodes_player_b = record.black_is_player_a ? record.nodes_white : record.nodes_black;
+        record.exact_roots_player_a =
+            record.black_is_player_a ? record.exact_roots_black : record.exact_roots_white;
+        record.exact_roots_player_b =
+            record.black_is_player_a ? record.exact_roots_white : record.exact_roots_black;
         record.time_ms_player_a =
             record.black_is_player_a ? record.time_ms_black : record.time_ms_white;
         record.time_ms_player_b =
@@ -220,9 +228,11 @@ GameRecord run_game(int game_index, const PlayerSpec& black_spec, const PlayerSp
         if (board.side_to_move == Side::Black) {
             record.nodes_black += selection.nodes;
             record.time_ms_black += selection.elapsed_ms;
+            record.exact_roots_black += selection.exact_root_searches;
         } else {
             record.nodes_white += selection.nodes;
             record.time_ms_white += selection.elapsed_ms;
+            record.exact_roots_white += selection.exact_root_searches;
         }
 
         const std::optional<Square> move = selection.move;

@@ -54,6 +54,10 @@ void write_jsonl_record(std::ostream& output, const GameRecord& record) {
     output << "\"nodes_white\":" << record.nodes_white << ',';
     output << "\"nodes_player_a\":" << record.nodes_player_a << ',';
     output << "\"nodes_player_b\":" << record.nodes_player_b << ',';
+    output << "\"exact_roots_black\":" << record.exact_roots_black << ',';
+    output << "\"exact_roots_white\":" << record.exact_roots_white << ',';
+    output << "\"exact_roots_player_a\":" << record.exact_roots_player_a << ',';
+    output << "\"exact_roots_player_b\":" << record.exact_roots_player_b << ',';
     output << "\"time_ms_black\":" << record.time_ms_black << ',';
     output << "\"time_ms_white\":" << record.time_ms_white << ',';
     output << "\"time_ms_player_a\":" << record.time_ms_player_a << ',';
