@@ -1,8 +1,10 @@
+#include "common/eval_config_io.hpp"
 #include "test_helpers.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 #include <othello/othello.hpp>
 
+#include <filesystem>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -24,6 +26,10 @@ namespace {
 ........
 ........
 side=W)");
+}
+
+[[nodiscard]] std::filesystem::path sample_eval_config_path(std::string_view file_name) {
+    return std::filesystem::path{OTHELLO_SOURCE_DIR} / "data" / "eval" / file_name;
 }
 
 [[nodiscard]] Board corner_occupancy_board() {
@@ -165,6 +171,56 @@ void check_non_terminal_breakdown_math(const Board& board, Side side) {
 }
 
 } // namespace
+
+TEST_CASE("Sample eval configs round-trip to expected evaluator configs", "[evaluation]") {
+    const othello::tools::EvaluationConfigLoadResult current_default =
+        othello::tools::load_evaluation_config_file(sample_eval_config_path("current_default.eval"));
+    REQUIRE(current_default.ok());
+    REQUIRE(current_default.name.has_value());
+    CHECK(*current_default.name == "current_default");
+    CHECK(current_default.config == othello::default_evaluation_config());
+
+    const othello::tools::EvaluationConfigLoadResult phase_aware =
+        othello::tools::load_evaluation_config_file(sample_eval_config_path("phase_aware_v1.eval"));
+    REQUIRE(phase_aware.ok());
+    REQUIRE(phase_aware.name.has_value());
+    CHECK(*phase_aware.name == "phase_aware_v1");
+    CHECK(phase_aware.config ==
+          othello::evaluation_config_for_preset(othello::EvaluationPreset::PhaseAwareV1));
+
+    const othello::tools::EvaluationConfigLoadResult soft =
+        othello::tools::load_evaluation_config_file(
+            sample_eval_config_path("default_edge_pattern_8_soft.eval"));
+    REQUIRE(soft.ok());
+    REQUIRE(soft.name.has_value());
+    CHECK(*soft.name == "default_edge_pattern_8_soft");
+
+    othello::EvaluationConfig expected_soft = othello::default_evaluation_config();
+    expected_soft.opening.edge_8_pattern = 1;
+    expected_soft.midgame.edge_8_pattern = 3;
+    expected_soft.late.edge_8_pattern = 5;
+    CHECK(soft.config == expected_soft);
+}
+
+TEST_CASE("Eval config parser rejects malformed v1 files", "[evaluation]") {
+    const auto unknown = othello::tools::parse_evaluation_config("unknown=1\n");
+    CHECK_FALSE(unknown.ok());
+    CHECK(unknown.error.find("unknown key") != std::string::npos);
+
+    const auto duplicate = othello::tools::parse_evaluation_config(
+        "opening.disc_difference=1\nopening.disc_difference=2\n");
+    CHECK_FALSE(duplicate.ok());
+    CHECK(duplicate.error.find("duplicate key") != std::string::npos);
+
+    const auto invalid_int =
+        othello::tools::parse_evaluation_config("opening.disc_difference=x\n");
+    CHECK_FALSE(invalid_int.ok());
+    CHECK(invalid_int.error.find("invalid integer") != std::string::npos);
+
+    const auto missing = othello::tools::parse_evaluation_config("name=missing_keys\n");
+    CHECK_FALSE(missing.ok());
+    CHECK(missing.error.find("missing required key") != std::string::npos);
+}
 
 TEST_CASE("Initial board evaluation is symmetric", "[evaluation]") {
     const Board board = Board::initial();

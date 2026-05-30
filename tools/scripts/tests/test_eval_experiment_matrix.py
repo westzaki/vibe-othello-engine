@@ -103,6 +103,16 @@ class EvalExperimentMatrixTests(unittest.TestCase):
                 with self.assertRaises(ScriptError):
                     eval_experiment_matrix.parse_csv_names(value)
 
+    def test_parse_csv_paths_rejects_empty_entries(self) -> None:
+        self.assertEqual(
+            eval_experiment_matrix.parse_csv_paths("a.eval, b.eval"),
+            [Path("a.eval"), Path("b.eval")],
+        )
+        for value in ("", "a.eval,,b.eval", ",a.eval", "a.eval, "):
+            with self.subTest(value=value):
+                with self.assertRaises(ScriptError):
+                    eval_experiment_matrix.parse_csv_paths(value)
+
     def test_parse_depth_list_requires_positive_depths(self) -> None:
         self.assertEqual(eval_experiment_matrix.parse_depth_list("4, 6"), [4, 6])
         for value in ("", "0", "-1", "4,x"):
@@ -318,6 +328,133 @@ class EvalExperimentMatrixTests(unittest.TestCase):
         self.assertIn("--by-position", report)
         self.assertIn("Search positions: `suite`", report)
         self.assertIn("Search by-position: `on`", report)
+
+    def test_dry_run_with_configs_emits_eval_config_commands(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            candidate = temp_path / "candidate.eval"
+            reference = temp_path / "reference.eval"
+            candidate.write_text("name=candidate_config\n", encoding="utf-8")
+            reference.write_text("name=reference_config\n", encoding="utf-8")
+            args = eval_experiment_matrix.parse_args(
+                [
+                    "--configs",
+                    str(candidate),
+                    "--reference-config",
+                    str(reference),
+                    "--small-depths",
+                    "5",
+                    "--small-games",
+                    "4",
+                    "--openings",
+                    "data/openings/eval_regression_openings.txt",
+                    "--seed",
+                    "20260530",
+                    "--build-dir",
+                    str(temp_path / "build"),
+                    "--out",
+                    str(temp_path / "runs"),
+                    "--dry-run",
+                ]
+            )
+            config = eval_experiment_matrix.config_from_args(args)
+
+            exit_code = eval_experiment_matrix.run_matrix(config, dry_run=True)
+            report = (config.out_dir / "report.md").read_text(encoding="utf-8")
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("--eval-config", report)
+        self.assertIn(f"eval_config={candidate}", report)
+        self.assertIn(f"eval_config={reference}", report)
+        self.assertIn("Candidate configs: `candidate_config`", report)
+        self.assertIn("Reference config: `reference_config`", report)
+
+    def test_config_from_args_rejects_duplicate_config_labels(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            first = temp_path / "first.eval"
+            second = temp_path / "second.eval"
+            first.write_text("name=duplicate\n", encoding="utf-8")
+            second.write_text("name=duplicate\n", encoding="utf-8")
+            args = eval_experiment_matrix.parse_args(
+                [
+                    "--configs",
+                    f"{first},{second}",
+                    "--small-depths",
+                    "5",
+                    "--small-games",
+                    "4",
+                    "--openings",
+                    "data/openings/eval_regression_openings.txt",
+                    "--seed",
+                    "20260530",
+                    "--build-dir",
+                    str(temp_path / "build"),
+                    "--out",
+                    str(temp_path / "runs"),
+                ]
+            )
+
+            with self.assertRaisesRegex(ScriptError, "duplicate evaluator label"):
+                eval_experiment_matrix.config_from_args(args)
+
+    def test_config_from_args_rejects_config_label_colliding_with_preset(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            candidate = temp_path / "candidate.eval"
+            candidate.write_text("name=default\n", encoding="utf-8")
+            args = eval_experiment_matrix.parse_args(
+                [
+                    "--presets",
+                    "default",
+                    "--configs",
+                    str(candidate),
+                    "--small-depths",
+                    "5",
+                    "--small-games",
+                    "4",
+                    "--openings",
+                    "data/openings/eval_regression_openings.txt",
+                    "--seed",
+                    "20260530",
+                    "--build-dir",
+                    str(temp_path / "build"),
+                    "--out",
+                    str(temp_path / "runs"),
+                ]
+            )
+
+            with self.assertRaisesRegex(ScriptError, "duplicate evaluator label"):
+                eval_experiment_matrix.config_from_args(args)
+
+    def test_config_from_args_rejects_duplicate_slugs(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            first = temp_path / "first.eval"
+            second = temp_path / "second.eval"
+            first.write_text("name=foo bar\n", encoding="utf-8")
+            second.write_text("name=foo-bar\n", encoding="utf-8")
+            args = eval_experiment_matrix.parse_args(
+                [
+                    "--configs",
+                    f"{first},{second}",
+                    "--small-depths",
+                    "5",
+                    "--small-games",
+                    "4",
+                    "--openings",
+                    "data/openings/eval_regression_openings.txt",
+                    "--seed",
+                    "20260530",
+                    "--build-dir",
+                    str(temp_path / "build"),
+                    "--out",
+                    str(temp_path / "runs"),
+                ]
+            )
+
+            with self.assertRaisesRegex(ScriptError, "duplicate evaluator slug"):
+                eval_experiment_matrix.config_from_args(args)
 
     def test_ntest_sanity_skipped_when_config_unavailable(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

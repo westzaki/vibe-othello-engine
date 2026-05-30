@@ -111,6 +111,23 @@ TEST_CASE("Root candidate analysis reports pass candidate when root must pass", 
     CHECK(candidates.front().score == -candidates.front().child_search.score);
 }
 
+TEST_CASE("Root candidate analysis uses evaluation config override for breakdowns",
+          "[analyze]") {
+    const Board board = Board::initial();
+    auto options = candidate_options(1);
+    othello::EvaluationConfig config = othello::default_evaluation_config();
+    config.opening.mobility = 123;
+    options.evaluation_config_override = config;
+
+    const auto candidates =
+        othello::tools::analyze::analyze_root_candidates(board, options);
+
+    REQUIRE_FALSE(candidates.empty());
+    for (const auto& candidate : candidates) {
+        CHECK(candidate.evaluation_after_move.mobility_weight == 123);
+    }
+}
+
 TEST_CASE("Root candidate analysis reports no candidates for terminal root", "[analyze]") {
     const Board board{
         .black = ~othello::Bitboard{0},
