@@ -167,6 +167,16 @@ improvement, the result should include at least one of:
 - a measured experiment or report that directly informs that goal
 - a tool, fixture, or refactor that makes the next decision possible
 
+Intentional behavior changes are acceptable when the user asks for strength,
+evaluation, search, or performance improvement. In those cases, changed scores,
+best moves, benchmark checksums, or match outcomes are expected evidence, not
+automatic regressions. Preserve old behavior only when it is part of the stated
+goal, a correctness contract, or a named baseline needed for comparison.
+
+A drastic evaluator or search change is acceptable when it is isolated,
+measurable, and reversible. Prefer a named preset, explicit option, fixture, or
+baseline comparison when the change is too large to judge from unit tests alone.
+
 Avoid repeating prerequisite-only changes unless the user explicitly asks for
 repository cleanup or the next step is still blocked.
 
