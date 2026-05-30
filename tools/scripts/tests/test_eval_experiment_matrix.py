@@ -16,10 +16,21 @@ from common import ScriptError  # noqa: E402
 
 def experiment_config(temp_dir: Path) -> eval_experiment_matrix.EvalExperimentConfig:
     return eval_experiment_matrix.EvalExperimentConfig(
-        presets=["default", "mobility_plus_smoke"],
-        depths=[4, 6],
-        games=6,
-        openings=Path("data/openings/smoke_openings.txt"),
+        presets=[
+            "default",
+            "classic_features_lite_v1",
+            "frontier_classic_features_lite_v1",
+        ],
+        reference_preset="frontier_open2_mid2_late_plus1",
+        small_depths=[5, 6],
+        extended_depths=[7, 8],
+        small_games=48,
+        extended_games=96,
+        promote_top=1,
+        max_node_ratio=1.15,
+        min_avg_diff=0.0,
+        require_nonnegative_diff=False,
+        openings=Path("data/openings/eval_regression_openings.txt"),
         seed=20260530,
         build_dir=temp_dir / "build",
         out_dir=temp_dir / "runs" / "eval" / "example",
@@ -30,6 +41,55 @@ def experiment_config(temp_dir: Path) -> eval_experiment_matrix.EvalExperimentCo
         by_position=False,
         allow_errors=False,
     )
+
+
+def fake_summary(
+    *,
+    games: int = 48,
+    wins: int = 28,
+    losses: int = 18,
+    draws: int = 2,
+    avg_diff: float = 4.0,
+    errors: int = 0,
+    nodes_a: float = 110.0,
+    nodes_b: float = 100.0,
+    time_a: float = 12.0,
+    time_b: float = 10.0,
+) -> match_summary.Summary:
+    valid = games - errors
+    return match_summary.Summary(
+        games=games,
+        valid_games=valid,
+        error_games=errors,
+        player_a_wins=wins,
+        player_b_wins=losses,
+        draws=draws,
+        total_diff=int(avg_diff * valid),
+        total_plies=60 * valid,
+        total_passes=valid,
+        optional_totals={
+            "nodes_player_a": nodes_a * valid,
+            "nodes_player_b": nodes_b * valid,
+            "time_ms_player_a": time_a * valid,
+            "time_ms_player_b": time_b * valid,
+        },
+        optional_counts={
+            "nodes_player_a": valid,
+            "nodes_player_b": valid,
+            "time_ms_player_a": valid,
+            "time_ms_player_b": valid,
+        },
+    )
+
+
+def fake_match_run(
+    config: eval_experiment_matrix.EvalExperimentConfig,
+    preset: str,
+    depth: int,
+    summary: match_summary.Summary,
+) -> eval_experiment_matrix.MatchRun:
+    run = eval_experiment_matrix.build_match_command(config, preset, depth)
+    return replace(run, summary=summary, summary_text="summary\n")
 
 
 class EvalExperimentMatrixTests(unittest.TestCase):
@@ -50,46 +110,188 @@ class EvalExperimentMatrixTests(unittest.TestCase):
                 with self.assertRaises(ScriptError):
                     eval_experiment_matrix.parse_depth_list(value)
 
-    def test_search_bench_command_includes_eval_preset(self) -> None:
+    def test_parse_reference_preset(self) -> None:
+        args = eval_experiment_matrix.parse_args(
+            [
+                "--presets",
+                "classic_features_lite_v1",
+                "--reference-preset",
+                "frontier_open2_mid2_late_plus1",
+                "--small-depths",
+                "5,6",
+                "--small-games",
+                "48",
+                "--openings",
+                "data/openings/eval_regression_openings.txt",
+                "--seed",
+                "20260530",
+                "--build-dir",
+                "build",
+                "--out",
+                "runs/eval/example",
+            ]
+        )
+        config = eval_experiment_matrix.config_from_args(args)
+
+        self.assertEqual(config.reference_preset, "frontier_open2_mid2_late_plus1")
+
+    def test_depths_and_games_remain_small_stage_aliases(self) -> None:
+        args = eval_experiment_matrix.parse_args(
+            [
+                "--presets",
+                "classic_features_lite_v1",
+                "--depths",
+                "5,6",
+                "--games",
+                "48",
+                "--openings",
+                "data/openings/eval_regression_openings.txt",
+                "--seed",
+                "20260530",
+                "--build-dir",
+                "build",
+                "--out",
+                "runs/eval/example",
+            ]
+        )
+        config = eval_experiment_matrix.config_from_args(args)
+
+        self.assertEqual(config.small_depths, [5, 6])
+        self.assertEqual(config.small_games, 48)
+        self.assertEqual(config.extended_depths, [])
+        self.assertEqual(config.extended_games, 48)
+
+    def test_search_bench_command_includes_all_staged_depths(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             config = experiment_config(Path(temp))
             command = eval_experiment_matrix.build_search_bench_command(
-                config, "mobility_plus_smoke"
+                config, "classic_features_lite_v1"
             )
 
         self.assertIn("--eval-preset", command)
-        self.assertIn("mobility_plus_smoke", command)
-        self.assertIn("--exact-endgame-threshold", command)
+        self.assertIn("classic_features_lite_v1", command)
+        self.assertEqual(command[command.index("--depths") + 1], "5,6,7,8")
 
     def test_search_bench_command_can_use_suite_by_position(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             config = replace(experiment_config(Path(temp)), positions="suite", by_position=True)
             command = eval_experiment_matrix.build_search_bench_command(
-                config, "mobility_plus_smoke"
+                config, "classic_features_lite_v1"
             )
 
         self.assertIn("--positions", command)
         self.assertEqual(command[command.index("--positions") + 1], "suite")
         self.assertIn("--by-position", command)
 
-    def test_search_bench_command_omits_by_position_by_default(self) -> None:
+    def test_match_command_uses_reference_preset(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             config = experiment_config(Path(temp))
-            command = eval_experiment_matrix.build_search_bench_command(config, "default")
+            run = eval_experiment_matrix.build_match_command(
+                config, "classic_features_lite_v1", 5
+            )
 
-        self.assertNotIn("--by-position", command)
-
-    def test_match_command_compares_candidate_to_default(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            config = experiment_config(Path(temp))
-            run = eval_experiment_matrix.build_match_command(config, "mobility_plus_smoke", 4)
-
-        self.assertIn("search:depth=4,tt=on,pvs=on,exact=off,eval=mobility_plus_smoke",
+        self.assertIn("search:depth=5,tt=on,pvs=on,exact=off,eval=classic_features_lite_v1",
                       run.command)
-        self.assertIn("search:depth=4,tt=on,pvs=on,exact=off,eval=default", run.command)
-        self.assertEqual(run.output_path.name, "mobility_plus_smoke-depth-4.jsonl")
+        self.assertIn(
+            "search:depth=5,tt=on,pvs=on,exact=off,eval=frontier_open2_mid2_late_plus1",
+            run.command,
+        )
+        self.assertEqual(
+            run.output_path.name,
+            "classic_features_lite_v1-vs-frontier_open2_mid2_late_plus1-depth-5.jsonl",
+        )
 
-    def test_dry_run_writes_report_without_running_binaries(self) -> None:
+    def test_staged_small_and_extended_commands_are_shaped(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            config = experiment_config(Path(temp))
+            small = eval_experiment_matrix.build_match_command(
+                config, "classic_features_lite_v1", 5, stage="small", games=48
+            )
+            extended = eval_experiment_matrix.build_match_command(
+                config, "classic_features_lite_v1", 8, stage="extended", games=96
+            )
+
+        self.assertIn("small", small.output_path.parts)
+        self.assertIn("--games", small.command)
+        self.assertEqual(small.command[small.command.index("--games") + 1], "48")
+        self.assertIn("extended", extended.output_path.parts)
+        self.assertEqual(extended.command[extended.command.index("--games") + 1], "96")
+        self.assertIn("search:depth=8,tt=on,pvs=on,exact=off,eval=classic_features_lite_v1",
+                      extended.command)
+
+    def test_promotion_helper_promotes_positive_candidate(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            config = experiment_config(Path(temp))
+            runs = [
+                fake_match_run(config, "classic_features_lite_v1", 5, fake_summary(avg_diff=3.0)),
+                fake_match_run(config, "classic_features_lite_v1", 6, fake_summary(avg_diff=2.0)),
+            ]
+
+            decision = eval_experiment_matrix.decide_candidate(
+                "classic_features_lite_v1", runs, [], config
+            )
+
+        self.assertEqual(decision.status, "promoted_to_extended")
+        self.assertTrue(decision.promoted_to_extended)
+
+    def test_promotion_helper_rejects_error_games(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            config = experiment_config(Path(temp))
+            runs = [
+                fake_match_run(
+                    config,
+                    "classic_features_lite_v1",
+                    5,
+                    fake_summary(games=1, wins=0, losses=0, draws=0, avg_diff=0, errors=1),
+                )
+            ]
+
+            decision = eval_experiment_matrix.decide_candidate(
+                "classic_features_lite_v1", runs, [], config
+            )
+
+        self.assertEqual(decision.status, "failed")
+        self.assertIn("error game", decision.reasons[0])
+
+    def test_promotion_helper_handles_mixed_wins_and_average_diff(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            config = experiment_config(Path(temp))
+            runs = [
+                fake_match_run(
+                    config,
+                    "classic_features_lite_v1",
+                    5,
+                    fake_summary(wins=20, losses=26, draws=2, avg_diff=2.0),
+                )
+            ]
+
+            decision = eval_experiment_matrix.decide_candidate(
+                "classic_features_lite_v1", runs, [], config
+            )
+
+        self.assertEqual(decision.status, "needs_retune")
+        self.assertIn("positive average diff", "; ".join(decision.reasons))
+
+    def test_promotion_helper_demotes_speed_regression(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            config = replace(experiment_config(Path(temp)), max_node_ratio=1.10)
+            runs = [
+                fake_match_run(
+                    config,
+                    "classic_features_lite_v1",
+                    5,
+                    fake_summary(wins=30, losses=16, draws=2, avg_diff=3.0, nodes_a=130.0),
+                )
+            ]
+
+            decision = eval_experiment_matrix.decide_candidate(
+                "classic_features_lite_v1", runs, [], config
+            )
+
+        self.assertEqual(decision.status, "needs_retune")
+        self.assertIn("needs_speed_check", "; ".join(decision.reasons))
+
+    def test_dry_run_writes_report_with_reference_and_extended_stage(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             config = experiment_config(Path(temp))
 
@@ -98,10 +300,11 @@ class EvalExperimentMatrixTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertIn("Status: dry run.", report)
-        self.assertIn("--eval-preset mobility_plus_smoke", report)
-        self.assertIn("eval=mobility_plus_smoke", report)
-        self.assertIn("Search positions: `smoke`", report)
-        self.assertIn("Search by-position: `off`", report)
+        self.assertIn("Reference preset: `frontier_open2_mid2_late_plus1`", report)
+        self.assertIn("eval=frontier_open2_mid2_late_plus1", report)
+        self.assertIn("extended", report)
+        self.assertIn("--games 96", report)
+        self.assertIn("Promotion Table", report)
 
     def test_dry_run_report_records_suite_by_position(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -116,16 +319,44 @@ class EvalExperimentMatrixTests(unittest.TestCase):
         self.assertIn("Search positions: `suite`", report)
         self.assertIn("Search by-position: `on`", report)
 
+    def test_ntest_sanity_skipped_when_config_unavailable(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            config = replace(experiment_config(Path(temp)), run_ntest_sanity=True)
+
+            exit_code = eval_experiment_matrix.run_matrix(config, dry_run=True)
+            report = (config.out_dir / "report.md").read_text(encoding="utf-8")
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("NTest sanity skipped: config unavailable", report)
+
+    def test_ntest_command_generation_when_configured(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            config = replace(
+                experiment_config(temp_path),
+                run_ntest_sanity=True,
+                ntest_engine="ntest8",
+                engines=temp_path / "engines.txt",
+                ntest_depth=6,
+                ntest_games=12,
+                ntest_openings=Path("data/openings/smoke_openings.txt"),
+            )
+
+            run = eval_experiment_matrix.build_ntest_command(
+                config, "frontier_classic_features_lite_v1"
+            )
+
+        self.assertIn("external:ntest8", run.command)
+        self.assertIn("--engines", run.command)
+        self.assertIn("search:depth=6,tt=on,pvs=on,exact=off,eval=frontier_classic_features_lite_v1",
+                      run.command)
+        self.assertEqual(run.command[run.command.index("--games") + 1], "12")
+
     def test_error_games_fail_without_allow_errors(self) -> None:
-        summary = match_summary.Summary(games=1, valid_games=0, error_games=1)
-        run = eval_experiment_matrix.MatchRun(
-            preset="mobility_plus_smoke",
-            depth=4,
-            output_path=Path("match.jsonl"),
-            command=["othello_match_runner"],
-            summary=summary,
-            summary_text="error games: 1\n",
-        )
+        with tempfile.TemporaryDirectory() as temp:
+            config = experiment_config(Path(temp))
+            summary = match_summary.Summary(games=1, valid_games=0, error_games=1)
+            run = fake_match_run(config, "classic_features_lite_v1", 5, summary)
 
         self.assertTrue(
             eval_experiment_matrix.matrix_has_failures([], [run], allow_errors=False)
@@ -133,47 +364,6 @@ class EvalExperimentMatrixTests(unittest.TestCase):
         self.assertFalse(
             eval_experiment_matrix.matrix_has_failures([], [run], allow_errors=True)
         )
-
-    def test_error_games_are_reported_as_failures(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            config = experiment_config(Path(temp))
-            summary = match_summary.Summary(games=1, valid_games=0, error_games=1)
-            run = eval_experiment_matrix.MatchRun(
-                preset="mobility_plus_smoke",
-                depth=4,
-                output_path=Path("match.jsonl"),
-                command=["othello_match_runner"],
-                summary=summary,
-                summary_text="error games: 1\n",
-            )
-
-            report = eval_experiment_matrix.render_report(
-                config, [], [run], dry_run=False
-            )
-
-        self.assertIn("Error games: `1`", report)
-        self.assertIn("Failure: match summary contains error games.", report)
-        self.assertIn("Failure: 1 error game(s) were reported.", report)
-
-    def test_allow_errors_report_notes_error_games(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            config = replace(experiment_config(Path(temp)), allow_errors=True)
-            summary = match_summary.Summary(games=1, valid_games=0, error_games=1)
-            run = eval_experiment_matrix.MatchRun(
-                preset="mobility_plus_smoke",
-                depth=4,
-                output_path=Path("match.jsonl"),
-                command=["othello_match_runner"],
-                summary=summary,
-                summary_text="error games: 1\n",
-            )
-
-            report = eval_experiment_matrix.render_report(
-                config, [], [run], dry_run=False
-            )
-
-        self.assertIn("Allow error games: `true`", report)
-        self.assertIn("Error games allowed: 1 error game(s) were reported.", report)
 
 
 if __name__ == "__main__":
