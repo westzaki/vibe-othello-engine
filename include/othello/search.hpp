@@ -49,6 +49,28 @@ struct SearchStats {
     std::uint64_t dynamic_ordering_moves = 0;
 };
 
+enum class ExactEndgameRootPolicy {
+    FixedThreshold,
+    Adaptive16,
+};
+
+enum class ExactEndgameRootSkipReason {
+    None,
+    Disabled,
+    AboveThreshold,
+    AdaptiveRootPass,
+    AdaptiveTooManyLegalMoves,
+    AdaptiveOpponentTooManyLegalMoves,
+};
+
+struct ExactEndgameRootDecision {
+    bool solve_exact = false;
+    int empty_count = 0;
+    int legal_moves_current = 0;
+    int legal_moves_opponent = 0;
+    ExactEndgameRootSkipReason skip_reason = ExactEndgameRootSkipReason::None;
+};
+
 struct SearchResult {
     std::optional<Square> best_move;
     // Depth-limited searches report a heuristic score from the search/evaluator.
@@ -69,10 +91,14 @@ struct SearchOptions {
     // Approximate requested midgame transposition table entries. The internal
     // table may round this to a bucketed power-of-two capacity.
     std::size_t transposition_table_entries = 1 << 18;
-    // Root-only exact endgame cutoff by empty square count. At or below this
-    // threshold, search uses the exact endgame solver instead of depth-limited
-    // search. Values <= 0 disable it.
+    // Root-only exact endgame cutoff by empty square count for FixedThreshold.
+    // Values <= 0 disable root exact solving for every root policy.
     int exact_endgame_empty_threshold = 12;
+    // Adaptive16 is an experimental root-only profile: <=14 empties solve
+    // exactly, while 15/16 empties solve only for conservative low-branching
+    // roots with bounded opponent mobility.
+    ExactEndgameRootPolicy exact_endgame_root_policy =
+        ExactEndgameRootPolicy::FixedThreshold;
     bool use_pvs = false;
     // Opt-in iterative-search aspiration window. Fixed-depth search ignores
     // these fields; iterative search still uses a full window for depth 1.
@@ -84,6 +110,8 @@ struct SearchOptions {
 };
 
 [[nodiscard]] EvaluationConfig resolve_evaluation_config(const SearchOptions& options) noexcept;
+[[nodiscard]] ExactEndgameRootDecision
+decide_exact_endgame_root(const Board& board, const SearchOptions& options) noexcept;
 [[nodiscard]] SearchResult search(const Board& board, const SearchOptions& options) noexcept;
 [[nodiscard]] SearchResult search_fixed_depth(const Board& board, int depth) noexcept;
 [[nodiscard]] SearchResult search_iterative(const Board& board,

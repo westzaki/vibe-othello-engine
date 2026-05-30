@@ -118,19 +118,24 @@ commands:
 ./build/othello_search_bench \
   --mode iterative \
   --depths 5,6,7 \
-  --positions suite \
+  --positions threshold \
   --repetitions 3 \
   --tt on \
   --pvs on \
-  --exact-endgame-thresholds 0,12,14,16 \
+  --exact-endgame-thresholds 0,12,14,16,adaptive16 \
   --by-position
 ```
 
-The matrix output includes the threshold, input empty count, whether the root was
-solved exactly, per-position result/work checksums, TT stats, and per-threshold
-p95/max latency summaries. Treat threshold changes as semantic search changes
-whenever a position becomes root-exact; exact scores, best moves, PVs, and
-checksums may legitimately differ from depth-limited search.
+The `threshold` position set extends the normal suite with focused 15/16-empty
+root fixtures for exact-threshold experiments. The matrix output includes the
+threshold/profile, input empty count, whether the root was solved exactly, skip
+reason for non-exact roots, per-position result/work checksums, TT stats, and
+per-threshold p95/max latency summaries. The `adaptive16` profile is
+experimental: roots at 14 empties or fewer solve exactly, while 15/16-empty roots
+solve only when the current side has a move, `legal_moves_current <= 10`, and
+`legal_moves_opponent <= 10`. Treat threshold/profile changes as semantic search
+changes whenever a position becomes root-exact; exact scores, best moves, PVs,
+and checksums may legitimately differ from depth-limited search.
 
 ## Comparing the Existing Stronger Midgame Preset
 

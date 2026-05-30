@@ -49,6 +49,78 @@ WWWWWWWB
 side=B)");
 }
 
+[[nodiscard]] Board adaptive_exact_allowed_board() {
+    return othello::test::board_from_text(R"(.WB.B.BW
+.WWWWWWW
+.WBWWWWB
+W.WBWWW.
+WWBBBW.W
+WBBBB.W.
+WBBBBB..
+WBW...B.
+side=B)");
+}
+
+[[nodiscard]] Board adaptive_exact_opponent_high_mobility_board() {
+    return othello::test::board_from_text(R"(...W.B.W
+....BBWB
+WB.BBWBB
+.BBBWWBB
+.BWBWBBB
+.BWWWBBB
+.BWWW.BB
+BBBBW.WB
+side=B)");
+}
+
+[[nodiscard]] Board adaptive_exact_fifteen_allowed_board() {
+    return othello::test::board_from_text(R"(...W.BBW
+....BBBB
+WB.BBWBB
+.BBBWWBB
+.BWBWBBB
+.BWWWBBB
+.BWWW.BB
+BBBBW.WB
+side=W)");
+}
+
+[[nodiscard]] Board adaptive_exact_fifteen_skip_board() {
+    return othello::test::board_from_text(R"(BBB..W.B
+BWWBB.B.
+.W.BBBWW
+WWBWBBWW
+..WWWBWW
+.BBWWWWW
+BBBBBBBB
+..B.W.W.
+side=W)");
+}
+
+[[nodiscard]] Board adaptive_exact_root_pass_board() {
+    return othello::test::board_from_text(R"(........
+BBBBBBBW
+BBWWBBB.
+BBBBBBBB
+.BBBBWBB
+..BBBWBB
+..BBBWWW
+..BBBBBW
+side=B)");
+}
+
+[[nodiscard]] Board adaptive_exact_high_mobility_board() {
+    return othello::test::board_from_text(R"(...W.W..
+..WWW.WW
+.WWWBWW.
+.WBBBBB.
+WBWBBBBW
+BBBBBWWW
+BBBBWWWW
+BW.B.WW.
+side=B)");
+}
+
 } // namespace
 
 TEST_CASE("Fixed-depth search at depth zero returns an evaluation-only result", "[search]") {
@@ -404,6 +476,107 @@ TEST_CASE("Exact root search exposes exact solver TT stats", "[search]") {
     CHECK(result.stats.eval_calls == 0);
     CHECK(result.stats.pvs_scouts == 0);
     CHECK(result.stats.aspiration_searches == 0);
+}
+
+TEST_CASE("Adaptive exact root policy solves conservative sixteen-empty roots", "[search]") {
+    const Board board = adaptive_exact_allowed_board();
+    const othello::ExactEndgameResult exact = othello::solve_exact_endgame(board);
+    const othello::SearchOptions options{
+        .max_depth = 1,
+        .exact_endgame_root_policy = othello::ExactEndgameRootPolicy::Adaptive16,
+    };
+
+    const othello::ExactEndgameRootDecision decision =
+        othello::decide_exact_endgame_root(board, options);
+    const othello::SearchResult result = othello::search(board, options);
+
+    CHECK(decision.solve_exact);
+    CHECK(decision.empty_count == 16);
+    CHECK(decision.legal_moves_current == 9);
+    CHECK(decision.legal_moves_opponent == 8);
+    CHECK(decision.skip_reason == othello::ExactEndgameRootSkipReason::None);
+    CHECK(result.best_move == exact.best_move);
+    CHECK(result.score == exact.disc_margin * exact_endgame_score_scale);
+    CHECK(result.depth == exact.empties);
+    CHECK(result.nodes == exact.nodes);
+    CHECK(result.stats.eval_calls == 0);
+}
+
+TEST_CASE("Adaptive exact root policy still honors disabled exact threshold", "[search]") {
+    const othello::SearchOptions options{
+        .max_depth = 1,
+        .exact_endgame_empty_threshold = 0,
+        .exact_endgame_root_policy = othello::ExactEndgameRootPolicy::Adaptive16,
+    };
+
+    const othello::ExactEndgameRootDecision decision =
+        othello::decide_exact_endgame_root(adaptive_exact_allowed_board(), options);
+    CHECK_FALSE(decision.solve_exact);
+    CHECK(decision.empty_count == 16);
+    CHECK(decision.skip_reason == othello::ExactEndgameRootSkipReason::Disabled);
+}
+
+TEST_CASE("Adaptive exact root policy gates fifteen-empty roots by mobility", "[search]") {
+    const othello::SearchOptions options{
+        .max_depth = 1,
+        .exact_endgame_root_policy = othello::ExactEndgameRootPolicy::Adaptive16,
+    };
+
+    const othello::ExactEndgameRootDecision allowed_decision =
+        othello::decide_exact_endgame_root(adaptive_exact_fifteen_allowed_board(), options);
+    CHECK(allowed_decision.solve_exact);
+    CHECK(allowed_decision.empty_count == 15);
+    CHECK(allowed_decision.legal_moves_current == 10);
+    CHECK(allowed_decision.skip_reason == othello::ExactEndgameRootSkipReason::None);
+
+    const othello::ExactEndgameRootDecision skipped_decision =
+        othello::decide_exact_endgame_root(adaptive_exact_fifteen_skip_board(), options);
+    CHECK_FALSE(skipped_decision.solve_exact);
+    CHECK(skipped_decision.empty_count == 15);
+    CHECK(skipped_decision.legal_moves_current == 12);
+    CHECK(skipped_decision.skip_reason ==
+          othello::ExactEndgameRootSkipReason::AdaptiveTooManyLegalMoves);
+
+    const othello::ExactEndgameRootDecision opponent_decision =
+        othello::decide_exact_endgame_root(adaptive_exact_opponent_high_mobility_board(), options);
+    CHECK_FALSE(opponent_decision.solve_exact);
+    CHECK(opponent_decision.empty_count == 16);
+    CHECK(opponent_decision.legal_moves_current == 3);
+    CHECK(opponent_decision.legal_moves_opponent == 11);
+    CHECK(opponent_decision.skip_reason ==
+          othello::ExactEndgameRootSkipReason::AdaptiveOpponentTooManyLegalMoves);
+}
+
+TEST_CASE("Adaptive exact root policy skips heavy sixteen-empty roots", "[search]") {
+    const othello::SearchOptions options{
+        .max_depth = 1,
+        .exact_endgame_root_policy = othello::ExactEndgameRootPolicy::Adaptive16,
+    };
+
+    const Board root_pass = adaptive_exact_root_pass_board();
+    const othello::ExactEndgameRootDecision pass_decision =
+        othello::decide_exact_endgame_root(root_pass, options);
+    const othello::SearchResult pass_result = othello::search(root_pass, options);
+
+    CHECK_FALSE(pass_decision.solve_exact);
+    CHECK(pass_decision.empty_count == 16);
+    CHECK(pass_decision.legal_moves_current == 0);
+    CHECK(pass_decision.skip_reason == othello::ExactEndgameRootSkipReason::AdaptiveRootPass);
+    CHECK(pass_result.depth == 1);
+    CHECK(pass_result.stats.eval_calls > 0);
+
+    const Board high_mobility = adaptive_exact_high_mobility_board();
+    const othello::ExactEndgameRootDecision mobility_decision =
+        othello::decide_exact_endgame_root(high_mobility, options);
+    const othello::SearchResult mobility_result = othello::search(high_mobility, options);
+
+    CHECK_FALSE(mobility_decision.solve_exact);
+    CHECK(mobility_decision.empty_count == 16);
+    CHECK(mobility_decision.legal_moves_current == 14);
+    CHECK(mobility_decision.skip_reason ==
+          othello::ExactEndgameRootSkipReason::AdaptiveTooManyLegalMoves);
+    CHECK(mobility_result.depth == 1);
+    CHECK(mobility_result.stats.eval_calls > 0);
 }
 
 TEST_CASE("Iterative search returns exact result immediately within threshold", "[search]") {

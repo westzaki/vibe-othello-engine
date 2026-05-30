@@ -20,6 +20,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -39,6 +40,8 @@ using othello::tools::elapsed_ms;
 using othello::tools::format_principal_variation;
 using othello::tools::tt_hit_percentage;
 
+constexpr int exact_endgame_score_scale = 1'000;
+
 enum class SearchBenchmarkMode {
     Fixed,
     Iterative,
@@ -53,7 +56,49 @@ enum class SearchRunMode {
 enum class PositionSet {
     Smoke,
     Suite,
+    Threshold,
 };
+
+enum class ExactRootProfileKind {
+    Engine,
+    Adaptive16Current,
+    Adaptive16Cap8,
+    Adaptive16Cap6,
+    Adaptive16Opponent10,
+    Adaptive16Shape,
+    Adaptive16Split,
+};
+
+struct ExactRootProfile {
+    std::string label;
+    int threshold = 0;
+    othello::ExactEndgameRootPolicy policy = othello::ExactEndgameRootPolicy::FixedThreshold;
+    ExactRootProfileKind kind = ExactRootProfileKind::Engine;
+};
+
+[[nodiscard]] ExactRootProfile fixed_exact_root_profile(int threshold) {
+    return ExactRootProfile{
+        .label = std::to_string(threshold),
+        .threshold = threshold,
+    };
+}
+
+[[nodiscard]] ExactRootProfile adaptive16_exact_root_profile() {
+    return ExactRootProfile{
+        .label = "adaptive16",
+        .threshold = 16,
+        .policy = othello::ExactEndgameRootPolicy::Adaptive16,
+    };
+}
+
+[[nodiscard]] ExactRootProfile experimental_exact_root_profile(std::string label,
+                                                               ExactRootProfileKind kind) {
+    return ExactRootProfile{
+        .label = std::move(label),
+        .threshold = 16,
+        .kind = kind,
+    };
+}
 
 struct BenchmarkOptions {
     std::vector<int> depths{1, 2, 3, 4, 5};
@@ -66,8 +111,8 @@ struct BenchmarkOptions {
     std::optional<bool> use_pvs;
     std::optional<bool> use_aspiration_window;
     std::size_t transposition_table_entries = othello::SearchOptions{}.transposition_table_entries;
-    std::vector<int> exact_endgame_empty_thresholds{
-        othello::SearchOptions{}.exact_endgame_empty_threshold};
+    std::vector<ExactRootProfile> exact_root_profiles{
+        fixed_exact_root_profile(othello::SearchOptions{}.exact_endgame_empty_threshold)};
     int aspiration_window = othello::SearchOptions{}.aspiration_window;
     int aspiration_max_researches = othello::SearchOptions{}.aspiration_max_researches;
     othello::EvaluationPreset evaluation_preset = othello::EvaluationPreset::Default;
@@ -82,7 +127,7 @@ struct SearchBenchmarkResult {
     int aspiration_window;
     int aspiration_max_researches;
     std::size_t transposition_table_entries;
-    int exact_endgame_empty_threshold;
+    std::string exact_root_profile;
     std::uint64_t exact_root_positions;
     std::uint64_t exact_root_searches;
     std::uint64_t position_count;
@@ -109,9 +154,10 @@ struct PositionBenchmarkResult {
     int aspiration_window;
     int aspiration_max_researches;
     std::size_t transposition_table_entries;
-    int exact_endgame_empty_threshold;
+    std::string exact_root_profile;
     int empty_count;
     bool exact_root;
+    std::string exact_skip_reason;
     int depth;
     std::optional<othello::Square> sample_best_move;
     int sample_score;
@@ -124,10 +170,18 @@ struct PositionBenchmarkResult {
     std::uint64_t work_checksum;
 };
 
+struct BenchmarkExactRootDecision {
+    bool solve_exact = false;
+    int empty_count = 0;
+    int legal_moves_current = 0;
+    int legal_moves_opponent = 0;
+    std::string_view skip_reason = "-";
+};
+
 void print_usage(std::string_view program_name) {
     std::cout << "usage: " << program_name
               << " [--mode fixed|iterative|both] [--depths 1,2,3,4,5]"
-                 " [--repetitions N] [--positions smoke|suite]"
+                 " [--repetitions N] [--positions smoke|suite|threshold]"
                  " [--describe-positions] [--by-position] [--tt on|off] [--tt-entries N]"
                  " [--pvs on|off] [--aspiration on|off] [--aspiration-window N]"
                  " [--aspiration-max-researches N] [--exact-endgame-threshold N]"
@@ -138,7 +192,7 @@ void print_usage(std::string_view program_name) {
               << "  --depths LIST       comma-separated positive search depths\n"
               << "  --repetitions N     positive repetition count per depth\n"
               << "  --mode MODE         fixed, iterative, or both (default: fixed)\n"
-              << "  --positions SET     smoke or suite (default: smoke)\n"
+              << "  --positions SET     smoke, suite, or threshold (default: smoke)\n"
               << "  --describe-positions\n"
               << "                      print selected position metadata and metrics only\n"
               << "  --by-position       print per-position benchmark rows and summaries\n"
@@ -151,11 +205,14 @@ void print_usage(std::string_view program_name) {
               << "  --aspiration-max-researches N\n"
               << "                      non-negative aspiration widening retries before "
                  "full-window fallback\n"
-              << "  --exact-endgame-threshold N\n"
-              << "                       solve root positions with at most N empties exactly; N <= "
-                 "0 disables\n"
+              << "  --exact-endgame-threshold N|adaptive16\n"
+              << "                      solve root positions by fixed threshold N, or use the "
+                 "experimental adaptive16 root profile; N <= 0 disables\n"
               << "  --exact-endgame-thresholds LIST\n"
-              << "                      comma-separated exact root thresholds for matrix runs\n"
+              << "                      comma-separated exact root thresholds/profiles for matrix "
+                 "runs; tokens may include adaptive16, adaptive16_current, "
+                 "adaptive16_cap8, adaptive16_cap6, adaptive16_opp10, "
+                 "adaptive16_shape, or adaptive16_split\n"
               << "  --eval-preset NAME builtin evaluator preset name\n"
               << "  --help              show this help text\n";
 }
@@ -188,6 +245,8 @@ void print_usage(std::string_view program_name) {
         return "smoke";
     case PositionSet::Suite:
         return "suite";
+    case PositionSet::Threshold:
+        return "threshold";
     }
 
     return "unknown";
@@ -242,40 +301,77 @@ void print_usage(std::string_view program_name) {
     return depths;
 }
 
-[[nodiscard]] std::optional<std::vector<int>> parse_int_list(std::string_view text) {
-    std::vector<int> values;
+[[nodiscard]] std::optional<ExactRootProfile> parse_exact_root_profile(std::string_view text) {
+    if (text == "adaptive16") {
+        return adaptive16_exact_root_profile();
+    }
+    if (text == "adaptive16_current") {
+        return experimental_exact_root_profile("adaptive16_current",
+                                               ExactRootProfileKind::Adaptive16Current);
+    }
+    if (text == "adaptive16_cap8") {
+        return experimental_exact_root_profile("adaptive16_cap8",
+                                               ExactRootProfileKind::Adaptive16Cap8);
+    }
+    if (text == "adaptive16_cap6") {
+        return experimental_exact_root_profile("adaptive16_cap6",
+                                               ExactRootProfileKind::Adaptive16Cap6);
+    }
+    if (text == "adaptive16_opp10") {
+        return experimental_exact_root_profile("adaptive16_opp10",
+                                               ExactRootProfileKind::Adaptive16Opponent10);
+    }
+    if (text == "adaptive16_shape") {
+        return experimental_exact_root_profile("adaptive16_shape",
+                                               ExactRootProfileKind::Adaptive16Shape);
+    }
+    if (text == "adaptive16_split") {
+        return experimental_exact_root_profile("adaptive16_split",
+                                               ExactRootProfileKind::Adaptive16Split);
+    }
+
+    const auto threshold = parse_int(text);
+    if (!threshold.has_value()) {
+        return std::nullopt;
+    }
+    return fixed_exact_root_profile(*threshold);
+}
+
+[[nodiscard]] std::optional<std::vector<ExactRootProfile>>
+parse_exact_root_profiles(std::string_view text) {
+    std::vector<ExactRootProfile> profiles;
 
     std::size_t begin = 0;
     while (begin <= text.size()) {
         const auto comma = text.find(',', begin);
         const auto end = comma == std::string_view::npos ? text.size() : comma;
         const auto token = text.substr(begin, end - begin);
-        const auto value = parse_int(token);
-        if (!value.has_value()) {
+        const auto profile = parse_exact_root_profile(token);
+        if (!profile.has_value()) {
             return std::nullopt;
         }
 
-        values.push_back(*value);
+        profiles.push_back(*profile);
         if (comma == std::string_view::npos) {
             break;
         }
         begin = comma + 1;
     }
 
-    if (values.empty()) {
+    if (profiles.empty()) {
         return std::nullopt;
     }
 
-    return values;
+    return profiles;
 }
 
-[[nodiscard]] std::string threshold_list_text(std::span<const int> thresholds) {
+[[nodiscard]] std::string exact_root_profile_list_text(std::span<const ExactRootProfile> profiles) {
     std::string text;
-    for (const int threshold : thresholds) {
+    for (const auto& profile : profiles) {
         if (!text.empty()) {
             text += ',';
         }
-        text += std::to_string(threshold);
+        text += profile.label;
     }
     return text;
 }
@@ -286,6 +382,9 @@ void print_usage(std::string_view program_name) {
     }
     if (text == "suite") {
         return PositionSet::Suite;
+    }
+    if (text == "threshold") {
+        return PositionSet::Threshold;
     }
 
     return std::nullopt;
@@ -364,13 +463,13 @@ void print_usage(std::string_view program_name) {
         if (option == "--positions") {
             ++index;
             if (index >= args.size()) {
-                std::cerr << "--positions requires smoke or suite\n";
+                std::cerr << "--positions requires smoke, suite, or threshold\n";
                 return std::nullopt;
             }
 
             const auto position_set = parse_position_set(args[index]);
             if (!position_set.has_value()) {
-                std::cerr << "--positions must be smoke or suite\n";
+                std::cerr << "--positions must be smoke, suite, or threshold\n";
                 return std::nullopt;
             }
             options.position_set = *position_set;
@@ -476,32 +575,33 @@ void print_usage(std::string_view program_name) {
         if (option == "--exact-endgame-threshold") {
             ++index;
             if (index >= args.size()) {
-                std::cerr << "--exact-endgame-threshold requires an integer\n";
+                std::cerr << "--exact-endgame-threshold requires an integer or adaptive16\n";
                 return std::nullopt;
             }
 
-            const auto threshold = parse_int(args[index]);
-            if (!threshold.has_value()) {
-                std::cerr << "--exact-endgame-threshold must be an integer\n";
+            const auto profile = parse_exact_root_profile(args[index]);
+            if (!profile.has_value()) {
+                std::cerr << "--exact-endgame-threshold must be an integer or adaptive16\n";
                 return std::nullopt;
             }
-            options.exact_endgame_empty_thresholds = {*threshold};
+            options.exact_root_profiles = {*profile};
             continue;
         }
 
         if (option == "--exact-endgame-thresholds") {
             ++index;
             if (index >= args.size()) {
-                std::cerr << "--exact-endgame-thresholds requires a comma-separated integer list\n";
+                std::cerr << "--exact-endgame-thresholds requires a comma-separated profile list\n";
                 return std::nullopt;
             }
 
-            const auto thresholds = parse_int_list(args[index]);
-            if (!thresholds.has_value()) {
-                std::cerr << "--exact-endgame-thresholds must be a comma-separated integer list\n";
+            const auto profiles = parse_exact_root_profiles(args[index]);
+            if (!profiles.has_value()) {
+                std::cerr << "--exact-endgame-thresholds must be a comma-separated list of "
+                             "integers or adaptive16\n";
                 return std::nullopt;
             }
-            options.exact_endgame_empty_thresholds = *thresholds;
+            options.exact_root_profiles = *profiles;
             continue;
         }
 
@@ -551,6 +651,8 @@ make_positions(PositionSet position_set) {
         return othello::benchmarks::make_search_smoke_positions();
     case PositionSet::Suite:
         return othello::benchmarks::make_search_suite_positions();
+    case PositionSet::Threshold:
+        return othello::benchmarks::make_search_threshold_positions();
     }
 
     return std::nullopt;
@@ -676,13 +778,114 @@ make_positions(PositionSet position_set) {
            othello::disc_count(board, othello::Side::White);
 }
 
-[[nodiscard]] bool exact_root_enabled(const othello::Board& board, int threshold) noexcept {
-    return threshold > 0 && root_empty_count(board) <= threshold;
+[[nodiscard]] int opponent_legal_move_count(const othello::Board& board) noexcept {
+    auto opponent_board = board;
+    opponent_board.side_to_move = othello::opponent(board.side_to_move);
+    return count_bits(othello::legal_moves(opponent_board));
+}
+
+[[nodiscard]] bool root_is_edge_heavy(const othello::Board& board) noexcept {
+    return count_bits(board.occupied() & edge_bits()) >= 13;
+}
+
+[[nodiscard]] bool profile_uses_engine_gate(const ExactRootProfile& profile) noexcept {
+    return profile.kind == ExactRootProfileKind::Engine;
+}
+
+[[nodiscard]] std::string_view
+exact_root_skip_reason_name(othello::ExactEndgameRootSkipReason reason) noexcept {
+    switch (reason) {
+    case othello::ExactEndgameRootSkipReason::None:
+        return "-";
+    case othello::ExactEndgameRootSkipReason::Disabled:
+        return "disabled";
+    case othello::ExactEndgameRootSkipReason::AboveThreshold:
+        return "above_threshold";
+    case othello::ExactEndgameRootSkipReason::AdaptiveRootPass:
+        return "adaptive_root_pass";
+    case othello::ExactEndgameRootSkipReason::AdaptiveTooManyLegalMoves:
+        return "adaptive_too_many_legal_moves";
+    case othello::ExactEndgameRootSkipReason::AdaptiveOpponentTooManyLegalMoves:
+        return "adaptive_opponent_too_many_legal_moves";
+    }
+
+    return "unknown";
+}
+
+[[nodiscard]] BenchmarkExactRootDecision
+benchmark_exact_root_decision(const othello::Board& board, const othello::SearchOptions& options,
+                              const ExactRootProfile& profile) noexcept {
+    if (profile_uses_engine_gate(profile)) {
+        const auto decision = othello::decide_exact_endgame_root(board, options);
+        return BenchmarkExactRootDecision{
+            .solve_exact = decision.solve_exact,
+            .empty_count = decision.empty_count,
+            .legal_moves_current = decision.legal_moves_current,
+            .legal_moves_opponent = decision.legal_moves_opponent,
+            .skip_reason = exact_root_skip_reason_name(decision.skip_reason),
+        };
+    }
+
+    BenchmarkExactRootDecision decision{
+        .empty_count = root_empty_count(board),
+        .legal_moves_current = count_bits(othello::legal_moves(board)),
+        .legal_moves_opponent = opponent_legal_move_count(board),
+    };
+
+    if (profile.threshold <= 0) {
+        decision.skip_reason = "disabled";
+        return decision;
+    }
+    if (decision.empty_count <= 14) {
+        decision.solve_exact = true;
+        return decision;
+    }
+    if (decision.empty_count > 16) {
+        decision.skip_reason = "above_threshold";
+        return decision;
+    }
+
+    const bool root_pass =
+        decision.legal_moves_current == 0 && othello::pass_turn(board).has_value();
+    if (root_pass) {
+        decision.skip_reason = "adaptive_root_pass";
+        return decision;
+    }
+
+    int current_legal_cap = 10;
+    if (profile.kind == ExactRootProfileKind::Adaptive16Cap8) {
+        current_legal_cap = 8;
+    } else if (profile.kind == ExactRootProfileKind::Adaptive16Cap6) {
+        current_legal_cap = 6;
+    } else if (profile.kind == ExactRootProfileKind::Adaptive16Split &&
+               decision.empty_count == 16) {
+        current_legal_cap = 8;
+    }
+
+    if (decision.legal_moves_current > current_legal_cap) {
+        decision.skip_reason = "adaptive_too_many_legal_moves";
+        return decision;
+    }
+
+    if (profile.kind == ExactRootProfileKind::Adaptive16Opponent10 &&
+        decision.legal_moves_opponent > 10) {
+        decision.skip_reason = "adaptive_opponent_too_many_legal_moves";
+        return decision;
+    }
+
+    if (profile.kind == ExactRootProfileKind::Adaptive16Shape &&
+        (decision.legal_moves_current >= 9 || root_is_edge_heavy(board))) {
+        decision.skip_reason = "adaptive_shape_guard";
+        return decision;
+    }
+
+    decision.solve_exact = true;
+    return decision;
 }
 
 [[nodiscard]] othello::SearchOptions
 make_search_options(const BenchmarkOptions& options, int depth,
-                    int exact_endgame_empty_threshold) noexcept {
+                    const ExactRootProfile& exact_root_profile) noexcept {
     auto search_options = othello::SearchOptions{.max_depth = depth};
     if (options.use_transposition_table.has_value()) {
         search_options.use_transposition_table = *options.use_transposition_table;
@@ -694,16 +897,52 @@ make_search_options(const BenchmarkOptions& options, int depth,
         search_options.use_aspiration_window = *options.use_aspiration_window;
     }
     search_options.transposition_table_entries = options.transposition_table_entries;
-    search_options.exact_endgame_empty_threshold = exact_endgame_empty_threshold;
+    search_options.exact_endgame_empty_threshold =
+        profile_uses_engine_gate(exact_root_profile) ? exact_root_profile.threshold : 0;
+    search_options.exact_endgame_root_policy = exact_root_profile.policy;
     search_options.aspiration_window = options.aspiration_window;
     search_options.aspiration_max_researches = options.aspiration_max_researches;
     search_options.evaluation_preset = options.evaluation_preset;
     return search_options;
 }
 
+[[nodiscard]] othello::SearchResult exact_endgame_search_result(const othello::Board& board) {
+    othello::ExactEndgameResult exact = othello::solve_exact_endgame(board);
+    const othello::SearchStats stats{
+        .nodes = exact.nodes,
+        .tt_lookups = exact.stats.tt_lookups,
+        .tt_hits = exact.stats.tt_hits,
+        .tt_exact_hits = exact.stats.tt_exact_hits,
+        .tt_lower_hits = exact.stats.tt_lower_hits,
+        .tt_upper_hits = exact.stats.tt_upper_hits,
+        .tt_stores = exact.stats.tt_stores,
+        .tt_overwrites = exact.stats.tt_overwrites,
+        .tt_collisions = exact.stats.tt_collisions,
+        .tt_rejected_stores = exact.stats.tt_rejected_stores,
+        .tt_move_ordering_probes = exact.stats.tt_move_ordering_probes,
+        .tt_move_ordering_hits = exact.stats.tt_move_ordering_hits,
+        .tt_move_ordering_used = exact.stats.tt_move_ordering_used,
+    };
+
+    return othello::SearchResult{
+        .best_move = exact.best_move,
+        .score = exact.disc_margin * exact_endgame_score_scale,
+        .depth = exact.empties,
+        .nodes = exact.nodes,
+        .principal_variation = std::move(exact.principal_variation),
+        .stats = stats,
+    };
+}
+
 [[nodiscard]] othello::SearchResult run_search(const othello::Board& board,
                                                const othello::SearchOptions& options,
-                                               SearchRunMode mode) noexcept {
+                                               SearchRunMode mode,
+                                               const ExactRootProfile& exact_root_profile) {
+    if (!profile_uses_engine_gate(exact_root_profile) &&
+        benchmark_exact_root_decision(board, options, exact_root_profile).solve_exact) {
+        return exact_endgame_search_result(board);
+    }
+
     switch (mode) {
     case SearchRunMode::Fixed:
         return othello::search(board, options);
@@ -717,9 +956,9 @@ make_search_options(const BenchmarkOptions& options, int depth,
 [[nodiscard]] SearchBenchmarkResult
 benchmark_search(const std::vector<othello::benchmarks::Position>& positions, int depth,
                  std::uint64_t repetitions, const BenchmarkOptions& benchmark_options,
-                 SearchRunMode mode, int exact_endgame_empty_threshold) {
+                 SearchRunMode mode, const ExactRootProfile& exact_root_profile) {
     const auto search_options =
-        make_search_options(benchmark_options, depth, exact_endgame_empty_threshold);
+        make_search_options(benchmark_options, depth, exact_root_profile);
     std::uint64_t result_checksum = 0;
     std::uint64_t work_checksum = 0;
     std::uint64_t searches = 0;
@@ -731,7 +970,8 @@ benchmark_search(const std::vector<othello::benchmarks::Position>& positions, in
     std::vector<othello::Square> sample_principal_variation;
 
     for (const auto& position : positions) {
-        if (exact_root_enabled(position.board, exact_endgame_empty_threshold)) {
+        if (benchmark_exact_root_decision(position.board, search_options, exact_root_profile)
+                .solve_exact) {
             ++exact_root_positions;
         }
     }
@@ -739,7 +979,7 @@ benchmark_search(const std::vector<othello::benchmarks::Position>& positions, in
     const auto start = Clock::now();
     for (std::uint64_t repetition = 0; repetition < repetitions; ++repetition) {
         for (const auto& position : positions) {
-            const auto result = run_search(position.board, search_options, mode);
+            const auto result = run_search(position.board, search_options, mode, exact_root_profile);
             auto stable_result_checksum = othello::benchmarks::mix_checksum(
                 othello::benchmarks::search_result_checksum(result),
                 othello::benchmarks::board_checksum(position.board));
@@ -773,7 +1013,7 @@ benchmark_search(const std::vector<othello::benchmarks::Position>& positions, in
         .aspiration_window = search_options.aspiration_window,
         .aspiration_max_researches = search_options.aspiration_max_researches,
         .transposition_table_entries = search_options.transposition_table_entries,
-        .exact_endgame_empty_threshold = search_options.exact_endgame_empty_threshold,
+        .exact_root_profile = exact_root_profile.label,
         .exact_root_positions = exact_root_positions,
         .exact_root_searches = exact_root_positions * repetitions,
         .position_count = positions.size(),
@@ -793,11 +1033,13 @@ benchmark_search(const std::vector<othello::benchmarks::Position>& positions, in
 [[nodiscard]] PositionBenchmarkResult
 benchmark_position(const othello::benchmarks::Position& position, int depth,
                    std::uint64_t repetitions, const BenchmarkOptions& benchmark_options,
-                   SearchRunMode mode, int exact_endgame_empty_threshold) {
+                   SearchRunMode mode, const ExactRootProfile& exact_root_profile) {
     const auto search_options =
-        make_search_options(benchmark_options, depth, exact_endgame_empty_threshold);
+        make_search_options(benchmark_options, depth, exact_root_profile);
     const int empty_count = root_empty_count(position.board);
-    const bool exact_root = exact_root_enabled(position.board, exact_endgame_empty_threshold);
+    const auto exact_decision =
+        benchmark_exact_root_decision(position.board, search_options, exact_root_profile);
+    const bool exact_root = exact_decision.solve_exact;
     std::uint64_t searches = 0;
     std::uint64_t total_nodes = 0;
     std::uint64_t result_checksum = 0;
@@ -809,7 +1051,7 @@ benchmark_position(const othello::benchmarks::Position& position, int depth,
 
     const auto start = Clock::now();
     for (std::uint64_t repetition = 0; repetition < repetitions; ++repetition) {
-        const auto result = run_search(position.board, search_options, mode);
+        const auto result = run_search(position.board, search_options, mode, exact_root_profile);
         auto stable_result_checksum =
             othello::benchmarks::mix_checksum(othello::benchmarks::search_result_checksum(result),
                                               othello::benchmarks::board_checksum(position.board));
@@ -843,9 +1085,10 @@ benchmark_position(const othello::benchmarks::Position& position, int depth,
         .aspiration_window = search_options.aspiration_window,
         .aspiration_max_researches = search_options.aspiration_max_researches,
         .transposition_table_entries = search_options.transposition_table_entries,
-        .exact_endgame_empty_threshold = search_options.exact_endgame_empty_threshold,
+        .exact_root_profile = exact_root_profile.label,
         .empty_count = empty_count,
         .exact_root = exact_root,
+        .exact_skip_reason = std::string{exact_decision.skip_reason},
         .depth = depth,
         .sample_best_move = sample_best_move,
         .sample_score = sample_score,
@@ -880,7 +1123,7 @@ void print_search_result_header() {
               << "  " << std::setw(3) << "asp" << "  " << std::setw(10) << "asp_window"
               << "  " << std::setw(11) << "asp_max_re"
               << "  " << std::setw(10) << "tt_entries"
-              << "  exact_thr  exact_pos  exact_roots  positions  depth  best_move  score  "
+              << "  exact_profile  exact_pos  exact_roots  positions  depth  best_move  score  "
               << std::setw(28) << "pv"
               << "  searches  elapsed_ms      searches/s  total_nodes         nodes/s"
                  "  nodes/search  searched_moves  legal_nodes  eval_calls  pass_nodes"
@@ -917,8 +1160,8 @@ void print_search_result(const SearchBenchmarkResult& result) {
               << (result.use_aspiration_window ? "on" : "off") << "  " << std::right
               << std::setw(10) << result.aspiration_window << "  " << std::setw(11)
               << result.aspiration_max_researches << "  " << std::setw(10)
-              << result.transposition_table_entries << "  " << std::setw(9)
-              << result.exact_endgame_empty_threshold << "  " << std::setw(9)
+              << result.transposition_table_entries << "  " << std::setw(13)
+              << result.exact_root_profile << "  " << std::setw(9)
               << result.exact_root_positions << "  " << std::setw(11) << result.exact_root_searches
               << "  " << std::setw(9) << result.position_count << "  " << std::setw(5)
               << result.depth << "  " << std::left << std::setw(9)
@@ -967,7 +1210,8 @@ void print_position_result_header() {
         << "  " << std::setw(3) << "asp" << "  " << std::setw(10) << "asp_window"
         << "  " << std::setw(11) << "asp_max_re"
         << "  " << std::setw(10) << "tt_entries"
-        << "  exact_thr  empty  exact_root  depth  best_move  score  " << std::setw(28) << "pv"
+        << "  exact_profile  empty  exact_root  exact_skip_reason            depth  best_move  score  "
+        << std::setw(28) << "pv"
         << "  searches  elapsed_ms       nodes  nodes/search         nodes/s"
            "  searched_moves  legal_nodes  eval_calls  pass_nodes  game_over_nodes"
            "  beta_cutoffs  beta_cut_first_move_pct"
@@ -990,10 +1234,11 @@ void print_position_result(const PositionBenchmarkResult& result) {
               << (result.use_aspiration_window ? "on" : "off") << "  " << std::right
               << std::setw(10) << result.aspiration_window << "  " << std::setw(11)
               << result.aspiration_max_researches << "  " << std::setw(10)
-              << result.transposition_table_entries << "  " << std::setw(9)
-              << result.exact_endgame_empty_threshold << "  " << std::setw(5) << result.empty_count
-              << "  " << std::setw(10) << (result.exact_root ? "yes" : "no") << "  " << std::setw(5)
-              << result.depth << "  " << std::left << std::setw(9)
+              << result.transposition_table_entries << "  " << std::setw(13)
+              << result.exact_root_profile << "  " << std::setw(5) << result.empty_count
+              << "  " << std::setw(10) << (result.exact_root ? "yes" : "no") << "  "
+              << std::left << std::setw(28) << result.exact_skip_reason << "  " << std::right
+              << std::setw(5) << result.depth << "  " << std::left << std::setw(9)
               << (result.sample_best_move.has_value() ? othello::to_string(*result.sample_best_move)
                                                       : "-")
               << "  " << std::right << std::setw(5) << result.sample_score << "  " << std::left
@@ -1057,7 +1302,7 @@ void print_position_result(const PositionBenchmarkResult& result) {
 void print_position_summary_header() {
     std::cout << std::left << std::setw(10) << "mode" << "  " << std::setw(3) << "tt"
               << "  " << std::setw(3) << "pvs" << "  " << std::setw(3) << "asp"
-              << "  exact_thr  exact_pos  exact_roots  depth  positions  total_elapsed_ms"
+              << "  exact_profile  exact_pos  exact_roots  depth  positions  total_elapsed_ms"
                  "  avg_ms_per_position"
                  "  p50_ms_per_position  p95_ms_per_position  max_ms_per_position"
                  "  avg_nodes_per_position  p50_nodes_per_position  p95_nodes_per_position"
@@ -1065,7 +1310,7 @@ void print_position_summary_header() {
 }
 
 void print_position_summary(std::span<const PositionBenchmarkResult> results, SearchRunMode mode,
-                            int depth, int exact_endgame_empty_threshold) {
+                            int depth, std::string_view exact_root_profile) {
     std::vector<double> per_position_ms;
     std::vector<std::uint64_t> per_position_nodes;
     per_position_ms.reserve(results.size());
@@ -1107,8 +1352,8 @@ void print_position_summary(std::span<const PositionBenchmarkResult> results, Se
     std::cout << std::left << std::setw(10) << mode_name(mode) << "  " << std::setw(3)
               << (use_transposition_table ? "on" : "off") << "  " << std::setw(3)
               << (use_pvs ? "on" : "off") << "  " << std::setw(3)
-              << (use_aspiration_window ? "on" : "off") << "  " << std::right << std::setw(5)
-              << exact_endgame_empty_threshold << "  " << std::setw(9) << exact_root_positions
+              << (use_aspiration_window ? "on" : "off") << "  " << std::right << std::setw(13)
+              << exact_root_profile << "  " << std::setw(9) << exact_root_positions
               << "  " << std::setw(11) << exact_root_searches << "  " << std::setw(5) << depth
               << "  " << std::setw(9) << position_count << "  " << std::fixed
               << std::setprecision(3) << std::setw(16) << elapsed_ms(total_elapsed) << "  "
@@ -1123,28 +1368,27 @@ void print_position_summary(std::span<const PositionBenchmarkResult> results, Se
 
 void run_requested_benchmarks(const std::vector<othello::benchmarks::Position>& positions,
                               const BenchmarkOptions& options, int depth,
-                              int exact_endgame_empty_threshold) {
+                              const ExactRootProfile& exact_root_profile) {
     if (options.mode == SearchBenchmarkMode::Fixed || options.mode == SearchBenchmarkMode::Both) {
         print_search_result(benchmark_search(positions, depth, options.repetitions, options,
-                                             SearchRunMode::Fixed, exact_endgame_empty_threshold));
+                                             SearchRunMode::Fixed, exact_root_profile));
     }
 
     if (options.mode == SearchBenchmarkMode::Iterative ||
         options.mode == SearchBenchmarkMode::Both) {
         print_search_result(benchmark_search(positions, depth, options.repetitions, options,
-                                             SearchRunMode::Iterative,
-                                             exact_endgame_empty_threshold));
+                                             SearchRunMode::Iterative, exact_root_profile));
     }
 }
 
 void run_requested_position_benchmarks(const std::vector<othello::benchmarks::Position>& positions,
                                        const BenchmarkOptions& options, int depth,
-                                       int exact_endgame_empty_threshold,
+                                       const ExactRootProfile& exact_root_profile,
                                        std::vector<PositionBenchmarkResult>& results) {
     const auto run_mode = [&](SearchRunMode mode) {
         for (const auto& position : positions) {
             auto result = benchmark_position(position, depth, options.repetitions, options, mode,
-                                             exact_endgame_empty_threshold);
+                                             exact_root_profile);
             print_position_result(result);
             results.push_back(std::move(result));
         }
@@ -1166,18 +1410,18 @@ void print_requested_position_summaries(const std::vector<PositionBenchmarkResul
     std::cout << "elapsed and node percentiles use per-position totals across all repetitions\n";
     print_position_summary_header();
 
-    for (const int threshold : options.exact_endgame_empty_thresholds) {
+    for (const auto& profile : options.exact_root_profiles) {
         for (const int depth : options.depths) {
             const auto print_mode = [&](SearchRunMode mode) {
                 std::vector<PositionBenchmarkResult> group;
                 for (const auto& result : results) {
-                    if (result.exact_endgame_empty_threshold == threshold &&
-                        result.depth == depth && result.mode == mode) {
+                    if (result.exact_root_profile == profile.label && result.depth == depth &&
+                        result.mode == mode) {
                         group.push_back(result);
                     }
                 }
                 if (!group.empty()) {
-                    print_position_summary(group, mode, depth, threshold);
+                    print_position_summary(group, mode, depth, profile.label);
                 }
             };
 
@@ -1251,8 +1495,8 @@ int run_benchmark(std::span<char* const> args) {
     std::cout << "aspiration window: " << options.aspiration_window << '\n';
     std::cout << "aspiration max researches: " << options.aspiration_max_researches << '\n';
     std::cout << "tt entries: " << options.transposition_table_entries << '\n';
-    std::cout << "exact endgame thresholds: "
-              << threshold_list_text(options.exact_endgame_empty_thresholds) << '\n';
+    std::cout << "exact endgame profiles: "
+              << exact_root_profile_list_text(options.exact_root_profiles) << '\n';
     std::cout << "eval preset: " << othello::evaluation_preset_name(options.evaluation_preset)
               << '\n';
     if (options.by_position) {
@@ -1272,11 +1516,11 @@ int run_benchmark(std::span<char* const> args) {
 
         std::vector<PositionBenchmarkResult> position_results;
         position_results.reserve(positions->size() * options.depths.size() *
-                                 options.exact_endgame_empty_thresholds.size() * 2);
+                                 options.exact_root_profiles.size() * 2);
         print_position_result_header();
-        for (const int threshold : options.exact_endgame_empty_thresholds) {
+        for (const auto& profile : options.exact_root_profiles) {
             for (const int depth : options.depths) {
-                run_requested_position_benchmarks(*positions, options, depth, threshold,
+                run_requested_position_benchmarks(*positions, options, depth, profile,
                                                   position_results);
             }
         }
@@ -1285,9 +1529,9 @@ int run_benchmark(std::span<char* const> args) {
     }
 
     print_search_result_header();
-    for (const int threshold : options.exact_endgame_empty_thresholds) {
+    for (const auto& profile : options.exact_root_profiles) {
         for (const int depth : options.depths) {
-            run_requested_benchmarks(*positions, options, depth, threshold);
+            run_requested_benchmarks(*positions, options, depth, profile);
         }
     }
 
