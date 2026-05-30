@@ -121,6 +121,20 @@ BW.B.WW.
 side=B)");
 }
 
+void check_heuristic_score_metadata(const othello::SearchResult& result) {
+    CHECK(result.score_kind == othello::SearchScoreKind::Heuristic);
+    CHECK_FALSE(result.used_exact_endgame);
+    CHECK_FALSE(result.exact_disc_margin.has_value());
+}
+
+void check_exact_score_metadata(const othello::SearchResult& result,
+                                const othello::ExactEndgameResult& exact) {
+    CHECK(result.score_kind == othello::SearchScoreKind::ExactDiscMarginScaled);
+    CHECK(result.used_exact_endgame);
+    REQUIRE(result.exact_disc_margin.has_value());
+    CHECK(*result.exact_disc_margin == exact.disc_margin);
+}
+
 } // namespace
 
 TEST_CASE("Fixed-depth search at depth zero returns an evaluation-only result", "[search]") {
@@ -131,6 +145,7 @@ TEST_CASE("Fixed-depth search at depth zero returns an evaluation-only result", 
     CHECK_FALSE(result.best_move.has_value());
     CHECK(result.principal_variation.empty());
     CHECK(result.score == othello::evaluate_basic(board, board.side_to_move));
+    check_heuristic_score_metadata(result);
     CHECK(result.depth == 0);
     CHECK(result.nodes > 0);
 }
@@ -144,6 +159,7 @@ TEST_CASE("Search options depth zero returns an evaluation-only result", "[searc
     CHECK_FALSE(result.best_move.has_value());
     CHECK(result.principal_variation.empty());
     CHECK(result.score == othello::evaluate_basic(board, board.side_to_move));
+    check_heuristic_score_metadata(result);
     CHECK(result.depth == 0);
     CHECK(result.nodes > 0);
 }
@@ -280,6 +296,7 @@ TEST_CASE("Fixed-depth search returns a legal move from the initial board", "[se
 
     REQUIRE(result.best_move.has_value());
     CHECK((legal_moves & result.best_move->bit()) != 0);
+    check_heuristic_score_metadata(result);
     REQUIRE(result.principal_variation.size() == 1);
     CHECK(result.principal_variation.front() == *result.best_move);
     CHECK(result.depth == 1);
@@ -375,6 +392,7 @@ TEST_CASE("Search threshold disabled keeps depth-limited behavior for small endg
     CHECK_FALSE(result.best_move.has_value());
     CHECK(result.principal_variation.empty());
     CHECK(result.score == othello::evaluate_basic(board, board.side_to_move));
+    check_heuristic_score_metadata(result);
     CHECK(result.depth == 0);
     CHECK(result.nodes > 0);
 }
@@ -395,6 +413,7 @@ TEST_CASE("Search uses exact endgame at the root within threshold", "[search]") 
 
     CHECK(result.best_move == exact.best_move);
     CHECK(result.score == exact.disc_margin * exact_endgame_score_scale);
+    check_exact_score_metadata(result, exact);
     CHECK(result.depth == exact.empties);
     CHECK(result.nodes == exact.nodes);
     CHECK(result.stats.nodes == result.nodes);
@@ -458,6 +477,7 @@ TEST_CASE("Exact root search exposes exact solver TT stats", "[search]") {
 
     CHECK(result.best_move == exact.best_move);
     CHECK(result.score == exact.disc_margin * exact_endgame_score_scale);
+    check_exact_score_metadata(result, exact);
     CHECK(result.depth == exact.empties);
     CHECK(result.nodes == exact.nodes);
     CHECK(result.stats.nodes == exact.stats.nodes);
@@ -497,6 +517,7 @@ TEST_CASE("Adaptive exact root policy solves conservative sixteen-empty roots", 
     CHECK(decision.skip_reason == othello::ExactEndgameRootSkipReason::None);
     CHECK(result.best_move == exact.best_move);
     CHECK(result.score == exact.disc_margin * exact_endgame_score_scale);
+    check_exact_score_metadata(result, exact);
     CHECK(result.depth == exact.empties);
     CHECK(result.nodes == exact.nodes);
     CHECK(result.stats.eval_calls == 0);
@@ -563,6 +584,7 @@ TEST_CASE("Adaptive exact root policy skips heavy sixteen-empty roots", "[search
     CHECK(pass_decision.legal_moves_current == 0);
     CHECK(pass_decision.skip_reason == othello::ExactEndgameRootSkipReason::AdaptiveRootPass);
     CHECK(pass_result.depth == 1);
+    check_heuristic_score_metadata(pass_result);
     CHECK(pass_result.stats.eval_calls > 0);
 
     const Board high_mobility = adaptive_exact_high_mobility_board();
@@ -576,6 +598,7 @@ TEST_CASE("Adaptive exact root policy skips heavy sixteen-empty roots", "[search
     CHECK(mobility_decision.skip_reason ==
           othello::ExactEndgameRootSkipReason::AdaptiveTooManyLegalMoves);
     CHECK(mobility_result.depth == 1);
+    check_heuristic_score_metadata(mobility_result);
     CHECK(mobility_result.stats.eval_calls > 0);
 }
 
@@ -594,6 +617,7 @@ TEST_CASE("Iterative search returns exact result immediately within threshold", 
 
     CHECK(result.best_move == exact.best_move);
     CHECK(result.score == exact.disc_margin * exact_endgame_score_scale);
+    check_exact_score_metadata(result, exact);
     CHECK(result.depth == exact.empties);
     CHECK(result.nodes == exact.nodes);
     CHECK(result.stats.nodes == result.nodes);

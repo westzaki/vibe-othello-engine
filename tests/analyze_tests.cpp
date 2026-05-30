@@ -7,6 +7,7 @@
 #include <bit>
 #include <iostream>
 #include <sstream>
+#include <string>
 
 using othello::Board;
 using othello::Side;
@@ -22,6 +23,18 @@ namespace {
         .use_pvs = true,
         .root_candidates = true,
     };
+}
+
+[[nodiscard]] Board exact_analysis_board() {
+    return othello::test::board_from_text(R"(BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBW.
+side=B)");
 }
 
 [[nodiscard]] bool sorted_by_score_then_move(
@@ -156,4 +169,46 @@ TEST_CASE("Position analysis print includes edge 8 pattern breakdown fields", "[
     CHECK(output.find("edge_8_pattern:") != std::string::npos);
     CHECK(output.find("edge_8_pattern_weight:") != std::string::npos);
     CHECK(output.find("edge_8_pattern_score:") != std::string::npos);
+}
+
+TEST_CASE("Position analysis print includes search score semantics", "[analyze]") {
+    const Board board = Board::initial();
+    othello::tools::analyze::AnalysisOptions options{
+        .depth = 1,
+        .mode = othello::tools::analyze::AnalysisMode::Fixed,
+        .exact_endgame_empty_threshold = 0,
+    };
+    const othello::SearchResult result = othello::tools::analyze::run_search(board, options);
+
+    std::ostringstream captured;
+    std::streambuf* const previous_buffer = std::cout.rdbuf(captured.rdbuf());
+    othello::tools::analyze::print_report(board, options, result, std::chrono::nanoseconds{0});
+    std::cout.rdbuf(previous_buffer);
+
+    const std::string output = captured.str();
+    CHECK(output.find("score_kind: heuristic") != std::string::npos);
+    CHECK(output.find("used_exact_endgame: no") != std::string::npos);
+    CHECK(output.find("exact_disc_margin: none") != std::string::npos);
+}
+
+TEST_CASE("Position analysis print includes exact root search score semantics", "[analyze]") {
+    const Board board = exact_analysis_board();
+    const othello::ExactEndgameResult exact = othello::solve_exact_endgame(board);
+    othello::tools::analyze::AnalysisOptions options{
+        .depth = 1,
+        .mode = othello::tools::analyze::AnalysisMode::Fixed,
+        .exact_endgame_empty_threshold = 1,
+    };
+    const othello::SearchResult result = othello::tools::analyze::run_search(board, options);
+
+    std::ostringstream captured;
+    std::streambuf* const previous_buffer = std::cout.rdbuf(captured.rdbuf());
+    othello::tools::analyze::print_report(board, options, result, std::chrono::nanoseconds{0});
+    std::cout.rdbuf(previous_buffer);
+
+    const std::string output = captured.str();
+    CHECK(output.find("score_kind: exact_disc_margin_scaled") != std::string::npos);
+    CHECK(output.find("used_exact_endgame: yes") != std::string::npos);
+    CHECK(output.find("exact_disc_margin: " + std::to_string(exact.disc_margin)) !=
+          std::string::npos);
 }
