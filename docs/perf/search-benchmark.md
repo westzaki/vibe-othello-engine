@@ -1,7 +1,10 @@
 # Search Benchmark
 
-This document describes how to use the search benchmark results as a performance
-reference. Individual measurement snapshots live under
+Status: historical performance reference.
+
+This document describes historical search benchmark results as performance
+evidence. It is not current project guidance, a task queue, or a permanent
+benchmark standard. Individual measurement snapshots live under
 [`docs/perf/baselines/`](baselines/) so benchmark history can be compared without
 overwriting older results.
 
@@ -37,7 +40,9 @@ latency across the suite:
 
 ## Baseline Snapshots
 
-- Latest: [2026-05-23 PR48 exact threshold-12 suite baseline](baselines/2026-05-23-pr48-b564915-exact-threshold12-suite.md)
+Historical snapshots include:
+
+- [2026-05-23 PR48 exact threshold-12 suite baseline](baselines/2026-05-23-pr48-b564915-exact-threshold12-suite.md)
 - [2026-05-17 PR44 depth-10 suite baseline](baselines/2026-05-17-pr44-bedc534-depth10-suite.md)
 - [2026-05-17 PR37 depth-10 suite baseline](baselines/2026-05-17-pr37-5568457-depth10-suite.md)
 
@@ -52,7 +57,8 @@ latency across the suite:
   keeping the suite latency practical at this checkpoint.
 - Exact endgame threshold `0` was useful for comparing old depth-limited
   behavior.
-- Iterative deepening is useful for future time control work, but it currently
-  does more cumulative work than fixed-depth search at the same final depth.
-- At this checkpoint, evaluation tuning was expected to wait until analysis
-  tooling and baseline comparison were stable.
+- Iterative deepening was useful context for future time-control work in these
+  snapshots, but it did more cumulative work than fixed-depth search at the same
+  final depth in the recorded runs.
+- Sequencing notes captured in these snapshots are historical evidence, not
+  current blockers for evaluation, search, or performance work.
