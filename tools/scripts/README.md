@@ -82,6 +82,64 @@ python3 tools/scripts/eval_experiment_matrix.py \
 This compares each non-default preset against `default` through the normal C++
 tools. It is for reproducibility plumbing, not strength claims.
 
+Run a staged evaluator-preset experiment against an explicit reference preset:
+
+```sh
+python3 tools/scripts/eval_experiment_matrix.py \
+  --presets classic_corner_lite_v1,classic_edge_lite_v1,classic_features_lite_v1,classic_features_lite_aggressive,frontier_classic_features_lite_v1 \
+  --reference-preset frontier_open2_mid2_late_plus1 \
+  --small-depths 5,6 \
+  --extended-depths 7,8 \
+  --small-games 48 \
+  --extended-games 96 \
+  --promote-top 2 \
+  --openings data/openings/eval_regression_openings.txt \
+  --seed 20260530 \
+  --build-dir build \
+  --out runs/eval/evaluator-orchestrator-v2 \
+  --positions suite \
+  --by-position
+```
+
+The staged runner treats each candidate preset as player A and
+`--reference-preset` as player B. Stage A runs search screening for all listed
+presets, Stage B runs small candidate-vs-reference matches, and Stage C runs
+extended matches only for promoted candidates. The legacy `--depths` and
+`--games` options remain supported as aliases for `--small-depths` and
+`--small-games`; use the explicit staged names for new experiments.
+
+Raw command output, match JSONL, summaries, and generated reports belong under
+`runs/`, not in committed docs. The generated report is a triage artifact: it is
+not a strength claim, Elo estimate, or default-promotion recommendation.
+
+Optionally add an NTest sanity hook when a local external-engine config is
+available:
+
+```sh
+python3 tools/scripts/eval_experiment_matrix.py \
+  --presets classic_features_lite_v1,frontier_classic_features_lite_v1 \
+  --reference-preset frontier_open2_mid2_late_plus1 \
+  --small-depths 5,6 \
+  --extended-depths 7,8 \
+  --small-games 48 \
+  --extended-games 96 \
+  --promote-top 1 \
+  --openings data/openings/eval_regression_openings.txt \
+  --seed 20260530 \
+  --build-dir build \
+  --out runs/eval/evaluator-orchestrator-v2-ntest \
+  --run-ntest-sanity \
+  --ntest-engine ntest8 \
+  --engines runs/local-engines/engines.txt \
+  --ntest-depth 6 \
+  --ntest-games 12 \
+  --ntest-openings data/openings/smoke_openings.txt
+```
+
+The NTest sanity hook is optional. If the external engine config is unavailable,
+the report records a skip reason instead of failing the experiment runner.
+External engine binaries are never vendored into this repository.
+
 Extract first divergence positions from an existing swap-side base/head JSONL:
 
 ```sh

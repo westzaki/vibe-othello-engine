@@ -352,6 +352,40 @@ class EvalExperimentMatrixTests(unittest.TestCase):
                       run.command)
         self.assertEqual(run.command[run.command.index("--games") + 1], "12")
 
+    def test_ntest_report_shows_error_reason(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            config = replace(
+                experiment_config(Path(temp)),
+                run_ntest_sanity=True,
+                ntest_engine="ntest8",
+                engines=Path(temp) / "engines.txt",
+            )
+            run = eval_experiment_matrix.NTestRun(
+                preset="frontier_classic_features_lite_v1",
+                depth=6,
+                output_path=Path(temp) / "ntest.jsonl",
+                command=["othello_match_runner"],
+                exit_code=2,
+                error="external engine timed out",
+            )
+
+            table = eval_experiment_matrix.render_ntest_table([run])
+            report = eval_experiment_matrix.render_report(
+                config,
+                search_runs=[],
+                small_runs=[],
+                extended_runs=[],
+                decisions=[],
+                ntest_runs=[run],
+                ntest_skip_reason=None,
+                dry_run=False,
+            )
+
+        self.assertIn("external engine timed out", table)
+        self.assertIn("| error | JSONL |", table)
+        self.assertIn("external engine timed out", report)
+        self.assertIn("NTest sanity issue found: 1 run(s)", report)
+
     def test_error_games_fail_without_allow_errors(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             config = experiment_config(Path(temp))

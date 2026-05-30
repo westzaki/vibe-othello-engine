@@ -648,23 +648,35 @@ def render_promotion_table(decisions: list[CandidateDecision]) -> str:
 
 def render_ntest_table(ntest_runs: list[NTestRun]) -> str:
     lines = [
-        "| preset | depth | games | wins | losses | draws | avg diff | errors | JSONL |",
-        "| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | :--- |",
+        "| preset | depth | games | wins | losses | draws | avg diff | errors | error | JSONL |",
+        "| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | :--- | :--- |",
     ]
     if not ntest_runs:
-        lines.append("| - | 0 | 0 | 0 | 0 | 0 | n/a | 0 | - |")
+        lines.append("| - | 0 | 0 | 0 | 0 | 0 | n/a | 0 | - | - |")
         return "\n".join(lines)
     for run in ntest_runs:
         summary = run.summary
         if summary is None:
-            lines.append(f"| `{run.preset}` | {run.depth} | 0 | 0 | 0 | 0 | n/a | n/a | {_md(run.output_path)} |")
+            error = run.error or "summary unavailable"
+            lines.append(
+                f"| `{run.preset}` | {run.depth} | 0 | 0 | 0 | 0 | n/a | n/a | "
+                f"{_md(error)} | {_md(run.output_path)} |"
+            )
             continue
         lines.append(
             f"| `{run.preset}` | {run.depth} | {summary.games} | {summary.player_a_wins} | "
             f"{summary.player_b_wins} | {summary.draws} | {summary.average_diff:.2f} | "
-            f"{summary.error_games} | {_md(run.output_path)} |"
+            f"{summary.error_games} | {_md(run.error or '-')} | {_md(run.output_path)} |"
         )
     return "\n".join(lines)
+
+
+def ntest_issue_runs(ntest_runs: list[NTestRun]) -> list[NTestRun]:
+    return [
+        run
+        for run in ntest_runs
+        if run.exit_code != 0 or run.summary is None or run.error is not None
+    ]
 
 
 def render_search_table(search_runs: list[SearchBenchRun], *, dry_run: bool) -> str:
@@ -786,6 +798,17 @@ def render_report(
         lines.append(ntest_skip_reason)
     else:
         lines.append(render_ntest_table(ntest_runs))
+        if not dry_run:
+            ntest_issues = ntest_issue_runs(ntest_runs)
+            if ntest_issues:
+                lines.append("")
+                lines.append(
+                    f"NTest sanity issue found: {len(ntest_issues)} run(s) "
+                    "failed or had unavailable summaries."
+                )
+            else:
+                lines.append("")
+                lines.append("NTest sanity attempted: no issue found.")
     lines.append("")
 
     lines.extend(
