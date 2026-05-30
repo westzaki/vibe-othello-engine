@@ -469,8 +469,12 @@ python3 tools/scripts/match_summary.py \
 
 The Python summary script reports A/B wins, draws, average disc diff from the
 player A perspective, average plies, average passes, error-game count, optional
-nodes/time averages, exact-root counts, and optional per-opening rows. It is
-intentionally not an Elo or significance tool.
+nodes/time averages, exact-root counts, and optional per-opening rows. Match
+JSONL records also include `exact_root_events` for each fired exact root, with
+the ply, board, legal move counts, elapsed time, node count, TT counters, best
+move, score, and PV. Those events are intended for diagnosing heavy adaptive
+endgame roots before changing gates or exact-solver ordering. The summary script
+is intentionally not an Elo or significance tool.
 
 ## Reading Results
 

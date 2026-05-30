@@ -55,7 +55,50 @@ struct MoveSelection {
     std::uint64_t nodes = 0;
     double elapsed_ms = 0.0;
     std::uint64_t exact_root_searches = 0;
+    ExactEndgameRootDecision exact_root_decision;
+    int score = 0;
+    int depth = 0;
+    std::vector<Square> principal_variation;
     std::optional<SearchStats> search_stats;
+};
+
+struct ExactRootTraceStats {
+    std::uint64_t nodes = 0;
+    std::uint64_t tt_lookups = 0;
+    std::uint64_t tt_hits = 0;
+    std::uint64_t tt_exact_hits = 0;
+    std::uint64_t tt_lower_hits = 0;
+    std::uint64_t tt_upper_hits = 0;
+    std::uint64_t tt_stores = 0;
+    std::uint64_t tt_overwrites = 0;
+    std::uint64_t tt_collisions = 0;
+    std::uint64_t tt_rejected_stores = 0;
+    std::uint64_t tt_move_ordering_probes = 0;
+    std::uint64_t tt_move_ordering_hits = 0;
+    std::uint64_t tt_move_ordering_used = 0;
+
+    [[nodiscard]] friend bool operator==(const ExactRootTraceStats&,
+                                         const ExactRootTraceStats&) = default;
+};
+
+struct ExactRootTrace {
+    int ply = 0;
+    std::string side;
+    std::string player;
+    std::string board;
+    int empties = 0;
+    int legal_moves_current = 0;
+    int legal_moves_opponent = 0;
+    std::optional<Square> best_move;
+    int score = 0;
+    int depth = 0;
+    std::uint64_t nodes = 0;
+    double elapsed_ms = 0.0;
+    ExactRootTraceStats stats;
+    std::vector<Square> principal_variation;
+
+    [[nodiscard]] friend bool operator==(const ExactRootTrace&,
+                                         const ExactRootTrace&) = default;
 };
 
 struct Opening {
@@ -107,6 +150,7 @@ struct GameRecord {
     int plies = 0;
     int passes = 0;
     std::vector<std::string> moves;
+    std::vector<ExactRootTrace> exact_root_events;
     bool illegal_or_error = false;
     std::optional<std::string> error_reason;
 

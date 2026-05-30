@@ -3,6 +3,7 @@
 #include "test_helpers.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+#include <bit>
 #include <optional>
 #include <string>
 #include <vector>
@@ -335,6 +336,22 @@ TEST_CASE("Search player records exact root searches", "[match-runner]") {
     CHECK(record.exact_roots_white == 0);
     CHECK(record.exact_roots_player_a == record.exact_roots_black);
     CHECK(record.exact_roots_player_b == record.exact_roots_white);
+    REQUIRE(record.exact_root_events.size() == 1);
+    const runner::ExactRootTrace& event = record.exact_root_events.front();
+    CHECK(event.ply == 0);
+    CHECK(event.side == "black");
+    CHECK(event.player == "A");
+    CHECK(event.board == othello::to_string(opening.start_board));
+    CHECK(event.empties == 1);
+    CHECK(event.legal_moves_current ==
+          static_cast<int>(std::popcount(othello::legal_moves(opening.start_board))));
+    CHECK(event.legal_moves_opponent == 0);
+    CHECK(event.best_move == othello::test::square("h1"));
+    CHECK(event.depth == 1);
+    CHECK(event.nodes > 0);
+    CHECK(event.stats.nodes == event.nodes);
+    REQUIRE_FALSE(event.principal_variation.empty());
+    CHECK(event.principal_variation.front() == *event.best_move);
 }
 
 TEST_CASE("Non-search players record zero search nodes", "[match-runner]") {

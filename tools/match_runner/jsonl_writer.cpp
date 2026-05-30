@@ -5,11 +5,80 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <optional>
+#include <span>
 #include <system_error>
 
 namespace othello::match_runner {
 
 namespace {
+
+void write_optional_square(std::ostream& output, const std::optional<Square>& square) {
+    if (square.has_value()) {
+        tools::write_json_string(output, to_string(*square));
+    } else {
+        output << "null";
+    }
+}
+
+void write_square_array(std::ostream& output, std::span<const Square> squares) {
+    output << "[";
+    for (std::size_t index = 0; index < squares.size(); ++index) {
+        if (index != 0) {
+            output << ',';
+        }
+        tools::write_json_string(output, to_string(squares[index]));
+    }
+    output << "]";
+}
+
+void write_exact_root_trace_stats(std::ostream& output, const ExactRootTraceStats& stats) {
+    output << "{";
+    output << "\"nodes\":" << stats.nodes << ',';
+    output << "\"tt_lookups\":" << stats.tt_lookups << ',';
+    output << "\"tt_hits\":" << stats.tt_hits << ',';
+    output << "\"tt_exact_hits\":" << stats.tt_exact_hits << ',';
+    output << "\"tt_lower_hits\":" << stats.tt_lower_hits << ',';
+    output << "\"tt_upper_hits\":" << stats.tt_upper_hits << ',';
+    output << "\"tt_stores\":" << stats.tt_stores << ',';
+    output << "\"tt_overwrites\":" << stats.tt_overwrites << ',';
+    output << "\"tt_collisions\":" << stats.tt_collisions << ',';
+    output << "\"tt_rejected_stores\":" << stats.tt_rejected_stores << ',';
+    output << "\"tt_move_ordering_probes\":" << stats.tt_move_ordering_probes << ',';
+    output << "\"tt_move_ordering_hits\":" << stats.tt_move_ordering_hits << ',';
+    output << "\"tt_move_ordering_used\":" << stats.tt_move_ordering_used;
+    output << "}";
+}
+
+void write_exact_root_trace(std::ostream& output, const ExactRootTrace& trace) {
+    output << "{";
+    output << "\"ply\":" << trace.ply << ',';
+    output << "\"side\":";
+    tools::write_json_string(output, trace.side);
+    output << ',';
+    output << "\"player\":";
+    tools::write_json_string(output, trace.player);
+    output << ',';
+    output << "\"board\":";
+    tools::write_json_string(output, trace.board);
+    output << ',';
+    output << "\"empties\":" << trace.empties << ',';
+    output << "\"legal_moves_current\":" << trace.legal_moves_current << ',';
+    output << "\"legal_moves_opponent\":" << trace.legal_moves_opponent << ',';
+    output << "\"best_move\":";
+    write_optional_square(output, trace.best_move);
+    output << ',';
+    output << "\"score\":" << trace.score << ',';
+    output << "\"depth\":" << trace.depth << ',';
+    output << "\"nodes\":" << trace.nodes << ',';
+    output << "\"elapsed_ms\":" << trace.elapsed_ms << ',';
+    output << "\"stats\":";
+    write_exact_root_trace_stats(output, trace.stats);
+    output << ',';
+    output << "\"pv\":";
+    write_square_array(output, trace.principal_variation);
+    output << "}";
+}
 
 void write_jsonl_record(std::ostream& output, const GameRecord& record) {
     output << "{";
@@ -70,6 +139,14 @@ void write_jsonl_record(std::ostream& output, const GameRecord& record) {
             output << ',';
         }
         tools::write_json_string(output, record.moves[index]);
+    }
+    output << "],";
+    output << "\"exact_root_events\":[";
+    for (std::size_t index = 0; index < record.exact_root_events.size(); ++index) {
+        if (index != 0) {
+            output << ',';
+        }
+        write_exact_root_trace(output, record.exact_root_events[index]);
     }
     output << "],";
     output << "\"illegal_or_error\":" << (record.illegal_or_error ? "true" : "false") << ',';
