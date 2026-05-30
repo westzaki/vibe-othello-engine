@@ -6,7 +6,7 @@ engine binaries as external NBoard processes, then records one match JSONL file,
 one summary, and one Markdown report per run.
 
 This is a specialized benchmark and measurement workflow under
-[`docs/BENCHMARKS.md`](../BENCHMARKS.md), not a separate project guidance
+[`docs/benchmarks.md`](../benchmarks.md), not a separate project guidance
 category.
 
 This workflow is deterministic, but it is not an Elo estimate. Use it to detect

@@ -8,7 +8,7 @@ term priorities belong in issues, project boards, PR descriptions, or
 task-specific prompts.
 
 For the durable workstream-level capability map, see
-[CAPABILITY_MAP.md](CAPABILITY_MAP.md).
+[capability-map.md](capability-map.md).
 
 ## Long-Term Direction
 
@@ -66,7 +66,7 @@ experiment outputs as appropriate.
 ## Workstream Map
 
 The durable workstreams are described in
-[CAPABILITY_MAP.md](CAPABILITY_MAP.md):
+[capability-map.md](capability-map.md):
 
 - Rule Core
 - Correctness Harness

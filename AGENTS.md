@@ -63,7 +63,7 @@ or product-specific concepts.
 
 ## Roadmap
 
-Follow [`docs/ROADMAP.md`](docs/ROADMAP.md).
+Follow [`docs/roadmap.md`](docs/roadmap.md).
 
 The roadmap is a staged capability plan, not a queue of current tasks. Put
 short-term priorities, task-specific hypotheses, temporary diagnostics, and
