@@ -16,6 +16,7 @@ enum class EvaluationPhase {
 
 enum class EvaluationPreset {
     Default,
+    PhaseAwareV1,
     MobilityPlusSmoke,
     FrontierOpen2Mid2LatePlus1,
     ClassicCornerLiteV1,
@@ -62,7 +63,9 @@ struct EvaluationConfig {
         .corner_occupancy = 35,
         .corner_access = 30,
         .x_square_danger = 25,
-        .frontier = 3,
+        .frontier = 5,
+        .corner_2x3_pattern = 4,
+        .edge_stability_lite = 2,
     };
     EvaluationFeatureWeights midgame{
         .disc_difference = 1,
@@ -71,7 +74,9 @@ struct EvaluationConfig {
         .corner_occupancy = 40,
         .corner_access = 35,
         .x_square_danger = 30,
-        .frontier = 4,
+        .frontier = 6,
+        .corner_2x3_pattern = 6,
+        .edge_stability_lite = 4,
     };
     EvaluationFeatureWeights late{
         .disc_difference = 4,
@@ -80,7 +85,9 @@ struct EvaluationConfig {
         .corner_occupancy = 45,
         .corner_access = 20,
         .x_square_danger = 20,
-        .frontier = 2,
+        .frontier = 3,
+        .corner_2x3_pattern = 4,
+        .edge_stability_lite = 8,
     };
     int opening_max_occupied = 20;
     int midgame_max_occupied = 44;
