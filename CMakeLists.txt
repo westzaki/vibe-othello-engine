@@ -174,17 +174,37 @@ set_tests_properties(
 set(OTHELLO_SAMPLE_EVAL_CONFIG
     "${CMAKE_CURRENT_SOURCE_DIR}/data/eval/current_default.eval"
 )
-
-add_test(
-    NAME othello_search_bench_rejects_eval_preset_with_eval_config
-    COMMAND /bin/sh -c
-        "$<TARGET_FILE:othello_search_bench> --eval-preset default --eval-config ${OTHELLO_SAMPLE_EVAL_CONFIG} 2>&1 | grep 'cannot combine --eval-preset and --eval-config'"
+set(OTHELLO_EXPECT_FAILURE_SCRIPT
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/cmake/expect_failure.cmake"
 )
 
-add_test(
-    NAME othello_analyze_position_rejects_eval_preset_with_eval_config
-    COMMAND /bin/sh -c
-        "$<TARGET_FILE:othello_analyze_position> --stdin --eval-preset default --eval-config ${OTHELLO_SAMPLE_EVAL_CONFIG} 2>&1 | grep 'cannot combine --eval-preset and --eval-config'"
+function(othello_add_expect_failure_test name target pattern)
+    string(JOIN "|" OTHELLO_EXPECT_FAILURE_ARGS ${ARGN})
+    add_test(
+        NAME ${name}
+        COMMAND ${CMAKE_COMMAND}
+            "-DEXPECT_FAILURE_COMMAND=$<TARGET_FILE:${target}>"
+            "-DEXPECT_FAILURE_ARGS=${OTHELLO_EXPECT_FAILURE_ARGS}"
+            "-DEXPECT_FAILURE_PATTERN=${pattern}"
+            -P "${OTHELLO_EXPECT_FAILURE_SCRIPT}"
+    )
+endfunction()
+
+othello_add_expect_failure_test(
+    othello_search_bench_rejects_eval_preset_with_eval_config
+    othello_search_bench
+    "cannot combine --eval-preset and --eval-config"
+    --eval-preset default
+    --eval-config "${OTHELLO_SAMPLE_EVAL_CONFIG}"
+)
+
+othello_add_expect_failure_test(
+    othello_analyze_position_rejects_eval_preset_with_eval_config
+    othello_analyze_position
+    "cannot combine --eval-preset and --eval-config"
+    --stdin
+    --eval-preset default
+    --eval-config "${OTHELLO_SAMPLE_EVAL_CONFIG}"
 )
 
 add_test(
@@ -196,10 +216,12 @@ set_tests_properties(
     PROPERTIES PASS_REGULAR_EXPRESSION "--eval-config"
 )
 
-add_test(
-    NAME othello_nboard_engine_rejects_eval_preset_with_eval_config
-    COMMAND /bin/sh -c
-        "$<TARGET_FILE:othello_nboard_engine> --eval-preset default --eval-config ${OTHELLO_SAMPLE_EVAL_CONFIG} 2>&1 | grep 'cannot combine --eval-preset and --eval-config'"
+othello_add_expect_failure_test(
+    othello_nboard_engine_rejects_eval_preset_with_eval_config
+    othello_nboard_engine
+    "cannot combine --eval-preset and --eval-config"
+    --eval-preset default
+    --eval-config "${OTHELLO_SAMPLE_EVAL_CONFIG}"
 )
 
 add_test(

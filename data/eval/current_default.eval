@@ -1,3 +1,10 @@
+# schema_version: eval.v1
+# status: active
+# created_at: 2026-05-31
+# based_on: default_evaluation_config()
+# purpose: Fully expanded snapshot of the built-in default evaluator.
+# validation: Must match default_evaluation_config() in evaluation tests.
+# caveat: Update this file in the same PR as default_evaluation_config() changes.
 name=current_default
 
 opening.disc_difference=0

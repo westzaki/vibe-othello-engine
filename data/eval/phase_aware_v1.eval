@@ -1,3 +1,10 @@
+# schema_version: eval.v1
+# status: active
+# created_at: 2026-05-31
+# based_on: EvaluationPreset::PhaseAwareV1
+# purpose: Compatibility snapshot for the previous phase-aware evaluator.
+# validation: Must match EvaluationPreset::PhaseAwareV1 in evaluation tests.
+# caveat: Kept for reproducible comparison, not as a strength recommendation.
 name=phase_aware_v1
 
 opening.disc_difference=0

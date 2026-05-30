@@ -1,3 +1,10 @@
+# schema_version: eval.v1
+# status: active
+# created_at: 2026-05-31
+# based_on: current_default.eval
+# purpose: Experimental default variant with softer edge_8_pattern weights.
+# validation: Dry-run matrix confirms --eval-config and eval_config= command wiring.
+# caveat: No strength claim; keep active only while it is a current experiment candidate.
 name=default_edge_pattern_8_soft
 
 opening.disc_difference=0

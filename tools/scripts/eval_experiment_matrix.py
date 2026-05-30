@@ -171,10 +171,10 @@ def parse_csv_names(value: str) -> list[str]:
 
 
 def parse_csv_paths(value: str) -> list[Path]:
-    paths = [Path(part.strip()) for part in value.split(",")]
-    if not paths or any(not str(path) for path in paths):
+    parts = [part.strip() for part in value.split(",")]
+    if not parts or any(not part for part in parts):
         raise ScriptError(f"invalid config list: {value}")
-    return paths
+    return [Path(part) for part in parts]
 
 
 def eval_config_label(path: Path) -> str:
@@ -199,6 +199,49 @@ def eval_target(value: EvalTarget | str) -> EvalTarget:
     if isinstance(value, EvalTarget):
         return value
     return EvalTarget(kind="preset", value=value, label=value)
+
+
+def target_display(target: EvalTarget) -> str:
+    return f"{target.kind}:{target.value} ({target.label})"
+
+
+def same_target(left: EvalTarget, right: EvalTarget) -> bool:
+    return left.kind == right.kind and left.value == right.value
+
+
+def validate_unique_eval_targets(eval_targets: list[EvalTarget], reference: EvalTarget) -> None:
+    seen_labels: dict[str, EvalTarget] = {}
+    seen_slugs: dict[str, EvalTarget] = {}
+    for target in eval_targets:
+        previous = seen_labels.get(target.label)
+        if previous is not None:
+            raise ScriptError(
+                "duplicate evaluator label: "
+                f"{target.label} ({target_display(previous)} and {target_display(target)})"
+            )
+        seen_labels[target.label] = target
+
+        previous_slug = seen_slugs.get(target.slug)
+        if previous_slug is not None:
+            raise ScriptError(
+                "duplicate evaluator slug: "
+                f"{target.slug} ({target_display(previous_slug)} and {target_display(target)})"
+            )
+        seen_slugs[target.slug] = target
+
+    for target in eval_targets:
+        if same_target(target, reference):
+            continue
+        if target.label == reference.label:
+            raise ScriptError(
+                "duplicate evaluator label: "
+                f"{reference.label} ({target_display(target)} and {target_display(reference)})"
+            )
+        if target.slug == reference.slug:
+            raise ScriptError(
+                "duplicate evaluator slug: "
+                f"{reference.slug} ({target_display(target)} and {target_display(reference)})"
+            )
 
 
 def parse_depth_list(value: str) -> list[int]:
@@ -1225,6 +1268,15 @@ def config_from_args(args: argparse.Namespace) -> EvalExperimentConfig:
         small_games = min(small_games, 6)
         extended_games = min(extended_games, 6)
         promote_top = min(promote_top, 1)
+    reference_target = (
+        reference_config
+        if reference_config is not None
+        else EvalTarget(kind="preset", value=args.reference_preset, label=args.reference_preset)
+    )
+    validate_unique_eval_targets(
+        [*(EvalTarget(kind="preset", value=preset, label=preset) for preset in presets), *configs],
+        reference_target,
+    )
     return EvalExperimentConfig(
         presets=presets,
         reference_preset=args.reference_preset,
