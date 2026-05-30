@@ -41,6 +41,10 @@ OPTIONAL_NUMERIC_FIELDS = (
     "nodes_white",
     "nodes_player_a",
     "nodes_player_b",
+    "exact_roots_black",
+    "exact_roots_white",
+    "exact_roots_player_a",
+    "exact_roots_player_b",
     "time_ms_black",
     "time_ms_white",
     "time_ms_player_a",
@@ -120,6 +124,11 @@ class Summary:
         if count == 0:
             return None
         return self.optional_totals[field_name] / count
+
+    def optional_total(self, field_name: str) -> float | None:
+        if self.optional_counts.get(field_name, 0) == 0:
+            return None
+        return self.optional_totals[field_name]
 
 
 def _require_number(record: dict[str, Any], key: str) -> None:
@@ -282,6 +291,17 @@ def format_summary(input_path: Path, summary: Summary, by_opening: bool) -> str:
         average = summary.optional_average(field_name)
         if average is not None:
             lines.append(f"{label}: {average:.2f}")
+
+    exact_root_labels = (
+        ("exact_roots_player_a", "exact roots player A"),
+        ("exact_roots_player_b", "exact roots player B"),
+    )
+    for field_name, label in exact_root_labels:
+        total = summary.optional_total(field_name)
+        average = summary.optional_average(field_name)
+        if total is not None and average is not None:
+            lines.append(f"total {label}: {total:.0f}")
+            lines.append(f"average {label}: {average:.2f}")
 
     lines.append(f"unique openings: {len(summary.openings)}")
 

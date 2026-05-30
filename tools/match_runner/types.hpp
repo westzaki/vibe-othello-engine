@@ -22,6 +22,7 @@ struct SearchPlayerOptions {
     bool use_transposition_table = SearchOptions{}.use_transposition_table;
     std::size_t transposition_table_entries = SearchOptions{}.transposition_table_entries;
     int exact_endgame_empty_threshold = SearchOptions{}.exact_endgame_empty_threshold;
+    ExactEndgameRootPolicy exact_endgame_root_policy = SearchOptions{}.exact_endgame_root_policy;
     bool use_pvs = SearchOptions{}.use_pvs;
     EvaluationPreset evaluation_preset = EvaluationPreset::Default;
 
@@ -53,6 +54,7 @@ struct MoveSelection {
     std::optional<Square> move;
     std::uint64_t nodes = 0;
     double elapsed_ms = 0.0;
+    std::uint64_t exact_root_searches = 0;
     std::optional<SearchStats> search_stats;
 };
 
@@ -94,6 +96,10 @@ struct GameRecord {
     std::uint64_t nodes_white = 0;
     std::uint64_t nodes_player_a = 0;
     std::uint64_t nodes_player_b = 0;
+    std::uint64_t exact_roots_black = 0;
+    std::uint64_t exact_roots_white = 0;
+    std::uint64_t exact_roots_player_a = 0;
+    std::uint64_t exact_roots_player_b = 0;
     double time_ms_black = 0.0;
     double time_ms_white = 0.0;
     double time_ms_player_a = 0.0;

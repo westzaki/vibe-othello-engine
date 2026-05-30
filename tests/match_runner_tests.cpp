@@ -1,5 +1,6 @@
 #include "../tools/match_runner/core.hpp"
 #include "../tools/match_runner/engine_config.hpp"
+#include "test_helpers.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 #include <optional>
@@ -12,6 +13,18 @@ namespace {
 
 [[nodiscard]] bool same_board(const othello::Board& lhs, const othello::Board& rhs) noexcept {
     return lhs.black == rhs.black && lhs.white == rhs.white && lhs.side_to_move == rhs.side_to_move;
+}
+
+[[nodiscard]] othello::Board one_empty_forced_board() {
+    return othello::test::board_from_text(R"(BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBW.
+side=B)");
 }
 
 } // namespace
@@ -28,6 +41,7 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
     const auto pvs_exact_off =
         runner::parse_player_spec("search:depth=4,tt=off,pvs=on,exact=off");
     const auto exact = runner::parse_player_spec("search:depth=4,exact=12");
+    const auto adaptive_exact = runner::parse_player_spec("search:depth=4,exact=adaptive16");
     const auto tt_entries = runner::parse_player_spec("search:depth=4,tt_entries=262144");
     const auto eval_default = runner::parse_player_spec("search:depth=4,eval=default");
     const auto eval_phase_aware =
@@ -65,6 +79,7 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
     REQUIRE(tt_on.has_value());
     REQUIRE(pvs_exact_off.has_value());
     REQUIRE(exact.has_value());
+    REQUIRE(adaptive_exact.has_value());
     REQUIRE(tt_entries.has_value());
     REQUIRE(eval_default.has_value());
     REQUIRE(eval_phase_aware.has_value());
@@ -98,8 +113,18 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
     CHECK_FALSE(pvs_exact_off_options.use_transposition_table);
     CHECK(pvs_exact_off_options.use_pvs);
     CHECK(pvs_exact_off_options.exact_endgame_empty_threshold == 0);
+    CHECK(pvs_exact_off_options.exact_endgame_root_policy ==
+          othello::ExactEndgameRootPolicy::FixedThreshold);
 
-    CHECK(runner::make_search_options(*exact).exact_endgame_empty_threshold == 12);
+    const othello::SearchOptions exact_options = runner::make_search_options(*exact);
+    CHECK(exact_options.exact_endgame_empty_threshold == 12);
+    CHECK(exact_options.exact_endgame_root_policy ==
+          othello::ExactEndgameRootPolicy::FixedThreshold);
+    const othello::SearchOptions adaptive_exact_options =
+        runner::make_search_options(*adaptive_exact);
+    CHECK(adaptive_exact_options.exact_endgame_empty_threshold == 16);
+    CHECK(adaptive_exact_options.exact_endgame_root_policy ==
+          othello::ExactEndgameRootPolicy::Adaptive16);
     CHECK(runner::make_search_options(*tt_entries).transposition_table_entries == 262144U);
     CHECK(eval_default->search_options.evaluation_preset ==
           othello::EvaluationPreset::Default);
@@ -161,6 +186,7 @@ TEST_CASE("Search player specs reject invalid options", "[match-runner]") {
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,tt_entries=1,tt_entries=2")
                     .has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,exact=-1").has_value());
+    CHECK_FALSE(runner::parse_player_spec("search:depth=4,exact=adaptive17").has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,tt_entries=-1").has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,eval=unknown").has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,eval=default,eval=default")
@@ -281,10 +307,34 @@ TEST_CASE("Search player records nodes and time", "[match-runner]") {
     CHECK(record.nodes_white == 0);
     CHECK(record.nodes_player_a == record.nodes_black);
     CHECK(record.nodes_player_b == record.nodes_white);
+    CHECK(record.exact_roots_black == 0);
+    CHECK(record.exact_roots_white == 0);
+    CHECK(record.exact_roots_player_a == record.exact_roots_black);
+    CHECK(record.exact_roots_player_b == record.exact_roots_white);
     CHECK(record.time_ms_black >= 0.0);
     CHECK(record.time_ms_white == 0.0);
     CHECK(record.time_ms_player_a == record.time_ms_black);
     CHECK(record.time_ms_player_b == record.time_ms_white);
+}
+
+TEST_CASE("Search player records exact root searches", "[match-runner]") {
+    const auto search = runner::parse_player_spec("search:depth=1,tt=on,pvs=on,exact=1");
+    const auto first = runner::parse_player_spec("first");
+    REQUIRE(search.has_value());
+    REQUIRE(first.has_value());
+
+    const runner::Opening opening{
+        .name = "one-empty",
+        .moves = {},
+        .start_board = one_empty_forced_board(),
+    };
+    const runner::GameRecord record = runner::run_game(0, *search, *first, true, 7, 0, opening);
+
+    CHECK_FALSE(record.illegal_or_error);
+    CHECK(record.exact_roots_black == 1);
+    CHECK(record.exact_roots_white == 0);
+    CHECK(record.exact_roots_player_a == record.exact_roots_black);
+    CHECK(record.exact_roots_player_b == record.exact_roots_white);
 }
 
 TEST_CASE("Non-search players record zero search nodes", "[match-runner]") {
@@ -300,6 +350,10 @@ TEST_CASE("Non-search players record zero search nodes", "[match-runner]") {
     CHECK(record.nodes_white == 0);
     CHECK(record.nodes_player_a == 0);
     CHECK(record.nodes_player_b == 0);
+    CHECK(record.exact_roots_black == 0);
+    CHECK(record.exact_roots_white == 0);
+    CHECK(record.exact_roots_player_a == 0);
+    CHECK(record.exact_roots_player_b == 0);
     CHECK(record.time_ms_black == 0.0);
     CHECK(record.time_ms_white == 0.0);
     CHECK(record.time_ms_player_a == 0.0);
@@ -369,9 +423,13 @@ TEST_CASE("Swap sides maps search stats to player A and B", "[match-runner]") {
     CHECK(records[0].black_is_player_a);
     CHECK(records[0].nodes_player_a == records[0].nodes_black);
     CHECK(records[0].nodes_player_b == records[0].nodes_white);
+    CHECK(records[0].exact_roots_player_a == records[0].exact_roots_black);
+    CHECK(records[0].exact_roots_player_b == records[0].exact_roots_white);
     CHECK_FALSE(records[1].black_is_player_a);
     CHECK(records[1].nodes_player_a == records[1].nodes_white);
     CHECK(records[1].nodes_player_b == records[1].nodes_black);
+    CHECK(records[1].exact_roots_player_a == records[1].exact_roots_white);
+    CHECK(records[1].exact_roots_player_b == records[1].exact_roots_black);
     CHECK(records[0].nodes_player_a > 0);
     CHECK(records[1].nodes_player_a > 0);
     CHECK(records[0].nodes_player_b == 0);

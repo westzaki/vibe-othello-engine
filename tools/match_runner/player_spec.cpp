@@ -108,12 +108,20 @@ std::optional<PlayerSpec> parse_player_spec(std::string_view text) {
                     }
                     if (value == "off") {
                         search_options.exact_endgame_empty_threshold = 0;
+                        search_options.exact_endgame_root_policy =
+                            ExactEndgameRootPolicy::FixedThreshold;
+                    } else if (value == "adaptive16") {
+                        search_options.exact_endgame_empty_threshold = 16;
+                        search_options.exact_endgame_root_policy =
+                            ExactEndgameRootPolicy::Adaptive16;
                     } else {
                         const std::optional<int> parsed = parse_non_negative_int(value);
                         if (!parsed.has_value()) {
                             return std::nullopt;
                         }
                         search_options.exact_endgame_empty_threshold = *parsed;
+                        search_options.exact_endgame_root_policy =
+                            ExactEndgameRootPolicy::FixedThreshold;
                     }
                     seen_exact = true;
                 } else if (key == "tt_entries") {
@@ -166,6 +174,7 @@ SearchOptions make_search_options(const PlayerSpec& spec) noexcept {
     options.use_transposition_table = spec.search_options.use_transposition_table;
     options.transposition_table_entries = spec.search_options.transposition_table_entries;
     options.exact_endgame_empty_threshold = spec.search_options.exact_endgame_empty_threshold;
+    options.exact_endgame_root_policy = spec.search_options.exact_endgame_root_policy;
     options.use_pvs = spec.search_options.use_pvs;
     options.evaluation_preset = spec.search_options.evaluation_preset;
     return options;

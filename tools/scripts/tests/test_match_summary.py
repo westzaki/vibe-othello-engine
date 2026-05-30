@@ -81,6 +81,8 @@ class MatchSummaryTests(unittest.TestCase):
                         game_index=0,
                         nodes_player_a=10,
                         nodes_player_b=20,
+                        exact_roots_player_a=1,
+                        exact_roots_player_b=0,
                         time_ms_player_a=1.5,
                         time_ms_player_b=2.5,
                     )
@@ -93,6 +95,8 @@ class MatchSummaryTests(unittest.TestCase):
                         game_index=1,
                         nodes_player_a=30,
                         nodes_player_b=40,
+                        exact_roots_player_a=3,
+                        exact_roots_player_b=2,
                         time_ms_player_a=3.5,
                         time_ms_player_b=4.5,
                     )
@@ -107,6 +111,10 @@ class MatchSummaryTests(unittest.TestCase):
         self.assertEqual(summary.optional_average("nodes_player_b"), 30.0)
         self.assertEqual(summary.optional_average("time_ms_player_a"), 2.5)
         self.assertEqual(summary.optional_average("time_ms_player_b"), 3.5)
+        self.assertEqual(summary.optional_total("exact_roots_player_a"), 4.0)
+        self.assertEqual(summary.optional_average("exact_roots_player_a"), 2.0)
+        self.assertEqual(summary.optional_total("exact_roots_player_b"), 2.0)
+        self.assertEqual(summary.optional_average("exact_roots_player_b"), 1.0)
 
     def test_missing_required_field_is_error(self) -> None:
         value = record()
