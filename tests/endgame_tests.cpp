@@ -185,7 +185,8 @@ side=B)");
     CHECK(result.principal_variation.size() <= static_cast<std::size_t>(result.empties));
 }
 
-TEST_CASE("Exact endgame stats mirror node count and leave TT counters zero when disabled",
+TEST_CASE("Exact endgame stats mirror node count and leave TT counters zero when exact TT is not "
+          "allocated for tiny tails",
           "[endgame]") {
     const Board board = othello::test::board_from_text(R"(BBBBBBBB
 BBBBBBBB

@@ -1,45 +1,19 @@
+#include "bitboard_ops.hpp"
+
 #include <bit>
 #include <othello/rules.hpp>
 
 namespace othello {
 namespace {
 
-constexpr Bitboard a_file = 0x0101010101010101ULL;
-constexpr Bitboard h_file = 0x8080808080808080ULL;
-constexpr Bitboard not_a_file = ~a_file;
-constexpr Bitboard not_h_file = ~h_file;
-
-[[nodiscard]] constexpr Bitboard shift_east(Bitboard bits) noexcept {
-    return (bits & not_h_file) << 1;
-}
-
-[[nodiscard]] constexpr Bitboard shift_west(Bitboard bits) noexcept {
-    return (bits & not_a_file) >> 1;
-}
-
-[[nodiscard]] constexpr Bitboard shift_north(Bitboard bits) noexcept {
-    return bits << 8;
-}
-
-[[nodiscard]] constexpr Bitboard shift_south(Bitboard bits) noexcept {
-    return bits >> 8;
-}
-
-[[nodiscard]] constexpr Bitboard shift_northeast(Bitboard bits) noexcept {
-    return (bits & not_h_file) << 9;
-}
-
-[[nodiscard]] constexpr Bitboard shift_northwest(Bitboard bits) noexcept {
-    return (bits & not_a_file) << 7;
-}
-
-[[nodiscard]] constexpr Bitboard shift_southeast(Bitboard bits) noexcept {
-    return (bits & not_h_file) >> 7;
-}
-
-[[nodiscard]] constexpr Bitboard shift_southwest(Bitboard bits) noexcept {
-    return (bits & not_a_file) >> 9;
-}
+using bitboard_detail::shift_east;
+using bitboard_detail::shift_north;
+using bitboard_detail::shift_northeast;
+using bitboard_detail::shift_northwest;
+using bitboard_detail::shift_south;
+using bitboard_detail::shift_southeast;
+using bitboard_detail::shift_southwest;
+using bitboard_detail::shift_west;
 
 template <Bitboard (*Shift)(Bitboard) noexcept>
 [[nodiscard]] Bitboard legal_moves_in_direction(Bitboard own_discs, Bitboard opponent_discs,

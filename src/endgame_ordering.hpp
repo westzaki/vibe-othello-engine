@@ -1,6 +1,7 @@
 #pragma once
 
-#include "hash_detail.hpp"
+#include "bitboard_ops.hpp"
+#include "hash_update.hpp"
 #include "search_common.hpp"
 
 #include <algorithm>
@@ -15,11 +16,13 @@
 
 namespace othello::endgame_detail {
 
+using bitboard_detail::corner_squares;
+using bitboard_detail::is_corner;
+using bitboard_detail::is_edge;
+using bitboard_detail::is_x_square_next_to_empty_corner;
+using bitboard_detail::orthogonal_neighbors;
+using hash_detail::hash_after_move;
 using search_detail::board_after_move;
-using search_detail::corner_squares;
-using search_detail::is_corner;
-using search_detail::is_edge;
-using search_detail::is_x_square_next_to_empty_corner;
 
 struct OrderedMoveIndexes {
     struct Move {
@@ -56,30 +59,6 @@ struct EmptyRegionSizes {
     std::array<int, 64> by_square{};
 };
 
-[[nodiscard]] inline ZobristHash hash_after_pass(ZobristHash hash, const Board& board) noexcept {
-    hash ^= detail::zobrist_side_hash(board.side_to_move);
-    hash ^= detail::zobrist_side_hash(opponent(board.side_to_move));
-    return hash;
-}
-
-[[nodiscard]] inline ZobristHash hash_after_move(ZobristHash hash, const Board& board,
-                                                 Square square, Bitboard flips) noexcept {
-    const Side side = board.side_to_move;
-    const Side other = opponent(side);
-    hash ^= detail::zobrist_side_hash(side);
-    hash ^= detail::zobrist_side_hash(other);
-    hash ^= detail::zobrist_piece_hash(side, square.index());
-
-    while (flips != 0) {
-        const int index = std::countr_zero(flips);
-        flips &= flips - 1;
-        hash ^= detail::zobrist_piece_hash(other, index);
-        hash ^= detail::zobrist_piece_hash(side, index);
-    }
-
-    return hash;
-}
-
 [[nodiscard]] inline bool has_legal_move_after_forced_pass(const Board& board,
                                                            Bitboard moves) noexcept {
     if (moves != 0) {
@@ -89,25 +68,6 @@ struct EmptyRegionSizes {
     Board after_pass = board;
     after_pass.side_to_move = opponent(board.side_to_move);
     return legal_moves(after_pass) != 0;
-}
-
-[[nodiscard]] constexpr Bitboard orthogonal_neighbors(int index) noexcept {
-    Bitboard neighbors = 0;
-    const int file = index % 8;
-    const int rank = index / 8;
-    if (file > 0) {
-        neighbors |= Bitboard{1} << (index - 1);
-    }
-    if (file < 7) {
-        neighbors |= Bitboard{1} << (index + 1);
-    }
-    if (rank > 0) {
-        neighbors |= Bitboard{1} << (index - 8);
-    }
-    if (rank < 7) {
-        neighbors |= Bitboard{1} << (index + 8);
-    }
-    return neighbors;
 }
 
 [[nodiscard]] inline int empty_region_size_containing(Bitboard empty, int index) noexcept {
