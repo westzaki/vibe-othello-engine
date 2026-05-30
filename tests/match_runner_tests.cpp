@@ -29,12 +29,17 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
         runner::parse_player_spec("search:depth=4,tt=off,pvs=on,exact=off");
     const auto exact = runner::parse_player_spec("search:depth=4,exact=12");
     const auto tt_entries = runner::parse_player_spec("search:depth=4,tt_entries=262144");
+    const auto eval_default = runner::parse_player_spec("search:depth=4,eval=default");
+    const auto eval_smoke =
+        runner::parse_player_spec("search:depth=4,eval=mobility_plus_smoke");
 
     REQUIRE(depth_only.has_value());
     REQUIRE(tt_on.has_value());
     REQUIRE(pvs_exact_off.has_value());
     REQUIRE(exact.has_value());
     REQUIRE(tt_entries.has_value());
+    REQUIRE(eval_default.has_value());
+    REQUIRE(eval_smoke.has_value());
 
     const othello::SearchOptions depth_only_options = runner::make_search_options(*depth_only);
     CHECK(depth_only_options.max_depth == 4);
@@ -54,6 +59,18 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
 
     CHECK(runner::make_search_options(*exact).exact_endgame_empty_threshold == 12);
     CHECK(runner::make_search_options(*tt_entries).transposition_table_entries == 262144U);
+    CHECK(eval_default->search_options.evaluation_preset ==
+          othello::EvaluationPreset::Default);
+    CHECK(runner::make_search_options(*eval_default).evaluation_preset ==
+          othello::EvaluationPreset::Default);
+    CHECK(othello::resolve_evaluation_config(runner::make_search_options(*eval_default)) ==
+          othello::default_evaluation_config());
+    CHECK(eval_smoke->search_options.evaluation_preset ==
+          othello::EvaluationPreset::MobilityPlusSmoke);
+    CHECK(runner::make_search_options(*eval_smoke).evaluation_preset ==
+          othello::EvaluationPreset::MobilityPlusSmoke);
+    CHECK(othello::resolve_evaluation_config(runner::make_search_options(*eval_smoke)) ==
+          othello::evaluation_config_for_preset(othello::EvaluationPreset::MobilityPlusSmoke));
 }
 
 TEST_CASE("Search player specs reject invalid options", "[match-runner]") {
@@ -66,6 +83,9 @@ TEST_CASE("Search player specs reject invalid options", "[match-runner]") {
                     .has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,exact=-1").has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,tt_entries=-1").has_value());
+    CHECK_FALSE(runner::parse_player_spec("search:depth=4,eval=unknown").has_value());
+    CHECK_FALSE(runner::parse_player_spec("search:depth=4,eval=default,eval=default")
+                    .has_value());
 }
 
 TEST_CASE("External NBoard player specs parse engine names", "[match-runner]") {

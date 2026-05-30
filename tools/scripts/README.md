@@ -65,6 +65,23 @@ Use this for base/head code comparisons where in-process `search:` players would
 share the same linked evaluator or search implementation. Raw matrix output
 belongs under `runs/`; summarize meaningful snapshots in `docs/perf/baselines/`.
 
+Run a local evaluator-preset wiring smoke:
+
+```sh
+python3 tools/scripts/eval_experiment_matrix.py \
+  --presets default,mobility_plus_smoke \
+  --depths 4 \
+  --games 6 \
+  --openings data/openings/smoke_openings.txt \
+  --seed 20260530 \
+  --build-dir build \
+  --out runs/eval/eval-preset-smoke \
+  --smoke-run
+```
+
+This compares each non-default preset against `default` through the normal C++
+tools. It is for reproducibility plumbing, not strength claims.
+
 Extract first divergence positions from an existing swap-side base/head JSONL:
 
 ```sh

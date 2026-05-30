@@ -23,7 +23,7 @@ void print_usage(std::string_view program_name) {
                  " [--tt on|off] [--tt-entries N] [--pvs on|off]"
                  " [--aspiration on|off] [--aspiration-window N]"
                  " [--aspiration-max-researches N] [--exact-endgame-threshold N]"
-                 " [--root-candidates]\n"
+                 " [--eval-preset NAME] [--root-candidates]\n"
               << '\n'
               << "Options:\n"
               << "  --board-file PATH  read a board in board_from_string format\n"
@@ -42,6 +42,8 @@ void print_usage(std::string_view program_name) {
               << "  --exact-endgame-threshold N\n"
               << "                    solve root positions with at most N empties exactly; N <= 0 "
                  "disables\n"
+              << "  --eval-preset NAME\n"
+              << "                    builtin evaluator preset: default or mobility_plus_smoke\n"
               << "  --root-candidates  analyze each legal root move separately\n"
               << "  --help             show this help text\n";
 }
@@ -155,6 +157,15 @@ void print_usage(std::string_view program_name) {
                 return std::nullopt;
             }
             options.exact_endgame_empty_threshold = *threshold;
+        } else if (arg == "--eval-preset") {
+            const auto value = othello::tools::next_argument(args, index, arg);
+            const auto preset =
+                value.has_value() ? othello::evaluation_preset_from_name(*value) : std::nullopt;
+            if (!preset.has_value()) {
+                std::cerr << "invalid --eval-preset value\n";
+                return std::nullopt;
+            }
+            options.evaluation_preset = *preset;
         } else if (arg == "--root-candidates" || arg == "--root-breakdown") {
             options.root_candidates = true;
         } else {

@@ -18,6 +18,14 @@
 #include <vector>
 
 namespace othello {
+
+EvaluationConfig resolve_evaluation_config(const SearchOptions& options) noexcept {
+    if (options.evaluation_config_override.has_value()) {
+        return *options.evaluation_config_override;
+    }
+    return evaluation_config_for_preset(options.evaluation_preset);
+}
+
 namespace {
 
 using search_detail::board_after_move;
@@ -286,13 +294,14 @@ constexpr MoveOrderingParams default_move_ordering_params{};
 struct SearchContext {
     explicit SearchContext(const SearchOptions& options, bool enable_dynamic_move_ordering) noexcept
         : transpositions{options}, dynamic_move_ordering{enable_dynamic_move_ordering},
-          use_pvs{options.use_pvs} {}
+          use_pvs{options.use_pvs}, evaluation_config{resolve_evaluation_config(options)} {}
 
     SearchStats stats;
     TranspositionTable transpositions;
     MoveOrderingParams move_ordering_params = default_move_ordering_params;
     bool dynamic_move_ordering = false;
     bool use_pvs = false;
+    EvaluationConfig evaluation_config = default_evaluation_config();
 };
 
 constexpr int search_score_min = -1'000'000'000;
@@ -303,7 +312,7 @@ constexpr int exact_endgame_score_scale = 1'000;
 
 [[nodiscard]] int evaluate_for_search(const Board& board, SearchContext& context) noexcept {
     ++context.stats.eval_calls;
-    return evaluate_basic(board, board.side_to_move);
+    return evaluate_with_config(board, board.side_to_move, context.evaluation_config);
 }
 
 [[nodiscard]] bool should_solve_exact_endgame_at_root(const Board& board,

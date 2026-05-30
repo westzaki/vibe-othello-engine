@@ -38,7 +38,8 @@ void print_usage(std::string_view program_name) {
               << "  first\n"
               << "  random\n"
               << "  eval\n"
-              << "  search:depth=N[,tt=on|off][,pvs=on|off][,exact=off|N][,tt_entries=N]\n"
+              << "  search:depth=N[,tt=on|off][,pvs=on|off][,exact=off|N][,tt_entries=N]"
+                 "[,eval=NAME]\n"
               << "  external:NAME\n"
               << '\n'
               << "Options:\n"

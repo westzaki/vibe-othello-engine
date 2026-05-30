@@ -69,6 +69,7 @@ struct BenchmarkOptions {
     int exact_endgame_empty_threshold = othello::SearchOptions{}.exact_endgame_empty_threshold;
     int aspiration_window = othello::SearchOptions{}.aspiration_window;
     int aspiration_max_researches = othello::SearchOptions{}.aspiration_max_researches;
+    othello::EvaluationPreset evaluation_preset = othello::EvaluationPreset::Default;
 };
 
 struct SearchBenchmarkResult {
@@ -120,7 +121,8 @@ void print_usage(std::string_view program_name) {
                  " [--repetitions N] [--positions smoke|suite]"
                  " [--describe-positions] [--by-position] [--tt on|off] [--tt-entries N]"
                  " [--pvs on|off] [--aspiration on|off] [--aspiration-window N]"
-                 " [--aspiration-max-researches N] [--exact-endgame-threshold N]\n"
+                 " [--aspiration-max-researches N] [--exact-endgame-threshold N]"
+                 " [--eval-preset NAME]\n"
               << '\n'
               << "Options:\n"
               << "  --depths LIST       comma-separated positive search depths\n"
@@ -141,6 +143,7 @@ void print_usage(std::string_view program_name) {
               << "  --exact-endgame-threshold N\n"
               << "                       solve root positions with at most N empties exactly; N <= "
                  "0 disables\n"
+              << "  --eval-preset NAME builtin evaluator preset: default or mobility_plus_smoke\n"
               << "  --help              show this help text\n";
 }
 
@@ -435,6 +438,22 @@ void print_usage(std::string_view program_name) {
             continue;
         }
 
+        if (option == "--eval-preset") {
+            ++index;
+            if (index >= args.size()) {
+                std::cerr << "--eval-preset requires a builtin evaluator preset name\n";
+                return std::nullopt;
+            }
+
+            const auto preset = othello::evaluation_preset_from_name(args[index]);
+            if (!preset.has_value()) {
+                std::cerr << "--eval-preset must be default or mobility_plus_smoke\n";
+                return std::nullopt;
+            }
+            options.evaluation_preset = *preset;
+            continue;
+        }
+
         if (option == "--repetitions") {
             ++index;
             if (index >= args.size()) {
@@ -601,6 +620,7 @@ make_positions(PositionSet position_set) {
     search_options.exact_endgame_empty_threshold = options.exact_endgame_empty_threshold;
     search_options.aspiration_window = options.aspiration_window;
     search_options.aspiration_max_researches = options.aspiration_max_researches;
+    search_options.evaluation_preset = options.evaluation_preset;
     return search_options;
 }
 
@@ -1101,6 +1121,8 @@ int run_benchmark(std::span<char* const> args) {
     std::cout << "aspiration max researches: " << options.aspiration_max_researches << '\n';
     std::cout << "tt entries: " << options.transposition_table_entries << '\n';
     std::cout << "exact endgame threshold: " << options.exact_endgame_empty_threshold << '\n';
+    std::cout << "eval preset: " << othello::evaluation_preset_name(options.evaluation_preset)
+              << '\n';
     if (options.by_position) {
         std::cout << "best_move/score/pv: first sampled result per position\n";
     } else {

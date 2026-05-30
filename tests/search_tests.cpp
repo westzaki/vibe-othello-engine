@@ -64,6 +64,79 @@ TEST_CASE("Search options depth zero returns an evaluation-only result", "[searc
     CHECK(result.nodes > 0);
 }
 
+TEST_CASE("Search options depth zero uses configured evaluator", "[search]") {
+    const auto board = othello::apply_move(Board::initial(), othello::test::square("d3"));
+    REQUIRE(board.has_value());
+
+    othello::EvaluationConfig config;
+    config.opening = othello::EvaluationFeatureWeights{.disc_difference = 7};
+    config.midgame = othello::EvaluationFeatureWeights{.disc_difference = 7};
+    config.late = othello::EvaluationFeatureWeights{.disc_difference = 7};
+
+    const othello::SearchOptions options{
+        .max_depth = 0,
+        .exact_endgame_empty_threshold = 0,
+        .evaluation_config_override = config,
+    };
+
+    const othello::SearchResult result = othello::search(*board, options);
+
+    CHECK(result.score == othello::evaluate_with_config(*board, board->side_to_move, config));
+    CHECK(result.score != othello::evaluate_basic(*board, board->side_to_move));
+    CHECK(result.stats.eval_calls > 0);
+}
+
+TEST_CASE("Search options resolve the default evaluator config", "[search]") {
+    const othello::SearchOptions options;
+
+    CHECK(othello::resolve_evaluation_config(options) == othello::default_evaluation_config());
+}
+
+TEST_CASE("Search options depth zero uses preset-only evaluator selection", "[search]") {
+    const Board board = othello::test::black_must_pass_board();
+    REQUIRE_FALSE(othello::is_game_over(board));
+
+    const othello::SearchOptions options{
+        .max_depth = 0,
+        .exact_endgame_empty_threshold = 0,
+        .evaluation_preset = othello::EvaluationPreset::MobilityPlusSmoke,
+    };
+    const othello::EvaluationConfig smoke_config =
+        othello::evaluation_config_for_preset(othello::EvaluationPreset::MobilityPlusSmoke);
+
+    const othello::SearchResult result = othello::search(board, options);
+
+    CHECK(result.score == othello::evaluate_with_config(board, board.side_to_move, smoke_config));
+    CHECK(result.score != othello::evaluate_basic(board, board.side_to_move));
+    CHECK(result.stats.eval_calls > 0);
+}
+
+TEST_CASE("Search options custom evaluator override wins over preset", "[search]") {
+    const auto board = othello::apply_move(Board::initial(), othello::test::square("d3"));
+    REQUIRE(board.has_value());
+
+    othello::EvaluationConfig config;
+    config.opening = othello::EvaluationFeatureWeights{.disc_difference = 7};
+    config.midgame = othello::EvaluationFeatureWeights{.disc_difference = 7};
+    config.late = othello::EvaluationFeatureWeights{.disc_difference = 7};
+
+    const othello::SearchOptions options{
+        .max_depth = 0,
+        .exact_endgame_empty_threshold = 0,
+        .evaluation_preset = othello::EvaluationPreset::MobilityPlusSmoke,
+        .evaluation_config_override = config,
+    };
+
+    const othello::SearchResult result = othello::search(*board, options);
+
+    CHECK(othello::resolve_evaluation_config(options) == config);
+    CHECK(result.score == othello::evaluate_with_config(*board, board->side_to_move, config));
+    CHECK(result.score != othello::evaluate_with_config(
+                              *board, board->side_to_move,
+                              othello::evaluation_config_for_preset(
+                                  othello::EvaluationPreset::MobilityPlusSmoke)));
+}
+
 TEST_CASE("Fixed-depth search treats negative depth as depth zero", "[search]") {
     const Board board = Board::initial();
 
@@ -231,6 +304,7 @@ TEST_CASE("Search uses exact endgame at the root within threshold", "[search]") 
         .exact_endgame_empty_threshold = 1,
         .use_pvs = true,
         .use_aspiration_window = true,
+        .evaluation_preset = othello::EvaluationPreset::MobilityPlusSmoke,
     };
 
     const othello::SearchResult result = othello::search(board, options);

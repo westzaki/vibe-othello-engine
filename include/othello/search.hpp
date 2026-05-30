@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <optional>
 #include <othello/board.hpp>
+#include <othello/evaluation.hpp>
 #include <othello/square.hpp>
 #include <vector>
 
@@ -78,8 +79,11 @@ struct SearchOptions {
     bool use_aspiration_window = false;
     int aspiration_window = 50;
     int aspiration_max_researches = 4;
+    EvaluationPreset evaluation_preset = EvaluationPreset::Default;
+    std::optional<EvaluationConfig> evaluation_config_override = std::nullopt;
 };
 
+[[nodiscard]] EvaluationConfig resolve_evaluation_config(const SearchOptions& options) noexcept;
 [[nodiscard]] SearchResult search(const Board& board, const SearchOptions& options) noexcept;
 [[nodiscard]] SearchResult search_fixed_depth(const Board& board, int depth) noexcept;
 [[nodiscard]] SearchResult search_iterative(const Board& board,

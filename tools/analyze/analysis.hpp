@@ -27,6 +27,7 @@ struct AnalysisOptions {
     bool use_aspiration_window = SearchOptions{}.use_aspiration_window;
     int aspiration_window = SearchOptions{}.aspiration_window;
     int aspiration_max_researches = SearchOptions{}.aspiration_max_researches;
+    EvaluationPreset evaluation_preset = EvaluationPreset::Default;
     bool root_candidates = false;
 };
 
