@@ -588,6 +588,21 @@ TEST_CASE("Edge stability lite is symmetric across corners and colors", "[evalua
           -othello::evaluate_with_config(swapped, Side::Black, config));
 }
 
+TEST_CASE("Edge stability lite does not double-count full edges from both corners",
+          "[evaluation]") {
+    const othello::EvaluationConfig config = edge_stability_only_config(3);
+    const Board full_top_edge = extra_disc_board(
+        othello::test::bit("a1") | othello::test::bit("b1") | othello::test::bit("c1") |
+        othello::test::bit("d1") | othello::test::bit("e1") | othello::test::bit("f1") |
+        othello::test::bit("g1") | othello::test::bit("h1"));
+
+    const othello::EvaluationBreakdown breakdown =
+        othello::evaluate_basic_breakdown(full_top_edge, Side::Black, config);
+
+    CHECK(breakdown.edge_stability_lite == 8);
+    CHECK(breakdown.edge_stability_lite_score == 24);
+}
+
 TEST_CASE("Classic lite scores participate in configured total math", "[evaluation]") {
     othello::EvaluationConfig config{
         .opening = othello::EvaluationFeatureWeights{

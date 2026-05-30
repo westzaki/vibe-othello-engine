@@ -205,35 +205,40 @@ weights_for_phase(const EvaluationConfig& config, EvaluationPhase phase) noexcep
            corner_local_2x3_value_for_side(board, opponent(side));
 }
 
-[[nodiscard]] int anchored_edge_ray_count(const Board& board, Side side,
-                                          const EdgeRaySpec& ray) noexcept {
-    int count = 0;
+[[nodiscard]] Bitboard anchored_edge_ray_squares(const Board& board, Side side,
+                                                 const EdgeRaySpec& ray) noexcept {
+    Bitboard squares = 0;
     const Bitboard discs = board.discs(side);
     int index = ray.first_index;
     for (int distance = 0; distance < 7; ++distance) {
-        if ((discs & square_bit(index)) == 0) {
+        const Bitboard square = square_bit(index);
+        if ((discs & square) == 0) {
             break;
         }
-        ++count;
+        squares |= square;
         index += ray.step;
     }
-    return count;
+    return squares;
 }
 
 [[nodiscard]] int edge_stability_lite_value_for_side(const Board& board, Side side) noexcept {
-    int value = 0;
+    Bitboard stable_edge_squares = 0;
     const Bitboard discs = board.discs(side);
 
+    // This is a stability-lite approximation: collect continuous edge rays
+    // anchored at owned corners, then count unique found squares only once. A
+    // ray excludes its anchor corner but may include the opposite corner when
+    // the whole edge is continuous.
     for (const EdgeCornerSpec& spec : edge_corner_specs) {
         if ((discs & square_bit(spec.corner_index)) == 0) {
             continue;
         }
         for (const EdgeRaySpec& ray : spec.rays) {
-            value += anchored_edge_ray_count(board, side, ray);
+            stable_edge_squares |= anchored_edge_ray_squares(board, side, ray);
         }
     }
 
-    return value;
+    return std::popcount(stable_edge_squares);
 }
 
 [[nodiscard]] int edge_stability_lite_score(const Board& board, Side side) noexcept {

@@ -26,6 +26,10 @@ Both default weights are zero, so the existing `default` evaluator keeps the
 same scores and search checksums. New scores are visible only when a preset or
 custom config assigns nonzero weights.
 
+Raw scale note: `edge_stability_lite` collects corner-anchored edge rays and
+counts unique found squares, so a same-color full edge owned from both corners
+is not double-counted.
+
 ## Presets
 
 Use explicitly:
@@ -80,14 +84,14 @@ Candidate was player A, default was player B. All runs used
 
 | preset | depth | games | A wins | B wins | draws | avg diff A | node ratio A/B |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `classic_features_lite_aggressive` | 5 | 48 | 30 | 17 | 1 | 4.46 | 1.054 |
-| `classic_features_lite_aggressive` | 6 | 48 | 28 | 20 | 0 | 8.21 | 1.031 |
-| `classic_features_lite_aggressive` | 7 | 48 | 28 | 20 | 0 | 2.29 | 1.074 |
-| `classic_features_lite_aggressive` | 8 | 48 | 31 | 16 | 1 | 7.25 | 1.126 |
-| `frontier_classic_features_lite_v1` | 5 | 48 | 34 | 12 | 2 | 12.58 | 1.088 |
-| `frontier_classic_features_lite_v1` | 6 | 48 | 26 | 19 | 3 | 3.50 | 1.055 |
-| `frontier_classic_features_lite_v1` | 7 | 48 | 27 | 18 | 3 | 6.88 | 1.104 |
-| `frontier_classic_features_lite_v1` | 8 | 48 | 30 | 17 | 1 | 11.58 | 1.116 |
+| `classic_features_lite_aggressive` | 5 | 48 | 30 | 17 | 1 | 6.04 | 1.058 |
+| `classic_features_lite_aggressive` | 6 | 48 | 28 | 19 | 1 | 9.00 | 1.032 |
+| `classic_features_lite_aggressive` | 7 | 48 | 28 | 20 | 0 | 2.50 | 1.069 |
+| `classic_features_lite_aggressive` | 8 | 48 | 31 | 15 | 2 | 8.12 | 1.121 |
+| `frontier_classic_features_lite_v1` | 5 | 48 | 34 | 12 | 2 | 11.25 | 1.092 |
+| `frontier_classic_features_lite_v1` | 6 | 48 | 24 | 21 | 3 | 2.79 | 1.057 |
+| `frontier_classic_features_lite_v1` | 7 | 48 | 29 | 17 | 2 | 8.54 | 1.109 |
+| `frontier_classic_features_lite_v1` | 8 | 48 | 29 | 18 | 1 | 9.58 | 1.116 |
 
 ## Interpretation
 
