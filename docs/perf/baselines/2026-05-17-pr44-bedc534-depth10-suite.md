@@ -3,6 +3,10 @@
 This snapshot records the search benchmark suite after the recent search
 observability and move-ordering improvements through PR44.
 
+Status: historical baseline snapshot. Recommendations in this snapshot describe
+the profile used at the time of collection; they are evidence, not current
+instructions.
+
 ## Context
 
 - Date: 2026-05-17
@@ -78,18 +82,18 @@ Depth 12 was also run as a higher-cost search-improvement check.
 | fixed | on | 46,181,176 | 1,356,665 | 2.938% | 18,616,096 | 13,522,410 | 26,208,415 | 1,679,350 | 14,900,643 |
 | iterative | on | 78,233,254 | 1,988,635 | 2.542% | 26,575,216 | 18,602,272 | 49,669,403 | 2,582,640 | 22,978,925 |
 
-## Current Recommendation
+## Historical Analysis Profile
 
-The current recommended analysis setting is:
+At the time of this snapshot, the analysis profile was:
 
 - fixed-depth search
 - depth 10
 - transposition table on
 
-Depth 10 fixed search with TT on is currently fast and stable enough for
-single-position analysis and move recommendation workflows. Iterative deepening
-remains useful for future time-control-like workflows, but it does more
-cumulative work than fixed-depth search at the same final depth.
+Depth 10 fixed search with TT on was fast and stable enough for single-position
+analysis and move recommendation workflows in this snapshot. Iterative deepening
+remained useful for future time-control-like workflows, but it did more
+cumulative work than fixed-depth search at the same final depth in this run.
 
 ## Interpretation
 
@@ -97,6 +101,7 @@ cumulative work than fixed-depth search at the same final depth.
   counts compared with earlier depth-10 baselines.
 - TT hit rate is not the only success metric. Lower collisions, rejected stores,
   and total node count can matter more than raw hit rate alone.
-- Future search PRs should compare p50, p95, max, nodes, TT stats, and dynamic
-  ordering stats using the same benchmark commands.
+- Future search PRs were expected to compare p50, p95, max, nodes, TT stats, and
+  dynamic ordering stats using the same benchmark commands when this snapshot
+  was written.
 - These are local measurements and should not be treated as hard CI thresholds.

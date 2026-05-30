@@ -1,8 +1,12 @@
 # 2026-05-24 PR78 Exact Endgame Child Breakdown Baseline
 
-This snapshot records the exact endgame benchmark profile on current `main`
-after PR78 added expanded worst-root child breakdown diagnostics to
-`othello_endgame_bench`.
+This snapshot records the exact endgame benchmark profile on `main` at
+collection time after PR78 added expanded worst-root child breakdown diagnostics
+to `othello_endgame_bench`.
+
+Status: historical baseline snapshot. Follow-up ideas in this snapshot describe
+what looked useful at the time of collection; they are evidence, not current
+instructions.
 
 ## Context
 
@@ -142,16 +146,16 @@ This rule-core context was collected with
   fixture set.
 - 16 empty is practical on this local run, with max around 0.62s.
 - 18 empty is useful for analysis, but the heavy tail still reaches about 3.7s.
-- 20 mixed/stress-lite remains the current optimization target. The standard
-  max is about 6s in this snapshot, and diagnostic root/child breakdowns show
-  expensive non-best subtrees.
+- 20 mixed/stress-lite remained the optimization target at this checkpoint. The
+  standard max is about 6s in this snapshot, and diagnostic root/child
+  breakdowns show expensive non-best subtrees.
 - `20-empty-high-mobility-lite` is still the standard-run tail and has the
   lowest 20-empty TT hit rate in this snapshot.
 - Expanded child diagnostics show several costly non-best child candidates:
   `20-empty-high-mobility-lite` / `f1` / `b2`, `20-empty-edge-heavy-stress-lite`
   / `a4` / `g7`, and `20-empty-edge-heavy-low-branching` / `b6` / `g2`.
 
-Likely next optimization directions:
+Historical follow-up ideas:
 
 - collect PVS scout/research and ordering-position counters for heavy 20
   candidates

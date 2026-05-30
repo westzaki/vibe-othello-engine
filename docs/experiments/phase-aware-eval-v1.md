@@ -1,6 +1,12 @@
 # Phase-Aware Eval v1 Investigation
 
-Status: active investigation notes.
+Status: historical investigation note captured on 2026-05-24.
+
+This file preserves evidence and interpretation from a past investigation. It is
+not current project guidance and it is not a task queue. Treat any
+"Recommendation", "Next PR", or experiment-specific conclusion below as
+historical unless the current user task, an active issue, or current project
+guidance explicitly refers to it.
 
 This page summarizes the key evidence from the phase-aware evaluation v1
 depth-8 regression work. Detailed local JSONL, generated engine configs, command
@@ -86,28 +92,30 @@ PR117 added reusable fixture files under
 - `pr115_after_a1_black_response.txt`: the post-`a1` Black response board where
   forced diagnostics found `c2` to be high impact.
 
-Future evaluator or search experiments that could affect corner capture should
-check these fixtures before running broader smoke comparisons. Raw forced-sweep
-tables and local JSONL should remain under `runs/`; this page should keep only
-the durable evidence and interpretation.
+At the time this note was written, future evaluator or search experiments that
+could affect corner capture were expected to check these fixtures before running
+broader smoke comparisons. Raw forced-sweep tables and local JSONL should remain
+under `runs/`; this page should keep only the durable evidence and
+interpretation.
 
 Do not optimize only for the PR115 board. The sibling and negative-control
 observations matter: `a1`, `b5`, and `b3` were materially better than the
 original `d6` line in the forced sweep, while `c5`, `c6`, and `d6` did not repair
 the regression.
 
-## Current Interpretation
+## Historical Interpretation
 
 The PR115 `a1` decision is very likely a primary cause of the phase-aware
 depth-8 smoke regression, but that does not prove any specific evaluator change
-is correct. The current evidence suggests the issue is an interaction between
-immediate corner capture, X-square danger, corner access, potential mobility,
-and frontier, not a single obvious sign or bitboard bug.
+is correct. The evidence captured here suggests the issue is an interaction
+between immediate corner capture, X-square danger, corner access, potential
+mobility, and frontier, not a single obvious sign or bitboard bug.
 
-## Recommendation
+## Historical Recommendation
 
-Next PR: add a corner tactical regression suite before changing evaluator or
-search behavior again.
+At the time this investigation was written, the suggested follow-up was to add a
+corner tactical regression suite before changing evaluator or search behavior
+again.
 
 That suite should include:
 
@@ -118,5 +126,6 @@ That suite should include:
 - negative controls where a superficially similar non-corner move should not be
   treated as a repair.
 
-Use the suite to judge future one-feature evaluation or search-ordering
-experiments. Avoid optimizing only for the single PR115 board.
+The note suggested using the suite to judge future one-feature evaluation or
+search-ordering experiments, while avoiding optimization only for the single
+PR115 board.

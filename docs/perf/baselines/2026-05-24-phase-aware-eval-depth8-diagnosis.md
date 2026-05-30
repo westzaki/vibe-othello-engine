@@ -1,6 +1,10 @@
 # Phase-Aware Eval v1 Depth 8 Root Candidate Diagnosis
 
-Status: local diagnostics collected.
+Status: historical baseline snapshot.
+
+Recommendations in this snapshot describe follow-up suggested at the time of
+collection. They are evidence, not current instructions, unless referenced by
+the current user task, an active issue, or current project guidance.
 
 ## Environment
 
@@ -32,8 +36,8 @@ suite:
 | c4-c3 | 14 | 0 | 14 | 0 | -12.00 |
 | d3-c3-c4 | 12 | 0 | 12 | 0 | -12.00 |
 
-This snapshot uses the PR113 root-candidate analysis tool on the current
-phase-aware evaluator to inspect the candidate search scores and immediate
+This snapshot uses the PR113 root-candidate analysis tool on the phase-aware
+evaluator at this checkpoint to inspect the candidate search scores and immediate
 post-move evaluation breakdowns. It does not compare base candidate rows because
 the base binary did not have the root-candidate diagnostic option.
 
@@ -191,7 +195,7 @@ side=W
   and depth 10, and their immediate breakdowns are identical.
 - The selected root positions do not exercise corner access or X-square danger;
   both scores are zero in these candidate rows.
-- The active early-position terms here are mainly actual mobility, potential
+- The nonzero early-position terms here are mainly actual mobility, potential
   mobility, and frontier. Frontier is small and consistently negative, while
   potential mobility is a larger negative term in all three openings.
 - The depth 10 candidate check does not show a clear correction of a depth 8
@@ -201,21 +205,22 @@ side=W
 
 ## Interpretation
 
-This diagnosis is inconclusive. It does not identify a single evaluation feature
-or weight that should be tuned immediately.
+This diagnosis is inconclusive. It did not identify a single evaluation feature
+or weight for immediate tuning.
 
 The most useful finding is negative: the depth 8 PR112 regression is probably
 not caused by an obvious first root move in the three smoke opening start
-positions. The next investigation should inspect later positions from the actual
-depth 8 base/head games, especially the first positions where head and base
-choose different moves, or temporarily apply the PR113 root-candidate diagnostic
-tooling to the PR109 basic-evaluator base for direct candidate-by-candidate
-comparison.
+positions. The suggested follow-up at the time was to inspect later positions
+from the actual depth 8 base/head games, especially the first positions where
+head and base choose different moves, or temporarily apply the PR113
+root-candidate diagnostic tooling to the PR109 basic-evaluator base for direct
+candidate-by-candidate comparison.
 
-## Recommendation
+## Historical Recommendation
 
-Do not tune phase-aware weights from these three root snapshots alone. A better
-next PR would do one of:
+At the time of this snapshot, the suggested follow-up was not to tune
+phase-aware weights from these three root snapshots alone. A better follow-up
+would have done one of:
 
 - extract divergence positions from the depth 8 base/head match JSONL and run
   root-candidate diagnostics there;
@@ -224,5 +229,5 @@ next PR would do one of:
 - broaden the opening suite before tuning if the smoke openings prove too
   narrow to localize the regression.
 
-Only after a specific feature or position class is implicated should a tuning PR
-change one evaluation term at a time.
+The snapshot suggested changing one evaluation term at a time only after a
+specific feature or position class was implicated.

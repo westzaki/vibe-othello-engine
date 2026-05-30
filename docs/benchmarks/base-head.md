@@ -5,9 +5,17 @@ as evaluation weights or search defaults. The matrix runs two separately built
 engine binaries as external NBoard processes, then records one match JSONL file,
 one summary, and one Markdown report per run.
 
+This is a specialized benchmark and measurement workflow under
+[`docs/benchmarks.md`](../benchmarks.md), not a separate project guidance
+category.
+
 This workflow is deterministic, but it is not an Elo estimate. Use it to detect
 obvious regressions or directional improvement. Larger game counts and broader
 opening suites are needed for stronger strength claims.
+
+Depths, game counts, openings, and timeouts are profile parameters. Keep them
+stable within one comparison, then update the profile defaults as engine speed,
+evaluator cost, and measurement needs change.
 
 ## Why External Processes
 
@@ -41,7 +49,7 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --target othello_match_runner othello_nboard_engine
 ```
 
-Run a quick smoke matrix:
+Run the current smoke-profile example:
 
 ```sh
 python3 tools/scripts/base_head_match_matrix.py \
@@ -56,7 +64,7 @@ python3 tools/scripts/base_head_match_matrix.py \
   --out runs/base-head/my-change-smoke
 ```
 
-Run a more useful local check:
+Run the current standard-profile example:
 
 ```sh
 python3 tools/scripts/base_head_match_matrix.py \
@@ -72,14 +80,15 @@ python3 tools/scripts/base_head_match_matrix.py \
   --out runs/base-head/my-change
 ```
 
-For stronger evidence, increase the opening coverage and use 100+ games per
-depth. Keep the openings, depths, seed, timeout, build type, and game count
-stable when comparing one PR against another.
+For stronger evidence, increase the opening coverage and game count. Keep the
+openings, depths, seed, timeout, build type, and game count stable when comparing
+one PR against another.
 
-For evaluation PRs, pay special attention to depth 8 and 10. A heavier evaluator
-can look acceptable at shallow depths while increasing deeper fixed-depth time.
-The bundled smoke openings are useful for repeatability, but they are too narrow
-for a strength claim by themselves.
+For evaluation PRs, include a deeper profile when evaluator cost may matter. The
+current examples include deeper fixed-depth rows because a heavier evaluator can
+look acceptable at shallow depths while increasing deeper search time. The
+bundled smoke openings are useful for repeatability, but they are too narrow for
+a strength claim by themselves.
 
 ## Output Layout
 

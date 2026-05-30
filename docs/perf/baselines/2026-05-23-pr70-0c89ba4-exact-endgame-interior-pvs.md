@@ -3,6 +3,10 @@
 This snapshot records the exact endgame benchmark profile after the recent
 standalone exact solver improvements through PR70.
 
+Status: historical baseline snapshot. Follow-up ideas in this snapshot describe
+what looked useful at the time of collection; they are evidence, not current
+instructions.
+
 ## Context
 
 - Date: 2026-05-23
@@ -121,19 +125,19 @@ single normal root solve.
   integration.
 - 14 empty is strong CPU / analysis-friendly on this fixture set.
 - 16 empty is now much more practical after the exact solver improvements.
-- 18 empty is significantly improved and useful for analysis, with the current
-  p95/max around 3 seconds on these local runs.
-- 20 mixed/stress-lite is measurable but still heavy. The current 20-empty
-  p95/max is the main optimization target.
+- 18 empty was significantly improved and useful for analysis, with p95/max
+  around 3 seconds on these local runs.
+- 20 mixed/stress-lite was measurable but still heavy. The 20-empty p95/max was
+  the main optimization target at this checkpoint.
 - The expanded 20 set shows both best-candidate-heavy and non-best-candidate
   costs. `20-empty-high-mobility-lite` remains the clear tail, with low TT hit
   rate and expensive non-best candidates in the root breakdown.
 - Interior PVS was a major step forward, reducing the previous 18/20 tail enough
   to make 20-empty diagnostics practical.
-- 22-light fixtures should wait until the 20-empty tail is better understood or
-  further optimized.
+- 22-light fixtures were expected to wait until the 20-empty tail was better
+  understood or further optimized.
 
-Likely next optimization directions:
+Historical follow-up ideas:
 
 - analyze heavy 20-empty candidates after interior PVS
 - try gated edge/corner-race-aware ordering

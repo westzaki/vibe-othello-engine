@@ -1,6 +1,10 @@
 # Phase-Aware Evaluation v1 Base/Head Match Matrix
 
-Status: local numbers collected.
+Status: historical baseline snapshot.
+
+Recommendations in this snapshot describe follow-up suggested at the time of
+collection. They are evidence, not current instructions, unless referenced by
+the current user task, an active issue, or current project guidance.
 
 ## Environment
 
@@ -103,7 +107,7 @@ This is not an Elo estimate. The opening suite is still tiny and deterministic,
 but the run is large enough to reject the earlier 12-game smoke as a strength
 claim.
 
-The result is mixed and currently inconclusive:
+At collection time, the result was mixed and inconclusive:
 
 - Depth 4 is favorable to phase-aware eval v1.
 - Depth 6 is even on wins and negative on average margin.
@@ -113,19 +117,21 @@ The result is mixed and currently inconclusive:
 - Head is consistently slower than base, and the depth 10 average time is about
   1.81x base.
 
-The per-opening rows also show highly regular outcomes, which suggests the
-current smoke opening set is too narrow for a robust strength claim. Depth 8 is
-especially concerning and should be investigated before weight tuning is treated
-as a straightforward improvement path.
+The per-opening rows also show highly regular outcomes, which suggested the
+smoke opening set used in this snapshot was too narrow for a robust strength
+claim. Depth 8 was flagged for investigation before weight tuning could be
+treated as a straightforward improvement path.
 
-## Recommendation
+## Historical Recommendation
 
-Do not tune weights yet based only on this run. Keep phase-aware eval v1 as an
-experimental baseline for now, but the next PR should either:
+At the time of this snapshot, the suggested follow-up was not to tune weights
+based only on this run. The suggested next step was to keep phase-aware eval v1
+as an experimental baseline and either:
 
 - expand opening coverage and rerun this matrix, or
 - add evaluation/root-candidate diagnostics to explain the depth 8 regression, or
 - profile/optimize feature calculation if the slowdown blocks deeper testing.
 
-If a broader matrix repeats the depth 8 regression, consider simplifying or
-reverting parts of phase-aware eval v1 before tuning numeric weights.
+If a broader matrix repeated the depth 8 regression, this snapshot suggested
+simplifying or reverting parts of phase-aware eval v1 before tuning numeric
+weights.

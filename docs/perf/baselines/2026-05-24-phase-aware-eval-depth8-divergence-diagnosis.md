@@ -1,6 +1,10 @@
 # Phase-Aware Eval v1 Depth 8 Divergence Diagnosis
 
-Status: local diagnostics collected.
+Status: historical baseline snapshot.
+
+Recommendations in this snapshot describe follow-up suggested at the time of
+collection. They are evidence, not current instructions, unless referenced by
+the current user task, an active issue, or current project guidance.
 
 ## Environment
 
@@ -125,8 +129,8 @@ to base move: 71 centipawn-like evaluator units.
 | 6 | b3 | 26 | b3->c2->b5->d2->e2->a3->c5->c6->c1 | 25 | 0 | -16 | -8 | 0 | 30 | 25 | -6 | 259487 |  |
 | 7 | a1 | 1 | a1->c2->b1->d2->e2->f6->b3->f3->g3->d1 | -31 | 0 | -8 | -40 | 35 | 0 | 0 | -18 | 142339 | base move |
 
-The depth 10 candidate check does not rescue `a1` under the current
-phase-aware evaluator. `a1` remains last in the head candidate table.
+The depth 10 candidate check did not rescue `a1` under the phase-aware evaluator
+at this checkpoint. `a1` remained last in the head candidate table.
 
 ## Observations
 
@@ -138,7 +142,7 @@ phase-aware evaluator. `a1` remains last in the head candidate table.
   `corner_access_score = 30` and `x_square_danger_score = 25`. Taking `a1`
   receives `corner_occupancy_score = 35`, but loses those two terms and also has
   worse `potential_mobility_score` and `frontier_score`.
-- This means the current breakdown makes "retaining a corner threat while the
+- This means the captured breakdown makes "retaining a corner threat while the
   opponent owns the adjacent X-square" look better than actually taking the
   corner in this position.
 - The sign conventions appear internally consistent with the documented v1
@@ -162,13 +166,14 @@ The suspicious interaction is:
 - potential mobility and frontier also penalize the immediate corner capture in
   this position.
 
-Because those signs match the current feature definitions, this PR does not tune
-weights or change evaluator behavior.
+Because those signs matched the feature definitions at this checkpoint, this PR
+does not tune weights or change evaluator behavior.
 
-## Recommendation
+## Historical Recommendation
 
-The next PR should change one evaluation term only and rerun the depth 8
-base/head matrix. The most focused candidates are:
+At the time of this snapshot, the suggested follow-up was to change one
+evaluation term only and rerun the depth 8 base/head matrix. The most focused
+candidates were:
 
 - reduce or gate `corner_access` so it does not overvalue a corner that the side
   declines to take when the opponent moves next;
@@ -176,5 +181,6 @@ base/head matrix. The most focused candidates are:
 - or make `x_square_danger` less valuable once the side already has the
   adjacent corner as an immediate legal move.
 
-Before tuning, consider adding one direct regression test around this divergence
-position so the chosen behavior is intentional and reviewable.
+This snapshot also suggested adding one direct regression test around this
+divergence position before tuning so the chosen behavior would be intentional
+and reviewable.
