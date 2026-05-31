@@ -903,6 +903,8 @@ high_confidence_cases(std::span<const RecordAnalysis> analyses, int threshold) {
         << '\n'
         << "- sign_disagreement_count: " << summary.sign_disagreements << '\n'
         << "- wrong_direction_count: " << summary.wrong_direction << '\n'
+        << "- high_confidence_wrong_direction_count: "
+        << summary.high_confidence_wrong_direction << '\n'
         << "- exact_draw_handling_count: " << summary.exact_draw_handling << '\n'
         << "- mean_eval_score_for_exact_winning_positions: "
         << mean_text(exact_win_eval_sum, exact_win_eval_count) << '\n'
@@ -994,6 +996,9 @@ std::optional<AnalyzerReport> analyze_exact_label_jsonl(std::string_view text,
         }
         line_begin = newline + 1;
     }
+
+    summary.high_confidence_wrong_direction =
+        high_confidence_cases(analyses, options.high_confidence_threshold).size();
 
     return AnalyzerReport{
         .summary = summary,

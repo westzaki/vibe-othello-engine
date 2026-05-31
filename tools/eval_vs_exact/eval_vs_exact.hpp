@@ -35,6 +35,7 @@ struct AnalyzerSummary {
     std::size_t sign_agreements = 0;
     std::size_t sign_disagreements = 0;
     std::size_t wrong_direction = 0;
+    std::size_t high_confidence_wrong_direction = 0;
     std::size_t exact_draw_handling = 0;
 };
 
