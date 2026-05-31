@@ -1,0 +1,50 @@
+# schema_version: eval.v1
+# status: experimental
+# created_at: 2026-05-31
+# based_on: data/eval/current_default.eval
+# source_report: docs/experiments/evaluation/2026-05-31-classic-othello-v1.md
+# not_default: true
+# not_promoted: true
+# purpose: Experimental classic Othello-principles evaluator candidate.
+# validation: See docs/experiments/evaluation/2026-05-31-classic-othello-v1.md.
+# caveat: Experimental config only; not the default evaluator and not a C++ preset.
+name=classic_othello_v1
+
+opening.disc_difference=0
+opening.mobility=12
+opening.potential_mobility=8
+opening.corner_occupancy=36
+opening.corner_access=45
+opening.x_square_danger=42
+opening.frontier=7
+opening.corner_local_2x3=4
+opening.corner_2x3_pattern=8
+opening.edge_stability_lite=1
+opening.edge_8_pattern=1
+
+midgame.disc_difference=1
+midgame.mobility=13
+midgame.potential_mobility=6
+midgame.corner_occupancy=48
+midgame.corner_access=38
+midgame.x_square_danger=36
+midgame.frontier=9
+midgame.corner_local_2x3=5
+midgame.corner_2x3_pattern=9
+midgame.edge_stability_lite=4
+midgame.edge_8_pattern=3
+
+late.disc_difference=6
+late.mobility=7
+late.potential_mobility=3
+late.corner_occupancy=55
+late.corner_access=24
+late.x_square_danger=24
+late.frontier=5
+late.corner_local_2x3=3
+late.corner_2x3_pattern=6
+late.edge_stability_lite=9
+late.edge_8_pattern=4
+
+opening_max_occupied=20
+midgame_max_occupied=44
