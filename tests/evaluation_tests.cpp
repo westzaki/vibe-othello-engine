@@ -9,6 +9,7 @@
 #include <othello/othello.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -48,6 +49,31 @@ side=W)");
     std::ostringstream buffer;
     buffer << input.rdbuf();
     return buffer.str();
+}
+
+void write_text_file(const std::filesystem::path& path, std::string_view text) {
+    std::filesystem::create_directories(path.parent_path());
+    std::ofstream output{path};
+    REQUIRE(output.is_open());
+    output << text;
+}
+
+[[nodiscard]] std::filesystem::path unique_temp_dir(std::string_view name) {
+    const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+    const std::filesystem::path path =
+        std::filesystem::temp_directory_path() /
+        (std::string{"vibe-othello-"} + std::string{name} + "-" + std::to_string(stamp));
+    std::filesystem::create_directories(path);
+    return path;
+}
+
+[[nodiscard]] std::string eval_config_with_pattern_table(std::string_view table_path) {
+    std::string text = read_text_file(sample_eval_config_path("current_default.eval"));
+    const std::string marker = "name=current_default\n";
+    const std::size_t insert_at = text.find(marker);
+    REQUIRE(insert_at != std::string::npos);
+    text.insert(insert_at + marker.size(), "pattern_table=" + std::string{table_path} + "\n");
+    return text;
 }
 
 [[nodiscard]] std::vector<std::filesystem::path> committed_eval_config_paths() {
@@ -225,6 +251,10 @@ TEST_CASE("Sample eval configs round-trip to expected evaluator configs", "[eval
     REQUIRE(current_default.name.has_value());
     CHECK(*current_default.name == "current_default");
     CHECK(current_default.config == othello::default_evaluation_config());
+    CHECK_FALSE(current_default.config.pattern_tables.enabled);
+    CHECK(current_default.config.opening.pattern_table == 0);
+    CHECK(current_default.config.midgame.pattern_table == 0);
+    CHECK(current_default.config.late.pattern_table == 0);
 
     const othello::tools::EvaluationConfigLoadResult phase_aware =
         othello::tools::load_evaluation_config_file(sample_eval_config_path("phase_aware_v1.eval"));
@@ -262,6 +292,40 @@ TEST_CASE("Sample eval configs round-trip to expected evaluator configs", "[eval
                                 [](std::int16_t value) { return value != 0; }) == 64);
     CHECK(std::ranges::count_if(pattern.config.pattern_tables.edge_8,
                                 [](std::int16_t value) { return value != 0; }) == 64);
+
+    const othello::tools::EvaluationConfigLoadResult pattern_v1 =
+        othello::tools::load_evaluation_config_file(
+            sample_eval_config_path("pattern_teacher_v1.eval"));
+    REQUIRE(pattern_v1.ok());
+    REQUIRE(pattern_v1.name.has_value());
+    CHECK(*pattern_v1.name == "pattern_teacher_v1");
+    CHECK(pattern_v1.pattern_table_path == "patterns/pattern_teacher_v1.tsv");
+    CHECK(pattern_v1.config.pattern_tables.enabled);
+    CHECK(pattern_v1.config.opening.pattern_table == 6);
+    CHECK(pattern_v1.config.midgame.pattern_table == 6);
+    CHECK(pattern_v1.config.late.pattern_table == 6);
+    CHECK(std::ranges::count_if(pattern_v1.config.pattern_tables.corner_2x3,
+                                [](std::int16_t value) { return value != 0; }) == 80);
+    CHECK(std::ranges::count_if(pattern_v1.config.pattern_tables.edge_8,
+                                [](std::int16_t value) { return value != 0; }) == 76);
+
+    const othello::tools::EvaluationConfigLoadResult pattern_v1_rank =
+        othello::tools::load_evaluation_config_file(
+            sample_eval_config_path("pattern_teacher_v1_rank.eval"));
+    REQUIRE(pattern_v1_rank.ok());
+    CHECK(std::ranges::count_if(pattern_v1_rank.config.pattern_tables.corner_2x3,
+                                [](std::int16_t value) { return value != 0; }) == 80);
+    CHECK(std::ranges::count_if(pattern_v1_rank.config.pattern_tables.edge_8,
+                                [](std::int16_t value) { return value != 0; }) == 80);
+
+    const othello::tools::EvaluationConfigLoadResult pattern_v1_phase =
+        othello::tools::load_evaluation_config_file(
+            sample_eval_config_path("pattern_teacher_v1_phase.eval"));
+    REQUIRE(pattern_v1_phase.ok());
+    CHECK(std::ranges::count_if(pattern_v1_phase.config.pattern_tables.corner_2x3,
+                                [](std::int16_t value) { return value != 0; }) == 8);
+    CHECK(std::ranges::count_if(pattern_v1_phase.config.pattern_tables.edge_8,
+                                [](std::int16_t value) { return value != 0; }) == 12);
 }
 
 TEST_CASE("Committed eval config fixtures parse and preserve intended identities",
@@ -434,6 +498,35 @@ TEST_CASE("Eval config parser rejects malformed v1 files", "[evaluation]") {
     const auto missing = othello::tools::parse_evaluation_config("name=missing_keys\n");
     CHECK_FALSE(missing.ok());
     CHECK(missing.error.find("missing required key") != std::string::npos);
+}
+
+TEST_CASE("Eval config loader rejects missing and malformed pattern tables",
+          "[evaluation]") {
+    const std::filesystem::path temp_dir = unique_temp_dir("pattern-table-errors");
+
+    const std::filesystem::path missing_eval = temp_dir / "missing.eval";
+    write_text_file(missing_eval, eval_config_with_pattern_table("patterns/missing.tsv"));
+    const othello::tools::EvaluationConfigLoadResult missing =
+        othello::tools::load_evaluation_config_file(missing_eval);
+    CHECK_FALSE(missing.ok());
+    CHECK(missing.error.find("failed to open pattern table") != std::string::npos);
+
+    write_text_file(temp_dir / "patterns" / "duplicate.tsv",
+                    "corner_2x3\t1\t2\ncorner_2x3\t1\t3\n");
+    const std::filesystem::path duplicate_eval = temp_dir / "duplicate.eval";
+    write_text_file(duplicate_eval, eval_config_with_pattern_table("patterns/duplicate.tsv"));
+    const othello::tools::EvaluationConfigLoadResult duplicate =
+        othello::tools::load_evaluation_config_file(duplicate_eval);
+    CHECK_FALSE(duplicate.ok());
+    CHECK(duplicate.error.find("duplicate corner_2x3 index") != std::string::npos);
+
+    write_text_file(temp_dir / "patterns" / "malformed.tsv", "corner_2x3\t1\n");
+    const std::filesystem::path malformed_eval = temp_dir / "malformed.eval";
+    write_text_file(malformed_eval, eval_config_with_pattern_table("patterns/malformed.tsv"));
+    const othello::tools::EvaluationConfigLoadResult malformed =
+        othello::tools::load_evaluation_config_file(malformed_eval);
+    CHECK_FALSE(malformed.ok());
+    CHECK(malformed.error.find("expected '<family> <index> <value>'") != std::string::npos);
 }
 
 TEST_CASE("Initial board evaluation is symmetric", "[evaluation]") {

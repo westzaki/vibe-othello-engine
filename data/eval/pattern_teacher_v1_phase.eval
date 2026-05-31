@@ -1,0 +1,56 @@
+# schema_version: eval.v1
+# status: rejected_experimental
+# created_at: 2026-06-01
+# based_on: data/eval/classic_othello_v3_teacher_aggressive.eval
+# source_report: docs/experiments/evaluation/2026-06-01-pattern-teacher-v1.md
+# decision: rejected as a stronger evaluator; retained only for reproducibility.
+# retained_for: reproducibility of split-training and phase-proxy evidence only.
+# not_default: true
+# not_promoted: true
+# purpose: Small-empty residual sparse pattern candidate approximating a phase experiment.
+# validation: See docs/experiments/evaluation/2026-06-01-pattern-teacher-v1.md.
+# caveat: Rejected experimental config only; not the default evaluator and not a C++ preset.
+name=pattern_teacher_v1_phase
+pattern_table=patterns/pattern_teacher_v1_phase.tsv
+
+opening.disc_difference=3
+opening.mobility=0
+opening.potential_mobility=0
+opening.corner_occupancy=22
+opening.corner_access=37
+opening.x_square_danger=41
+opening.frontier=3
+opening.corner_local_2x3=0
+opening.corner_2x3_pattern=19
+opening.edge_stability_lite=22
+opening.edge_8_pattern=0
+opening.pattern_table=8
+
+midgame.disc_difference=2
+midgame.mobility=6
+midgame.potential_mobility=9
+midgame.corner_occupancy=37
+midgame.corner_access=28
+midgame.x_square_danger=3
+midgame.frontier=18
+midgame.corner_local_2x3=13
+midgame.corner_2x3_pattern=3
+midgame.edge_stability_lite=21
+midgame.edge_8_pattern=4
+midgame.pattern_table=8
+
+late.disc_difference=1
+late.mobility=10
+late.potential_mobility=6
+late.corner_occupancy=68
+late.corner_access=39
+late.x_square_danger=25
+late.frontier=16
+late.corner_local_2x3=9
+late.corner_2x3_pattern=0
+late.edge_stability_lite=22
+late.edge_8_pattern=0
+late.pattern_table=8
+
+opening_max_occupied=20
+midgame_max_occupied=44

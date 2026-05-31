@@ -1,0 +1,33 @@
+# schema_version: pattern_table.v1
+# name: pattern_teacher_v1_phase
+# generated_by: tools/scripts/pattern_teacher_v0_train.py
+# command: tools/scripts/pattern_teacher_v0_train.py --teacher-labels runs/teacher-aggressive-v3/teacher/ntest-depth26-random1000/labels.jsonl,runs/teacher-aggressive-v3/teacher/ntest-depth26-diagnostic/labels.jsonl --exact-labels runs/teacher-aggressive-v3/exact/teacher_random1000_max12_labels.jsonl,runs/teacher-aggressive-v3/exact/diagnostic_max12_labels.jsonl --eval-config data/eval/classic_othello_v3_teacher_aggressive.eval --analyze-position build/othello_analyze_position --out runs/pattern-teacher-v1/training/pattern_teacher_v1_phase.tsv --table-name pattern_teacher_v1_phase --corner-pairs 40 --edge-pairs 40 --min-abs-diff 1 --scale 2 --max-abs-weight 5 --split train --split-ratios 60,20,20 --split-seed 20260601 --empty-max 12
+# accepted_teacher_rows: 591
+# already_agreed: 98
+# corner_entries: 8
+# edge_entries: 12
+# empty_max_skipped: 417
+# residual_updates: 76
+# split_seed: 20260601
+# teacher_rows: 591
+
+corner_2x3	94	1
+corner_2x3	188	-1
+corner_2x3	252	1
+corner_2x3	445	-2
+corner_2x3	457	1
+corner_2x3	504	-1
+corner_2x3	635	-1
+corner_2x3	647	2
+edge_8	846	1
+edge_8	849	-1
+edge_8	1692	-1
+edge_8	1698	1
+edge_8	2550	1
+edge_8	2673	1
+edge_8	2914	1
+edge_8	3429	-1
+edge_8	4617	-1
+edge_8	4739	-1
+edge_8	5100	-1
+edge_8	6129	1

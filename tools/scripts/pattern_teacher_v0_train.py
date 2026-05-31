@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import hashlib
 import json
 import subprocess
 import sys
@@ -41,6 +42,17 @@ class AnalyzeResult:
     candidates: tuple[Candidate, ...]
 
 
+@dataclass(frozen=True)
+class SplitRatios:
+    train: int
+    validation: int
+    holdout: int
+
+    @property
+    def total(self) -> int:
+        return self.train + self.validation + self.holdout
+
+
 def normalize_move(value: Any) -> str | None:
     if value is None:
         return None
@@ -56,6 +68,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--eval-config", required=True, help="residual baseline .eval config")
     parser.add_argument("--analyze-position", default="build/othello_analyze_position")
     parser.add_argument("--out", required=True, help="output pattern table TSV")
+    parser.add_argument("--table-name", default="pattern_teacher_v0")
     parser.add_argument("--exact-labels", help="optional comma-separated exact labels for filtering")
     parser.add_argument("--limit", type=int, help="optional accepted teacher row limit")
     parser.add_argument("--corner-pairs", type=int, default=32)
@@ -64,6 +77,27 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--scale", type=int, default=3)
     parser.add_argument("--max-abs-weight", type=int, default=4)
     parser.add_argument("--depth", type=int, default=1)
+    parser.add_argument(
+        "--split",
+        choices=("all", "train", "validation", "holdout"),
+        default="all",
+        help="deterministic teacher split to train on",
+    )
+    parser.add_argument(
+        "--split-ratios",
+        default="60,20,20",
+        help="train,validation,holdout split weights",
+    )
+    parser.add_argument("--split-seed", type=int, default=20260601)
+    parser.add_argument("--write-splits", help="optional directory for accepted teacher split JSONL")
+    parser.add_argument(
+        "--update-mode",
+        choices=("residual", "rank"),
+        default="residual",
+        help="residual updates compare teacher with top choice; rank updates compare teacher with every higher-ranked choice",
+    )
+    parser.add_argument("--empty-min", type=int, help="minimum root empty count to include")
+    parser.add_argument("--empty-max", type=int, help="maximum root empty count to include")
     return parser.parse_args(argv)
 
 
@@ -83,6 +117,56 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
 
 def board_key(board_text: str) -> str:
     return "\n".join(line.rstrip() for line in board_text.strip().splitlines())
+
+
+def parse_split_ratios(text: str) -> SplitRatios:
+    parts = text.split(",")
+    if len(parts) != 3:
+        raise ScriptError("--split-ratios must be TRAIN,VALIDATION,HOLDOUT")
+    try:
+        train, validation, holdout = (int(part) for part in parts)
+    except ValueError as exc:
+        raise ScriptError("--split-ratios must contain integers") from exc
+    if train < 0 or validation < 0 or holdout < 0:
+        raise ScriptError("--split-ratios cannot contain negative values")
+    if train == 0 or validation == 0 or holdout == 0:
+        raise ScriptError("--split-ratios must keep all three splits non-empty")
+    return SplitRatios(train=train, validation=validation, holdout=holdout)
+
+
+def split_name_for_row(row: dict[str, Any], ratios: SplitRatios, seed: int) -> str:
+    board = row.get("board_text")
+    if not isinstance(board, str):
+        board = str(row.get("board") or "")
+    move = normalize_move(row.get("move")) or ""
+    material = f"{seed}\n{board_key(board)}\n{move}".encode("utf-8")
+    bucket = int.from_bytes(hashlib.sha256(material).digest()[:8], "big") % ratios.total
+    if bucket < ratios.train:
+        return "train"
+    if bucket < ratios.train + ratios.validation:
+        return "validation"
+    return "holdout"
+
+
+def write_split_files(rows: list[dict[str, Any]], out_dir: Path, ratios: SplitRatios, seed: int) -> None:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    split_rows: dict[str, list[dict[str, Any]]] = {
+        "train": [],
+        "validation": [],
+        "holdout": [],
+    }
+    for row in rows:
+        split_rows[split_name_for_row(row, ratios, seed)].append(row)
+    for split_name, records in split_rows.items():
+        path = out_dir / f"teacher_{split_name}.jsonl"
+        with path.open("w", encoding="utf-8") as output:
+            for record in records:
+                output.write(json.dumps(record, sort_keys=True) + "\n")
+
+
+def empty_count(board_text: str) -> int:
+    rows, _ = parse_board(board_text)
+    return sum(row.count(".") for row in rows)
 
 
 def load_exact_best(paths: list[Path]) -> dict[str, set[str]]:
@@ -219,6 +303,23 @@ def pattern_indexes(board_text: str, side: str) -> tuple[list[int], list[int]]:
     return corners, edges
 
 
+def apply_preference_update(
+    *,
+    board_text: str,
+    teacher_child_board: str,
+    compared_child_board: str,
+    corner_counts: collections.Counter[int],
+    edge_counts: collections.Counter[int],
+) -> None:
+    _, side = parse_board(board_text)
+    teacher_corners, teacher_edges = pattern_indexes(teacher_child_board, side)
+    compared_corners, compared_edges = pattern_indexes(compared_child_board, side)
+    corner_counts.update(teacher_corners)
+    corner_counts.subtract(compared_corners)
+    edge_counts.update(teacher_edges)
+    edge_counts.subtract(compared_edges)
+
+
 def swapped_index(index: int, cells: int) -> int:
     swapped = 0
     place = 1
@@ -276,6 +377,7 @@ def sparse_entries(
 
 def render_table(
     *,
+    name: str = "pattern_teacher_v0",
     corner_entries: list[tuple[int, int]],
     edge_entries: list[tuple[int, int]],
     stats: dict[str, int],
@@ -283,7 +385,7 @@ def render_table(
 ) -> str:
     lines = [
         "# schema_version: pattern_table.v1",
-        "# name: pattern_teacher_v0",
+        f"# name: {name}",
         "# generated_by: tools/scripts/pattern_teacher_v0_train.py",
         f"# command: {quote_command(command)}",
     ]
@@ -299,16 +401,38 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     teacher_paths = parse_csv_paths(args.teacher_labels)
     exact_best = load_exact_best(parse_csv_paths(args.exact_labels)) if args.exact_labels else {}
+    split_ratios = parse_split_ratios(args.split_ratios)
+    if args.empty_min is not None and args.empty_max is not None and args.empty_min > args.empty_max:
+        raise ScriptError("--empty-min cannot be greater than --empty-max")
     rows = accepted_teacher_rows(teacher_paths, args.limit)
     if not rows:
         raise ScriptError("no accepted teacher rows")
+    if args.write_splits:
+        write_split_files(rows, Path(args.write_splits), split_ratios, args.split_seed)
+    if args.split != "all":
+        rows = [
+            row
+            for row in rows
+            if split_name_for_row(row, split_ratios, args.split_seed) == args.split
+        ]
+    if not rows:
+        raise ScriptError("no teacher rows after split filtering")
 
     corner_counts: collections.Counter[int] = collections.Counter()
     edge_counts: collections.Counter[int] = collections.Counter()
     stats = collections.Counter[str]()
+    stats["accepted_teacher_rows"] = len(rows)
+    stats["split_seed"] = args.split_seed
     for row in rows:
         stats["teacher_rows"] += 1
         board_text = str(row["board_text"])
+        empties = empty_count(board_text)
+        if args.empty_min is not None and empties < args.empty_min:
+            stats["empty_min_skipped"] += 1
+            continue
+        if args.empty_max is not None and empties > args.empty_max:
+            stats["empty_max_skipped"] += 1
+            continue
         teacher_move = normalize_move(row.get("move"))
         if teacher_move is None:
             continue
@@ -331,14 +455,43 @@ def main(argv: list[str] | None = None) -> int:
             stats["teacher_missing_from_candidates"] += 1
             continue
 
-        _, side = parse_board(board_text)
-        teacher_corners, teacher_edges = pattern_indexes(teacher.child_board, side)
-        selected_corners, selected_edges = pattern_indexes(selected.child_board, side)
-        corner_counts.update(teacher_corners)
-        corner_counts.subtract(selected_corners)
-        edge_counts.update(teacher_edges)
-        edge_counts.subtract(selected_edges)
-        stats["residual_updates"] += 1
+        if args.update_mode == "rank":
+            teacher_score = teacher.score
+            rank_updates = 0
+            if teacher_score is not None:
+                for candidate in candidates:
+                    if candidate.move == teacher.move or candidate.child_board is None:
+                        continue
+                    if candidate.score is not None and candidate.score > teacher_score:
+                        apply_preference_update(
+                            board_text=board_text,
+                            teacher_child_board=teacher.child_board,
+                            compared_child_board=candidate.child_board,
+                            corner_counts=corner_counts,
+                            edge_counts=edge_counts,
+                        )
+                        rank_updates += 1
+            if rank_updates == 0:
+                apply_preference_update(
+                    board_text=board_text,
+                    teacher_child_board=teacher.child_board,
+                    compared_child_board=selected.child_board,
+                    corner_counts=corner_counts,
+                    edge_counts=edge_counts,
+                )
+                stats["rank_fallback_updates"] += 1
+            else:
+                stats["rank_pair_updates"] += rank_updates
+            stats["residual_updates"] += 1
+        else:
+            apply_preference_update(
+                board_text=board_text,
+                teacher_child_board=teacher.child_board,
+                compared_child_board=selected.child_board,
+                corner_counts=corner_counts,
+                edge_counts=edge_counts,
+            )
+            stats["residual_updates"] += 1
 
     corner_entries = sparse_entries(
         corner_counts,
@@ -363,6 +516,7 @@ def main(argv: list[str] | None = None) -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(
         render_table(
+            name=args.table_name,
             corner_entries=corner_entries,
             edge_entries=edge_entries,
             stats=dict(stats),
