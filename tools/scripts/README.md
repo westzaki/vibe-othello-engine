@@ -114,6 +114,33 @@ candidate looks promising on held-out exact labels, use search bench, match
 runner or base/head comparison, and external sanity checks when appropriate
 before making any promotion claim.
 
+Run search-bench and match-smoke validation for top `.eval` candidates:
+
+```sh
+python3 tools/scripts/eval_config_search_validate.py \
+  --base-config data/eval/current_default.eval \
+  --candidate-dir runs/eval-config-tuner/smoke/configs \
+  --heldout-summary runs/eval-config-validation/smoke/summary.tsv \
+  --build-dir build \
+  --out runs/eval-config-search-validation/smoke \
+  --top 3 \
+  --run-search-bench \
+  --run-match-smoke
+```
+
+Use this after tuning and held-out exact-label validation to gather smoke
+evidence from `othello_search_bench` and small `othello_match_runner`
+comparisons. Search validation uses `--exact-endgame-threshold 0` by default so
+the search-bench step stays focused on midgame/evaluator behavior unless the
+threshold is explicitly overridden. Match smoke is intentionally small and is
+not an Elo estimate or strength claim.
+
+The search/match validation report records exact commands, raw logs, checksum
+differences when parsed, optional held-out objective context, and caveats under
+`runs/eval-config-search-validation/...`. Candidate promotion still requires
+broader search bench, match runner or base/head validation, and external sanity
+when appropriate. Do not commit generated configs or raw workflow outputs.
+
 For evaluator config evidence:
 
 ```sh
