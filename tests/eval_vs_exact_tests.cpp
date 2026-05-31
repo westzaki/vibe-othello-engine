@@ -53,6 +53,7 @@ TEST_CASE("Eval vs exact analyzer reports tiny exact-label fixture", "[eval-vs-e
     CHECK(markdown.contains("Threshold: `abs(eval_score) >= 250`"));
     CHECK(markdown.contains("v1 fail-fast"));
     CHECK(markdown.contains("sign_agreement_rate"));
+    CHECK(markdown.contains("high_confidence_wrong_direction_count"));
     CHECK(markdown.contains("## Worst Wrong-Direction Positions"));
     CHECK(markdown.contains("## High-Confidence Disagreements"));
     CHECK(markdown.contains("### By Evaluator Phase"));

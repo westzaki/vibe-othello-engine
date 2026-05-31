@@ -57,6 +57,35 @@ not a representative training distribution. The workflow report records exact
 commands, output paths, counts, caveats, and the absence of any strength claim
 or default-promotion recommendation.
 
+Run a small diagnostic `.eval` config tuning experiment from exact-label JSONL:
+
+```sh
+python3 tools/scripts/eval_config_tuner.py \
+  --labels runs/exact-label-workflow/smoke/labels.jsonl \
+  --base-config data/eval/current_default.eval \
+  --build-dir build \
+  --out runs/eval-config-tuner/smoke \
+  --rounds 1 \
+  --step 1 \
+  --max-candidates 64 \
+  --seed 20260531
+```
+
+Use `exact_label_workflow.py` first when a labels file does not already exist.
+The tuner reads a fully expanded `.eval` config, writes perturbed candidate
+configs under `runs/eval-config-tuner/.../configs/`, runs
+`othello_eval_vs_exact` for each candidate, and ranks candidates by a diagnostic
+objective based on sign agreement, wrong-direction count, and high-confidence
+wrong-direction count. Candidate configs are local experiment artifacts, not
+active configs.
+
+The tuner objective is not Elo, not calibrated disc-margin error, and not a
+default-promotion gate. It depends on the input label distribution; random
+playout labels may not be representative. Follow-up validation should use
+held-out exact labels, search bench, match runner or base/head comparison, and
+external sanity checks when appropriate before creating any named candidate or
+promotion PR.
+
 For evaluator config evidence:
 
 ```sh

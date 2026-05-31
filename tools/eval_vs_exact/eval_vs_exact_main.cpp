@@ -266,7 +266,9 @@ static int run(int argc, char** argv) {
     std::cout << "eval vs exact: records_read=" << report->summary.records_read
               << " analyzed=" << report->summary.analyzed << " skipped=" << report->summary.skipped
               << " sign_agreements=" << report->summary.sign_agreements
-              << " wrong_direction=" << report->summary.wrong_direction << " output=" << output_path
+              << " wrong_direction=" << report->summary.wrong_direction
+              << " high_confidence_wrong_direction="
+              << report->summary.high_confidence_wrong_direction << " output=" << output_path
               << '\n';
     return 0;
 }
