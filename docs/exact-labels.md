@@ -39,6 +39,10 @@ Keep generated datasets under `runs/`; they should not be committed. Durable
 summaries may go under `docs/perf/baselines/` when they are small, clearly
 caveated, and useful as historical evidence.
 
-Start with tiny 0-4 empty fixtures and smoke files before dumping broader
-16-18 empty datasets. The default `--max-empties 14` is a safety cap, and
-positions above the cap are skipped with a summary instead of solved.
+Use tiny fixtures and smoke files for committed tests and examples. For larger
+local datasets, choose `--max-empties` and `--limit` based on the current
+machine, solver performance, and validation budget. Record the command, source
+SHA, and caveats with any durable summary.
+
+The default `--max-empties 14` is a conservative safety cap; positions above the
+cap are skipped with a summary instead of solved.
