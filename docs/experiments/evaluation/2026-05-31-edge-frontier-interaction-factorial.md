@@ -49,7 +49,7 @@ to be explained by stability alone. This batch therefore separates:
 | `edge8_soft_frontier` | yes | yes | no | keep as local ablation evidence; not committed |
 | `edge8_soft_stability` | yes | no | yes | reject |
 | `frontier_stability` | no | yes | yes | reject for this branch |
-| `edge8_soft_frontier_stability` | yes | yes | yes | carry forward as one experimental config |
+| `edge8_soft_frontier_stability` | yes | yes | yes | carry forward as an experimental hypothesis config |
 
 ## Candidate Config Diffs
 
@@ -182,9 +182,11 @@ Held-out set, 48 records with `move_scores`:
 | `frontier_stability` | 21 | 98 | 1839 | 326 |
 | `edge8_soft_frontier_stability` | 23 | 95 | 1715 | 290 |
 
-`edge8_soft_frontier` and `edge8_soft_frontier_stability` were the best
-move-rank candidates. Stability did not improve held-out labels without
-frontier, and the strongest exact-label signal came from A+B with or without C.
+`edge8_soft_frontier` and `edge8_soft_frontier_stability` were tied for the
+best top exact-best count and exact-best rank sum. `edge8_soft_frontier` had the
+lower evaluator score gap, so the exact-label diagnostics did not prove that
+A+B+C is better than A+B. Stability did not improve held-out labels without
+frontier.
 
 ## Search Validation Summary
 
@@ -217,9 +219,11 @@ Broader `--positions suite`, depths 4,5:
 | `edge8_soft_frontier_stability` | changed | changed | 100614 | 19.332 |
 
 The A+B and A+B+C candidates increased nodes on the curated evaluation profile
-but reduced nodes on the broader suite profile. The first
-`edge8_soft_frontier` evaluation elapsed result looked noisy; a Round 2 rerun
-with the same command reported 26.560 ms for the same 127986 nodes.
+but reduced nodes on the broader suite profile. Elapsed time was noisy in at
+least one run: the first `edge8_soft_frontier` evaluation elapsed result was
+34.615 ms, while a Round 2 rerun with the same command reported 26.560 ms for
+the same 127986 nodes. Treat the search evidence as profile-dependent smoke,
+not as a stable runtime win or loss.
 
 ## Match Smoke Summary
 
@@ -232,12 +236,13 @@ player A vs base as player B with side swaps:
 | `edge8_soft_frontier` | 28 | 20 | 0 | +5.38 | 27.31 / 26.62 |
 | `edge8_soft_frontier_stability` | 33 | 15 | 0 | +11.04 | 27.39 / 26.45 |
 
-This is smoke evidence only, not Elo.
+This is smoke evidence only, not Elo, and it is not enough for default
+promotion or named preset promotion.
 
 ## Round 2
 
-Because `edge8_soft_frontier_stability` was promising, Round 2 kept A+B fixed
-and varied only stability intensity:
+Because `edge8_soft_frontier_stability` was promising as a carry-forward
+hypothesis, Round 2 kept A+B fixed and varied only stability intensity:
 
 | candidate | stability change | held-out objective | top exact-best | rank sum | eval gap | exact gap |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
@@ -274,7 +279,9 @@ Round 2 match smoke:
 
 The +2 stability variant worsened move-rank metrics and suite elapsed time, so
 it was not matched. Late-only stability was positive but did not match the
-full +1 all-phase smoke result.
+full +1 all-phase match-smoke result. This still does not resolve A+B+C versus
+A+B; that direct ablation needs broader labels, repeated search profiles, and
+larger paired matches.
 
 ## Commands
 
@@ -312,18 +319,24 @@ configs under `runs/eval-iteration-20260531-edge-frontier-interaction/round2-con
 - `edge8_soft_frontier_stability` improved held-out objective by +3.
 - It matched the best held-out move-rank top exact-best count at 23/48 and rank
   sum 95.
-- It won the best 48-game smoke match, 33-15 with average disc diff +11.04.
+- It had the best 48-game match-smoke evidence among tested candidates, 33-15
+  with average disc diff +11.04.
 - Its suite search nodes and elapsed were slightly lower than the base in the
   measured smoke profile.
 - Round 2 showed that increasing stability to +2 was not better, while the full
-  +1 all-phase variant remained the strongest matched option.
+  +1 all-phase variant retained the strongest match-smoke result among the
+  matched variants.
 
 ## Negative Evidence
 
 - `edge8_soft_only` and `edge8_soft_stability` worsened held-out objective.
-- `edge8_soft_frontier_stability` did not beat `edge8_soft_frontier` on
-  held-out move-rank; its differentiating evidence is match smoke.
+- `edge8_soft_frontier_stability` did not clearly beat `edge8_soft_frontier` on
+  held-out objective or move-rank; `edge8_soft_frontier` matched the top
+  exact-best count and rank sum and had a lower evaluator score gap.
+- A+B+C must not be treated as proven better than A+B from this experiment.
+  Its differentiating evidence is match smoke, which is limited.
 - A+B and A+B+C increased nodes on the curated evaluation search profile.
+- Search validation showed profile-dependent node and elapsed tradeoffs.
 - Exact labels are small and label-distribution dependent.
 - Match smoke used only 48 games per selected candidate and is not Elo.
 
@@ -332,11 +345,11 @@ configs under `runs/eval-iteration-20260531-edge-frontier-interaction/round2-con
 | candidate | decision | reason |
 | --- | --- | --- |
 | `edge8_soft_only` | reject | Held-out objective -3 and no top exact-best gain. |
-| `frontier_mid_late_plus1` | keep as local ablation evidence | Held-out +3 and 27-21 match smoke, but weaker move-rank and match evidence than the interaction candidate. |
-| `edge8_soft_frontier` | keep as local ablation evidence | Best held-out move-rank and 28-20 match smoke, but weaker match evidence than A+B+C. |
+| `frontier_mid_late_plus1` | keep as local ablation evidence | Held-out +3 and 27-21 match smoke, but weaker move-rank than the A+B variants. |
+| `edge8_soft_frontier` | keep as local ablation evidence | Tied best held-out move-rank tier and 28-20 match smoke; direct comparison against A+B+C remains unresolved. |
 | `edge8_soft_stability` | reject | Held-out objective -3 and no move-rank gain. |
 | `frontier_stability` | reject for this branch | Held-out +3, but move-rank was weaker than A+B variants and no match smoke was justified after stronger candidates emerged. |
-| `edge8_soft_frontier_stability` | keep as experimental config | Best combined evidence: held-out +3, best move-rank tier, acceptable search smoke, and strongest 48-game match smoke. |
+| `edge8_soft_frontier_stability` | keep as experimental config | Strongest 48-game match-smoke evidence and tied best move-rank tier, but held-out/move-rank does not clearly beat `edge8_soft_frontier`. Carry forward only as an experimental hypothesis for direct A+B+C vs A+B validation. |
 | `edge8_soft_frontier_stability_late_only` | reject as carry-forward | Positive 29-19 match, but weaker than full +1 all-phase stability. |
 | `edge8_soft_frontier_stability_plus2` | reject | Worse move-rank and suite elapsed than the +1 variant. |
 
@@ -345,6 +358,10 @@ configs under `runs/eval-iteration-20260531-edge-frontier-interaction/round2-con
 - No default promotion.
 - No C++ `EvaluationPreset` added.
 - The committed config is experimental, not default, not promoted, and caveated.
+- The match-smoke advantage is not enough for default promotion or named preset
+  promotion.
+- The committed config is a carry-forward hypothesis only because evidence is
+  mixed and sample size is limited.
 - Raw outputs remain under `runs/` and are not committed.
 - Generated exact labels are small and not representative training data.
 - Match smoke is not Elo.
@@ -355,16 +372,22 @@ configs under `runs/eval-iteration-20260531-edge-frontier-interaction/round2-con
 ## Next Recommended Action
 
 Use `data/eval/experimental_edge8_soft_frontier_stability.eval` as the next
-starting point only. The discriminating follow-up is:
+starting point only. The mandatory discriminating follow-up is a direct A+B+C
+versus A+B ablation:
 
-- generate at least 192 held-out labels from new seeds with `move_scores`
-- compare `experimental_edge8_soft_frontier_stability` against
-  `edge8_soft_frontier` as the direct ablation
-- run `--positions evaluation` and `--positions suite` at deeper or repeated
-  profiles with `--exact-endgame-threshold 0`
-- run at least 192 swapped games on `eval_regression_openings.txt`
+- reproduce `edge8_soft_frontier` from this report as the A+B comparison
+  candidate
+- compare it directly against
+  `data/eval/experimental_edge8_soft_frontier_stability.eval`
+- generate at least 192 held-out labels from new seeds with `move_scores`, if
+  practical
+- use repeated and/or deeper search profiles on the same machine, build type,
+  command options, and position set with `--exact-endgame-threshold 0`
+- run at least 192 swapped games on `eval_regression_openings.txt`, if practical
 
-Reject the carried config if it fails to keep held-out objective positive,
-loses the move-rank top exact-best or rank-sum edge versus `edge8_soft_frontier`,
-or shows repeated search-node/elapsed regression above roughly 10% without a
-matching match-smoke advantage.
+Reject the experimental config if it fails to retain positive held-out
+objective, loses move-rank to `edge8_soft_frontier`, or shows repeated
+search-node/elapsed regression above roughly 10% without a compensating match
+advantage. The roughly 10% search-regression check must be based on repeated
+profiles with the same machine, build type, command options, and position set;
+do not judge it from a single noisy elapsed run.

@@ -4,8 +4,10 @@
 # source_report: docs/experiments/evaluation/2026-05-31-edge-frontier-interaction-factorial.md
 # not_default: true
 # not_promoted: true
-# caveat: limited evidence from small exact-label sets and smoke matches.
-# next_validation_required: broader held-out labels, deeper search, and larger paired matches.
+# caveat: strongest evidence is match smoke; held-out and move-rank direct
+# caveat: ablation against edge8_soft_frontier remains required.
+# next_validation_required: A+B+C vs A+B direct ablation with broader labels,
+# next_validation_required: repeated search, and larger swapped matches.
 name=experimental_edge8_soft_frontier_stability
 
 opening.disc_difference=0
