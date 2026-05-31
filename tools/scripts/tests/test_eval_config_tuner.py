@@ -53,6 +53,7 @@ def write_fake_analyzer(directory: Path) -> Path:
         parser.add_argument("--eval-config", required=True)
         parser.add_argument("--output", required=True)
         parser.add_argument("--high-confidence-threshold", required=True)
+        parser.add_argument("--move-rank-analysis", action="store_true")
         args = parser.parse_args()
 
         text = Path(args.eval_config).read_text(encoding="utf-8")
@@ -73,12 +74,27 @@ def write_fake_analyzer(directory: Path) -> Path:
 
         Path(args.output).parent.mkdir(parents=True, exist_ok=True)
         Path(args.output).write_text("# fake report\\n", encoding="utf-8")
-        print(
+        output = (
             "eval vs exact: records_read=5 analyzed=5 skipped=0 "
             f"sign_agreements={sign_agreements} "
             f"wrong_direction={wrong_direction} "
             f"high_confidence_wrong_direction={high_confidence} "
-            f"output={args.output}"
+        )
+        if args.move_rank_analysis:
+            output += (
+                "move_rank_records_with_scores=3 "
+                "move_rank_records_missing_scores=2 "
+                "move_rank_records_no_legal_root_moves=0 "
+                "move_rank_analyzed=3 "
+                "move_rank_top_exact_best=2 "
+                "move_rank_top_non_best=1 "
+                "move_rank_exact_best_rank_sum=4 "
+                "move_rank_eval_score_gap_sum=17 "
+                "move_rank_exact_score_gap_sum=9 "
+            )
+        print(
+            output
+            + f"output={args.output}"
         )
         """,
     )
@@ -263,6 +279,23 @@ class EvalConfigTunerTests(unittest.TestCase):
         self.assertIn("--output", command)
         self.assertIn("--high-confidence-threshold", command)
 
+    def test_analyzer_command_passes_move_rank_flag_when_enabled(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            config = make_config(
+                temp_path,
+                analyzer=temp_path / "eval_vs_exact",
+                extra_args=["--move-rank-analysis"],
+            )
+
+            command = tuner.analyzer_command(
+                config,
+                eval_config_path=temp_path / "candidate.eval",
+                report_path=temp_path / "candidate.md",
+            )
+
+        self.assertIn("--move-rank-analysis", command)
+
     def test_fake_analyzer_stdout_is_parsed(self) -> None:
         stdout = (
             "eval vs exact: records_read=5 analyzed=5 skipped=0 sign_agreements=4 "
@@ -276,6 +309,32 @@ class EvalConfigTunerTests(unittest.TestCase):
         self.assertEqual(metrics.sign_agreements, 4)
         self.assertEqual(metrics.wrong_direction, 1)
         self.assertEqual(metrics.high_confidence_wrong_direction, 0)
+        self.assertIsNone(metrics.move_rank_analyzed)
+
+    def test_fake_analyzer_stdout_with_move_rank_metrics_is_parsed(self) -> None:
+        stdout = (
+            "eval vs exact: records_read=5 analyzed=5 skipped=0 sign_agreements=4 "
+            "wrong_direction=1 high_confidence_wrong_direction=0 "
+            "move_rank_records_with_scores=3 "
+            "move_rank_records_missing_scores=2 "
+            "move_rank_records_no_legal_root_moves=0 "
+            "move_rank_analyzed=3 "
+            "move_rank_top_exact_best=2 "
+            "move_rank_top_non_best=1 "
+            "move_rank_exact_best_rank_sum=4 "
+            "move_rank_eval_score_gap_sum=17 "
+            "move_rank_exact_score_gap_sum=9 "
+            "output=report.md"
+        )
+
+        metrics = tuner.parse_analyzer_stdout(stdout)
+
+        self.assertEqual(metrics.move_rank_records_with_scores, 3)
+        self.assertEqual(metrics.move_rank_records_missing_scores, 2)
+        self.assertEqual(metrics.move_rank_analyzed, 3)
+        self.assertEqual(metrics.move_rank_top_exact_best, 2)
+        self.assertEqual(metrics.move_rank_top_non_best, 1)
+        self.assertEqual(metrics.move_rank_eval_score_gap_sum, 17)
 
     def test_objective_ranking_prefers_fewer_wrong_direction_cases(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -293,6 +352,31 @@ class EvalConfigTunerTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertIn("`opening.mobility`: `8` -> `9`", report)
         self.assertIn("| 1 | `candidate_0001` |", report)
+
+    def test_move_rank_analysis_records_metrics_without_changing_objective(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            analyzer = write_fake_analyzer(temp_path)
+            config = make_config(
+                temp_path,
+                analyzer=analyzer,
+                extra_args=[
+                    "--keys",
+                    "opening.mobility",
+                    "--move-rank-analysis",
+                ],
+            )
+
+            exit_code = tuner.run_tuner(config)
+            report = (config.out_dir / "tuner_report.md").read_text(encoding="utf-8")
+            summary = (config.out_dir / "summary.tsv").read_text(encoding="utf-8")
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("## Move-Rank Metrics", report)
+        self.assertIn("move_rank_analysis: `true`", report)
+        self.assertIn("move_rank_analyzed", summary)
+        self.assertIn("\t3\t2\t0\t3\t2\t1\t4\t17\t9\t", summary)
+        self.assertIn("candidate_0001\tpassed\t5\t5\t5\t0\t0", summary)
 
     def test_dry_run_writes_planned_commands_and_report(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

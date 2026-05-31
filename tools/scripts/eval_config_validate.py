@@ -16,10 +16,12 @@ from eval_config_tuner import (
     DEFAULT_HIGH_CONFIDENCE_PENALTY,
     DEFAULT_HIGH_CONFIDENCE_THRESHOLD,
     DEFAULT_WRONG_DIRECTION_PENALTY,
+    MOVE_RANK_METRIC_KEYS,
     OBJECTIVE_FORMULA,
     AnalyzerMetrics,
     EvalConfig,
     changed_entries,
+    move_rank_cells,
     parse_analyzer_stdout,
     parse_csv,
     parse_eval_config_text,
@@ -42,6 +44,7 @@ class ValidationConfig:
     wrong_direction_penalty: int
     high_confidence_penalty: int
     high_confidence_threshold: int
+    move_rank_analysis: bool
     train_summary: Path | None
     dry_run: bool
     allow_failures: bool
@@ -123,6 +126,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=parse_non_negative_int,
         default=DEFAULT_HIGH_CONFIDENCE_THRESHOLD,
     )
+    parser.add_argument(
+        "--move-rank-analysis",
+        action="store_true",
+        help="pass --move-rank-analysis to othello_eval_vs_exact and record root move-quality metrics",
+    )
     parser.add_argument("--train-summary", help="optional tuner summary.tsv")
     parser.add_argument("--dry-run", action="store_true", help="write planned commands only")
     parser.add_argument(
@@ -195,6 +203,7 @@ def config_from_args(
         wrong_direction_penalty=args.wrong_direction_penalty,
         high_confidence_penalty=args.high_confidence_penalty,
         high_confidence_threshold=args.high_confidence_threshold,
+        move_rank_analysis=args.move_rank_analysis,
         train_summary=Path(args.train_summary) if args.train_summary else None,
         dry_run=args.dry_run,
         allow_failures=args.allow_failures,
@@ -240,7 +249,7 @@ def analyzer_command(
     eval_config_path: Path,
     report_path: Path,
 ) -> list[str]:
-    return [
+    command = [
         str(config.eval_vs_exact),
         "--labels",
         str(config.validation_labels),
@@ -251,6 +260,9 @@ def analyzer_command(
         "--high-confidence-threshold",
         str(config.high_confidence_threshold),
     ]
+    if config.move_rank_analysis:
+        command.append("--move-rank-analysis")
+    return command
 
 
 def write_log(path: Path, text: str) -> None:
@@ -532,6 +544,7 @@ def render_report(
         f"- wrong_direction_penalty: `{config.wrong_direction_penalty}`",
         f"- high_confidence_penalty: `{config.high_confidence_penalty}`",
         f"- high_confidence_threshold: `{config.high_confidence_threshold}`",
+        f"- move_rank_analysis: `{str(config.move_rank_analysis).lower()}`",
         f"- top: `{config.top}`",
         "",
         "## Base Result",
@@ -569,6 +582,26 @@ def render_report(
     if len(ranked_candidates) > config.top:
         lines.append("")
         lines.append(f"Showing top `{config.top}` of `{len(ranked_candidates)}` successful candidates.")
+
+    if config.move_rank_analysis:
+        lines.extend(
+            [
+                "",
+                "## Move-Rank Metrics",
+                "",
+                "These metrics are recorded from `othello_eval_vs_exact --move-rank-analysis` for diagnostics only. The held-out objective still uses the sign-agreement formula above.",
+                "",
+                "| Candidate | Records With Scores | Missing Scores | No Legal Root Moves | Analyzed | Top Group Exact-Best | Top Group Non-Best | Exact-Best Rank Sum | Eval Gap Sum | Exact Gap Sum | Report |",
+                "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|",
+            ]
+        )
+        for result in [base_result, *ranked_candidates]:
+            cells = move_rank_cells(result.metrics)
+            lines.append(
+                f"| `{result.candidate_id}` | "
+                + " | ".join(cells)
+                + f" | `{result.report_path}` |"
+            )
 
     if train_summary is not None:
         lines.extend(["", *render_train_vs_heldout(ranked_candidates=displayed_candidates, train_summary=train_summary)])
@@ -645,6 +678,7 @@ def render_report(
             "- This report is not a default-promotion gate or recommendation.",
             "- Validation labels may still be biased.",
             "- Random playout labels may not be representative training data.",
+            "- Move-rank analysis is root move-quality evidence only; missing `move_scores` are reported as a caveat, not a workflow failure.",
             "- Candidates need search bench, match runner or base/head validation, and external sanity when appropriate before any promotion claim.",
         ]
     )
@@ -658,7 +692,9 @@ def write_summary_tsv(
     candidate_results: list[ValidationResult],
 ) -> None:
     lines = [
-        "rank\tcandidate\tstatus\tobjective\tdelta_vs_base\tanalyzed\tsign_agreements\twrong_direction\thigh_confidence_wrong_direction\tconfig\treport"
+        "rank\tcandidate\tstatus\tobjective\tdelta_vs_base\tanalyzed\tsign_agreements\twrong_direction\thigh_confidence_wrong_direction\t"
+        + "\t".join(MOVE_RANK_METRIC_KEYS)
+        + "\tconfig\treport"
     ]
     ranked = ranked_successes(candidate_results)
     ranked_ids = {result.candidate_id: rank for rank, result in enumerate(ranked, start=1)}
@@ -678,6 +714,7 @@ def write_summary_tsv(
                     sign_agreements,
                     wrong_direction,
                     high_confidence,
+                    *move_rank_cells(result.metrics),
                     str(result.config_path),
                     str(result.report_path),
                 ]

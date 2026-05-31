@@ -179,6 +179,11 @@ exact-root usage, and candidate-vs-baseline deltas where the baseline is
 comparable. Checksum changes mean behavior changed in that smoke matrix; they
 are not regressions by themselves.
 
+When exact labels include `move_scores`, pass `--move-rank-analysis` to carry
+root move-quality counters from `othello_eval_vs_exact` into the matrix report
+and `summary.tsv`. These counters help compare candidate behavior beyond sign
+agreement, but the workflow remains orchestration smoke evidence only.
+
 This workflow is an orchestration aid, not a tuner or promotion gate. Its
 eval-vs-exact and search-bench rows make the next evaluation decision possible,
 but they are smoke evidence only unless followed by broader deterministic

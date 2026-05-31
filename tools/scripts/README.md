@@ -86,6 +86,11 @@ held-out exact labels, search bench, match runner or base/head comparison, and
 external sanity checks when appropriate before creating any named candidate or
 promotion PR.
 
+Pass `--move-rank-analysis` when labels include `move_scores` and root
+move-quality evidence should be copied into the tuner report and `summary.tsv`.
+The objective remains the sign-agreement formula; missing `move_scores` are a
+diagnostic caveat, not a workflow failure.
+
 Validate generated `.eval` candidates on held-out exact-label JSONL:
 
 ```sh
@@ -113,6 +118,10 @@ label-distribution dependent, and validation labels may still be biased. After a
 candidate looks promising on held-out exact labels, use search bench, match
 runner or base/head comparison, and external sanity checks when appropriate
 before making any promotion claim.
+
+Use `--move-rank-analysis` with held-out labels that include `move_scores` to
+record root move-quality counters beside the held-out sign-agreement objective.
+The validator still ranks by the existing diagnostic objective.
 
 Run search-bench and match-smoke validation for top `.eval` candidates:
 
@@ -160,6 +169,12 @@ under the requested output directory. The summary records config fingerprints,
 result/work checksums, nodes, elapsed time, score kind, exact-root usage, and
 candidate-vs-baseline deltas when comparable. It does not tune weights, make a
 strength claim, or promote a default.
+
+When `--move-rank-analysis` is passed and labels include `move_scores`, the
+matrix also records eval-vs-exact root move-quality metrics in the report and
+`summary.tsv`. These metrics are orchestration smoke evidence for the next
+decision; broader matches or base/head comparison are still required before any
+strength claim.
 
 For evaluator config evidence:
 

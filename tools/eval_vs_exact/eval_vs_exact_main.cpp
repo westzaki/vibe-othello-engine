@@ -277,8 +277,25 @@ static int run(int argc, char** argv) {
               << " sign_agreements=" << report->summary.sign_agreements
               << " wrong_direction=" << report->summary.wrong_direction
               << " high_confidence_wrong_direction="
-              << report->summary.high_confidence_wrong_direction << " output=" << output_path
-              << '\n';
+              << report->summary.high_confidence_wrong_direction;
+    if (parsed->move_rank_analysis) {
+        std::cout << " move_rank_records_with_scores="
+                  << report->summary.move_rank_records_with_scores
+                  << " move_rank_records_missing_scores="
+                  << report->summary.move_rank_records_missing_scores
+                  << " move_rank_records_no_legal_root_moves="
+                  << report->summary.move_rank_records_no_legal_moves
+                  << " move_rank_analyzed=" << report->summary.move_rank_analyzed
+                  << " move_rank_top_exact_best=" << report->summary.move_rank_top_exact_best
+                  << " move_rank_top_non_best=" << report->summary.move_rank_top_non_best
+                  << " move_rank_exact_best_rank_sum="
+                  << report->summary.move_rank_exact_best_rank_sum
+                  << " move_rank_eval_score_gap_sum="
+                  << report->summary.move_rank_eval_score_gap_sum
+                  << " move_rank_exact_score_gap_sum="
+                  << report->summary.move_rank_exact_score_gap_sum;
+    }
+    std::cout << " output=" << output_path << '\n';
     return 0;
 }
 

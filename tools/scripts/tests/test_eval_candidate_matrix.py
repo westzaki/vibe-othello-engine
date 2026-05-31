@@ -56,6 +56,7 @@ def write_fake_eval_vs_exact(directory: Path) -> Path:
         parser.add_argument("--labels", required=True)
         parser.add_argument("--output", required=True)
         parser.add_argument("--eval-config", required=True)
+        parser.add_argument("--move-rank-analysis", action="store_true")
         args = parser.parse_args()
 
         if "fail" in Path(args.eval_config).stem:
@@ -63,7 +64,24 @@ def write_fake_eval_vs_exact(directory: Path) -> Path:
             sys.exit(7)
         Path(args.output).parent.mkdir(parents=True, exist_ok=True)
         Path(args.output).write_text("# fake eval-vs-exact\\n", encoding="utf-8")
-        print("analyzed=3")
+        output = (
+            "eval vs exact: records_read=5 analyzed=3 skipped=2 "
+            "sign_agreements=2 wrong_direction=1 "
+            "high_confidence_wrong_direction=0 "
+        )
+        if args.move_rank_analysis:
+            output += (
+                "move_rank_records_with_scores=2 "
+                "move_rank_records_missing_scores=3 "
+                "move_rank_records_no_legal_root_moves=0 "
+                "move_rank_analyzed=2 "
+                "move_rank_top_exact_best=1 "
+                "move_rank_top_non_best=1 "
+                "move_rank_exact_best_rank_sum=3 "
+                "move_rank_eval_score_gap_sum=11 "
+                "move_rank_exact_score_gap_sum=7 "
+            )
+        print(output + f"output={args.output}")
         """,
     )
 
@@ -225,6 +243,23 @@ class EvalCandidateMatrixTests(unittest.TestCase):
         self.assertEqual(command[command.index("--format") + 1], "jsonl")
         self.assertNotIn("--by-position", command)
 
+    def test_eval_command_passes_move_rank_flag_when_enabled(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_file(temp_path / "labels.jsonl", "{}\n")
+            config = make_config(
+                temp_path,
+                extra_args=["--labels", str(labels), "--move-rank-analysis"],
+            )
+            target = matrix.make_targets(config)[1]
+
+        command = matrix.eval_vs_exact_command(
+            config,
+            target,
+            temp_path / "candidate.md",
+        )
+        self.assertIn("--move-rank-analysis", command)
+
     def test_with_labels_runs_eval_and_search_and_summarizes_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             temp_path = Path(temp)
@@ -256,9 +291,45 @@ class EvalCandidateMatrixTests(unittest.TestCase):
         self.assertEqual(candidate["aggregate_rows"], "1")
         self.assertEqual(candidate["position_rows"], "0")
         self.assertEqual(candidate["nodes"], "155")
+        self.assertEqual(candidate["eval_records_read"], "5")
+        self.assertEqual(candidate["eval_analyzed"], "3")
+        self.assertEqual(candidate["eval_sign_agreements"], "2")
+        self.assertEqual(candidate["move_rank_analyzed"], "n/a")
         self.assertEqual(candidate["result_checksum_changed"], "true")
         self.assertEqual(candidate["work_checksum_changed"], "true")
         self.assertEqual(candidate["baseline_comparable"], "true")
+
+    def test_move_rank_analysis_records_eval_metrics_in_report_and_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            tools = (write_fake_eval_vs_exact(temp_path), write_fake_search_bench(temp_path))
+            labels = write_file(temp_path / "labels.jsonl", "{}\n")
+            config = make_config(
+                temp_path,
+                tools=tools,
+                extra_args=[
+                    "--labels",
+                    str(labels),
+                    "--search-depths",
+                    "5",
+                    "--move-rank-analysis",
+                ],
+            )
+
+            exit_code = matrix.run_matrix(config)
+            report = (config.out_dir / "report.md").read_text(encoding="utf-8")
+            summary_rows = read_summary(config.out_dir / "summary.tsv")
+            candidate = next(row for row in summary_rows if row["role"] == "candidate")
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("## Eval-vs-Exact Metrics", report)
+        self.assertIn("move_rank_analysis: `true`", report)
+        self.assertIn("missing `move_scores`", report)
+        self.assertEqual(candidate["move_rank_records_with_scores"], "2")
+        self.assertEqual(candidate["move_rank_records_missing_scores"], "3")
+        self.assertEqual(candidate["move_rank_analyzed"], "2")
+        self.assertEqual(candidate["move_rank_top_exact_best"], "1")
+        self.assertEqual(candidate["move_rank_exact_score_gap_sum"], "7")
 
     def test_config_sha256_is_recorded(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

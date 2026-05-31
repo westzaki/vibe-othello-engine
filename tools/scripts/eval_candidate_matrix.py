@@ -15,6 +15,12 @@ from pathlib import Path
 from typing import Any
 
 from common import ScriptError, quote_command, slugify
+from eval_config_tuner import (
+    MOVE_RANK_METRIC_KEYS,
+    AnalyzerMetrics,
+    move_rank_cells,
+    parse_analyzer_stdout,
+)
 
 
 DEFAULT_BASELINE_CONFIG = Path("data") / "eval" / "current_default.eval"
@@ -53,6 +59,7 @@ class MatrixConfig:
     positions: str
     repetitions: int
     exact_endgame_threshold: int
+    move_rank_analysis: bool
     dry_run: bool
     allow_failures: bool
     eval_vs_exact: Path
@@ -113,6 +120,8 @@ class TargetResult:
     target: EvalTarget
     eval_result: CommandResult | None
     search_result: CommandResult
+    eval_metrics: AnalyzerMetrics | None = None
+    eval_parse_error: str = ""
     search_metrics: SearchMetrics | None = None
     search_parse_error: str = ""
 
@@ -216,6 +225,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=parse_non_negative_int,
         default=DEFAULT_EXACT_ENDGAME_THRESHOLD,
     )
+    parser.add_argument(
+        "--move-rank-analysis",
+        action="store_true",
+        help="pass --move-rank-analysis to othello_eval_vs_exact and record root move-quality metrics",
+    )
     parser.add_argument("--dry-run", action="store_true", help="write commands/report without running C++ tools")
     parser.add_argument(
         "--allow-failures",
@@ -260,6 +274,7 @@ def config_from_args(args: argparse.Namespace, invocation: list[str] | None = No
         positions=args.positions,
         repetitions=args.repetitions,
         exact_endgame_threshold=args.exact_endgame_threshold,
+        move_rank_analysis=args.move_rank_analysis,
         dry_run=args.dry_run,
         allow_failures=args.allow_failures,
         eval_vs_exact=Path(args.eval_vs_exact) if args.eval_vs_exact else build_dir / "othello_eval_vs_exact",
@@ -315,7 +330,7 @@ def make_targets(config: MatrixConfig) -> list[EvalTarget]:
 def eval_vs_exact_command(config: MatrixConfig, target: EvalTarget, report_path: Path) -> list[str]:
     if config.labels_path is None:
         raise AssertionError("eval_vs_exact_command requires labels")
-    return [
+    command = [
         str(config.eval_vs_exact),
         "--labels",
         str(config.labels_path),
@@ -324,6 +339,9 @@ def eval_vs_exact_command(config: MatrixConfig, target: EvalTarget, report_path:
         "--eval-config",
         str(target.config_path),
     ]
+    if config.move_rank_analysis:
+        command.append("--move-rank-analysis")
+    return command
 
 
 def search_bench_command(config: MatrixConfig, target: EvalTarget) -> list[str]:
@@ -491,6 +509,8 @@ def skipped_eval_result(config: MatrixConfig, target: EvalTarget) -> CommandResu
         "--eval-config",
         str(target.config_path),
     ]
+    if config.move_rank_analysis:
+        command.append("--move-rank-analysis")
     log_path = config.out_dir / "logs" / target.slug / "eval-vs-exact.log"
     reason = "--labels was not provided"
     write_command_log(
@@ -627,6 +647,8 @@ def run_target(config: MatrixConfig, target: EvalTarget) -> TargetResult:
     search_jsonl = config.out_dir / "search-bench" / f"{target.slug}.jsonl"
 
     eval_result: CommandResult | None
+    eval_metrics: AnalyzerMetrics | None = None
+    eval_parse_error = ""
     if config.labels_path is None:
         eval_result = skipped_eval_result(config, target)
     else:
@@ -648,6 +670,15 @@ def run_target(config: MatrixConfig, target: EvalTarget) -> TargetResult:
                 output_path=eval_report,
                 dry_run=config.dry_run,
             )
+            if eval_result.status == "passed":
+                try:
+                    eval_metrics = parse_analyzer_stdout(eval_result.stdout_text)
+                except ScriptError as exc:
+                    eval_parse_error = str(exc)
+                    append_command_log_note(
+                        eval_result.log_path,
+                        f"parse_note: eval stdout metrics unavailable: {eval_parse_error}",
+                    )
 
     search_command = search_bench_command(config, target)
     if target.fingerprint.error:
@@ -658,7 +689,13 @@ def run_target(config: MatrixConfig, target: EvalTarget) -> TargetResult:
             output_path=search_jsonl,
             error=target.fingerprint.error,
         )
-        return TargetResult(target=target, eval_result=eval_result, search_result=search_result)
+        return TargetResult(
+            target=target,
+            eval_result=eval_result,
+            search_result=search_result,
+            eval_metrics=eval_metrics,
+            eval_parse_error=eval_parse_error,
+        )
 
     search_result = run_command_result(
         name="search-bench",
@@ -670,7 +707,13 @@ def run_target(config: MatrixConfig, target: EvalTarget) -> TargetResult:
     )
 
     if search_result.status != "passed":
-        return TargetResult(target=target, eval_result=eval_result, search_result=search_result)
+        return TargetResult(
+            target=target,
+            eval_result=eval_result,
+            search_result=search_result,
+            eval_metrics=eval_metrics,
+            eval_parse_error=eval_parse_error,
+        )
 
     try:
         metrics = parse_search_metrics(search_result.stdout_text)
@@ -681,12 +724,16 @@ def run_target(config: MatrixConfig, target: EvalTarget) -> TargetResult:
             target=target,
             eval_result=eval_result,
             search_result=replace(search_result, status="failed", error=parse_error),
+            eval_metrics=eval_metrics,
+            eval_parse_error=eval_parse_error,
             search_parse_error=parse_error,
         )
     return TargetResult(
         target=target,
         eval_result=eval_result,
         search_result=search_result,
+        eval_metrics=eval_metrics,
+        eval_parse_error=eval_parse_error,
         search_metrics=metrics,
     )
 
@@ -771,6 +818,18 @@ def _metric(result: TargetResult, attr: str) -> object | None:
     return getattr(result.search_metrics, attr)
 
 
+def _eval_metric(result: TargetResult, attr: str) -> object | None:
+    if result.eval_metrics is None:
+        return None
+    return getattr(result.eval_metrics, attr)
+
+
+def _eval_move_rank_cells(metrics: AnalyzerMetrics | None) -> list[str]:
+    if metrics is None:
+        return ["n/a"] * len(MOVE_RANK_METRIC_KEYS)
+    return move_rank_cells(metrics)
+
+
 def render_summary_table(results: list[TargetResult]) -> str:
     baseline = find_baseline_result(results)
     lines = [
@@ -809,6 +868,39 @@ def render_summary_table(results: list[TargetResult]) -> str:
                     ),
                     _md(checksum_changed),
                     failed,
+                )
+            )
+            + " |"
+        )
+    return "\n".join(lines)
+
+
+def render_eval_metrics_table(results: list[TargetResult]) -> str:
+    lines = [
+        "| role | name | status | records read | analyzed | sign agreements | wrong direction | high confidence wrong | records with scores | missing scores | no legal root moves | move-rank analyzed | top group exact-best | top group non-best | exact-best rank sum | eval gap sum | exact gap sum | note | report |",
+        "| :--- | :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | :--- | :--- |",
+    ]
+    for result in results:
+        eval_result = result.eval_result
+        status = eval_result.status if eval_result is not None else "skipped"
+        report = eval_result.output_path if eval_result is not None and eval_result.output_path else "n/a"
+        note = result.eval_parse_error or (eval_result.skipped_reason if eval_result else "") or "ok"
+        move_cells = _eval_move_rank_cells(result.eval_metrics)
+        lines.append(
+            "| "
+            + " | ".join(
+                (
+                    _md(result.target.role),
+                    _md(result.target.label),
+                    _md(status),
+                    _display(_eval_metric(result, "records_read"), digits=0),
+                    _display(_eval_metric(result, "analyzed"), digits=0),
+                    _display(_eval_metric(result, "sign_agreements"), digits=0),
+                    _display(_eval_metric(result, "wrong_direction"), digits=0),
+                    _display(_eval_metric(result, "high_confidence_wrong_direction"), digits=0),
+                    *(_md(cell) for cell in move_cells),
+                    _md(note),
+                    f"`{_md(report)}`" if report != "n/a" else "n/a",
                 )
             )
             + " |"
@@ -894,6 +986,7 @@ def render_report(config: MatrixConfig, metadata: Metadata, results: list[Target
         f"- positions: `{config.positions}`",
         f"- repetitions: `{config.repetitions}`",
         f"- exact_endgame_threshold: `{config.exact_endgame_threshold}`",
+        f"- move_rank_analysis: `{str(config.move_rank_analysis).lower()}`",
         f"- summary_tsv: `{summary_path}`",
         f"- search_jsonl_dir: `{config.out_dir / 'search-bench'}`",
         f"- allow_failures: `{str(config.allow_failures).lower()}`",
@@ -905,6 +998,12 @@ def render_report(config: MatrixConfig, metadata: Metadata, results: list[Target
         "## Summary",
         "",
         render_summary_table(results),
+        "",
+        "## Eval-vs-Exact Metrics",
+        "",
+        "These metrics are parsed from `othello_eval_vs_exact` stdout when `--labels` is provided. Move-rank columns are diagnostic root move-quality evidence and are `n/a` unless `--move-rank-analysis` is enabled and labels include usable `move_scores`.",
+        "",
+        render_eval_metrics_table(results),
         "",
         "## Baseline Deltas",
         "",
@@ -955,6 +1054,7 @@ def render_report(config: MatrixConfig, metadata: Metadata, results: list[Target
             "- This is an orchestration smoke workflow, not a tuner.",
             "- It does not promote any candidate automatically.",
             "- Eval-vs-exact compares heuristic scores with exact final-disc labels and is not calibrated as disc-margin error.",
+            "- Move-rank analysis is diagnostic root move-quality evidence only; missing `move_scores` are reported and do not fail the workflow.",
             "- Search bench output is fixed-position smoke evidence; use broader deterministic matches or base/head comparison before making strength claims.",
             "- Keep generated reports, logs, JSONL, and analyzer output under `runs/`; do not commit raw run output.",
         ]
@@ -980,6 +1080,13 @@ def write_summary_tsv(config: MatrixConfig, results: list[TargetResult]) -> None
                 "eval_status",
                 "eval_report_path",
                 "eval_log_path",
+                "eval_records_read",
+                "eval_analyzed",
+                "eval_sign_agreements",
+                "eval_wrong_direction",
+                "eval_high_confidence_wrong_direction",
+                *MOVE_RANK_METRIC_KEYS,
+                "eval_metric_note",
                 "search_status",
                 "search_jsonl_path",
                 "search_log_path",
@@ -1010,6 +1117,7 @@ def write_summary_tsv(config: MatrixConfig, results: list[TargetResult]) -> None
         )
         for result in results:
             eval_result = result.eval_result
+            eval_metrics = result.eval_metrics
             metrics = result.search_metrics
             delta = compare_to_baseline(baseline, result)
             errors = "; ".join(
@@ -1017,10 +1125,19 @@ def write_summary_tsv(config: MatrixConfig, results: list[TargetResult]) -> None
                 for value in (
                     result.target.fingerprint.error,
                     eval_result.error if eval_result is not None else "",
+                    result.eval_parse_error,
                     result.search_result.error,
                     result.search_parse_error,
                 )
                 if value
+            )
+            eval_metric_note = (
+                result.eval_parse_error
+                or (eval_result.skipped_reason if eval_result is not None else "")
+                or ""
+            )
+            eval_move_cells = (
+                move_rank_cells(eval_metrics) if eval_metrics is not None else [""] * len(MOVE_RANK_METRIC_KEYS)
             )
             writer.writerow(
                 [
@@ -1034,6 +1151,13 @@ def write_summary_tsv(config: MatrixConfig, results: list[TargetResult]) -> None
                     eval_result.status if eval_result is not None else "skipped",
                     eval_result.output_path if eval_result is not None and eval_result.output_path else "",
                     eval_result.log_path if eval_result is not None else "",
+                    eval_metrics.records_read if eval_metrics else "",
+                    eval_metrics.analyzed if eval_metrics else "",
+                    eval_metrics.sign_agreements if eval_metrics else "",
+                    eval_metrics.wrong_direction if eval_metrics else "",
+                    eval_metrics.high_confidence_wrong_direction if eval_metrics else "",
+                    *eval_move_cells,
+                    eval_metric_note,
                     result.search_result.status,
                     result.search_result.output_path or "",
                     result.search_result.log_path,
