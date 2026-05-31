@@ -117,7 +117,7 @@ TEST_CASE("Root candidate analysis uses evaluation config override for breakdown
     auto options = candidate_options(1);
     othello::EvaluationConfig config = othello::default_evaluation_config();
     config.opening.mobility = 123;
-    options.evaluation_config_override = config;
+    options.evaluator.config_override = config;
 
     const auto candidates =
         othello::tools::analyze::analyze_root_candidates(board, options);
@@ -150,7 +150,7 @@ TEST_CASE("Position analysis print includes corner pattern breakdown fields", "[
         .use_transposition_table = true,
         .exact_endgame_empty_threshold = 0,
         .use_pvs = true,
-        .evaluation_preset = othello::EvaluationPreset::CornerPattern2x3V1,
+        .evaluator = {.preset = othello::EvaluationPreset::CornerPattern2x3V1},
     };
     const othello::SearchResult result = othello::tools::analyze::run_search(board, options);
 
@@ -173,7 +173,7 @@ TEST_CASE("Position analysis print includes edge 8 pattern breakdown fields", "[
         .use_transposition_table = true,
         .exact_endgame_empty_threshold = 0,
         .use_pvs = true,
-        .evaluation_preset = othello::EvaluationPreset::EdgePattern8V1,
+        .evaluator = {.preset = othello::EvaluationPreset::EdgePattern8V1},
     };
     const othello::SearchResult result = othello::tools::analyze::run_search(board, options);
 

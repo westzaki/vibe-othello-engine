@@ -1,7 +1,7 @@
 #include "player_spec.hpp"
 
 #include "common/cli.hpp"
-#include "common/eval_config_io.hpp"
+#include "common/evaluator_selection.hpp"
 
 #include <limits>
 #include <string>
@@ -62,6 +62,7 @@ std::optional<PlayerSpec> parse_player_spec(std::string_view text) {
         bool seen_tt_entries = false;
         bool seen_eval = false;
         bool seen_eval_config = false;
+        tools::EvaluatorSelectionInput evaluator_input;
 
         if (depth_end != std::string_view::npos) {
             rest.remove_prefix(depth_end + 1);
@@ -143,23 +144,13 @@ std::optional<PlayerSpec> parse_player_spec(std::string_view text) {
                     if (seen_eval || seen_eval_config) {
                         return std::nullopt;
                     }
-                    const std::optional<EvaluationPreset> parsed =
-                        evaluation_preset_from_name(value);
-                    if (!parsed.has_value()) {
-                        return std::nullopt;
-                    }
-                    search_options.evaluation_preset = *parsed;
+                    evaluator_input.preset_name = std::string{value};
                     seen_eval = true;
                 } else if (key == "eval_config") {
                     if (seen_eval || seen_eval_config || value.empty()) {
                         return std::nullopt;
                     }
-                    const tools::EvaluationConfigLoadResult loaded =
-                        tools::load_evaluation_config_file(std::string{value});
-                    if (!loaded.ok()) {
-                        return std::nullopt;
-                    }
-                    search_options.evaluation_config_override = loaded.config;
+                    evaluator_input.config_path = std::string{value};
                     seen_eval_config = true;
                 } else {
                     return std::nullopt;
@@ -171,6 +162,14 @@ std::optional<PlayerSpec> parse_player_spec(std::string_view text) {
                 rest.remove_prefix(option_end + 1);
             }
         }
+
+        std::string evaluator_error;
+        const std::optional<tools::EvaluatorSelection> evaluator =
+            tools::parse_evaluator_selection(evaluator_input, evaluator_error);
+        if (!evaluator.has_value()) {
+            return std::nullopt;
+        }
+        search_options.evaluator = *evaluator;
 
         return PlayerSpec{.kind = PlayerKind::Search,
                           .depth = *depth,
@@ -189,9 +188,7 @@ SearchOptions make_search_options(const PlayerSpec& spec) noexcept {
     options.exact_endgame_empty_threshold = spec.search_options.exact_endgame_empty_threshold;
     options.exact_endgame_root_policy = spec.search_options.exact_endgame_root_policy;
     options.use_pvs = spec.search_options.use_pvs;
-    options.evaluation_preset = spec.search_options.evaluation_preset;
-    options.evaluation_config_override = spec.search_options.evaluation_config_override;
-    return options;
+    return tools::apply_evaluator_selection(options, spec.search_options.evaluator);
 }
 
 } // namespace othello::match_runner
