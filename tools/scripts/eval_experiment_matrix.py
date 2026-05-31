@@ -15,7 +15,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import match_summary
-from common import ScriptError, parse_bool, quote_command
+from common import (
+    ScriptError,
+    parse_bool,
+    parse_csv_paths as common_parse_csv_paths,
+    parse_csv_values,
+    quote_command,
+    slugify,
+    write_report_section,
+)
 
 
 @dataclass(frozen=True)
@@ -32,7 +40,7 @@ class EvalTarget:
 
     @property
     def slug(self) -> str:
-        return slugify(self.label)
+        return slugify(self.label, fallback="preset")
 
     @property
     def search_option(self) -> str:
@@ -164,17 +172,11 @@ class CandidateDecision:
 
 
 def parse_csv_names(value: str) -> list[str]:
-    names = [part.strip() for part in value.split(",")]
-    if not names or any(not name for name in names):
-        raise ScriptError(f"invalid preset list: {value}")
-    return names
+    return parse_csv_values(value, error_label="preset list")
 
 
 def parse_csv_paths(value: str) -> list[Path]:
-    parts = [part.strip() for part in value.split(",")]
-    if not parts or any(not part for part in parts):
-        raise ScriptError(f"invalid config list: {value}")
-    return [Path(part) for part in parts]
+    return common_parse_csv_paths(value, error_label="config list")
 
 
 def eval_config_label(path: Path) -> str:
@@ -260,11 +262,6 @@ def parse_depth_list(value: str) -> list[int]:
     if not depths:
         raise ScriptError("depth list must not be empty")
     return depths
-
-
-def slugify(value: str) -> str:
-    slug = "".join(char if char.isalnum() or char in ("-", "_") else "-" for char in value)
-    return slug.strip("-") or "preset"
 
 
 def detect_git_metadata(repo: Path) -> GitMetadata:
@@ -388,7 +385,7 @@ def build_ntest_command(config: EvalExperimentConfig, preset: EvalTarget | str) 
     output_path = (
         config.out_dir
         / "ntest"
-        / f"{target.slug}-vs-{slugify(config.ntest_engine)}-depth-{depth}.jsonl"
+        / f"{target.slug}-vs-{slugify(config.ntest_engine, fallback='preset')}-depth-{depth}.jsonl"
     )
     command = [
         str(config.match_runner),
@@ -902,30 +899,26 @@ def render_report(
     for run in ntest_runs:
         lines.extend(("```sh", quote_command(run.command), "```", ""))
 
-    lines.extend(("## Search Screening Summary", "", render_search_table(search_runs, dry_run=dry_run), ""))
-
-    lines.extend(("## Small Match Summary", "", render_match_table(small_runs), ""))
-    lines.extend(("## Extended Match Summary", "", render_match_table(extended_runs), ""))
-    lines.extend(("## Promotion Table", "", render_promotion_table(decisions), ""))
-
-    lines.extend(
-        (
-            "## Rejected Candidates",
-            "",
-            ", ".join(f"`{preset}`" for preset in rejected) if rejected else "None.",
-            "",
-            "## Mixed Candidates",
-            "",
-            ", ".join(f"`{preset}`" for preset in mixed) if mixed else "None.",
-            "",
-            "## Speed Concerns",
-            "",
-            ", ".join(f"`{preset}`" for preset in speed) if speed else "None.",
-            "",
-            "## Optional NTest Sanity",
-            "",
-        )
+    write_report_section(lines, "Search Screening Summary", render_search_table(search_runs, dry_run=dry_run))
+    write_report_section(lines, "Small Match Summary", render_match_table(small_runs))
+    write_report_section(lines, "Extended Match Summary", render_match_table(extended_runs))
+    write_report_section(lines, "Promotion Table", render_promotion_table(decisions))
+    write_report_section(
+        lines,
+        "Rejected Candidates",
+        ", ".join(f"`{preset}`" for preset in rejected) if rejected else "None.",
     )
+    write_report_section(
+        lines,
+        "Mixed Candidates",
+        ", ".join(f"`{preset}`" for preset in mixed) if mixed else "None.",
+    )
+    write_report_section(
+        lines,
+        "Speed Concerns",
+        ", ".join(f"`{preset}`" for preset in speed) if speed else "None.",
+    )
+    lines.extend(("## Optional NTest Sanity", ""))
     if ntest_skip_reason is not None:
         lines.append(ntest_skip_reason)
     else:

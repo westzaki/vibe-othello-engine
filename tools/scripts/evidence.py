@@ -18,7 +18,14 @@ from pathlib import Path
 from typing import Protocol
 
 import match_summary
-from common import ScriptError, quote_command
+from common import (
+    ScriptError,
+    parse_csv_paths,
+    parse_csv_values,
+    quote_command,
+    slugify,
+    write_report_section,
+)
 
 
 PROFILES = ("smoke", "pr", "eval", "full")
@@ -105,22 +112,6 @@ class MatchEvidence:
 class StepExecutor(Protocol):
     def __call__(self, step: Step, *, dry_run: bool) -> StepResult:
         ...
-
-
-def parse_csv_values(value: str) -> list[str]:
-    parts = [part.strip() for part in value.split(",")]
-    if not parts or any(not part for part in parts):
-        raise ScriptError(f"invalid CSV list: {value}")
-    return parts
-
-
-def parse_csv_paths(value: str) -> list[Path]:
-    return [Path(part) for part in parse_csv_values(value)]
-
-
-def slugify(value: str) -> str:
-    slug = "".join(char if char.isalnum() or char in ("-", "_") else "-" for char in value)
-    return slug.strip("-") or "target"
 
 
 def default_out_dir(source_dir: Path, profile: str) -> Path:
@@ -810,59 +801,55 @@ def render_report(
     matches: list[MatchEvidence],
 ) -> str:
     status = report_status(config, results)
-    return "\n".join(
+    lines = [
+        "# Evidence Report",
+        "",
+        f"Status: {status}",
+        "",
+        "No strength claim. This report collects evidence for review only.",
+        "",
+    ]
+    write_report_section(lines, "Metadata", render_metadata(metadata))
+    write_report_section(
+        lines,
+        "Profile",
         [
-            "# Evidence Report",
-            "",
-            f"Status: {status}",
-            "",
-            "No strength claim. This report collects evidence for review only.",
-            "",
-            "## Metadata",
-            "",
-            render_metadata(metadata),
-            "",
-            "## Profile",
-            "",
             f"- Profile: `{config.profile}`",
             f"- Output directory: `{config.out_dir}`",
-            "",
-            "## Commands",
-            "",
-            render_commands(results),
-            "",
-            "## Correctness Gate",
-            "",
-            render_group(config, results, "Correctness Gate"),
-            "",
-            "## Search / Evaluation Evidence",
-            "",
-            render_search_notes(config, results),
-            "",
-            "## Match Evidence",
-            "",
-            render_match_notes(config, results, matches),
-            "",
-            "## Semantic Change Notes",
-            "",
+        ],
+    )
+    write_report_section(lines, "Commands", render_commands(results))
+    write_report_section(lines, "Correctness Gate", render_group(config, results, "Correctness Gate"))
+    write_report_section(lines, "Search / Evaluation Evidence", render_search_notes(config, results))
+    write_report_section(lines, "Match Evidence", render_match_notes(config, results, matches))
+    write_report_section(
+        lines,
+        "Semantic Change Notes",
+        [
             "- No baseline comparison is available in this report.",
             "- Treat best move, score, PV, or checksum changes as semantic-change evidence.",
             "- If only timing or node counts change with stable checksums, treat it as speed evidence.",
-            "",
-            "## Caveats",
-            "",
+        ],
+    )
+    write_report_section(
+        lines,
+        "Caveats",
+        [
             "- No Elo claim.",
             "- No default promotion recommendation from this report alone.",
             "- Raw logs are under runs/ and should not be committed.",
-            "",
-            "## Suggested Next Checks",
-            "",
+        ],
+    )
+    write_report_section(
+        lines,
+        "Suggested Next Checks",
+        [
             "- Base/head external-process comparison if behavior changed.",
             "- NTest sanity before default promotion.",
             "- Exact-label validation for evaluator promotion when available.",
-            "",
-        ]
+        ],
     )
+    return "\n".join(lines)
 
 
 def write_report(config: EvidenceConfig, report: str) -> Path:
