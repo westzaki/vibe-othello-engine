@@ -1,0 +1,50 @@
+# schema_version: eval.v1
+# status: experimental
+# based_on: current_default.eval
+# source_report: docs/experiments/evaluation/2026-05-31-edge-frontier-interaction-factorial.md
+# not_default: true
+# not_promoted: true
+# caveat: strongest evidence is match smoke; held-out and move-rank direct
+# caveat: ablation against edge8_soft_frontier remains required.
+# next_validation_required: A+B+C vs A+B direct ablation with broader labels,
+# next_validation_required: repeated search, and larger swapped matches.
+name=experimental_edge8_soft_frontier_stability
+
+opening.disc_difference=0
+opening.mobility=8
+opening.potential_mobility=4
+opening.corner_occupancy=35
+opening.corner_access=30
+opening.x_square_danger=25
+opening.frontier=5
+opening.corner_local_2x3=0
+opening.corner_2x3_pattern=4
+opening.edge_stability_lite=3
+opening.edge_8_pattern=1
+
+midgame.disc_difference=1
+midgame.mobility=10
+midgame.potential_mobility=5
+midgame.corner_occupancy=40
+midgame.corner_access=35
+midgame.x_square_danger=30
+midgame.frontier=7
+midgame.corner_local_2x3=0
+midgame.corner_2x3_pattern=6
+midgame.edge_stability_lite=5
+midgame.edge_8_pattern=3
+
+late.disc_difference=4
+late.mobility=6
+late.potential_mobility=2
+late.corner_occupancy=45
+late.corner_access=20
+late.x_square_danger=20
+late.frontier=4
+late.corner_local_2x3=0
+late.corner_2x3_pattern=4
+late.edge_stability_lite=9
+late.edge_8_pattern=5
+
+opening_max_occupied=20
+midgame_max_occupied=44
