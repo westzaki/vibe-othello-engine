@@ -91,6 +91,12 @@ void write_text_file(const std::filesystem::path& path, std::string_view text) {
     return paths;
 }
 
+template <typename Table>
+[[nodiscard]] std::size_t nonzero_count(const Table& table) {
+    return static_cast<std::size_t>(
+        std::ranges::count_if(table, [](std::int16_t value) { return value != 0; }));
+}
+
 [[nodiscard]] Board corner_occupancy_board() {
     return Board{
         .black = Board::initial().black | othello::test::bit("a1"),
@@ -123,6 +129,14 @@ side=B)");
     return Board{
         .black = Board::initial().black | black_extra,
         .white = Board::initial().white | white_extra,
+        .side_to_move = Side::Black,
+    };
+}
+
+[[nodiscard]] Board pattern_disc_board(Bitboard black, Bitboard white = 0) {
+    return Board{
+        .black = black,
+        .white = white,
         .side_to_move = Side::Black,
     };
 }
@@ -326,6 +340,23 @@ TEST_CASE("Sample eval configs round-trip to expected evaluator configs", "[eval
                                 [](std::int16_t value) { return value != 0; }) == 8);
     CHECK(std::ranges::count_if(pattern_v1_phase.config.pattern_tables.edge_8,
                                 [](std::int16_t value) { return value != 0; }) == 12);
+
+    const othello::tools::EvaluationConfigLoadResult classic_pattern =
+        othello::tools::load_evaluation_config_file(
+            sample_eval_config_path("classic_pattern_v0.eval"));
+    REQUIRE(classic_pattern.ok());
+    REQUIRE(classic_pattern.name.has_value());
+    CHECK(*classic_pattern.name == "classic_pattern_v0");
+    CHECK(classic_pattern.pattern_table_path == "patterns/classic_pattern_v0.tsv");
+    CHECK(classic_pattern.config.pattern_tables.enabled);
+    CHECK(classic_pattern.config.opening.pattern_table == 6);
+    CHECK(classic_pattern.config.midgame.pattern_table == 6);
+    CHECK(classic_pattern.config.late.pattern_table == 6);
+    CHECK(nonzero_count(classic_pattern.config.pattern_tables.corner_3x3) > 0);
+    CHECK(nonzero_count(classic_pattern.config.pattern_tables.edge_8) > 0);
+    CHECK(nonzero_count(classic_pattern.config.pattern_tables.edge_x_10) > 0);
+    CHECK(nonzero_count(classic_pattern.config.pattern_tables.diagonal_8) > 0);
+    CHECK(nonzero_count(classic_pattern.config.pattern_tables.inner_row_8) > 0);
 }
 
 TEST_CASE("Committed eval config fixtures parse and preserve intended identities",
@@ -519,6 +550,25 @@ TEST_CASE("Eval config loader rejects missing and malformed pattern tables",
         othello::tools::load_evaluation_config_file(duplicate_eval);
     CHECK_FALSE(duplicate.ok());
     CHECK(duplicate.error.find("duplicate corner_2x3 index") != std::string::npos);
+
+    write_text_file(temp_dir / "patterns" / "duplicate_broad.tsv",
+                    "edge_x_10\t1\t2\nedge_x_10\t1\t3\n");
+    const std::filesystem::path duplicate_broad_eval = temp_dir / "duplicate_broad.eval";
+    write_text_file(duplicate_broad_eval,
+                    eval_config_with_pattern_table("patterns/duplicate_broad.tsv"));
+    const othello::tools::EvaluationConfigLoadResult duplicate_broad =
+        othello::tools::load_evaluation_config_file(duplicate_broad_eval);
+    CHECK_FALSE(duplicate_broad.ok());
+    CHECK(duplicate_broad.error.find("duplicate edge_x_10 index") != std::string::npos);
+
+    write_text_file(temp_dir / "patterns" / "out_of_range.tsv", "corner_3x3\t19683\t1\n");
+    const std::filesystem::path out_of_range_eval = temp_dir / "out_of_range.eval";
+    write_text_file(out_of_range_eval,
+                    eval_config_with_pattern_table("patterns/out_of_range.tsv"));
+    const othello::tools::EvaluationConfigLoadResult out_of_range =
+        othello::tools::load_evaluation_config_file(out_of_range_eval);
+    CHECK_FALSE(out_of_range.ok());
+    CHECK(out_of_range.error.find("corner_3x3 index out of range") != std::string::npos);
 
     write_text_file(temp_dir / "patterns" / "malformed.tsv", "corner_2x3\t1\n");
     const std::filesystem::path malformed_eval = temp_dir / "malformed.eval";
@@ -1324,6 +1374,89 @@ TEST_CASE("Edge 8 pattern index is deterministic across edges", "[evaluation]") 
     }
 }
 
+TEST_CASE("Classic broad pattern indexes are deterministic across symmetric lines",
+          "[evaluation]") {
+    using Corner3 = othello::Corner3x3PatternCorner;
+    using Diagonal = othello::Diagonal8PatternDiagonal;
+    using EdgeX = othello::EdgeX10PatternEdge;
+    using Inner = othello::InnerRow8PatternLine;
+
+    CHECK(othello::corner_3x3_pattern_table_size == 19683);
+    CHECK(othello::edge_x_10_pattern_table_size == 59049);
+    CHECK(othello::diagonal_8_pattern_table_size == 6561);
+    CHECK(othello::inner_row_8_pattern_table_size == 6561);
+    CHECK(othello::corner_3x3_pattern_index(pattern_disc_board(0), Side::Black,
+                                            Corner3::A1) == 0);
+    CHECK(othello::edge_x_10_pattern_index(pattern_disc_board(0), Side::Black,
+                                           EdgeX::Top) == 0);
+    CHECK(othello::diagonal_8_pattern_index(pattern_disc_board(0), Side::Black,
+                                            Diagonal::A1H8) == 0);
+    CHECK(othello::inner_row_8_pattern_index(pattern_disc_board(0), Side::Black,
+                                             Inner::Top) == 0);
+
+    const Board corner_mixed =
+        pattern_disc_board(othello::test::bit("a1") | othello::test::bit("c1") |
+                               othello::test::bit("b2"),
+                           othello::test::bit("b1") | othello::test::bit("a2") |
+                               othello::test::bit("c3"));
+    CHECK(othello::corner_3x3_pattern_index(corner_mixed, Side::Black,
+                                            Corner3::A1) == 13273);
+
+    for (const auto [corner, corner_square, c_square, x_square] : {
+             std::tuple{Corner3::A1, "a1", "b1", "b2"},
+             std::tuple{Corner3::H1, "h1", "g1", "g2"},
+             std::tuple{Corner3::A8, "a8", "b8", "b7"},
+             std::tuple{Corner3::H8, "h8", "g8", "g7"},
+         }) {
+        const Board board = pattern_disc_board(othello::test::bit(corner_square) |
+                                               othello::test::bit(c_square) |
+                                               othello::test::bit(x_square));
+        CHECK(othello::corner_3x3_pattern_index(board, Side::Black, corner) == 85);
+    }
+
+    const Board edge_context =
+        pattern_disc_board(othello::test::bit("a1") | othello::test::bit("c1") |
+                               othello::test::bit("b2"),
+                           othello::test::bit("b1") | othello::test::bit("g2"));
+    CHECK(othello::edge_x_10_pattern_index(edge_context, Side::Black,
+                                           EdgeX::Top) == 45943);
+    for (const auto [edge, first, second, third] : {
+             std::tuple{EdgeX::Top, "a1", "b1", "c1"},
+             std::tuple{EdgeX::Bottom, "a8", "b8", "c8"},
+             std::tuple{EdgeX::Left, "a1", "a2", "a3"},
+             std::tuple{EdgeX::Right, "h1", "h2", "h3"},
+         }) {
+        const Board board =
+            pattern_disc_board(othello::test::bit(first) | othello::test::bit(second),
+                               othello::test::bit(third));
+        CHECK(othello::edge_x_10_pattern_index(board, Side::Black, edge) == 22);
+    }
+
+    const Board diagonal =
+        pattern_disc_board(othello::test::bit("a1") | othello::test::bit("c3"),
+                           othello::test::bit("b2"));
+    CHECK(othello::diagonal_8_pattern_index(diagonal, Side::Black,
+                                            Diagonal::A1H8) == 16);
+
+    const Board anti_diagonal =
+        pattern_disc_board(othello::test::bit("h1") | othello::test::bit("f3"),
+                           othello::test::bit("g2"));
+    CHECK(othello::diagonal_8_pattern_index(anti_diagonal, Side::Black,
+                                            Diagonal::H1A8) == 16);
+
+    for (const auto [line, first, second, third] : {
+             std::tuple{Inner::Top, "a2", "b2", "c2"},
+             std::tuple{Inner::Bottom, "a7", "b7", "c7"},
+             std::tuple{Inner::Left, "b1", "b2", "b3"},
+             std::tuple{Inner::Right, "g1", "g2", "g3"},
+         }) {
+        const Board board =
+            pattern_disc_board(othello::test::bit(first) | othello::test::bit(third),
+                               othello::test::bit(second));
+        CHECK(othello::inner_row_8_pattern_index(board, Side::Black, line) == 16);
+    }
+}
+
 TEST_CASE("Edge 8 pattern table follows conservative edge rules", "[evaluation]") {
     const othello::EvaluationConfig config = edge_pattern_only_config(5);
     const Board own_full_edge = extra_disc_board(
@@ -1427,6 +1560,35 @@ TEST_CASE("External pattern table is deterministic and config gated", "[evaluati
     CHECK(zero_weight_breakdown.pattern_table == 0);
     CHECK(zero_weight_breakdown.pattern_table_score == 0);
     CHECK(zero_weight_breakdown.total == 0);
+}
+
+TEST_CASE("External broad pattern table is antisymmetric under color swap",
+          "[evaluation]") {
+    othello::EvaluationConfig config = pattern_table_only_config(1);
+    config.pattern_tables.corner_3x3[1] = 3;
+    config.pattern_tables.corner_3x3[2] = -3;
+    config.pattern_tables.edge_x_10[1] = 5;
+    config.pattern_tables.edge_x_10[2] = -5;
+    config.pattern_tables.diagonal_8[1] = 7;
+    config.pattern_tables.diagonal_8[2] = -7;
+    config.pattern_tables.inner_row_8[1] = 11;
+    config.pattern_tables.inner_row_8[2] = -11;
+
+    const Board corner_board = pattern_disc_board(othello::test::bit("a1"));
+    const Board swapped_corner = swapped_colors(corner_board);
+    CHECK(othello::evaluation_pattern_table_value(corner_board, Side::Black,
+                                                  config.pattern_tables) == 20);
+    CHECK(othello::evaluation_pattern_table_value(corner_board, Side::Black,
+                                                  config.pattern_tables) ==
+          -othello::evaluation_pattern_table_value(swapped_corner, Side::Black,
+                                                   config.pattern_tables));
+
+    const Board inner_board = pattern_disc_board(othello::test::bit("b1"));
+    const Board swapped_inner = swapped_colors(inner_board);
+    CHECK(othello::evaluation_pattern_table_value(inner_board, Side::Black,
+                                                  config.pattern_tables) == 11);
+    CHECK(othello::evaluate_with_config(inner_board, Side::Black, config) ==
+          -othello::evaluate_with_config(swapped_inner, Side::Black, config));
 }
 
 TEST_CASE("Classic lite scores participate in configured total math", "[evaluation]") {

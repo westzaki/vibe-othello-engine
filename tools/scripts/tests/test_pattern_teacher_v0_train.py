@@ -39,6 +39,18 @@ class PatternTeacherTrainTests(unittest.TestCase):
         self.assertIn(first, {"train", "validation", "holdout"})
         self.assertEqual(first, second)
 
+    def test_family_parser_expands_aliases_deterministically(self) -> None:
+        self.assertEqual(
+            trainer.parse_families("broad_all"),
+            ("corner_3x3", "edge_8", "edge_x_10", "diagonal_8", "inner_row_8"),
+        )
+        self.assertEqual(
+            trainer.parse_families("corner_only,edge_context_only,corner_only"),
+            ("corner_3x3", "edge_x_10"),
+        )
+        with self.assertRaises(ScriptError):
+            trainer.parse_families("missing_family")
+
     def test_write_split_files_is_deterministic(self) -> None:
         rows = [
             {
@@ -82,6 +94,29 @@ class PatternTeacherTrainTests(unittest.TestCase):
         self.assertIn((1, 4), first)
         self.assertIn((trainer.swapped_index(1, 6), -4), first)
 
+    def test_broad_pattern_indexes_are_deterministic(self) -> None:
+        board = (
+            "BWB.....\n"
+            "WB....W.\n"
+            "..W.....\n"
+            "........\n"
+            "........\n"
+            "........\n"
+            "........\n"
+            "........\n"
+            "side=B"
+        )
+        families = trainer.parse_families("broad_all")
+
+        first = trainer.pattern_indexes_by_family(board, "B", families)
+        second = trainer.pattern_indexes_by_family(board, "B", families)
+
+        self.assertEqual(first, second)
+        self.assertEqual(first["corner_3x3"][0], 13273)
+        self.assertEqual(first["edge_x_10"][0], 45943)
+        self.assertEqual(first["diagonal_8"][0], 22)
+        self.assertEqual(first["inner_row_8"][0], 1463)
+
     def test_render_table_is_deterministic(self) -> None:
         text = trainer.render_table(
             corner_entries=[(1, 2), (3, -2)],
@@ -102,6 +137,34 @@ class PatternTeacherTrainTests(unittest.TestCase):
             "corner_2x3\t1\t2\n"
             "corner_2x3\t3\t-2\n"
             "edge_8\t9\t1\n",
+        )
+
+    def test_render_table_supports_multiple_families(self) -> None:
+        text = trainer.render_table(
+            name="classic_pattern_v0",
+            family_entries={
+                "edge_x_10": [(1, 2), (2, -2)],
+                "corner_3x3": [(4, 1), (8, -1)],
+                "inner_row_8": [(16, 3), (32, -3)],
+            },
+            stats={"residual_updates": 1},
+            command=["pattern_teacher_v0_train.py", "--families", "broad_all"],
+        )
+
+        self.assertEqual(
+            text,
+            "# schema_version: pattern_table.v1\n"
+            "# name: classic_pattern_v0\n"
+            "# generated_by: tools/scripts/pattern_teacher_v0_train.py\n"
+            "# command: pattern_teacher_v0_train.py --families broad_all\n"
+            "# residual_updates: 1\n"
+            "\n"
+            "corner_3x3\t4\t1\n"
+            "corner_3x3\t8\t-1\n"
+            "edge_x_10\t1\t2\n"
+            "edge_x_10\t2\t-2\n"
+            "inner_row_8\t16\t3\n"
+            "inner_row_8\t32\t-3\n",
         )
 
 

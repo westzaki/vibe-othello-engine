@@ -138,6 +138,24 @@ constexpr std::array<ConfigKeySpec, 2> config_keys{{
     });
 }
 
+template <std::size_t N>
+[[nodiscard]] std::string assign_sparse_pattern_entry(std::array<std::int16_t, N>& table,
+                                                      std::array<bool, N>& seen,
+                                                      int line_number,
+                                                      std::string_view family, int index,
+                                                      int value) {
+    if (index < 0 || index >= static_cast<int>(N)) {
+        return line_error(line_number, std::string{family} + " index out of range");
+    }
+    const auto table_index = static_cast<std::size_t>(index);
+    if (seen[table_index]) {
+        return line_error(line_number, "duplicate " + std::string{family} + " index");
+    }
+    table[table_index] = static_cast<std::int16_t>(value);
+    seen[table_index] = true;
+    return {};
+}
+
 [[nodiscard]] std::optional<std::size_t> feature_key_index(std::string_view key) noexcept {
     for (std::size_t index = 0; index < feature_keys.size(); ++index) {
         if (feature_keys[index].key == key) {
@@ -175,7 +193,11 @@ void assign_config_key(EvaluationConfig& config, std::size_t index, int value) n
 
     EvaluationPatternTables loaded;
     std::array<bool, corner_2x3_pattern_table_size> seen_corner{};
+    std::array<bool, corner_3x3_pattern_table_size> seen_corner_3x3{};
     std::array<bool, edge_8_pattern_table_size> seen_edge{};
+    std::array<bool, edge_x_10_pattern_table_size> seen_edge_x_10{};
+    std::array<bool, diagonal_8_pattern_table_size> seen_diagonal{};
+    std::array<bool, inner_row_8_pattern_table_size> seen_inner_row{};
     bool has_entries = false;
 
     int line_number = 0;
@@ -205,25 +227,41 @@ void assign_config_key(EvaluationConfig& config, std::size_t index, int value) n
         }
 
         if (family == "corner_2x3") {
-            if (index < 0 || index >= corner_2x3_pattern_table_size) {
-                return line_error(line_number, "corner_2x3 index out of range");
+            if (const std::string error = assign_sparse_pattern_entry(
+                    loaded.corner_2x3, seen_corner, line_number, family, index, value);
+                !error.empty()) {
+                return error;
             }
-            const auto table_index = static_cast<std::size_t>(index);
-            if (seen_corner[table_index]) {
-                return line_error(line_number, "duplicate corner_2x3 index");
+        } else if (family == "corner_3x3") {
+            if (const std::string error = assign_sparse_pattern_entry(
+                    loaded.corner_3x3, seen_corner_3x3, line_number, family, index, value);
+                !error.empty()) {
+                return error;
             }
-            loaded.corner_2x3[table_index] = static_cast<std::int16_t>(value);
-            seen_corner[table_index] = true;
         } else if (family == "edge_8") {
-            if (index < 0 || index >= edge_8_pattern_table_size) {
-                return line_error(line_number, "edge_8 index out of range");
+            if (const std::string error = assign_sparse_pattern_entry(
+                    loaded.edge_8, seen_edge, line_number, family, index, value);
+                !error.empty()) {
+                return error;
             }
-            const auto table_index = static_cast<std::size_t>(index);
-            if (seen_edge[table_index]) {
-                return line_error(line_number, "duplicate edge_8 index");
+        } else if (family == "edge_x_10") {
+            if (const std::string error = assign_sparse_pattern_entry(
+                    loaded.edge_x_10, seen_edge_x_10, line_number, family, index, value);
+                !error.empty()) {
+                return error;
             }
-            loaded.edge_8[table_index] = static_cast<std::int16_t>(value);
-            seen_edge[table_index] = true;
+        } else if (family == "diagonal_8") {
+            if (const std::string error = assign_sparse_pattern_entry(
+                    loaded.diagonal_8, seen_diagonal, line_number, family, index, value);
+                !error.empty()) {
+                return error;
+            }
+        } else if (family == "inner_row_8") {
+            if (const std::string error = assign_sparse_pattern_entry(
+                    loaded.inner_row_8, seen_inner_row, line_number, family, index, value);
+                !error.empty()) {
+                return error;
+            }
         } else {
             return line_error(line_number, "unknown pattern family: " + family);
         }
