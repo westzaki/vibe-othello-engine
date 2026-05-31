@@ -137,6 +137,10 @@ python3 tools/scripts/eval_config_search_validate.py \
   --run-match-smoke
 ```
 
+Use the curated evaluation diagnostic suite by adding `--positions evaluation`
+to the same command when the search-bench step should cover the committed
+evaluation positions instead of the default `smoke` set.
+
 Use this after tuning and held-out exact-label validation to gather smoke
 evidence from `othello_search_bench` and small `othello_match_runner`
 comparisons. Search validation uses `--exact-endgame-threshold 0` by default so

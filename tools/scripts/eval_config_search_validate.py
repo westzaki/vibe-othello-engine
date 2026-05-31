@@ -121,6 +121,7 @@ class ValidationConfig:
     match_summary: Path
     openings: Path
     depths: str
+    positions: str
     games: int
     seed: int
     exact_endgame_threshold: int
@@ -181,6 +182,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--match-summary", help="override match_summary.py path")
     parser.add_argument("--openings", help="opening suite for match smoke")
     parser.add_argument("--depths", default=DEFAULT_DEPTHS)
+    parser.add_argument(
+        "--positions",
+        default=DEFAULT_POSITIONS,
+        help="position suite for search bench (default: smoke)",
+    )
     parser.add_argument("--games", type=parse_positive_int, default=DEFAULT_GAMES)
     parser.add_argument("--seed", type=parse_non_negative_int, default=DEFAULT_SEED)
     parser.add_argument(
@@ -272,6 +278,7 @@ def config_from_args(
         if args.openings
         else Path("data") / "openings" / "smoke_openings.txt",
         depths=args.depths,
+        positions=args.positions,
         games=args.games,
         seed=args.seed,
         exact_endgame_threshold=args.exact_endgame_threshold,
@@ -419,7 +426,7 @@ def search_command(
         "--depths",
         config.depths,
         "--positions",
-        DEFAULT_POSITIONS,
+        config.positions,
         "--repetitions",
         "1",
         "--eval-config",
@@ -1027,6 +1034,7 @@ def render_report(
         f"- match_runner_path: `{config.match_runner}`",
         f"- match_summary_path: `{config.match_summary}`",
         f"- depths: `{config.depths}`",
+        f"- positions: `{config.positions}`",
         f"- games: `{config.games}`",
         f"- seed: `{config.seed}`",
         f"- exact_endgame_threshold: `{config.exact_endgame_threshold}`",
