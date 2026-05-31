@@ -1,0 +1,50 @@
+# schema_version: eval.v1
+# status: experimental
+# created_at: 2026-05-31
+# based_on: data/eval/current_default.eval and data/eval/classic_othello_v1.eval
+# source_report: docs/experiments/evaluation/2026-05-31-teacher-mistake-mining-v2.md
+# not_default: true
+# not_promoted: true
+# purpose: Experimental teacher-safe scalar evaluator candidate.
+# validation: See docs/experiments/evaluation/2026-05-31-teacher-mistake-mining-v2.md.
+# caveat: Experimental config only; not the default evaluator and not a C++ preset.
+name=classic_othello_v2_teacher_safe
+
+opening.disc_difference=0
+opening.mobility=9
+opening.potential_mobility=6
+opening.corner_occupancy=38
+opening.corner_access=36
+opening.x_square_danger=34
+opening.frontier=5
+opening.corner_local_2x3=2
+opening.corner_2x3_pattern=6
+opening.edge_stability_lite=2
+opening.edge_8_pattern=1
+
+midgame.disc_difference=1
+midgame.mobility=10
+midgame.potential_mobility=5
+midgame.corner_occupancy=46
+midgame.corner_access=35
+midgame.x_square_danger=32
+midgame.frontier=6
+midgame.corner_local_2x3=2
+midgame.corner_2x3_pattern=7
+midgame.edge_stability_lite=4
+midgame.edge_8_pattern=3
+
+late.disc_difference=4
+late.mobility=6
+late.potential_mobility=2
+late.corner_occupancy=50
+late.corner_access=22
+late.x_square_danger=22
+late.frontier=3
+late.corner_local_2x3=1
+late.corner_2x3_pattern=5
+late.edge_stability_lite=9
+late.edge_8_pattern=4
+
+opening_max_occupied=20
+midgame_max_occupied=44
