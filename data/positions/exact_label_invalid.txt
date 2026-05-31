@@ -1,0 +1,2 @@
+# Invalid: this is not a complete 9-line board block.
+BBBBBBBB
