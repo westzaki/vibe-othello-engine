@@ -394,6 +394,10 @@ namespace othello::benchmarks {
     return positions;
 }
 
+[[nodiscard]] inline std::optional<std::vector<Position>> make_search_evaluation_positions() {
+    return make_evaluation_diagnostic_positions();
+}
+
 [[nodiscard]] inline std::optional<std::vector<Position>> make_search_threshold_positions() {
     auto positions = make_search_suite_positions();
     if (!positions.has_value()) {

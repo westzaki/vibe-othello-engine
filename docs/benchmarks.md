@@ -120,6 +120,31 @@ search pipeline instead of switching small-empty positions to the exact solver:
   --exact-endgame-threshold 0
 ```
 
+Use the `evaluation` position set for focused evaluator diagnostics on curated
+semantic positions. This position set is loaded from
+`data/positions/evaluation/diagnostic_suite.txt`, which is the source of truth
+for these committed diagnostics:
+
+```sh
+./build/othello_search_bench \
+  --mode iterative \
+  --depths 4,5 \
+  --positions evaluation \
+  --repetitions 1 \
+  --tt on \
+  --pvs on \
+  --exact-endgame-threshold 0 \
+  --by-position
+```
+
+This set is intentionally small and diagnostic. It helps compare evaluator
+candidate score, best-move, PV, checksum, and node-count changes on fixed
+corner, mobility, frontier, edge-pattern, and late-pre-endgame situations. It
+does not prove strength and should be complemented with broader search,
+match/self-play, base/head, or exact-label evidence when promoting evaluator
+behavior. Score, best-move, PV, checksum, or node-count changes on this set are
+evaluation behavior changes first, not automatic regressions.
+
 For the stronger existing search path, the current standard-profile example
 measures iterative deepening with TT and PVS enabled, including per-position
 rows:

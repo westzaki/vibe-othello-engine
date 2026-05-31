@@ -182,15 +182,17 @@ class EvalExperimentMatrixTests(unittest.TestCase):
         self.assertIn("classic_features_lite_v1", command)
         self.assertEqual(command[command.index("--depths") + 1], "5,6,7,8")
 
-    def test_search_bench_command_can_use_suite_by_position(self) -> None:
+    def test_search_bench_command_can_use_evaluation_by_position(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
-            config = replace(experiment_config(Path(temp)), positions="suite", by_position=True)
+            config = replace(
+                experiment_config(Path(temp)), positions="evaluation", by_position=True
+            )
             command = eval_experiment_matrix.build_search_bench_command(
                 config, "classic_features_lite_v1"
             )
 
         self.assertIn("--positions", command)
-        self.assertEqual(command[command.index("--positions") + 1], "suite")
+        self.assertEqual(command[command.index("--positions") + 1], "evaluation")
         self.assertIn("--by-position", command)
 
     def test_match_command_uses_reference_preset(self) -> None:
@@ -316,17 +318,20 @@ class EvalExperimentMatrixTests(unittest.TestCase):
         self.assertIn("--games 96", report)
         self.assertIn("Promotion Table", report)
 
-    def test_dry_run_report_records_suite_by_position(self) -> None:
+    def test_dry_run_report_records_evaluation_by_position(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
-            config = replace(experiment_config(Path(temp)), positions="suite", by_position=True)
+            config = replace(
+                experiment_config(Path(temp)), positions="evaluation", by_position=True
+            )
 
             exit_code = eval_experiment_matrix.run_matrix(config, dry_run=True)
             report = (config.out_dir / "report.md").read_text(encoding="utf-8")
 
         self.assertEqual(exit_code, 0)
-        self.assertIn("--positions suite", report)
+        self.assertIn("--positions evaluation", report)
         self.assertIn("--by-position", report)
-        self.assertIn("Search positions: `suite`", report)
+        self.assertIn("Search positions: `evaluation`", report)
+        self.assertIn("Search positions apply to search screening only", report)
         self.assertIn("Search by-position: `on`", report)
 
     def test_dry_run_with_configs_emits_eval_config_commands(self) -> None:

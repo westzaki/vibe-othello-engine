@@ -63,6 +63,7 @@ enum class SearchRunMode {
 enum class PositionSet {
     Smoke,
     Suite,
+    Evaluation,
     Threshold,
 };
 
@@ -195,7 +196,7 @@ struct BenchmarkExactRootDecision {
 void print_usage(std::string_view program_name) {
     std::cout << "usage: " << program_name
               << " [--mode fixed|iterative|both] [--depths 1,2,3,4,5]"
-                 " [--repetitions N] [--positions smoke|suite|threshold]"
+                 " [--repetitions N] [--positions smoke|suite|evaluation|threshold]"
                  " [--describe-positions] [--by-position] [--tt on|off] [--tt-entries N]"
                  " [--pvs on|off] [--aspiration on|off] [--aspiration-window N]"
                  " [--aspiration-max-researches N] [--exact-endgame-threshold N]"
@@ -206,7 +207,7 @@ void print_usage(std::string_view program_name) {
               << "  --depths LIST       comma-separated positive search depths\n"
               << "  --repetitions N     positive repetition count per depth\n"
               << "  --mode MODE         fixed, iterative, or both (default: fixed)\n"
-              << "  --positions SET     smoke, suite, or threshold (default: smoke)\n"
+              << "  --positions SET     smoke, suite, evaluation, or threshold (default: smoke)\n"
               << "  --describe-positions\n"
               << "                      print selected position metadata and metrics only\n"
               << "  --by-position       print per-position benchmark rows and summaries\n"
@@ -261,6 +262,8 @@ void print_usage(std::string_view program_name) {
         return "smoke";
     case PositionSet::Suite:
         return "suite";
+    case PositionSet::Evaluation:
+        return "evaluation";
     case PositionSet::Threshold:
         return "threshold";
     }
@@ -399,6 +402,9 @@ parse_exact_root_profiles(std::string_view text) {
     if (text == "suite") {
         return PositionSet::Suite;
     }
+    if (text == "evaluation") {
+        return PositionSet::Evaluation;
+    }
     if (text == "threshold") {
         return PositionSet::Threshold;
     }
@@ -481,13 +487,13 @@ parse_exact_root_profiles(std::string_view text) {
         if (option == "--positions") {
             ++index;
             if (index >= args.size()) {
-                std::cerr << "--positions requires smoke, suite, or threshold\n";
+                std::cerr << "--positions requires smoke, suite, evaluation, or threshold\n";
                 return std::nullopt;
             }
 
             const auto position_set = parse_position_set(args[index]);
             if (!position_set.has_value()) {
-                std::cerr << "--positions must be smoke, suite, or threshold\n";
+                std::cerr << "--positions must be smoke, suite, evaluation, or threshold\n";
                 return std::nullopt;
             }
             options.position_set = *position_set;
@@ -705,6 +711,8 @@ make_positions(PositionSet position_set) {
         return othello::benchmarks::make_search_smoke_positions();
     case PositionSet::Suite:
         return othello::benchmarks::make_search_suite_positions();
+    case PositionSet::Evaluation:
+        return othello::benchmarks::make_search_evaluation_positions();
     case PositionSet::Threshold:
         return othello::benchmarks::make_search_threshold_positions();
     }

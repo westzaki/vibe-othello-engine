@@ -219,6 +219,62 @@ Useful outputs include:
 
 Do not overfit to one position.
 
+The committed `data/positions/evaluation/diagnostic_suite.txt` file is the
+source of truth for the small curated `evaluation` diagnostic position set.
+`othello_search_bench --positions evaluation` loads that file directly. It
+covers semantic situations such as corner access, X-square danger, mobility
+pressure, frontier-heavy shapes, edge patterns, and late-pre-endgame boards
+where exact root solving should be disabled when measuring heuristic midgame
+evaluation. The suite is intentionally small and is not a representative
+training distribution or strength proof.
+
+Examples:
+
+```sh
+./build/othello_search_bench \
+  --mode iterative \
+  --depths 4,5 \
+  --positions evaluation \
+  --repetitions 1 \
+  --tt on \
+  --pvs on \
+  --exact-endgame-threshold 0 \
+  --by-position
+```
+
+```sh
+./build/othello_analyze_position \
+  --board-file data/positions/evaluation/corner_access_a1.txt \
+  --depth 1 \
+  --exact-endgame-threshold 0
+```
+
+For exact-label or eval-vs-exact workflows, reuse the same committed positions
+with `--skip-sampling` and keep generated labels/reports under `runs/`.
+
+Evaluator candidate matrices can use the same search-bench position selector for
+search screening. Match steps in the matrix still use the configured opening
+suite, not the `evaluation` positions:
+
+```sh
+python3 tools/scripts/eval_experiment_matrix.py \
+  --build-dir build \
+  --out runs/eval-matrix/evaluation-diagnostic \
+  --presets default,phase_aware_v1 \
+  --positions evaluation \
+  --small-depths 4 \
+  --extended-depths 5 \
+  --small-games 2 \
+  --extended-games 2 \
+  --openings data/openings/smoke_openings.txt \
+  --seed 20260531 \
+  --exact-endgame-threshold 0
+```
+
+Treat score, best move, PV, checksum, or node-count changes on this suite as
+evaluation behavior evidence, not as automatic regressions. Evaluator promotion
+still needs broader search, match, base/head, or exact-label evidence.
+
 ### 6. Run benchmark profiles
 
 Use current benchmark guidance to compare runtime and search behavior.

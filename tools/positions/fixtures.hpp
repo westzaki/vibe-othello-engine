@@ -3,8 +3,10 @@
 #include "positions/position.hpp"
 
 #include <cstdint>
+#include <filesystem>
 #include <optional>
 #include <othello/othello.hpp>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -21,6 +23,13 @@ namespace othello::benchmarks {
                                 std::string_view board_text,
                                 std::string_view phase = "smoke", std::string_view tags = {},
                                 std::string_view notes = {});
+[[nodiscard]] std::filesystem::path evaluation_diagnostic_suite_path();
+[[nodiscard]] std::optional<std::vector<Position>>
+load_positions_from_text(std::string_view text, std::string_view source_name,
+                         std::string& error);
+[[nodiscard]] std::optional<std::vector<Position>>
+load_positions_from_file(const std::filesystem::path& path, std::string& error);
 [[nodiscard]] std::optional<std::vector<Position>> make_fixed_positions();
+[[nodiscard]] std::optional<std::vector<Position>> make_evaluation_diagnostic_positions();
 
 } // namespace othello::benchmarks
