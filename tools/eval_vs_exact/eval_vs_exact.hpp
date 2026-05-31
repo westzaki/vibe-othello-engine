@@ -46,6 +46,7 @@ struct AnalyzerSummary {
     std::size_t move_rank_top_non_best = 0;
     std::size_t move_rank_exact_best_rank_sum = 0;
     long long move_rank_eval_score_gap_sum = 0;
+    long long move_rank_exact_score_gap_sum = 0;
 };
 
 struct AnalyzerReport {

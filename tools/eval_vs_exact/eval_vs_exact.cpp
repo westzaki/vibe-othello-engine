@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstddef>
 #include <iomanip>
+#include <limits>
 #include <map>
 #include <optional>
 #include <ostream>
@@ -606,7 +607,9 @@ struct MoveRankAnalysis {
     std::string evaluator_top_move;
     int evaluator_top_eval_score = 0;
     int evaluator_top_exact_score = 0;
-    bool evaluator_top_is_exact_best = false;
+    std::vector<std::string> evaluator_top_moves;
+    int evaluator_top_group_best_exact_score = 0;
+    bool evaluator_top_group_has_exact_best = false;
     int exact_best_rank_under_evaluator = 0;
     int exact_best_eval_score = 0;
     int evaluator_score_gap_top_minus_exact_best = 0;
@@ -840,7 +843,7 @@ analyze_move_rank_record(const ExactLabelRecord& label, const Board& board,
     });
 
     std::vector<std::string> exact_best_moves;
-    int exact_best_eval_score = ranked_moves.front().eval_score;
+    int exact_best_eval_score = std::numeric_limits<int>::min();
     for (const EvaluatedMove& move : ranked_moves) {
         if (move.exact_best) {
             exact_best_moves.push_back(move.move);
@@ -856,6 +859,21 @@ analyze_move_rank_record(const ExactLabelRecord& label, const Board& board,
     }
 
     const EvaluatedMove& top = ranked_moves.front();
+    std::vector<std::string> evaluator_top_moves;
+    int evaluator_top_group_best_exact_score = top.exact_score_side_to_move;
+    bool evaluator_top_group_has_exact_best = false;
+    for (const EvaluatedMove& move : ranked_moves) {
+        if (move.eval_score != top.eval_score) {
+            break;
+        }
+        evaluator_top_moves.push_back(move.move);
+        evaluator_top_group_best_exact_score =
+            std::max(evaluator_top_group_best_exact_score, move.exact_score_side_to_move);
+        if (move.exact_best) {
+            evaluator_top_group_has_exact_best = true;
+        }
+    }
+
     return MoveRankAnalysis{
         .position_id = label.position_id,
         .side_to_move = label.side_to_move,
@@ -865,11 +883,14 @@ analyze_move_rank_record(const ExactLabelRecord& label, const Board& board,
         .evaluator_top_move = top.move,
         .evaluator_top_eval_score = top.eval_score,
         .evaluator_top_exact_score = top.exact_score_side_to_move,
-        .evaluator_top_is_exact_best = top.exact_best,
+        .evaluator_top_moves = evaluator_top_moves,
+        .evaluator_top_group_best_exact_score = evaluator_top_group_best_exact_score,
+        .evaluator_top_group_has_exact_best = evaluator_top_group_has_exact_best,
         .exact_best_rank_under_evaluator = exact_best_rank,
         .exact_best_eval_score = exact_best_eval_score,
         .evaluator_score_gap_top_minus_exact_best = top.eval_score - exact_best_eval_score,
-        .exact_score_gap_exact_best_minus_top = exact_best_score - top.exact_score_side_to_move,
+        .exact_score_gap_exact_best_minus_top =
+            exact_best_score - evaluator_top_group_best_exact_score,
         .ranked_moves = ranked_moves,
     };
 }
@@ -922,7 +943,9 @@ void update_move_rank_summary(AnalyzerSummary& summary, const RecordAnalysis& an
             analysis.move_rank->exact_best_rank_under_evaluator);
         summary.move_rank_eval_score_gap_sum +=
             analysis.move_rank->evaluator_score_gap_top_minus_exact_best;
-        if (analysis.move_rank->evaluator_top_is_exact_best) {
+        summary.move_rank_exact_score_gap_sum +=
+            analysis.move_rank->exact_score_gap_exact_best_minus_top;
+        if (analysis.move_rank->evaluator_top_group_has_exact_best) {
             ++summary.move_rank_top_exact_best;
         } else {
             ++summary.move_rank_top_non_best;
@@ -1173,12 +1196,40 @@ move_rank_miss_cases(std::span<const RecordAnalysis> analyses) {
     std::vector<MoveRankAnalysis> cases;
     for (const RecordAnalysis& analysis : analyses) {
         if (analysis.move_rank.has_value() &&
-            !analysis.move_rank->evaluator_top_is_exact_best) {
+            !analysis.move_rank->evaluator_top_group_has_exact_best) {
             cases.push_back(*analysis.move_rank);
         }
     }
     std::ranges::sort(cases, [](const MoveRankAnalysis& lhs,
                                 const MoveRankAnalysis& rhs) noexcept {
+        if (lhs.evaluator_score_gap_top_minus_exact_best !=
+            rhs.evaluator_score_gap_top_minus_exact_best) {
+            return lhs.evaluator_score_gap_top_minus_exact_best >
+                   rhs.evaluator_score_gap_top_minus_exact_best;
+        }
+        if (lhs.exact_score_gap_exact_best_minus_top !=
+            rhs.exact_score_gap_exact_best_minus_top) {
+            return lhs.exact_score_gap_exact_best_minus_top >
+                   rhs.exact_score_gap_exact_best_minus_top;
+        }
+        return lhs.empties < rhs.empties;
+    });
+    return cases;
+}
+
+[[nodiscard]] std::vector<MoveRankAnalysis>
+move_rank_rank_cases(std::span<const RecordAnalysis> analyses) {
+    std::vector<MoveRankAnalysis> cases;
+    for (const RecordAnalysis& analysis : analyses) {
+        if (analysis.move_rank.has_value()) {
+            cases.push_back(*analysis.move_rank);
+        }
+    }
+    std::ranges::sort(cases, [](const MoveRankAnalysis& lhs,
+                                const MoveRankAnalysis& rhs) noexcept {
+        if (lhs.exact_best_rank_under_evaluator != rhs.exact_best_rank_under_evaluator) {
+            return lhs.exact_best_rank_under_evaluator > rhs.exact_best_rank_under_evaluator;
+        }
         if (lhs.evaluator_score_gap_top_minus_exact_best !=
             rhs.evaluator_score_gap_top_minus_exact_best) {
             return lhs.evaluator_score_gap_top_minus_exact_best >
@@ -1239,9 +1290,16 @@ void write_move_rank_case_list(std::ostream& out, std::span<const MoveRankAnalys
         out << "### " << (index + 1) << ". " << analysis.position_id << '\n'
             << "- side_to_move: `" << analysis.side_to_move << "`\n"
             << "- empties: " << analysis.empties << '\n'
-            << "- evaluator_top_move: `" << analysis.evaluator_top_move << "`"
+            << "- evaluator_selected_top_move: `" << analysis.evaluator_top_move << "`"
             << " (eval_score=" << analysis.evaluator_top_eval_score
             << ", exact_score_side_to_move=" << analysis.evaluator_top_exact_score << ")\n"
+            << "- evaluator_top_score_group: ";
+        write_move_name_list(out, analysis.evaluator_top_moves);
+        out << " (eval_score=" << analysis.evaluator_top_eval_score
+            << ", best_exact_score_side_to_move="
+            << analysis.evaluator_top_group_best_exact_score << ")\n"
+            << "- exact_best_in_evaluator_top_score_group: "
+            << (analysis.evaluator_top_group_has_exact_best ? "true" : "false") << '\n'
             << "- exact_best_moves: ";
         write_move_name_list(out, analysis.exact_best_moves);
         out << " (exact_score_side_to_move=" << analysis.exact_best_score << ")\n"
@@ -1249,7 +1307,7 @@ void write_move_rank_case_list(std::ostream& out, std::span<const MoveRankAnalys
             << analysis.exact_best_rank_under_evaluator << '\n'
             << "- evaluator_score_gap_top_minus_exact_best: "
             << analysis.evaluator_score_gap_top_minus_exact_best << " heuristic units\n"
-            << "- exact_score_gap_exact_best_minus_top: "
+            << "- exact_score_gap_exact_best_minus_top_group: "
             << analysis.exact_score_gap_exact_best_minus_top << " discs\n"
             << "- ranked_moves: ";
         write_ranked_move_list(out, analysis.ranked_moves);
@@ -1267,7 +1325,9 @@ void write_move_rank_section(std::ostream& out, const AnalyzerOptions& options,
     out << "\n## Move-Rank Analysis\n\n"
         << "This optional diagnostic compares evaluator root-child ordering with exact "
            "per-move scores. It is not Elo, not a tuner, and not an automatic promotion "
-           "gate.\n\n"
+           "gate. Evaluator scores can tie; top-hit counts use the full top eval score "
+           "group, while the selected top move is only the deterministic first move in "
+           "that sorted group.\n\n"
         << "- records_with_move_scores: " << summary.move_rank_records_with_scores << '\n'
         << "- records_missing_move_scores: " << summary.move_rank_records_missing_scores
         << '\n'
@@ -1283,16 +1343,20 @@ void write_move_rank_section(std::ostream& out, const AnalyzerOptions& options,
         return;
     }
 
-    out << "- evaluator_top_exact_best_rate: "
+    out << "- evaluator_top_score_group_exact_best_rate: "
         << percentage(summary.move_rank_top_exact_best, summary.move_rank_analyzed) << '\n'
-        << "- evaluator_top_non_best_count: " << summary.move_rank_top_non_best << '\n'
+        << "- evaluator_top_score_group_non_best_count: " << summary.move_rank_top_non_best
+        << '\n'
         << "- mean_exact_best_move_rank_under_evaluator: "
         << mean_text(static_cast<long long>(summary.move_rank_exact_best_rank_sum),
                      summary.move_rank_analyzed)
         << '\n'
         << "- mean_evaluator_score_gap_top_minus_exact_best: "
         << mean_text(summary.move_rank_eval_score_gap_sum, summary.move_rank_analyzed)
-        << " heuristic units\n";
+        << " heuristic units\n"
+        << "- mean_exact_score_gap_exact_best_minus_top_group: "
+        << mean_text(summary.move_rank_exact_score_gap_sum, summary.move_rank_analyzed)
+        << " discs\n";
 
     if (summary.move_rank_records_missing_scores != 0) {
         out << "\nCaveat: " << summary.move_rank_records_missing_scores
@@ -1300,10 +1364,18 @@ void write_move_rank_section(std::ostream& out, const AnalyzerOptions& options,
                "analysis.\n";
     }
 
+    const std::vector<MoveRankAnalysis> rank_cases = move_rank_rank_cases(analyses);
+    out << "\n### Exact-Best Rank Cases\n\n"
+        << "Sorted by exact-best rank under the evaluator, then evaluator and exact score "
+           "gaps. These rows show the deterministic selected top move, the evaluator top "
+           "score group, and whether that group contains an exact-best move.\n\n";
+    write_move_rank_case_list(out, rank_cases, options);
+
     const std::vector<MoveRankAnalysis> misses = move_rank_miss_cases(analyses);
     out << "\n### Worst Evaluator Top-Move Misses\n\n"
-        << "Sorted by the evaluator score gap between the evaluator top move and the "
-           "highest-ranked exact-best move.\n\n";
+        << "Sorted by the evaluator score gap between the evaluator top score group and the "
+           "highest-ranked exact-best move. A case is a miss only when no exact-best move "
+           "appears in the evaluator top score group.\n\n";
     write_move_rank_case_list(out, misses, options);
 }
 
@@ -1395,6 +1467,8 @@ void write_move_rank_section(std::ostream& out, const AnalyzerOptions& options,
         << "- Sign agreement is a diagnostic, not an Elo, strength, or promotion claim.\n"
         << "- Move-rank analysis is diagnostic move-quality evidence, not an Elo, tuner, or "
            "promotion claim.\n"
+        << "- Move-rank top-hit metrics use the evaluator top score group because evaluator "
+           "scores can tie; the selected top move is deterministic report detail.\n"
         << "- Raw score differences are heuristic-vs-disc comparisons and should not be read as "
            "disc MAE.\n"
         << "- Move-rank analysis requires labels generated with `--include-move-scores` and is "
