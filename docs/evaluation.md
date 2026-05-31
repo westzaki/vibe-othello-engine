@@ -336,6 +336,14 @@ Classify each candidate as one of:
 Mixed evidence should usually lead to "keep experimental" or "needs more data",
 not immediate default promotion.
 
+Evaluation experiments should avoid ending in unstructured "needs more data".
+When evidence is mixed, the report must specify the next discriminating
+experiment:
+
+- which feature or phase to isolate
+- what candidate configs to try next
+- what metric would reject or keep the idea
+
 ### 9. Report
 
 Write a concise report with enough evidence for a reviewer or future agent to
