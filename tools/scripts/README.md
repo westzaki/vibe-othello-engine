@@ -155,8 +155,11 @@ python3 tools/scripts/eval_candidate_matrix.py \
 The matrix includes the default `data/eval/current_default.eval` baseline when
 present, runs `othello_eval_vs_exact` only when labels are provided, always runs
 the iterative TT/PVS/aspiration search-bench smoke profile, and writes
-`report.md` plus per-candidate logs under the requested output directory. It
-does not tune weights, make a strength claim, or promote a default.
+`report.md`, `summary.tsv`, per-candidate logs, and search-bench JSONL under the
+requested output directory. The summary records config fingerprints,
+result/work checksums, nodes, elapsed time, score kind, exact-root usage, and
+candidate-vs-baseline deltas when comparable. It does not tune weights, make a
+strength claim, or promote a default.
 
 For evaluator config evidence:
 

@@ -150,6 +150,13 @@ against the current baseline. The workflow runs existing C++ tools for each
 baseline/candidate config, records exact commands, keeps raw logs under the
 requested `runs/` output directory, and writes a local Markdown report.
 
+Search-bench stdout is captured as JSONL under the requested output directory
+and summarized into `summary.tsv`. The report includes config fingerprints,
+search result/work checksums, nodes, elapsed time, score kind, exact-root usage,
+and candidate-vs-baseline deltas where the baseline is comparable. Checksum
+changes mean behavior changed in that smoke matrix; they are not regressions by
+themselves.
+
 This workflow is an orchestration aid, not a tuner or promotion gate. Its
 eval-vs-exact and search-bench rows make the next evaluation decision possible,
 but they are smoke evidence only unless followed by broader deterministic
