@@ -8,9 +8,9 @@ import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
-from common import ScriptError
+from common import ScriptError, read_jsonl
 
 
 FILES = "abcdefgh"
@@ -211,24 +211,15 @@ def require_list_of_strings(value: Any, label: str) -> list[str]:
 
 
 def load_records(path: Path) -> list[dict[str, Any]]:
-    records: list[dict[str, Any]] = []
-    try:
-        with path.open("r", encoding="utf-8") as input_file:
-            for line_number, line in enumerate(input_file, start=1):
-                if not line.strip():
-                    continue
-                value = json.loads(line)
-                if not isinstance(value, dict):
-                    raise ScriptError(f"line {line_number}: record must be an object")
-                records.append(value)
-    except json.JSONDecodeError as exc:
-        raise ScriptError(f"invalid JSONL: {exc}") from exc
-    except OSError as exc:
-        raise ScriptError(f"failed to read {path}: {exc}") from exc
-
-    if not records:
-        raise ScriptError(f"input file contains no records: {path}")
-    return records
+    return cast(
+        list[dict[str, Any]],
+        read_jsonl(
+            path,
+            require_object=True,
+            empty_error="input file contains no records: {path}",
+            json_error_format="invalid JSONL: {error}",
+        ),
+    )
 
 
 def side_player(record: dict[str, Any], side: str) -> str:

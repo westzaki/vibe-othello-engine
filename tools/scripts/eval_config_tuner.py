@@ -13,7 +13,7 @@ import sys
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from common import ScriptError, quote_command
+from common import ScriptError, parse_csv_values, quote_command
 
 
 DEFAULT_SEED = 20260531
@@ -157,10 +157,10 @@ def parse_int(value: str) -> int:
 
 
 def parse_csv(value: str) -> list[str]:
-    parts = [part.strip() for part in value.split(",")]
-    if not parts or any(not part for part in parts):
-        raise ScriptError("CSV values must not contain empty segments")
-    return parts
+    return parse_csv_values(
+        value,
+        empty_segment_message="CSV values must not contain empty segments",
+    )
 
 
 def default_out_dir() -> Path:
