@@ -5,6 +5,7 @@ add_library(othello_tools_common OBJECT
     common/evaluator_selection.cpp
     common/formatting.cpp
     common/jsonl.cpp
+    common/output_format.cpp
     common/stats.cpp
 )
 

@@ -1,4 +1,5 @@
 #include "common/jsonl.hpp"
+#include "common/output_format.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -21,4 +22,13 @@ TEST_CASE("JSON object writer emits escaped fields with stable comma handling") 
     CHECK(output.str() ==
           "{\"text\":\"a\\nb\\\"c\",\"ok\":true,\"neg\":-3,\"count\":42,"
           "\"ratio\":1.25,\"missing\":null}");
+}
+
+TEST_CASE("Tool output format parser accepts text and jsonl only") {
+    CHECK(othello::tools::parse_output_format("text") ==
+          othello::tools::OutputFormat::Text);
+    CHECK(othello::tools::parse_output_format("jsonl") ==
+          othello::tools::OutputFormat::Jsonl);
+    CHECK_FALSE(othello::tools::parse_output_format("yaml").has_value());
+    CHECK_FALSE(othello::tools::parse_output_format("").has_value());
 }
