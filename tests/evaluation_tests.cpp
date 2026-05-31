@@ -1,5 +1,8 @@
 #include "common/eval_config_io.hpp"
 #include "common/evaluator_selection.hpp"
+#include "exact_labels/exact_label_dump.hpp"
+#include "positions/search_positions.hpp"
+#include "positions/tags.hpp"
 #include "test_helpers.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -7,7 +10,9 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <fstream>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -33,6 +38,20 @@ side=W)");
 
 [[nodiscard]] std::filesystem::path sample_eval_config_path(std::string_view file_name) {
     return std::filesystem::path{OTHELLO_SOURCE_DIR} / "data" / "eval" / file_name;
+}
+
+[[nodiscard]] std::filesystem::path evaluation_position_suite_path() {
+    return std::filesystem::path{OTHELLO_SOURCE_DIR} / "data" / "positions" / "evaluation" /
+           "diagnostic_suite.txt";
+}
+
+[[nodiscard]] std::string read_text_file(const std::filesystem::path& path) {
+    std::ifstream input{path};
+    REQUIRE(input.is_open());
+
+    std::ostringstream buffer;
+    buffer << input.rdbuf();
+    return buffer.str();
 }
 
 [[nodiscard]] std::vector<std::filesystem::path> committed_eval_config_paths() {
@@ -248,6 +267,35 @@ TEST_CASE("Committed eval config fixtures parse and preserve intended identities
             CHECK(loaded.config == phase_aware_config);
         }
     }
+}
+
+TEST_CASE("Committed evaluation diagnostic positions parse", "[evaluation]") {
+    std::string error;
+
+    const auto positions = othello::tools::exact_labels::parse_position_text(
+        read_text_file(evaluation_position_suite_path()), error);
+
+    INFO(error);
+    REQUIRE(positions.has_value());
+    CHECK(positions->size() == 8);
+    for (const auto& position : *positions) {
+        CHECK_FALSE(othello::is_game_over(position.board));
+    }
+}
+
+TEST_CASE("Search benchmark exposes evaluation diagnostic positions", "[evaluation]") {
+    const auto positions = othello::benchmarks::make_search_evaluation_positions();
+
+    REQUIRE(positions.has_value());
+    CHECK(positions->size() == 8);
+    CHECK(std::ranges::any_of(*positions, [](const othello::benchmarks::Position& position) {
+        return position.name == "eval-corner-access-a1" &&
+               othello::benchmarks::has_tag(position.tags, "corner_access");
+    }));
+    CHECK(std::ranges::any_of(*positions, [](const othello::benchmarks::Position& position) {
+        return position.name == "eval-late-dense-mobility" &&
+               othello::benchmarks::has_tag(position.tags, "late_pre_endgame");
+    }));
 }
 
 TEST_CASE("Tool evaluator selection resolves presets and config files", "[evaluation]") {

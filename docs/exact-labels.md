@@ -39,6 +39,24 @@ Keep generated datasets under `runs/`; they should not be committed. Durable
 summaries may go under `docs/perf/baselines/` when they are small, clearly
 caveated, and useful as historical evidence.
 
+The committed `data/positions/evaluation/diagnostic_suite.txt` file can be used
+as a small reusable input when evaluator candidates need exact-label or
+eval-vs-exact smoke evidence:
+
+```sh
+python3 tools/scripts/exact_label_workflow.py \
+  --build-dir build \
+  --out runs/exact-label-workflow/evaluation-diagnostic \
+  --skip-sampling \
+  --positions data/positions/evaluation/diagnostic_suite.txt \
+  --max-empties 14 \
+  --eval-preset default \
+  --analyze
+```
+
+The workflow still writes labels and reports under `runs/`; do not commit the
+generated JSONL.
+
 Use tiny fixtures and smoke files for committed tests and examples. For larger
 local datasets, choose `--max-empties` and `--limit` based on the current
 machine, solver performance, and validation budget. Record the command, source

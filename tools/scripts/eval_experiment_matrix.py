@@ -1192,7 +1192,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--positions",
         default="smoke",
-        choices=("smoke", "suite"),
+        choices=("smoke", "suite", "evaluation"),
         help="search bench position set (default: smoke)",
     )
     parser.add_argument(

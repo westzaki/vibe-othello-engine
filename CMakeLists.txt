@@ -113,6 +113,7 @@ othello_add_executable(othello_tests
     $<TARGET_OBJECTS:othello_exact_label_dump_core>
     $<TARGET_OBJECTS:othello_match_runner_core>
     $<TARGET_OBJECTS:othello_nboard_protocol>
+    $<TARGET_OBJECTS:othello_tools_positions>
     $<TARGET_OBJECTS:othello_position_sampler_core>
     $<TARGET_OBJECTS:othello_tools_common>
 )
@@ -180,6 +181,17 @@ othello_add_tool_smoke_test(
 set_tests_properties(
     othello_search_bench_jsonl_includes_score_kind
     PROPERTIES PASS_REGULAR_EXPRESSION "\"tool\":\"othello_search_bench\".*\"score_kind\""
+)
+
+othello_add_tool_smoke_test(
+    othello_search_bench_evaluation_positions_describe
+    othello_search_bench
+    --positions evaluation
+    --describe-positions
+)
+set_tests_properties(
+    othello_search_bench_evaluation_positions_describe
+    PROPERTIES PASS_REGULAR_EXPRESSION "eval-late-dense-mobility"
 )
 
 othello_add_help_contains_test(
