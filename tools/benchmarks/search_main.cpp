@@ -40,6 +40,7 @@ using othello::tools::add_search_stats;
 using othello::tools::beta_cut_first_move_percentage;
 using othello::tools::elapsed_ms;
 using othello::tools::format_principal_variation;
+using othello::tools::JsonObjectWriter;
 using othello::tools::tt_hit_percentage;
 
 constexpr int exact_endgame_score_scale = 1'000;
@@ -1371,49 +1372,27 @@ void print_position_result(const PositionBenchmarkResult& result) {
               << result.work_checksum << '\n';
 }
 
-void write_json_field_name(std::ostream& output, bool& first, std::string_view name) {
-    if (!first) {
-        output << ',';
-    }
-    first = false;
-    othello::tools::write_json_string(output, name);
-    output << ':';
-}
-
-void write_json_string_field(std::ostream& output, bool& first, std::string_view name,
-                             std::string_view value) {
-    write_json_field_name(output, first, name);
-    othello::tools::write_json_string(output, value);
-}
-
-void write_json_bool_field(std::ostream& output, bool& first, std::string_view name, bool value) {
-    write_json_field_name(output, first, name);
-    output << (value ? "true" : "false");
-}
-
-void write_json_optional_int_field(std::ostream& output, bool& first, std::string_view name,
+void write_json_optional_int_field(JsonObjectWriter& writer, std::string_view name,
                                    std::optional<int> value) {
-    write_json_field_name(output, first, name);
     if (value.has_value()) {
-        output << *value;
+        writer.int_field(name, *value);
     } else {
-        output << "null";
+        writer.null_field(name);
     }
 }
 
-void write_json_square_field(std::ostream& output, bool& first, std::string_view name,
+void write_json_square_field(JsonObjectWriter& writer, std::string_view name,
                              std::optional<othello::Square> square) {
-    write_json_field_name(output, first, name);
     if (square.has_value()) {
-        othello::tools::write_json_string(output, othello::to_string(*square));
+        writer.string_field(name, othello::to_string(*square));
     } else {
-        output << "null";
+        writer.null_field(name);
     }
 }
 
-void write_json_pv_field(std::ostream& output, bool& first, std::string_view name,
+void write_json_pv_field(JsonObjectWriter& writer, std::ostream& output, std::string_view name,
                          const std::vector<othello::Square>& principal_variation) {
-    write_json_field_name(output, first, name);
+    writer.field_name(name);
     output << '[';
     bool first_move = true;
     for (const othello::Square square : principal_variation) {
@@ -1426,62 +1405,34 @@ void write_json_pv_field(std::ostream& output, bool& first, std::string_view nam
     output << ']';
 }
 
-void write_json_search_stats_fields(std::ostream& output, bool& first,
-                                    const othello::SearchStats& stats) {
-    write_json_field_name(output, first, "searched_moves");
-    output << stats.searched_moves;
-    write_json_field_name(output, first, "legal_nodes");
-    output << stats.legal_move_nodes;
-    write_json_field_name(output, first, "eval_calls");
-    output << stats.eval_calls;
-    write_json_field_name(output, first, "pass_nodes");
-    output << stats.pass_nodes;
-    write_json_field_name(output, first, "game_over_nodes");
-    output << stats.game_over_nodes;
-    write_json_field_name(output, first, "beta_cutoffs");
-    output << stats.beta_cutoffs;
-    write_json_field_name(output, first, "beta_cut_first_move_pct");
-    output << beta_cut_first_move_percentage(stats);
-    write_json_field_name(output, first, "tt_lookups");
-    output << stats.tt_lookups;
-    write_json_field_name(output, first, "tt_hits");
-    output << stats.tt_hits;
-    write_json_field_name(output, first, "tt_hit_rate");
-    output << tt_hit_percentage(stats);
-    write_json_field_name(output, first, "tt_stores");
-    output << stats.tt_stores;
-    write_json_field_name(output, first, "tt_overwrites");
-    output << stats.tt_overwrites;
-    write_json_field_name(output, first, "tt_collisions");
-    output << stats.tt_collisions;
-    write_json_field_name(output, first, "tt_rejected_stores");
-    output << stats.tt_rejected_stores;
-    write_json_field_name(output, first, "tt_order_probes");
-    output << stats.tt_move_ordering_probes;
-    write_json_field_name(output, first, "tt_order_hits");
-    output << stats.tt_move_ordering_hits;
-    write_json_field_name(output, first, "tt_order_used");
-    output << stats.tt_move_ordering_used;
-    write_json_field_name(output, first, "pvs_scouts");
-    output << stats.pvs_scouts;
-    write_json_field_name(output, first, "pvs_researches");
-    output << stats.pvs_researches;
-    write_json_field_name(output, first, "pvs_scout_cutoffs");
-    output << stats.pvs_scout_cutoffs;
-    write_json_field_name(output, first, "asp_searches");
-    output << stats.aspiration_searches;
-    write_json_field_name(output, first, "asp_researches");
-    output << stats.aspiration_researches;
-    write_json_field_name(output, first, "asp_fail_lows");
-    output << stats.aspiration_fail_lows;
-    write_json_field_name(output, first, "asp_fail_highs");
-    output << stats.aspiration_fail_highs;
-    write_json_field_name(output, first, "asp_fallbacks");
-    output << stats.aspiration_full_window_fallbacks;
-    write_json_field_name(output, first, "dyn_nodes");
-    output << stats.dynamic_ordering_nodes;
-    write_json_field_name(output, first, "dyn_moves");
-    output << stats.dynamic_ordering_moves;
+void write_json_search_stats_fields(JsonObjectWriter& writer, const othello::SearchStats& stats) {
+    writer.uint_field("searched_moves", stats.searched_moves);
+    writer.uint_field("legal_nodes", stats.legal_move_nodes);
+    writer.uint_field("eval_calls", stats.eval_calls);
+    writer.uint_field("pass_nodes", stats.pass_nodes);
+    writer.uint_field("game_over_nodes", stats.game_over_nodes);
+    writer.uint_field("beta_cutoffs", stats.beta_cutoffs);
+    writer.double_field("beta_cut_first_move_pct", beta_cut_first_move_percentage(stats));
+    writer.uint_field("tt_lookups", stats.tt_lookups);
+    writer.uint_field("tt_hits", stats.tt_hits);
+    writer.double_field("tt_hit_rate", tt_hit_percentage(stats));
+    writer.uint_field("tt_stores", stats.tt_stores);
+    writer.uint_field("tt_overwrites", stats.tt_overwrites);
+    writer.uint_field("tt_collisions", stats.tt_collisions);
+    writer.uint_field("tt_rejected_stores", stats.tt_rejected_stores);
+    writer.uint_field("tt_order_probes", stats.tt_move_ordering_probes);
+    writer.uint_field("tt_order_hits", stats.tt_move_ordering_hits);
+    writer.uint_field("tt_order_used", stats.tt_move_ordering_used);
+    writer.uint_field("pvs_scouts", stats.pvs_scouts);
+    writer.uint_field("pvs_researches", stats.pvs_researches);
+    writer.uint_field("pvs_scout_cutoffs", stats.pvs_scout_cutoffs);
+    writer.uint_field("asp_searches", stats.aspiration_searches);
+    writer.uint_field("asp_researches", stats.aspiration_researches);
+    writer.uint_field("asp_fail_lows", stats.aspiration_fail_lows);
+    writer.uint_field("asp_fail_highs", stats.aspiration_fail_highs);
+    writer.uint_field("asp_fallbacks", stats.aspiration_full_window_fallbacks);
+    writer.uint_field("dyn_nodes", stats.dynamic_ordering_nodes);
+    writer.uint_field("dyn_moves", stats.dynamic_ordering_moves);
 }
 
 void write_search_jsonl(const SearchBenchmarkResult& result, PositionSet position_set,
@@ -1500,117 +1451,82 @@ void write_search_jsonl(const SearchBenchmarkResult& result, PositionSet positio
                                         : static_cast<double>(result.total_nodes) /
                                               static_cast<double>(result.searches);
 
-    bool first = true;
-    std::cout << '{';
-    write_json_string_field(std::cout, first, "tool", "othello_search_bench");
-    write_json_string_field(std::cout, first, "row", "aggregate");
-    write_json_string_field(std::cout, first, "mode", mode_name(result.mode));
-    write_json_field_name(std::cout, first, "depth");
-    std::cout << result.depth;
-    write_json_string_field(std::cout, first, "positions", position_set_name(position_set));
-    write_json_field_name(std::cout, first, "repetitions");
-    std::cout << repetitions;
-    write_json_bool_field(std::cout, first, "tt", result.use_transposition_table);
-    write_json_bool_field(std::cout, first, "pvs", result.use_pvs);
-    write_json_bool_field(std::cout, first, "aspiration", result.use_aspiration_window);
-    write_json_field_name(std::cout, first, "aspiration_window");
-    std::cout << result.aspiration_window;
-    write_json_field_name(std::cout, first, "aspiration_max_researches");
-    std::cout << result.aspiration_max_researches;
-    write_json_field_name(std::cout, first, "tt_entries");
-    std::cout << result.transposition_table_entries;
-    write_json_string_field(std::cout, first, "exact_endgame_profile",
-                            result.exact_root_profile);
-    write_json_field_name(std::cout, first, "exact_root_positions");
-    std::cout << result.exact_root_positions;
-    write_json_field_name(std::cout, first, "exact_root_searches");
-    std::cout << result.exact_root_searches;
-    write_json_field_name(std::cout, first, "position_count");
-    std::cout << result.position_count;
-    write_json_square_field(std::cout, first, "best_move", result.sample_best_move);
-    write_json_field_name(std::cout, first, "score");
-    std::cout << result.sample_score;
-    write_json_string_field(std::cout, first, "score_kind",
-                            score_kind_name(result.sample_score_kind));
-    write_json_bool_field(std::cout, first, "used_exact_endgame",
-                          result.sample_used_exact_endgame);
-    write_json_optional_int_field(std::cout, first, "exact_disc_margin",
-                                  result.sample_exact_disc_margin);
-    write_json_pv_field(std::cout, first, "principal_variation",
+    JsonObjectWriter writer{std::cout};
+    writer.begin_object();
+    writer.string_field("tool", "othello_search_bench");
+    writer.string_field("row", "aggregate");
+    writer.string_field("mode", mode_name(result.mode));
+    writer.int_field("depth", result.depth);
+    writer.string_field("positions", position_set_name(position_set));
+    writer.uint_field("repetitions", repetitions);
+    writer.bool_field("tt", result.use_transposition_table);
+    writer.bool_field("pvs", result.use_pvs);
+    writer.bool_field("aspiration", result.use_aspiration_window);
+    writer.int_field("aspiration_window", result.aspiration_window);
+    writer.int_field("aspiration_max_researches", result.aspiration_max_researches);
+    writer.uint_field("tt_entries", static_cast<std::uint64_t>(result.transposition_table_entries));
+    writer.string_field("exact_endgame_profile", result.exact_root_profile);
+    writer.uint_field("exact_root_positions", result.exact_root_positions);
+    writer.uint_field("exact_root_searches", result.exact_root_searches);
+    writer.uint_field("position_count", result.position_count);
+    write_json_square_field(writer, "best_move", result.sample_best_move);
+    writer.int_field("score", result.sample_score);
+    writer.string_field("score_kind", score_kind_name(result.sample_score_kind));
+    writer.bool_field("used_exact_endgame", result.sample_used_exact_endgame);
+    write_json_optional_int_field(writer, "exact_disc_margin", result.sample_exact_disc_margin);
+    write_json_pv_field(writer, std::cout, "principal_variation",
                         result.sample_principal_variation);
-    write_json_field_name(std::cout, first, "searches");
-    std::cout << result.searches;
-    write_json_field_name(std::cout, first, "elapsed_ms");
-    std::cout << elapsed_ms(result.elapsed);
-    write_json_field_name(std::cout, first, "searches_per_second");
-    std::cout << searches_per_second;
-    write_json_field_name(std::cout, first, "nodes");
-    std::cout << result.total_nodes;
-    write_json_field_name(std::cout, first, "nps");
-    std::cout << nodes_per_second;
-    write_json_field_name(std::cout, first, "nodes_per_search");
-    std::cout << nodes_per_search;
-    write_json_search_stats_fields(std::cout, first, result.total_stats);
-    write_json_string_field(std::cout, first, "result_checksum",
-                            std::to_string(result.result_checksum));
-    write_json_string_field(std::cout, first, "work_checksum",
-                            std::to_string(result.work_checksum));
-    std::cout << "}\n";
+    writer.uint_field("searches", result.searches);
+    writer.double_field("elapsed_ms", elapsed_ms(result.elapsed));
+    writer.double_field("searches_per_second", searches_per_second);
+    writer.uint_field("nodes", result.total_nodes);
+    writer.double_field("nps", nodes_per_second);
+    writer.double_field("nodes_per_search", nodes_per_search);
+    write_json_search_stats_fields(writer, result.total_stats);
+    writer.string_field("result_checksum", std::to_string(result.result_checksum));
+    writer.string_field("work_checksum", std::to_string(result.work_checksum));
+    writer.end_object();
+    std::cout << '\n';
 }
 
 void write_position_jsonl(const PositionBenchmarkResult& result, PositionSet position_set,
                           std::uint64_t repetitions) {
-    bool first = true;
-    std::cout << '{';
-    write_json_string_field(std::cout, first, "tool", "othello_search_bench");
-    write_json_string_field(std::cout, first, "row", "position");
-    write_json_string_field(std::cout, first, "position", result.position_name);
-    write_json_string_field(std::cout, first, "phase", result.phase);
-    write_json_string_field(std::cout, first, "tags", result.tags);
-    write_json_string_field(std::cout, first, "mode", mode_name(result.mode));
-    write_json_string_field(std::cout, first, "positions", position_set_name(position_set));
-    write_json_field_name(std::cout, first, "depth");
-    std::cout << result.depth;
-    write_json_field_name(std::cout, first, "repetitions");
-    std::cout << repetitions;
-    write_json_bool_field(std::cout, first, "tt", result.use_transposition_table);
-    write_json_bool_field(std::cout, first, "pvs", result.use_pvs);
-    write_json_bool_field(std::cout, first, "aspiration", result.use_aspiration_window);
-    write_json_field_name(std::cout, first, "tt_entries");
-    std::cout << result.transposition_table_entries;
-    write_json_string_field(std::cout, first, "exact_endgame_profile",
-                            result.exact_root_profile);
-    write_json_field_name(std::cout, first, "empty_count");
-    std::cout << result.empty_count;
-    write_json_bool_field(std::cout, first, "exact_root", result.exact_root);
-    write_json_string_field(std::cout, first, "exact_skip_reason", result.exact_skip_reason);
-    write_json_square_field(std::cout, first, "best_move", result.sample_best_move);
-    write_json_field_name(std::cout, first, "score");
-    std::cout << result.sample_score;
-    write_json_string_field(std::cout, first, "score_kind",
-                            score_kind_name(result.sample_score_kind));
-    write_json_bool_field(std::cout, first, "used_exact_endgame",
-                          result.sample_used_exact_endgame);
-    write_json_optional_int_field(std::cout, first, "exact_disc_margin",
-                                  result.sample_exact_disc_margin);
-    write_json_pv_field(std::cout, first, "principal_variation",
+    JsonObjectWriter writer{std::cout};
+    writer.begin_object();
+    writer.string_field("tool", "othello_search_bench");
+    writer.string_field("row", "position");
+    writer.string_field("position", result.position_name);
+    writer.string_field("phase", result.phase);
+    writer.string_field("tags", result.tags);
+    writer.string_field("mode", mode_name(result.mode));
+    writer.string_field("positions", position_set_name(position_set));
+    writer.int_field("depth", result.depth);
+    writer.uint_field("repetitions", repetitions);
+    writer.bool_field("tt", result.use_transposition_table);
+    writer.bool_field("pvs", result.use_pvs);
+    writer.bool_field("aspiration", result.use_aspiration_window);
+    writer.uint_field("tt_entries", static_cast<std::uint64_t>(result.transposition_table_entries));
+    writer.string_field("exact_endgame_profile", result.exact_root_profile);
+    writer.int_field("empty_count", result.empty_count);
+    writer.bool_field("exact_root", result.exact_root);
+    writer.string_field("exact_skip_reason", result.exact_skip_reason);
+    write_json_square_field(writer, "best_move", result.sample_best_move);
+    writer.int_field("score", result.sample_score);
+    writer.string_field("score_kind", score_kind_name(result.sample_score_kind));
+    writer.bool_field("used_exact_endgame", result.sample_used_exact_endgame);
+    write_json_optional_int_field(writer, "exact_disc_margin", result.sample_exact_disc_margin);
+    write_json_pv_field(writer, std::cout, "principal_variation",
                         result.sample_principal_variation);
-    write_json_field_name(std::cout, first, "searches");
-    std::cout << result.searches;
-    write_json_field_name(std::cout, first, "elapsed_ms");
-    std::cout << elapsed_ms(result.elapsed);
-    write_json_field_name(std::cout, first, "nodes");
-    std::cout << result.total_nodes;
-    write_json_field_name(std::cout, first, "nodes_per_search");
-    std::cout << nodes_per_search(result);
-    write_json_field_name(std::cout, first, "nps");
-    std::cout << nodes_per_second(result);
-    write_json_search_stats_fields(std::cout, first, result.total_stats);
-    write_json_string_field(std::cout, first, "result_checksum",
-                            std::to_string(result.result_checksum));
-    write_json_string_field(std::cout, first, "work_checksum",
-                            std::to_string(result.work_checksum));
-    std::cout << "}\n";
+    writer.uint_field("searches", result.searches);
+    writer.double_field("elapsed_ms", elapsed_ms(result.elapsed));
+    writer.uint_field("nodes", result.total_nodes);
+    writer.double_field("nodes_per_search", nodes_per_search(result));
+    writer.double_field("nps", nodes_per_second(result));
+    write_json_search_stats_fields(writer, result.total_stats);
+    writer.string_field("result_checksum", std::to_string(result.result_checksum));
+    writer.string_field("work_checksum", std::to_string(result.work_checksum));
+    writer.end_object();
+    std::cout << '\n';
 }
 
 [[nodiscard]] std::size_t nearest_rank_index(std::size_t count, int percentile) noexcept {

@@ -36,6 +36,7 @@ using othello::benchmarks::same_board;
 using othello::tools::elapsed_ms;
 using othello::tools::format_principal_variation;
 using othello::tools::format_square;
+using othello::tools::JsonObjectWriter;
 using othello::tools::tt_hit_percentage;
 
 enum class PositionSet {
@@ -1012,39 +1013,18 @@ void print_position_results(const std::vector<PositionBenchmarkResult>& results)
     }
 }
 
-void write_json_field_name(std::ostream& output, bool& first, std::string_view name) {
-    if (!first) {
-        output << ',';
-    }
-    first = false;
-    othello::tools::write_json_string(output, name);
-    output << ':';
-}
-
-void write_json_string_field(std::ostream& output, bool& first, std::string_view name,
-                             std::string_view value) {
-    write_json_field_name(output, first, name);
-    othello::tools::write_json_string(output, value);
-}
-
-void write_json_bool_field(std::ostream& output, bool& first, std::string_view name, bool value) {
-    write_json_field_name(output, first, name);
-    output << (value ? "true" : "false");
-}
-
-void write_json_square_field(std::ostream& output, bool& first, std::string_view name,
+void write_json_square_field(JsonObjectWriter& writer, std::string_view name,
                              std::optional<othello::Square> square) {
-    write_json_field_name(output, first, name);
     if (square.has_value()) {
-        othello::tools::write_json_string(output, othello::to_string(*square));
+        writer.string_field(name, othello::to_string(*square));
     } else {
-        output << "null";
+        writer.null_field(name);
     }
 }
 
-void write_json_pv_field(std::ostream& output, bool& first, std::string_view name,
+void write_json_pv_field(JsonObjectWriter& writer, std::ostream& output, std::string_view name,
                          const std::vector<othello::Square>& principal_variation) {
-    write_json_field_name(output, first, name);
+    writer.field_name(name);
     output << '[';
     bool first_move = true;
     for (const othello::Square square : principal_variation) {
@@ -1057,79 +1037,53 @@ void write_json_pv_field(std::ostream& output, bool& first, std::string_view nam
     output << ']';
 }
 
-void write_json_exact_stats_fields(std::ostream& output, bool& first,
+void write_json_exact_stats_fields(JsonObjectWriter& writer,
                                    const othello::ExactEndgameStats& stats) {
-    write_json_field_name(output, first, "tt_lookups");
-    output << stats.tt_lookups;
-    write_json_field_name(output, first, "tt_hits");
-    output << stats.tt_hits;
-    write_json_field_name(output, first, "tt_hit_rate");
-    output << tt_hit_percentage(stats);
-    write_json_field_name(output, first, "tt_exact_hits");
-    output << stats.tt_exact_hits;
-    write_json_field_name(output, first, "tt_lower_hits");
-    output << stats.tt_lower_hits;
-    write_json_field_name(output, first, "tt_upper_hits");
-    output << stats.tt_upper_hits;
-    write_json_field_name(output, first, "tt_stores");
-    output << stats.tt_stores;
-    write_json_field_name(output, first, "tt_overwrites");
-    output << stats.tt_overwrites;
-    write_json_field_name(output, first, "tt_collisions");
-    output << stats.tt_collisions;
-    write_json_field_name(output, first, "tt_rejected_stores");
-    output << stats.tt_rejected_stores;
-    write_json_field_name(output, first, "tt_order_probes");
-    output << stats.tt_move_ordering_probes;
-    write_json_field_name(output, first, "tt_order_hits");
-    output << stats.tt_move_ordering_hits;
-    write_json_field_name(output, first, "tt_order_used");
-    output << stats.tt_move_ordering_used;
+    writer.uint_field("tt_lookups", stats.tt_lookups);
+    writer.uint_field("tt_hits", stats.tt_hits);
+    writer.double_field("tt_hit_rate", tt_hit_percentage(stats));
+    writer.uint_field("tt_exact_hits", stats.tt_exact_hits);
+    writer.uint_field("tt_lower_hits", stats.tt_lower_hits);
+    writer.uint_field("tt_upper_hits", stats.tt_upper_hits);
+    writer.uint_field("tt_stores", stats.tt_stores);
+    writer.uint_field("tt_overwrites", stats.tt_overwrites);
+    writer.uint_field("tt_collisions", stats.tt_collisions);
+    writer.uint_field("tt_rejected_stores", stats.tt_rejected_stores);
+    writer.uint_field("tt_order_probes", stats.tt_move_ordering_probes);
+    writer.uint_field("tt_order_hits", stats.tt_move_ordering_hits);
+    writer.uint_field("tt_order_used", stats.tt_move_ordering_used);
 }
 
-void write_json_metrics_fields(std::ostream& output, bool& first,
-                               const EndgamePositionMetrics& metrics) {
-    write_json_field_name(output, first, "legal_moves_current");
-    output << metrics.legal_moves_current;
-    write_json_field_name(output, first, "legal_moves_opponent");
-    output << metrics.legal_moves_opponent;
-    write_json_bool_field(output, first, "root_pass", metrics.root_pass);
-    write_json_field_name(output, first, "legal_corner_count");
-    output << metrics.legal_corner_count;
-    write_json_field_name(output, first, "edge_empty_count");
-    output << metrics.edge_empty_count;
-    write_json_field_name(output, first, "empty_region_count");
-    output << metrics.empty_region_count;
-    write_json_field_name(output, first, "odd_region_count");
-    output << metrics.odd_region_count;
-    write_json_field_name(output, first, "largest_region_size");
-    output << metrics.largest_region_size;
+void write_json_metrics_fields(JsonObjectWriter& writer, const EndgamePositionMetrics& metrics) {
+    writer.int_field("legal_moves_current", metrics.legal_moves_current);
+    writer.int_field("legal_moves_opponent", metrics.legal_moves_opponent);
+    writer.bool_field("root_pass", metrics.root_pass);
+    writer.int_field("legal_corner_count", metrics.legal_corner_count);
+    writer.int_field("edge_empty_count", metrics.edge_empty_count);
+    writer.int_field("empty_region_count", metrics.empty_region_count);
+    writer.int_field("odd_region_count", metrics.odd_region_count);
+    writer.int_field("largest_region_size", metrics.largest_region_size);
 }
 
 void write_position_jsonl(const PositionBenchmarkResult& result) {
-    bool first = true;
-    std::cout << '{';
-    write_json_string_field(std::cout, first, "tool", "othello_endgame_bench");
-    write_json_string_field(std::cout, first, "row", "position");
-    write_json_string_field(std::cout, first, "position", result.name);
-    write_json_field_name(std::cout, first, "empties");
-    std::cout << result.empties;
-    write_json_string_field(std::cout, first, "tags", result.tags);
-    write_json_square_field(std::cout, first, "best_move", result.best_move);
-    write_json_field_name(std::cout, first, "disc_margin");
-    std::cout << result.disc_margin;
-    write_json_field_name(std::cout, first, "nodes");
-    std::cout << result.total_nodes;
-    write_json_field_name(std::cout, first, "elapsed_ms");
-    std::cout << elapsed_ms(result.elapsed);
-    write_json_field_name(std::cout, first, "nps");
-    std::cout << nodes_per_second(result.total_nodes, result.elapsed);
-    write_json_field_name(std::cout, first, "repetitions");
-    std::cout << result.repetitions;
-    write_json_pv_field(std::cout, first, "principal_variation", result.principal_variation);
-    write_json_exact_stats_fields(std::cout, first, result.total_stats);
-    write_json_metrics_fields(std::cout, first, result.metrics);
-    std::cout << "}\n";
+    JsonObjectWriter writer{std::cout};
+    writer.begin_object();
+    writer.string_field("tool", "othello_endgame_bench");
+    writer.string_field("row", "position");
+    writer.string_field("position", result.name);
+    writer.int_field("empties", result.empties);
+    writer.string_field("tags", result.tags);
+    write_json_square_field(writer, "best_move", result.best_move);
+    writer.int_field("disc_margin", result.disc_margin);
+    writer.uint_field("nodes", result.total_nodes);
+    writer.double_field("elapsed_ms", elapsed_ms(result.elapsed));
+    writer.double_field("nps", nodes_per_second(result.total_nodes, result.elapsed));
+    writer.uint_field("repetitions", result.repetitions);
+    write_json_pv_field(writer, std::cout, "principal_variation", result.principal_variation);
+    write_json_exact_stats_fields(writer, result.total_stats);
+    write_json_metrics_fields(writer, result.metrics);
+    writer.end_object();
+    std::cout << '\n';
 }
 
 void write_position_jsonl_rows(const std::vector<PositionBenchmarkResult>& results) {
@@ -1139,57 +1093,48 @@ void write_position_jsonl_rows(const std::vector<PositionBenchmarkResult>& resul
 }
 
 void write_root_candidate_jsonl(const RootCandidateBreakdown& candidate) {
-    bool first = true;
-    std::cout << '{';
-    write_json_string_field(std::cout, first, "tool", "othello_endgame_bench");
-    write_json_string_field(std::cout, first, "row", "root_candidate");
-    write_json_string_field(std::cout, first, "position", candidate.position_name);
-    write_json_field_name(std::cout, first, "empties");
-    std::cout << candidate.empties;
-    write_json_string_field(std::cout, first, "root_move", format_root_move(candidate));
-    write_json_bool_field(std::cout, first, "pass", candidate.is_pass);
-    write_json_field_name(std::cout, first, "rank_by_margin");
-    std::cout << candidate.rank_by_margin;
-    write_json_field_name(std::cout, first, "disc_margin");
-    std::cout << candidate.disc_margin_root;
-    write_json_field_name(std::cout, first, "nodes");
-    std::cout << candidate.nodes;
-    write_json_field_name(std::cout, first, "elapsed_ms");
-    std::cout << elapsed_ms(candidate.elapsed);
-    write_json_pv_field(std::cout, first, "principal_variation",
+    JsonObjectWriter writer{std::cout};
+    writer.begin_object();
+    writer.string_field("tool", "othello_endgame_bench");
+    writer.string_field("row", "root_candidate");
+    writer.string_field("position", candidate.position_name);
+    writer.int_field("empties", candidate.empties);
+    writer.string_field("root_move", format_root_move(candidate));
+    writer.bool_field("pass", candidate.is_pass);
+    writer.int_field("rank_by_margin", candidate.rank_by_margin);
+    writer.int_field("disc_margin", candidate.disc_margin_root);
+    writer.uint_field("nodes", candidate.nodes);
+    writer.double_field("elapsed_ms", elapsed_ms(candidate.elapsed));
+    write_json_pv_field(writer, std::cout, "principal_variation",
                         candidate.principal_variation);
-    write_json_exact_stats_fields(std::cout, first, candidate.stats);
-    write_json_metrics_fields(std::cout, first, candidate.child_metrics);
-    std::cout << "}\n";
+    write_json_exact_stats_fields(writer, candidate.stats);
+    write_json_metrics_fields(writer, candidate.child_metrics);
+    writer.end_object();
+    std::cout << '\n';
 }
 
 void write_expanded_child_jsonl(const ExpandedChildBreakdown& candidate) {
-    bool first = true;
-    std::cout << '{';
-    write_json_string_field(std::cout, first, "tool", "othello_endgame_bench");
-    write_json_string_field(std::cout, first, "row", "expanded_child");
-    write_json_string_field(std::cout, first, "position", candidate.position_name);
-    write_json_field_name(std::cout, first, "parent_empties");
-    std::cout << candidate.parent_empties;
-    write_json_string_field(std::cout, first, "root_move", candidate.root_move);
-    write_json_string_field(std::cout, first, "child_move",
-                            candidate.is_pass ? "pass" : format_square(candidate.child_move));
-    write_json_bool_field(std::cout, first, "pass", candidate.is_pass);
-    write_json_field_name(std::cout, first, "rank_by_margin");
-    std::cout << candidate.rank_by_margin;
-    write_json_field_name(std::cout, first, "disc_margin_node");
-    std::cout << candidate.disc_margin_node;
-    write_json_field_name(std::cout, first, "disc_margin_root");
-    std::cout << candidate.disc_margin_root;
-    write_json_field_name(std::cout, first, "nodes");
-    std::cout << candidate.nodes;
-    write_json_field_name(std::cout, first, "elapsed_ms");
-    std::cout << elapsed_ms(candidate.elapsed);
-    write_json_pv_field(std::cout, first, "principal_variation",
+    JsonObjectWriter writer{std::cout};
+    writer.begin_object();
+    writer.string_field("tool", "othello_endgame_bench");
+    writer.string_field("row", "expanded_child");
+    writer.string_field("position", candidate.position_name);
+    writer.int_field("parent_empties", candidate.parent_empties);
+    writer.string_field("root_move", candidate.root_move);
+    writer.string_field("child_move",
+                        candidate.is_pass ? "pass" : format_square(candidate.child_move));
+    writer.bool_field("pass", candidate.is_pass);
+    writer.int_field("rank_by_margin", candidate.rank_by_margin);
+    writer.int_field("disc_margin_node", candidate.disc_margin_node);
+    writer.int_field("disc_margin_root", candidate.disc_margin_root);
+    writer.uint_field("nodes", candidate.nodes);
+    writer.double_field("elapsed_ms", elapsed_ms(candidate.elapsed));
+    write_json_pv_field(writer, std::cout, "principal_variation",
                         candidate.principal_variation);
-    write_json_exact_stats_fields(std::cout, first, candidate.stats);
-    write_json_metrics_fields(std::cout, first, candidate.child_metrics);
-    std::cout << "}\n";
+    write_json_exact_stats_fields(writer, candidate.stats);
+    write_json_metrics_fields(writer, candidate.child_metrics);
+    writer.end_object();
+    std::cout << '\n';
 }
 
 [[nodiscard]] double percentile(std::vector<double> values, double fraction) {
