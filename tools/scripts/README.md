@@ -349,6 +349,53 @@ move is legal. Otherwise it forwards commands unchanged. Nested wrappers can be
 used for multi-ply interventions, but no forced-move policy belongs in engine
 core behavior.
 
+Generate local external-engine teacher labels as JSONL:
+
+```sh
+python3 tools/scripts/external_teacher_label_workflow.py \
+  --positions data/positions/evaluation/diagnostic_suite.txt \
+  --out runs/teacher-labels/fake-smoke \
+  --adapter one-shot \
+  --engine-name fake \
+  --engine-cmd -- python3 tools/scripts/external_engines/fake_engine.py --move d3
+```
+
+The workflow reads existing 9-line board position files, calls the selected
+external-engine adapter once per position, and writes `labels.jsonl`,
+`workflow.md`, and raw per-position logs under the requested output directory.
+It can also read raw external-engine text blocks with `--input-format raw` or
+`--input-format nboard-game`.
+
+For local NTest NBoard labels:
+
+```sh
+python3 tools/scripts/external_teacher_label_workflow.py \
+  --positions data/positions/evaluation/diagnostic_suite.txt \
+  --out runs/teacher-labels/ntest-smoke \
+  --adapter ntest \
+  --protocol nboard \
+  --depth 6 \
+  --timeout-ms 10000 \
+  --workdir /path/to/ntest/build \
+  --engine-name ntest6 \
+  --legal-validator build/othello_validate_move \
+  --engine-cmd -- /path/to/ntest/build/ntest x
+```
+
+The NTest NBoard adapter serializes 9-line board positions to the `BO[8 ...]`
+game text expected by NTest's `x` mode. Omit `--depth` to use the adapter's
+default depth 26, or pass an explicit stronger depth for real teacher evidence;
+the depth 6 command above is only a quick smoke example.
+
+Teacher labels are reference-engine evidence, not exact truth, Elo, or a
+default-promotion recommendation. For 9-line board inputs, the workflow
+validates the returned move with the C++ rule-core `othello_validate_move` tool
+and records `legal_move_valid`, `legal_validation_source`, and `legal_moves`;
+illegal moves are recorded as failed rows. Raw external-input text cannot be
+legally validated unless a board9 position is also available. Keep generated
+labels and raw logs under `runs/`; do not commit them, and never commit external
+engine binaries or local engine paths.
+
 Probe the canonical external engine adapter CLI with the fake engine:
 
 ```sh

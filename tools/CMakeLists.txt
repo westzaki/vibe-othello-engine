@@ -143,6 +143,12 @@ othello_add_executable(othello_position_sampler
 )
 target_include_directories(othello_position_sampler PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
+othello_add_executable(othello_validate_move
+    validate_move_main.cpp
+    $<TARGET_OBJECTS:othello_tools_common>
+)
+target_include_directories(othello_validate_move PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
 othello_add_executable(othello_match_runner
     match_runner/match_runner_main.cpp
     match_runner/jsonl_writer.cpp
