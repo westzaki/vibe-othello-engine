@@ -68,6 +68,15 @@ target_include_directories(othello_exact_label_dump_core PRIVATE ${CMAKE_CURRENT
 othello_enable_sanitizers(othello_exact_label_dump_core)
 list(APPEND OTHELLO_CLANG_TIDY_TARGETS othello_exact_label_dump_core)
 
+add_library(othello_eval_vs_exact_core OBJECT
+    eval_vs_exact/eval_vs_exact.cpp
+)
+
+target_link_libraries(othello_eval_vs_exact_core PRIVATE othello)
+target_include_directories(othello_eval_vs_exact_core PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+othello_enable_sanitizers(othello_eval_vs_exact_core)
+list(APPEND OTHELLO_CLANG_TIDY_TARGETS othello_eval_vs_exact_core)
+
 othello_add_executable(othello_rule_core_bench
     benchmarks/rule_core_main.cpp
     benchmarks/reporters.cpp
@@ -105,6 +114,13 @@ othello_add_executable(othello_exact_label_dump
     $<TARGET_OBJECTS:othello_tools_common>
 )
 target_include_directories(othello_exact_label_dump PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+othello_add_executable(othello_eval_vs_exact
+    eval_vs_exact/eval_vs_exact_main.cpp
+    $<TARGET_OBJECTS:othello_eval_vs_exact_core>
+    $<TARGET_OBJECTS:othello_tools_common>
+)
+target_include_directories(othello_eval_vs_exact PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 othello_add_executable(othello_match_runner
     match_runner/match_runner_main.cpp

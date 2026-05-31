@@ -90,6 +90,7 @@ enable_testing()
 othello_add_executable(othello_tests
     tests/endgame_tests.cpp
     tests/evaluation_tests.cpp
+    tests/eval_vs_exact_tests.cpp
     tests/exact_label_dump_tests.cpp
     tests/hash_tests.cpp
     tests/jsonl_tests.cpp
@@ -104,6 +105,7 @@ othello_add_executable(othello_tests
     tests/search_tests.cpp
     tests/square_tests.cpp
     $<TARGET_OBJECTS:othello_analyze_core>
+    $<TARGET_OBJECTS:othello_eval_vs_exact_core>
     $<TARGET_OBJECTS:othello_exact_label_dump_core>
     $<TARGET_OBJECTS:othello_match_runner_core>
     $<TARGET_OBJECTS:othello_nboard_protocol>
@@ -187,6 +189,30 @@ othello_add_help_contains_test(
     "--include-move-scores"
 )
 
+othello_add_help_contains_test(
+    othello_eval_vs_exact_help_includes_labels
+    othello_eval_vs_exact
+    "--labels"
+)
+
+othello_add_help_contains_test(
+    othello_eval_vs_exact_help_includes_eval_preset
+    othello_eval_vs_exact
+    "--eval-preset"
+)
+
+othello_add_help_contains_test(
+    othello_eval_vs_exact_help_includes_eval_config
+    othello_eval_vs_exact
+    "--eval-config"
+)
+
+othello_add_help_contains_test(
+    othello_eval_vs_exact_help_includes_high_confidence_threshold
+    othello_eval_vs_exact
+    "--high-confidence-threshold"
+)
+
 othello_add_tool_smoke_test(
     othello_exact_label_dump_smoke
     othello_exact_label_dump
@@ -205,6 +231,10 @@ set(OTHELLO_SAMPLE_EVAL_CONFIG
     "${CMAKE_CURRENT_SOURCE_DIR}/data/eval/current_default.eval"
 )
 
+set(OTHELLO_TINY_EXACT_LABELS
+    "${CMAKE_CURRENT_SOURCE_DIR}/data/labels/exact_label_tiny.jsonl"
+)
+
 othello_add_expect_failure_test(
     othello_search_bench_rejects_eval_preset_with_eval_config
     othello_search_bench
@@ -218,6 +248,70 @@ othello_add_expect_failure_test(
     othello_search_bench
     "invalid --format value"
     --format yaml
+)
+
+othello_add_expect_failure_test(
+    othello_eval_vs_exact_rejects_eval_preset_with_eval_config
+    othello_eval_vs_exact
+    "cannot combine --eval-preset and --eval-config"
+    --labels "${OTHELLO_TINY_EXACT_LABELS}"
+    --output "${CMAKE_CURRENT_BINARY_DIR}/eval_vs_exact_rejects_combo.md"
+    --eval-preset default
+    --eval-config "${OTHELLO_SAMPLE_EVAL_CONFIG}"
+)
+
+othello_add_expect_failure_test(
+    othello_eval_vs_exact_rejects_unsupported_schema
+    othello_eval_vs_exact
+    "unsupported schema"
+    --labels "${CMAKE_CURRENT_SOURCE_DIR}/data/labels/exact_label_unsupported_schema.jsonl"
+    --output "${CMAKE_CURRENT_BINARY_DIR}/eval_vs_exact_bad_schema.md"
+    --eval-preset default
+)
+
+othello_add_expect_failure_test(
+    othello_eval_vs_exact_rejects_missing_required_field
+    othello_eval_vs_exact
+    "missing required field"
+    --labels "${CMAKE_CURRENT_SOURCE_DIR}/data/labels/exact_label_missing_required.jsonl"
+    --output "${CMAKE_CURRENT_BINARY_DIR}/eval_vs_exact_missing_required.md"
+    --eval-preset default
+)
+
+othello_add_expect_failure_test(
+    othello_eval_vs_exact_rejects_invalid_high_confidence_threshold
+    othello_eval_vs_exact
+    "high-confidence-threshold must be a non-negative integer"
+    --labels "${OTHELLO_TINY_EXACT_LABELS}"
+    --output "${CMAKE_CURRENT_BINARY_DIR}/eval_vs_exact_bad_threshold.md"
+    --eval-preset default
+    --high-confidence-threshold -1
+)
+
+othello_add_tool_smoke_test(
+    othello_eval_vs_exact_smoke_with_default_preset
+    othello_eval_vs_exact
+    --labels "${OTHELLO_TINY_EXACT_LABELS}"
+    --output "${CMAKE_CURRENT_BINARY_DIR}/eval_vs_exact_default_preset.md"
+    --eval-preset default
+    --high-confidence-threshold 123
+    --phase-breakdown
+)
+set_tests_properties(
+    othello_eval_vs_exact_smoke_with_default_preset
+    PROPERTIES PASS_REGULAR_EXPRESSION "records_read=3"
+)
+
+othello_add_tool_smoke_test(
+    othello_eval_vs_exact_smoke_with_eval_config
+    othello_eval_vs_exact
+    --labels "${OTHELLO_TINY_EXACT_LABELS}"
+    --output "${CMAKE_CURRENT_BINARY_DIR}/eval_vs_exact_current_default.md"
+    --eval-config "${OTHELLO_SAMPLE_EVAL_CONFIG}"
+)
+set_tests_properties(
+    othello_eval_vs_exact_smoke_with_eval_config
+    PROPERTIES PASS_REGULAR_EXPRESSION "analyzed=3"
 )
 
 othello_add_expect_failure_test(

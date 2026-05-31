@@ -46,3 +46,48 @@ SHA, and caveats with any durable summary.
 
 The default `--max-empties 14` is a conservative safety cap; positions above the
 cap are skipped with a summary instead of solved.
+
+## Eval-vs-Exact Analysis
+
+`othello_eval_vs_exact` compares exact-label JSONL against one selected
+evaluator. It is an analysis tool only: it does not tune weights, promote a
+default, change exact-solver behavior, or make a strength claim.
+
+Example:
+
+```sh
+./build/othello_eval_vs_exact \
+  --labels runs/exact-labels/smoke.jsonl \
+  --output runs/eval-vs-exact/smoke-default.md \
+  --eval-preset default \
+  --high-confidence-threshold 250 \
+  --phase-breakdown \
+  --include-positions
+```
+
+For file-based configs, use exactly one `--eval-config` instead of
+`--eval-preset`:
+
+```sh
+./build/othello_eval_vs_exact \
+  --labels runs/exact-labels/smoke.jsonl \
+  --output runs/eval-vs-exact/smoke-current-default.md \
+  --eval-config data/eval/current_default.eval
+```
+
+The report focuses on sign agreement, wrong-direction cases, empties buckets,
+optional evaluator phase buckets, and high-confidence disagreements. Exact
+labels are final disc margins, while evaluator scores are heuristic units. Raw
+score differences are therefore uncalibrated heuristic-vs-disc comparisons and
+must not be reported as disc-margin MAE.
+
+The high-confidence disagreement threshold defaults to `250` heuristic units.
+Tune `--high-confidence-threshold` for the evaluator scale and validation goal
+of the current run. The v1 analyzer is fail-fast for malformed or semantically
+invalid records, so invalid rows abort the run instead of being counted as
+skipped records.
+
+Keep raw analyzer outputs under `runs/`. Durable summaries may go under
+`docs/perf/baselines/` when they include the command, source SHA, input labels,
+selected evaluator, and caveats. The next step after this report is an
+analysis or tuning experiment, not an automatic default promotion.
