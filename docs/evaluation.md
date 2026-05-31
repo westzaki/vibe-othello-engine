@@ -101,6 +101,28 @@ compared, and rolled back.
 
 Large candidates are allowed when they are named, measurable, and reversible.
 
+## Built-in Preset Policy
+
+Prefer `.eval` config files for experimental evaluator candidates. A candidate
+that only changes weights should normally live as a config file and be selected
+with `--eval-config`; generated reports, temporary candidates, and raw evidence
+belong under `runs/` or in PR/task artifacts.
+
+Add a public C++ `EvaluationPreset` only for stable defaults, intentionally
+retained named baselines, or long-lived built-ins that external wrappers should
+be able to select without shipping a config file. Do not add one enum entry per
+experiment.
+
+Existing public preset names are compatibility surface. Do not remove or rename
+them without a clear compatibility plan, even when a preset originated as an
+experiment. New CLI-visible names should remain stable once documented or used by
+fixtures.
+
+`data/eval/current_default.eval` is the committed config snapshot of
+`default_evaluation_config()`. Keep it synchronized in the same PR as any
+intentional default evaluator change, and use stronger-than-smoke evidence
+before promoting a candidate to the default.
+
 ## Othello Evaluation Directions
 
 This section lists durable idea families, not a checklist.

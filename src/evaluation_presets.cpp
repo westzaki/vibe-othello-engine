@@ -11,6 +11,9 @@ struct EvaluationPresetSpec {
     EvaluationPreset preset;
     std::string_view name;
     EvaluationConfig (*config)() noexcept;
+    // Stable public presets are intended long-lived built-ins. Other entries
+    // remain selectable for compatibility, but should not be copied for every
+    // new evaluator experiment.
     bool stable_public = false;
 };
 
@@ -197,7 +200,9 @@ struct EvaluationPresetSpec {
 }
 
 // The first entry for a preset is its canonical name; later duplicate preset
-// entries are accepted legacy aliases.
+// entries are accepted legacy aliases. Future experimental candidates should
+// usually be .eval files selected with --eval-config instead of new public enum
+// entries.
 constexpr std::array<EvaluationPresetSpec, 19> evaluation_preset_specs{{
     {.preset = EvaluationPreset::Default,
      .name = "default",
