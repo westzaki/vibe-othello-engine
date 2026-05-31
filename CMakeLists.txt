@@ -390,6 +390,19 @@ set_tests_properties(
     PROPERTIES PASS_REGULAR_EXPRESSION "analyzed=3"
 )
 
+othello_add_tool_smoke_test(
+    othello_eval_vs_exact_smoke_move_rank_stdout
+    othello_eval_vs_exact
+    --labels "${OTHELLO_TINY_EXACT_LABELS}"
+    --output "${CMAKE_CURRENT_BINARY_DIR}/eval_vs_exact_move_rank.md"
+    --eval-config "${OTHELLO_SAMPLE_EVAL_CONFIG}"
+    --move-rank-analysis
+)
+set_tests_properties(
+    othello_eval_vs_exact_smoke_move_rank_stdout
+    PROPERTIES PASS_REGULAR_EXPRESSION "move_rank_records_with_scores=1.*move_rank_records_missing_scores=2.*move_rank_analyzed=1"
+)
+
 if(Python3_Interpreter_FOUND)
     add_test(
         NAME eval_candidate_matrix_dry_run

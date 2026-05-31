@@ -168,6 +168,11 @@ inspection. This is root-child move-quality diagnostic evidence for evaluation
 work; it is not Elo, a tuner, a promotion gate, a strength claim, or an
 automatic default recommendation.
 
+Evaluator workflow scripts that call `othello_eval_vs_exact` can pass their own
+`--move-rank-analysis` option through to the analyzer. In those reports,
+records without `move_scores` are preserved as caveats rather than workflow
+failures.
+
 The high-confidence disagreement threshold defaults to `250` heuristic units.
 Tune `--high-confidence-threshold` for the evaluator scale and validation goal
 of the current run. The v1 analyzer is fail-fast for malformed or semantically

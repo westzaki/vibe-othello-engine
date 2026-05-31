@@ -30,6 +30,17 @@ OBJECTIVE_FORMULA = (
     "sign_agreements - wrong_direction_penalty * wrong_direction_count - "
     "high_confidence_penalty * high_confidence_wrong_direction_count"
 )
+MOVE_RANK_METRIC_KEYS = (
+    "move_rank_records_with_scores",
+    "move_rank_records_missing_scores",
+    "move_rank_records_no_legal_root_moves",
+    "move_rank_analyzed",
+    "move_rank_top_exact_best",
+    "move_rank_top_non_best",
+    "move_rank_exact_best_rank_sum",
+    "move_rank_eval_score_gap_sum",
+    "move_rank_exact_score_gap_sum",
+)
 
 
 @dataclass(frozen=True)
@@ -76,6 +87,7 @@ class TunerConfig:
     wrong_direction_penalty: int
     high_confidence_penalty: int
     high_confidence_threshold: int
+    move_rank_analysis: bool
     eval_vs_exact: Path
     dry_run: bool
     allow_failures: bool
@@ -97,6 +109,15 @@ class AnalyzerMetrics:
     sign_agreements: int
     wrong_direction: int
     high_confidence_wrong_direction: int
+    move_rank_records_with_scores: int | None = None
+    move_rank_records_missing_scores: int | None = None
+    move_rank_records_no_legal_root_moves: int | None = None
+    move_rank_analyzed: int | None = None
+    move_rank_top_exact_best: int | None = None
+    move_rank_top_non_best: int | None = None
+    move_rank_exact_best_rank_sum: int | None = None
+    move_rank_eval_score_gap_sum: int | None = None
+    move_rank_exact_score_gap_sum: int | None = None
 
 
 @dataclass(frozen=True)
@@ -210,6 +231,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=parse_non_negative_int,
         default=DEFAULT_HIGH_CONFIDENCE_THRESHOLD,
     )
+    parser.add_argument(
+        "--move-rank-analysis",
+        action="store_true",
+        help="pass --move-rank-analysis to othello_eval_vs_exact and record root move-quality metrics",
+    )
     parser.add_argument("--eval-vs-exact", help="override othello_eval_vs_exact path")
     parser.add_argument("--dry-run", action="store_true", help="write planned commands only")
     parser.add_argument(
@@ -241,6 +267,7 @@ def config_from_args(args: argparse.Namespace, invocation: list[str] | None = No
         wrong_direction_penalty=args.wrong_direction_penalty,
         high_confidence_penalty=args.high_confidence_penalty,
         high_confidence_threshold=args.high_confidence_threshold,
+        move_rank_analysis=args.move_rank_analysis,
         eval_vs_exact=Path(args.eval_vs_exact)
         if args.eval_vs_exact
         else build_dir / "othello_eval_vs_exact",
@@ -453,7 +480,7 @@ def analyzer_command(
     eval_config_path: Path,
     report_path: Path,
 ) -> list[str]:
-    return [
+    command = [
         str(config.eval_vs_exact),
         "--labels",
         str(config.labels),
@@ -464,6 +491,9 @@ def analyzer_command(
         "--high-confidence-threshold",
         str(config.high_confidence_threshold),
     ]
+    if config.move_rank_analysis:
+        command.append("--move-rank-analysis")
+    return command
 
 
 def parse_metric(stdout: str, key: str) -> int:
@@ -471,6 +501,11 @@ def parse_metric(stdout: str, key: str) -> int:
     if not match:
         raise ScriptError(f"analyzer stdout missing required metric: {key}")
     return int(match.group(1))
+
+
+def parse_optional_metric(stdout: str, key: str) -> int | None:
+    match = re.search(rf"\b{re.escape(key)}=(-?\d+)\b", stdout)
+    return int(match.group(1)) if match else None
 
 
 def parse_analyzer_stdout(stdout: str) -> AnalyzerMetrics:
@@ -483,6 +518,7 @@ def parse_analyzer_stdout(stdout: str) -> AnalyzerMetrics:
             stdout,
             "high_confidence_wrong_direction",
         ),
+        **{key: parse_optional_metric(stdout, key) for key in MOVE_RANK_METRIC_KEYS},
     )
 
 
@@ -645,6 +681,15 @@ def result_cells(result: CandidateResult) -> tuple[str, str, str, str, str]:
     )
 
 
+def move_rank_cells(metrics: AnalyzerMetrics | None) -> list[str]:
+    if metrics is None:
+        return ["n/a"] * len(MOVE_RANK_METRIC_KEYS)
+    return [
+        str(value) if (value := getattr(metrics, key)) is not None else "n/a"
+        for key in MOVE_RANK_METRIC_KEYS
+    ]
+
+
 def render_report(
     *,
     config: TunerConfig,
@@ -682,6 +727,7 @@ def render_report(
         f"- wrong_direction_penalty: `{config.wrong_direction_penalty}`",
         f"- high_confidence_penalty: `{config.high_confidence_penalty}`",
         f"- high_confidence_threshold: `{config.high_confidence_threshold}`",
+        f"- move_rank_analysis: `{str(config.move_rank_analysis).lower()}`",
         "",
         "## Results",
         "",
@@ -700,6 +746,28 @@ def render_report(
         )
     if not ranked:
         lines.append("| - | no successful candidates | n/a | n/a | n/a | n/a | n/a | n/a |")
+
+    if config.move_rank_analysis:
+        lines.extend(
+            [
+                "",
+                "## Move-Rank Metrics",
+                "",
+                "These metrics are recorded from `othello_eval_vs_exact --move-rank-analysis` for diagnostics only. The tuner objective still uses the sign-agreement formula above.",
+                "",
+                "| Candidate | Records With Scores | Missing Scores | No Legal Root Moves | Analyzed | Top Group Exact-Best | Top Group Non-Best | Exact-Best Rank Sum | Eval Gap Sum | Exact Gap Sum | Report |",
+                "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|",
+            ]
+        )
+        for result in ranked:
+            cells = move_rank_cells(result.metrics)
+            lines.append(
+                f"| `{result.candidate_id}` | "
+                + " | ".join(cells)
+                + f" | `{result.report_path}` |"
+            )
+        if not ranked:
+            lines.append("| - | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a |")
 
     lines.extend(["", "## Best Candidate", ""])
     if best is None:
@@ -786,6 +854,7 @@ def render_report(
             "- This report is not a default-promotion gate or recommendation.",
             "- Results depend on the input exact-label distribution.",
             "- Random playout labels may not be representative training data.",
+            "- Move-rank analysis is root move-quality evidence only; missing `move_scores` are reported as a caveat, not a workflow failure.",
             "- Generated configs are local experiment artifacts under `runs/`.",
             "- Follow-up validation should use held-out exact labels, search bench, match runner or base/head comparison, and external sanity when appropriate.",
         ]
@@ -795,7 +864,9 @@ def render_report(
 
 def write_summary_tsv(path: Path, results: list[CandidateResult]) -> None:
     lines = [
-        "rank\tcandidate\tstatus\tobjective\tanalyzed\tsign_agreements\twrong_direction\thigh_confidence_wrong_direction\tconfig\treport"
+        "rank\tcandidate\tstatus\tobjective\tanalyzed\tsign_agreements\twrong_direction\thigh_confidence_wrong_direction\t"
+        + "\t".join(MOVE_RANK_METRIC_KEYS)
+        + "\tconfig\treport"
     ]
     ranked = ranked_successes(results)
     ranked_ids = {result.candidate_id: rank for rank, result in enumerate(ranked, start=1)}
@@ -814,6 +885,7 @@ def write_summary_tsv(path: Path, results: list[CandidateResult]) -> None:
                     sign_agreements,
                     wrong_direction,
                     high_confidence,
+                    *move_rank_cells(result.metrics),
                     str(result.config_path),
                     str(result.report_path),
                 ]
