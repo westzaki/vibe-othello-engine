@@ -77,6 +77,15 @@ target_include_directories(othello_eval_vs_exact_core PRIVATE ${CMAKE_CURRENT_SO
 othello_enable_sanitizers(othello_eval_vs_exact_core)
 list(APPEND OTHELLO_CLANG_TIDY_TARGETS othello_eval_vs_exact_core)
 
+add_library(othello_position_sampler_core OBJECT
+    position_sampler/position_sampler.cpp
+)
+
+target_link_libraries(othello_position_sampler_core PRIVATE othello)
+target_include_directories(othello_position_sampler_core PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+othello_enable_sanitizers(othello_position_sampler_core)
+list(APPEND OTHELLO_CLANG_TIDY_TARGETS othello_position_sampler_core)
+
 othello_add_executable(othello_rule_core_bench
     benchmarks/rule_core_main.cpp
     benchmarks/reporters.cpp
@@ -121,6 +130,13 @@ othello_add_executable(othello_eval_vs_exact
     $<TARGET_OBJECTS:othello_tools_common>
 )
 target_include_directories(othello_eval_vs_exact PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+othello_add_executable(othello_position_sampler
+    position_sampler/position_sampler_main.cpp
+    $<TARGET_OBJECTS:othello_position_sampler_core>
+    $<TARGET_OBJECTS:othello_tools_common>
+)
+target_include_directories(othello_position_sampler PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 othello_add_executable(othello_match_runner
     match_runner/match_runner_main.cpp

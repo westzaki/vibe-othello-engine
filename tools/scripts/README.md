@@ -36,6 +36,27 @@ Profiles:
 - `full`: conservative wrapper around existing cheap checks; broader suites are
   reported as skipped when they do not yet exist
 
+Sample positions, dump exact labels, and optionally compare one evaluator
+against those labels:
+
+```sh
+python3 tools/scripts/exact_label_workflow.py \
+  --build-dir build \
+  --out runs/exact-label-workflow/smoke \
+  --count 20 \
+  --target-empties 8,10,12 \
+  --seed 20260531 \
+  --max-empties 14 \
+  --eval-preset default \
+  --analyze
+```
+
+This workflow calls the C++ sampler, exact-label dumper, and optional
+eval-vs-exact analyzer. Random playout samples are reproducible smoke inputs,
+not a representative training distribution. The workflow report records exact
+commands, output paths, counts, caveats, and the absence of any strength claim
+or default-promotion recommendation.
+
 For evaluator config evidence:
 
 ```sh
