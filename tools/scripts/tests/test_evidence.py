@@ -187,6 +187,45 @@ class EvidenceTests(unittest.TestCase):
         self.assertIn("--reference-config", report)
         self.assertIn(str(reference), report)
 
+    def test_eval_matrix_passes_binary_overrides(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            opening_suite = temp_path / "openings.txt"
+            opening_suite.write_text("D3\n", encoding="utf-8")
+            search_bench = temp_path / "custom_search_bench"
+            match_runner = temp_path / "custom_match_runner"
+            config = make_config(
+                temp_path,
+                profile="eval",
+                dry_run=True,
+                extra_args=[
+                    "--source-dir",
+                    str(temp_path),
+                    "--openings",
+                    str(opening_suite),
+                    "--eval-configs",
+                    str(temp_path / "candidate.eval"),
+                    "--search-bench",
+                    str(search_bench),
+                    "--match-runner",
+                    str(match_runner),
+                ],
+            )
+            steps = evidence.build_steps(config)
+
+        matrix = next(step for step in steps if step.name == "eval-experiment-matrix")
+        self.assertIsNone(matrix.skipped_reason)
+        self.assertIn("--search-bench", matrix.command)
+        self.assertEqual(
+            matrix.command[matrix.command.index("--search-bench") + 1],
+            str(search_bench),
+        )
+        self.assertIn("--match-runner", matrix.command)
+        self.assertEqual(
+            matrix.command[matrix.command.index("--match-runner") + 1],
+            str(match_runner),
+        )
+
     def test_report_marks_exact_threshold_zero_as_midgame_eval_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             config = make_config(Path(temp), profile="eval", dry_run=True)
