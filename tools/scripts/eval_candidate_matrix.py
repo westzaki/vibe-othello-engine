@@ -349,7 +349,6 @@ def search_bench_command(config: MatrixConfig, target: EvalTarget) -> list[str]:
         str(config.exact_endgame_threshold),
         "--format",
         "jsonl",
-        "--by-position",
     ]
 
 

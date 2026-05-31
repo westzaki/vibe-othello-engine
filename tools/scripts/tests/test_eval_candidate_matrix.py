@@ -89,7 +89,6 @@ def write_fake_search_bench(directory: Path) -> Path:
         parser.add_argument("--aspiration", required=True)
         parser.add_argument("--exact-endgame-threshold", required=True)
         parser.add_argument("--format", required=True)
-        parser.add_argument("--by-position", action="store_true")
         args = parser.parse_args()
 
         stem = Path(args.eval_config).stem
@@ -99,8 +98,8 @@ def write_fake_search_bench(directory: Path) -> Path:
         if "malformed" in stem:
             print("{not-json")
             sys.exit(0)
-        if args.format != "jsonl" or not args.by_position:
-            print("expected jsonl by-position", file=sys.stderr)
+        if args.format != "jsonl":
+            print("expected jsonl", file=sys.stderr)
             sys.exit(11)
 
         is_candidate = "candidate" in stem or "malformed" in stem
@@ -134,27 +133,6 @@ def write_fake_search_bench(directory: Path) -> Path:
                 "nodes": nodes_base + depth,
                 "result_checksum": f"{result_prefix}-result-{depth}",
                 "work_checksum": f"{result_prefix}-work-{depth}",
-            }))
-            print(json.dumps({
-                "tool": "othello_search_bench",
-                "row": "position",
-                "position": "initial",
-                "phase": "opening",
-                "tags": "smoke",
-                "mode": args.mode,
-                "positions": args.positions,
-                "depth": depth,
-                "repetitions": int(args.repetitions),
-                "exact_root": False,
-                "best_move": "D3",
-                "score": depth,
-                "score_kind": "heuristic",
-                "used_exact_endgame": False,
-                "principal_variation": ["D3", "C3"],
-                "elapsed_ms": 1.0,
-                "nodes": 10,
-                "result_checksum": f"{result_prefix}-position-result-{depth}",
-                "work_checksum": f"{result_prefix}-position-work-{depth}",
             }))
         """,
     )
@@ -245,7 +223,7 @@ class EvalCandidateMatrixTests(unittest.TestCase):
         self.assertEqual(command[command.index("--aspiration") + 1], "on")
         self.assertEqual(command[command.index("--exact-endgame-threshold") + 1], "12")
         self.assertEqual(command[command.index("--format") + 1], "jsonl")
-        self.assertIn("--by-position", command)
+        self.assertNotIn("--by-position", command)
 
     def test_with_labels_runs_eval_and_search_and_summarizes_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -276,7 +254,7 @@ class EvalCandidateMatrixTests(unittest.TestCase):
         self.assertIn("candidate | candidate_a", report)
         self.assertIn("Checksum changes mean search behavior changed", report)
         self.assertEqual(candidate["aggregate_rows"], "1")
-        self.assertEqual(candidate["position_rows"], "1")
+        self.assertEqual(candidate["position_rows"], "0")
         self.assertEqual(candidate["nodes"], "155")
         self.assertEqual(candidate["result_checksum_changed"], "true")
         self.assertEqual(candidate["work_checksum_changed"], "true")
