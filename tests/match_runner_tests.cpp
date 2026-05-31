@@ -34,6 +34,33 @@ side=B)");
     return (std::filesystem::path{OTHELLO_SOURCE_DIR} / "data" / "eval" / file_name).string();
 }
 
+[[nodiscard]] runner::PlayerSpec require_player_spec(const std::string& spec_text) {
+    const std::optional<runner::PlayerSpec> spec = runner::parse_player_spec(spec_text);
+    REQUIRE(spec.has_value());
+    return *spec;
+}
+
+[[nodiscard]] runner::PlayerSpec require_player_spec(std::string_view spec_text) {
+    return require_player_spec(std::string{spec_text});
+}
+
+[[nodiscard]] othello::SearchOptions require_search_options(std::string_view spec_text) {
+    return runner::make_search_options(require_player_spec(spec_text));
+}
+
+void check_eval_preset_spec(std::string_view spec_text, othello::EvaluationPreset expected) {
+    const runner::PlayerSpec spec = require_player_spec(spec_text);
+    CHECK(spec.search_options.evaluator.preset == expected);
+    CHECK(runner::make_search_options(spec).evaluation_preset == expected);
+}
+
+void check_eval_preset_config(std::string_view spec_text, othello::EvaluationPreset expected) {
+    const othello::SearchOptions options = require_search_options(spec_text);
+    CHECK(options.evaluation_preset == expected);
+    CHECK(othello::resolve_evaluation_config(options) ==
+          othello::evaluation_config_for_preset(expected));
+}
+
 } // namespace
 
 TEST_CASE("Search player specs require positive depth", "[match-runner]") {
@@ -43,156 +70,77 @@ TEST_CASE("Search player specs require positive depth", "[match-runner]") {
 }
 
 TEST_CASE("Search player specs parse options", "[match-runner]") {
-    const auto depth_only = runner::parse_player_spec("search:depth=4");
-    const auto tt_on = runner::parse_player_spec("search:depth=4,tt=on");
-    const auto pvs_exact_off =
-        runner::parse_player_spec("search:depth=4,tt=off,pvs=on,exact=off");
-    const auto exact = runner::parse_player_spec("search:depth=4,exact=12");
-    const auto adaptive_exact = runner::parse_player_spec("search:depth=4,exact=adaptive16");
-    const auto tt_entries = runner::parse_player_spec("search:depth=4,tt_entries=262144");
-    const auto eval_default = runner::parse_player_spec("search:depth=4,eval=default");
-    const auto eval_phase_aware =
-        runner::parse_player_spec("search:depth=4,eval=phase_aware_v1");
-    const auto eval_smoke =
-        runner::parse_player_spec("search:depth=4,eval=mobility_plus_smoke");
-    const auto eval_frontier =
-        runner::parse_player_spec("search:depth=4,eval=frontier_open2_mid2_late_plus1");
-    const auto eval_classic_corner =
-        runner::parse_player_spec("search:depth=4,eval=classic_corner_lite_v1");
-    const auto eval_classic_edge =
-        runner::parse_player_spec("search:depth=4,eval=classic_edge_lite_v1");
-    const auto eval_classic_features =
-        runner::parse_player_spec("search:depth=4,eval=classic_features_lite_v1");
-    const auto eval_classic_aggressive =
-        runner::parse_player_spec("search:depth=4,eval=classic_features_lite_aggressive");
-    const auto eval_frontier_classic =
-        runner::parse_player_spec("search:depth=4,eval=frontier_classic_features_lite_v1");
-    const auto eval_corner_pattern =
-        runner::parse_player_spec("search:depth=4,eval=corner_pattern_2x3_v1");
-    const auto eval_frontier_corner_pattern =
-        runner::parse_player_spec("search:depth=4,eval=frontier_corner_pattern_2x3_v1");
-    const auto eval_frontier_corner_pattern_edge =
-        runner::parse_player_spec("search:depth=4,eval=frontier_corner_pattern_edge_lite_v1");
-    const auto eval_edge_pattern =
-        runner::parse_player_spec("search:depth=4,eval=edge_pattern_8_v1");
-    const auto eval_default_edge_pattern =
-        runner::parse_player_spec("search:depth=4,eval=default_edge_pattern_8_v1");
-    const auto eval_default_edge_no_edge_lite =
-        runner::parse_player_spec("search:depth=4,eval=default_edge_pattern_8_no_edge_lite");
-    const auto eval_default_edge_aggressive =
-        runner::parse_player_spec("search:depth=4,eval=default_edge_pattern_8_aggressive");
-    const auto eval_config =
-        runner::parse_player_spec("search:depth=4,eval_config=" +
-                                  sample_eval_config_path("default_edge_pattern_8_soft.eval"));
-
-    REQUIRE(depth_only.has_value());
-    REQUIRE(tt_on.has_value());
-    REQUIRE(pvs_exact_off.has_value());
-    REQUIRE(exact.has_value());
-    REQUIRE(adaptive_exact.has_value());
-    REQUIRE(tt_entries.has_value());
-    REQUIRE(eval_default.has_value());
-    REQUIRE(eval_phase_aware.has_value());
-    REQUIRE(eval_smoke.has_value());
-    REQUIRE(eval_frontier.has_value());
-    REQUIRE(eval_classic_corner.has_value());
-    REQUIRE(eval_classic_edge.has_value());
-    REQUIRE(eval_classic_features.has_value());
-    REQUIRE(eval_classic_aggressive.has_value());
-    REQUIRE(eval_frontier_classic.has_value());
-    REQUIRE(eval_corner_pattern.has_value());
-    REQUIRE(eval_frontier_corner_pattern.has_value());
-    REQUIRE(eval_frontier_corner_pattern_edge.has_value());
-    REQUIRE(eval_edge_pattern.has_value());
-    REQUIRE(eval_default_edge_pattern.has_value());
-    REQUIRE(eval_default_edge_no_edge_lite.has_value());
-    REQUIRE(eval_default_edge_aggressive.has_value());
-    REQUIRE(eval_config.has_value());
-
-    const othello::SearchOptions depth_only_options = runner::make_search_options(*depth_only);
+    const othello::SearchOptions depth_only_options = require_search_options("search:depth=4");
     CHECK(depth_only_options.max_depth == 4);
     CHECK_FALSE(depth_only_options.use_transposition_table);
     CHECK_FALSE(depth_only_options.use_pvs);
     CHECK(depth_only_options.exact_endgame_empty_threshold == 12);
     CHECK(depth_only_options.transposition_table_entries == (1U << 18));
 
-    const othello::SearchOptions tt_on_options = runner::make_search_options(*tt_on);
+    const othello::SearchOptions tt_on_options = require_search_options("search:depth=4,tt=on");
     CHECK(tt_on_options.use_transposition_table);
 
     const othello::SearchOptions pvs_exact_off_options =
-        runner::make_search_options(*pvs_exact_off);
+        require_search_options("search:depth=4,tt=off,pvs=on,exact=off");
     CHECK_FALSE(pvs_exact_off_options.use_transposition_table);
     CHECK(pvs_exact_off_options.use_pvs);
     CHECK(pvs_exact_off_options.exact_endgame_empty_threshold == 0);
     CHECK(pvs_exact_off_options.exact_endgame_root_policy ==
           othello::ExactEndgameRootPolicy::FixedThreshold);
 
-    const othello::SearchOptions exact_options = runner::make_search_options(*exact);
+    const othello::SearchOptions exact_options = require_search_options("search:depth=4,exact=12");
     CHECK(exact_options.exact_endgame_empty_threshold == 12);
     CHECK(exact_options.exact_endgame_root_policy ==
           othello::ExactEndgameRootPolicy::FixedThreshold);
     const othello::SearchOptions adaptive_exact_options =
-        runner::make_search_options(*adaptive_exact);
+        require_search_options("search:depth=4,exact=adaptive16");
     CHECK(adaptive_exact_options.exact_endgame_empty_threshold == 16);
     CHECK(adaptive_exact_options.exact_endgame_root_policy ==
           othello::ExactEndgameRootPolicy::Adaptive16);
-    CHECK(runner::make_search_options(*tt_entries).transposition_table_entries == 262144U);
-    CHECK(eval_default->search_options.evaluator.preset ==
-          othello::EvaluationPreset::Default);
-    CHECK(runner::make_search_options(*eval_default).evaluation_preset ==
-          othello::EvaluationPreset::Default);
-    CHECK(othello::resolve_evaluation_config(runner::make_search_options(*eval_default)) ==
-          othello::default_evaluation_config());
-    CHECK(eval_phase_aware->search_options.evaluator.preset ==
-          othello::EvaluationPreset::PhaseAwareV1);
-    CHECK(runner::make_search_options(*eval_phase_aware).evaluation_preset ==
-          othello::EvaluationPreset::PhaseAwareV1);
-    CHECK(othello::resolve_evaluation_config(runner::make_search_options(*eval_phase_aware)) ==
-          othello::evaluation_config_for_preset(othello::EvaluationPreset::PhaseAwareV1));
-    CHECK(eval_smoke->search_options.evaluator.preset ==
-          othello::EvaluationPreset::MobilityPlusSmoke);
-    CHECK(runner::make_search_options(*eval_smoke).evaluation_preset ==
-          othello::EvaluationPreset::MobilityPlusSmoke);
-    CHECK(othello::resolve_evaluation_config(runner::make_search_options(*eval_smoke)) ==
-          othello::evaluation_config_for_preset(othello::EvaluationPreset::MobilityPlusSmoke));
-    CHECK(eval_frontier->search_options.evaluator.preset ==
-          othello::EvaluationPreset::FrontierOpen2Mid2LatePlus1);
-    CHECK(runner::make_search_options(*eval_frontier).evaluation_preset ==
-          othello::EvaluationPreset::FrontierOpen2Mid2LatePlus1);
-    CHECK(othello::resolve_evaluation_config(runner::make_search_options(*eval_frontier)) ==
-          othello::evaluation_config_for_preset(
-              othello::EvaluationPreset::FrontierOpen2Mid2LatePlus1));
-    CHECK(eval_classic_corner->search_options.evaluator.preset ==
-          othello::EvaluationPreset::ClassicCornerLiteV1);
-    CHECK(runner::make_search_options(*eval_classic_edge).evaluation_preset ==
-          othello::EvaluationPreset::ClassicEdgeLiteV1);
-    CHECK(runner::make_search_options(*eval_classic_features).evaluation_preset ==
-          othello::EvaluationPreset::ClassicFeaturesLiteV1);
-    CHECK(runner::make_search_options(*eval_classic_aggressive).evaluation_preset ==
-          othello::EvaluationPreset::ClassicFeaturesLiteAggressive);
-    CHECK(runner::make_search_options(*eval_frontier_classic).evaluation_preset ==
-          othello::EvaluationPreset::FrontierClassicFeaturesLiteV1);
-    CHECK(runner::make_search_options(*eval_corner_pattern).evaluation_preset ==
-          othello::EvaluationPreset::CornerPattern2x3V1);
-    CHECK(runner::make_search_options(*eval_frontier_corner_pattern).evaluation_preset ==
-          othello::EvaluationPreset::FrontierCornerPattern2x3V1);
-    CHECK(runner::make_search_options(*eval_frontier_corner_pattern_edge).evaluation_preset ==
-          othello::EvaluationPreset::FrontierCornerPatternEdgeLiteV1);
-    CHECK(runner::make_search_options(*eval_edge_pattern).evaluation_preset ==
-          othello::EvaluationPreset::EdgePattern8V1);
-    CHECK(runner::make_search_options(*eval_default_edge_pattern).evaluation_preset ==
-          othello::EvaluationPreset::DefaultEdgePattern8V1);
-    CHECK(runner::make_search_options(*eval_default_edge_no_edge_lite).evaluation_preset ==
-          othello::EvaluationPreset::DefaultEdgePattern8NoEdgeLite);
-    CHECK(runner::make_search_options(*eval_default_edge_aggressive).evaluation_preset ==
-          othello::EvaluationPreset::DefaultEdgePattern8Aggressive);
+    CHECK(require_search_options("search:depth=4,tt_entries=262144")
+              .transposition_table_entries == 262144U);
+
+    check_eval_preset_config("search:depth=4,eval=default", othello::EvaluationPreset::Default);
+    check_eval_preset_config("search:depth=4,eval=phase_aware_v1",
+                             othello::EvaluationPreset::PhaseAwareV1);
+    check_eval_preset_config("search:depth=4,eval=mobility_plus_smoke",
+                             othello::EvaluationPreset::MobilityPlusSmoke);
+    check_eval_preset_config("search:depth=4,eval=frontier_open2_mid2_late_plus1",
+                             othello::EvaluationPreset::FrontierOpen2Mid2LatePlus1);
+    check_eval_preset_spec("search:depth=4,eval=classic_corner_lite_v1",
+                           othello::EvaluationPreset::ClassicCornerLiteV1);
+    check_eval_preset_spec("search:depth=4,eval=classic_edge_lite_v1",
+                           othello::EvaluationPreset::ClassicEdgeLiteV1);
+    check_eval_preset_spec("search:depth=4,eval=classic_features_lite_v1",
+                           othello::EvaluationPreset::ClassicFeaturesLiteV1);
+    check_eval_preset_spec("search:depth=4,eval=classic_features_lite_aggressive",
+                           othello::EvaluationPreset::ClassicFeaturesLiteAggressive);
+    check_eval_preset_spec("search:depth=4,eval=frontier_classic_features_lite_v1",
+                           othello::EvaluationPreset::FrontierClassicFeaturesLiteV1);
+    check_eval_preset_spec("search:depth=4,eval=corner_pattern_2x3_v1",
+                           othello::EvaluationPreset::CornerPattern2x3V1);
+    check_eval_preset_spec("search:depth=4,eval=frontier_corner_pattern_2x3_v1",
+                           othello::EvaluationPreset::FrontierCornerPattern2x3V1);
+    check_eval_preset_spec("search:depth=4,eval=frontier_corner_pattern_edge_lite_v1",
+                           othello::EvaluationPreset::FrontierCornerPatternEdgeLiteV1);
+    check_eval_preset_spec("search:depth=4,eval=edge_pattern_8_v1",
+                           othello::EvaluationPreset::EdgePattern8V1);
+    check_eval_preset_spec("search:depth=4,eval=default_edge_pattern_8_v1",
+                           othello::EvaluationPreset::DefaultEdgePattern8V1);
+    check_eval_preset_spec("search:depth=4,eval=default_edge_pattern_8_no_edge_lite",
+                           othello::EvaluationPreset::DefaultEdgePattern8NoEdgeLite);
+    check_eval_preset_spec("search:depth=4,eval=default_edge_pattern_8_aggressive",
+                           othello::EvaluationPreset::DefaultEdgePattern8Aggressive);
+
+    const othello::SearchOptions eval_config_options = require_search_options(
+        "search:depth=4,eval_config=" +
+        sample_eval_config_path("default_edge_pattern_8_soft.eval"));
     othello::EvaluationConfig expected_soft = othello::default_evaluation_config();
     expected_soft.opening.edge_8_pattern = 1;
     expected_soft.midgame.edge_8_pattern = 3;
     expected_soft.late.edge_8_pattern = 5;
-    CHECK(runner::make_search_options(*eval_config).evaluation_config_override.has_value());
-    CHECK(othello::resolve_evaluation_config(runner::make_search_options(*eval_config)) ==
-          expected_soft);
+    CHECK(eval_config_options.evaluation_config_override.has_value());
+    CHECK(othello::resolve_evaluation_config(eval_config_options) == expected_soft);
 }
 
 TEST_CASE("Search player specs reject invalid options", "[match-runner]") {
