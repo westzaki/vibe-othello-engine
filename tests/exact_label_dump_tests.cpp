@@ -15,7 +15,9 @@ using othello::Board;
 using othello::Side;
 using othello::tools::exact_labels::DumpOptions;
 using othello::tools::exact_labels::DumpSummary;
+using othello::tools::exact_labels::ExactLabel;
 using othello::tools::exact_labels::InputPosition;
+using othello::tools::exact_labels::MoveScoreLabel;
 
 namespace {
 
@@ -196,6 +198,37 @@ TEST_CASE("Exact label JSONL writer emits valid schema fields", "[exact-labels]"
     CHECK(jsonl.contains("\"board\":\"BBBBBBBB\\n"));
     CHECK(jsonl.contains("\"legal_moves\":[\"H1\"]"));
     CHECK(jsonl.contains("\"move_scores\":[{\"move\":\"H1\""));
+}
+
+TEST_CASE("Exact label JSONL writer preserves field order and value formatting",
+          "[exact-labels]") {
+    const ExactLabel label{
+        .schema = "exact_label.v1",
+        .position_id = "pos-test",
+        .board_text = "BBBBBBBB\nside=B",
+        .side_to_move = "B",
+        .occupied = 8,
+        .empties = 56,
+        .legal_moves = {"A1", "PASS"},
+        .exact_score_side_to_move = 12,
+        .best_moves = {"A1"},
+        .best_move = std::nullopt,
+        .move_scores = {MoveScoreLabel{.move = "A1", .exact_score_side_to_move = 12}},
+        .include_move_scores = true,
+        .elapsed_ms = 1.25,
+        .nodes = 42,
+    };
+    std::ostringstream output;
+
+    othello::tools::exact_labels::write_jsonl_record(output, label);
+
+    CHECK(output.str() ==
+          "{\"schema\":\"exact_label.v1\",\"position_id\":\"pos-test\","
+          "\"board\":\"BBBBBBBB\\nside=B\",\"side_to_move\":\"B\","
+          "\"occupied\":8,\"empties\":56,\"legal_moves\":[\"A1\",\"PASS\"],"
+          "\"exact_score_side_to_move\":12,\"best_moves\":[\"A1\"],"
+          "\"best_move\":null,\"move_scores\":[{\"move\":\"A1\","
+          "\"exact_score_side_to_move\":12}],\"elapsed_ms\":1.250,\"nodes\":42}\n");
 }
 
 TEST_CASE("Exact label dump limit and max empties keep runs bounded", "[exact-labels]") {
