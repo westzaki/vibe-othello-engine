@@ -80,7 +80,7 @@ TEST_CASE("Exact label parser rejects incomplete board blocks", "[exact-labels]"
     const auto positions = othello::tools::exact_labels::parse_position_text("BBBBBBBB\n", error);
 
     CHECK_FALSE(positions.has_value());
-    CHECK(error.find("incomplete board block") != std::string::npos);
+    CHECK(error.contains("incomplete board block"));
 }
 
 TEST_CASE("Exact label uses side-to-move score perspective", "[exact-labels]") {
@@ -137,11 +137,11 @@ TEST_CASE("Exact label JSONL writer emits valid schema fields", "[exact-labels]"
     othello::tools::exact_labels::write_jsonl_record(output, label);
     const std::string jsonl = output.str();
 
-    CHECK(jsonl.find("\"schema\":\"exact_label.v1\"") != std::string::npos);
-    CHECK(jsonl.find("\"position_id\":\"pos-000001\"") != std::string::npos);
-    CHECK(jsonl.find("\"board\":\"BBBBBBBB\\n") != std::string::npos);
-    CHECK(jsonl.find("\"legal_moves\":[\"H1\"]") != std::string::npos);
-    CHECK(jsonl.find("\"move_scores\":[{\"move\":\"H1\"") != std::string::npos);
+    CHECK(jsonl.contains("\"schema\":\"exact_label.v1\""));
+    CHECK(jsonl.contains("\"position_id\":\"pos-000001\""));
+    CHECK(jsonl.contains("\"board\":\"BBBBBBBB\\n"));
+    CHECK(jsonl.contains("\"legal_moves\":[\"H1\"]"));
+    CHECK(jsonl.contains("\"move_scores\":[{\"move\":\"H1\""));
 }
 
 TEST_CASE("Exact label dump limit and max empties keep runs bounded", "[exact-labels]") {
@@ -166,8 +166,9 @@ TEST_CASE("Exact label dump limit and max empties keep runs bounded", "[exact-la
     CHECK(summary.input_positions == 2);
     CHECK(summary.labeled == 1);
     CHECK(summary.skipped_too_many_empties == 1);
-    CHECK(output.str().find("\"position_id\":\"pos-000001\"") != std::string::npos);
-    CHECK(output.str().find("\"position_id\":\"pos-000002\"") == std::string::npos);
+    const std::string jsonl = output.str();
+    CHECK(jsonl.contains("\"position_id\":\"pos-000001\""));
+    CHECK_FALSE(jsonl.contains("\"position_id\":\"pos-000002\""));
 }
 
 TEST_CASE("Exact label dump limit stops after requested labels", "[exact-labels]") {
@@ -192,6 +193,7 @@ TEST_CASE("Exact label dump limit stops after requested labels", "[exact-labels]
     CHECK(summary.input_positions == 2);
     CHECK(summary.labeled == 1);
     CHECK(summary.skipped_too_many_empties == 0);
-    CHECK(output.str().find("\"position_id\":\"pos-000001\"") != std::string::npos);
-    CHECK(output.str().find("\"position_id\":\"pos-000002\"") == std::string::npos);
+    const std::string jsonl = output.str();
+    CHECK(jsonl.contains("\"position_id\":\"pos-000001\""));
+    CHECK_FALSE(jsonl.contains("\"position_id\":\"pos-000002\""));
 }

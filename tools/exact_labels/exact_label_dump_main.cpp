@@ -2,6 +2,7 @@
 #include "common/cli.hpp"
 #include "exact_labels/exact_label_dump.hpp"
 
+#include <exception>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -85,7 +86,7 @@ void print_usage(std::string_view program_name) {
                 std::cerr << "--limit must be a positive integer\n";
                 return std::nullopt;
             }
-            options.dump.limit = *limit;
+            options.dump.limit = limit;
             continue;
         }
 
@@ -137,7 +138,7 @@ void print_usage(std::string_view program_name) {
 
 } // namespace
 
-int main(int argc, char** argv) {
+static int run(int argc, char** argv) {
     const std::span<char* const> args(argv, static_cast<std::size_t>(argc));
     const auto options = parse_options(args);
     if (!options.has_value()) {
@@ -185,4 +186,16 @@ int main(int argc, char** argv) {
               << " skipped_too_many_empties=" << summary.skipped_too_many_empties
               << " output=" << output_path << '\n';
     return 0;
+}
+
+int main(int argc, char** argv) {
+    try {
+        return run(argc, argv);
+    } catch (const std::exception& exception) {
+        std::cerr << "fatal error: " << exception.what() << '\n';
+        return 1;
+    } catch (...) {
+        std::cerr << "fatal error: unknown exception\n";
+        return 1;
+    }
 }

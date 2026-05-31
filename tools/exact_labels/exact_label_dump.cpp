@@ -49,11 +49,11 @@ using Clock = std::chrono::steady_clock;
 }
 
 [[nodiscard]] int empty_count(const Board& board) noexcept {
-    return 64 - static_cast<int>(std::popcount(board.occupied()));
+    return 64 - std::popcount(board.occupied());
 }
 
 [[nodiscard]] int occupied_count(const Board& board) noexcept {
-    return static_cast<int>(std::popcount(board.occupied()));
+    return std::popcount(board.occupied());
 }
 
 [[nodiscard]] std::string side_name(Side side) {
@@ -85,7 +85,7 @@ using Clock = std::chrono::steady_clock;
         moves.push_back(format_label_square(square));
     }
     if (moves.empty() && pass_turn(board).has_value()) {
-        moves.push_back("PASS");
+        moves.emplace_back("PASS");
     }
     return moves;
 }
@@ -131,8 +131,8 @@ best_moves_from_scores(const std::vector<MoveScoreLabel>& move_scores) {
         return best_moves;
     }
 
-    const auto best = std::max_element(
-        move_scores.begin(), move_scores.end(),
+    const auto best = std::ranges::max_element(
+        move_scores,
         [](const MoveScoreLabel& lhs, const MoveScoreLabel& rhs) {
             return lhs.exact_score_side_to_move < rhs.exact_score_side_to_move;
         });
