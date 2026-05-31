@@ -10,6 +10,45 @@ engine directly.
 
 ## Examples
 
+Collect a reproducible PR evidence report:
+
+```sh
+python3 tools/scripts/evidence.py \
+  --profile smoke \
+  --build-dir build \
+  --out runs/evidence/smoke-example
+```
+
+Evidence reports collect metadata, exact commands, raw command logs, correctness
+checks, and benchmark or match outputs under `runs/evidence/...`. They are
+review aids, not strength claims, Elo estimates, or default-promotion
+recommendations. Raw logs under `runs/` should not be committed; durable
+summaries belong under `docs/perf/baselines/`.
+
+Profiles:
+
+- `smoke`: configure/build, CTest, and a smoke search benchmark with
+  `--exact-endgame-threshold 0`
+- `pr`: `smoke` plus optional rule-core and self-play smoke evidence when the
+  relevant executable and opening suite are available
+- `eval`: evaluator/config evidence with preset or `.eval` candidates and an
+  optional `eval_experiment_matrix.py` run
+- `full`: conservative wrapper around existing cheap checks; broader suites are
+  reported as skipped when they do not yet exist
+
+For evaluator config evidence:
+
+```sh
+python3 tools/scripts/evidence.py \
+  --profile eval \
+  --build-dir build \
+  --out runs/evidence/eval-config-example \
+  --eval-configs data/eval/default_edge_pattern_8_soft.eval \
+  --reference-config data/eval/current_default.eval \
+  --small-depths 5 \
+  --small-games 4
+```
+
 Summarize an existing match runner JSONL file:
 
 ```sh
