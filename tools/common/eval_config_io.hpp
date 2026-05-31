@@ -11,6 +11,7 @@ namespace othello::tools {
 struct EvaluationConfigLoadResult {
     EvaluationConfig config{};
     std::optional<std::string> name;
+    std::optional<std::string> pattern_table_path;
     std::string error;
 
     [[nodiscard]] bool ok() const noexcept {

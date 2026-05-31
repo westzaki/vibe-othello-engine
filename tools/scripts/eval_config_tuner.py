@@ -50,9 +50,16 @@ class EvalEntry:
 
 
 @dataclass(frozen=True)
+class EvalTextEntry:
+    key: str
+    value: str
+
+
+@dataclass(frozen=True)
 class EvalConfig:
     name: str | None
     entries: tuple[EvalEntry, ...]
+    text_entries: tuple[EvalTextEntry, ...] = ()
 
     def values(self) -> dict[str, int]:
         return {entry.key: entry.value for entry in self.entries}
@@ -66,8 +73,10 @@ class EvalConfig:
             ),
         )
 
-    def signature(self) -> tuple[tuple[str, int], ...]:
-        return tuple((entry.key, entry.value) for entry in self.entries)
+    def signature(self) -> tuple[tuple[str, int | str], ...]:
+        numeric = tuple((entry.key, entry.value) for entry in self.entries)
+        text = tuple((entry.key, entry.value) for entry in self.text_entries)
+        return numeric + text
 
 
 @dataclass(frozen=True)
@@ -307,7 +316,9 @@ def collect_metadata(config: TunerConfig) -> Metadata:
 def parse_eval_config_text(text: str) -> EvalConfig:
     name: str | None = None
     entries: list[EvalEntry] = []
+    text_entries: list[EvalTextEntry] = []
     seen_numeric: set[str] = set()
+    seen_text: set[str] = set()
     seen_name = False
 
     for line_number, raw_line in enumerate(text.splitlines(), start=1):
@@ -327,6 +338,14 @@ def parse_eval_config_text(text: str) -> EvalConfig:
             continue
         if key in seen_numeric:
             raise ScriptError(f"line {line_number}: duplicate numeric key: {key}")
+        if key == "pattern_table":
+            if key in seen_text:
+                raise ScriptError(f"line {line_number}: duplicate key: {key}")
+            if not value:
+                raise ScriptError(f"line {line_number}: empty pattern_table path")
+            seen_text.add(key)
+            text_entries.append(EvalTextEntry(key=key, value=value))
+            continue
         try:
             parsed_value = int(value)
         except ValueError as exc:
@@ -336,7 +355,7 @@ def parse_eval_config_text(text: str) -> EvalConfig:
 
     if not entries:
         raise ScriptError("evaluation config has no numeric keys")
-    return EvalConfig(name=name, entries=tuple(entries))
+    return EvalConfig(name=name, entries=tuple(entries), text_entries=tuple(text_entries))
 
 
 def load_eval_config(path: Path) -> EvalConfig:
@@ -388,7 +407,7 @@ def generate_round_candidates(
     *,
     round_index: int,
     next_candidate_index: int,
-    existing_signatures: set[tuple[tuple[str, int], ...]] | None = None,
+    existing_signatures: set[tuple[tuple[str, int | str], ...]] | None = None,
 ) -> tuple[list[CandidateSpec], int, int]:
     generated: list[tuple[str, int, EvalConfig]] = []
     seen = set(existing_signatures or ())
@@ -452,6 +471,9 @@ def render_eval_config(
         f"name={eval_config.name or candidate_id}",
         "",
     ]
+    lines.extend(f"{entry.key}={entry.value}" for entry in eval_config.text_entries)
+    if eval_config.text_entries:
+        lines.append("")
     lines.extend(f"{entry.key}={entry.value}" for entry in eval_config.entries)
     return "\n".join(lines) + "\n"
 

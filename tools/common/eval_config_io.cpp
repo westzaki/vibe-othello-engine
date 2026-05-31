@@ -5,7 +5,9 @@
 #include <charconv>
 #include <cstddef>
 #include <fstream>
+#include <filesystem>
 #include <iterator>
+#include <limits>
 #include <sstream>
 #include <string>
 #include <system_error>
@@ -18,6 +20,7 @@ struct FeatureKeySpec {
     std::string_view key;
     EvaluationFeatureWeights EvaluationConfig::*phase;
     int EvaluationFeatureWeights::*weight;
+    bool required = true;
 };
 
 struct ConfigKeySpec {
@@ -25,7 +28,7 @@ struct ConfigKeySpec {
     int EvaluationConfig::*value;
 };
 
-constexpr std::array<FeatureKeySpec, 33> feature_keys{{
+constexpr std::array<FeatureKeySpec, 36> feature_keys{{
     {"opening.disc_difference", &EvaluationConfig::opening,
      &EvaluationFeatureWeights::disc_difference},
     {"opening.mobility", &EvaluationConfig::opening, &EvaluationFeatureWeights::mobility},
@@ -46,6 +49,8 @@ constexpr std::array<FeatureKeySpec, 33> feature_keys{{
      &EvaluationFeatureWeights::edge_stability_lite},
     {"opening.edge_8_pattern", &EvaluationConfig::opening,
      &EvaluationFeatureWeights::edge_8_pattern},
+    {"opening.pattern_table", &EvaluationConfig::opening,
+     &EvaluationFeatureWeights::pattern_table, false},
     {"midgame.disc_difference", &EvaluationConfig::midgame,
      &EvaluationFeatureWeights::disc_difference},
     {"midgame.mobility", &EvaluationConfig::midgame, &EvaluationFeatureWeights::mobility},
@@ -66,6 +71,8 @@ constexpr std::array<FeatureKeySpec, 33> feature_keys{{
      &EvaluationFeatureWeights::edge_stability_lite},
     {"midgame.edge_8_pattern", &EvaluationConfig::midgame,
      &EvaluationFeatureWeights::edge_8_pattern},
+    {"midgame.pattern_table", &EvaluationConfig::midgame,
+     &EvaluationFeatureWeights::pattern_table, false},
     {"late.disc_difference", &EvaluationConfig::late,
      &EvaluationFeatureWeights::disc_difference},
     {"late.mobility", &EvaluationConfig::late, &EvaluationFeatureWeights::mobility},
@@ -85,6 +92,8 @@ constexpr std::array<FeatureKeySpec, 33> feature_keys{{
      &EvaluationFeatureWeights::edge_stability_lite},
     {"late.edge_8_pattern", &EvaluationConfig::late,
      &EvaluationFeatureWeights::edge_8_pattern},
+    {"late.pattern_table", &EvaluationConfig::late,
+     &EvaluationFeatureWeights::pattern_table, false},
 }};
 
 constexpr std::array<ConfigKeySpec, 2> config_keys{{
@@ -157,6 +166,82 @@ void assign_config_key(EvaluationConfig& config, std::size_t index, int value) n
     config.*spec.value = value;
 }
 
+[[nodiscard]] std::string load_pattern_table_file(EvaluationPatternTables& tables,
+                                                  const std::filesystem::path& path) {
+    std::ifstream input{path};
+    if (!input) {
+        return "failed to open pattern table: " + path.string();
+    }
+
+    EvaluationPatternTables loaded;
+    std::array<bool, corner_2x3_pattern_table_size> seen_corner{};
+    std::array<bool, edge_8_pattern_table_size> seen_edge{};
+    bool has_entries = false;
+
+    int line_number = 0;
+    std::string raw_line;
+    while (std::getline(input, raw_line)) {
+        ++line_number;
+        std::string_view line{raw_line};
+        if (const std::size_t comment = line.find('#'); comment != std::string_view::npos) {
+            line = line.substr(0, comment);
+        }
+        line = trim_ascii(line);
+        if (line.empty()) {
+            continue;
+        }
+
+        std::istringstream parts{std::string{line}};
+        std::string family;
+        int index = 0;
+        int value = 0;
+        std::string trailing;
+        if (!(parts >> family >> index >> value) || (parts >> trailing)) {
+            return line_error(line_number, "expected '<family> <index> <value>'");
+        }
+        if (value < std::numeric_limits<std::int16_t>::min() ||
+            value > std::numeric_limits<std::int16_t>::max()) {
+            return line_error(line_number, "pattern value outside int16 range");
+        }
+
+        if (family == "corner_2x3") {
+            if (index < 0 || index >= corner_2x3_pattern_table_size) {
+                return line_error(line_number, "corner_2x3 index out of range");
+            }
+            const auto table_index = static_cast<std::size_t>(index);
+            if (seen_corner[table_index]) {
+                return line_error(line_number, "duplicate corner_2x3 index");
+            }
+            loaded.corner_2x3[table_index] = static_cast<std::int16_t>(value);
+            seen_corner[table_index] = true;
+        } else if (family == "edge_8") {
+            if (index < 0 || index >= edge_8_pattern_table_size) {
+                return line_error(line_number, "edge_8 index out of range");
+            }
+            const auto table_index = static_cast<std::size_t>(index);
+            if (seen_edge[table_index]) {
+                return line_error(line_number, "duplicate edge_8 index");
+            }
+            loaded.edge_8[table_index] = static_cast<std::int16_t>(value);
+            seen_edge[table_index] = true;
+        } else {
+            return line_error(line_number, "unknown pattern family: " + family);
+        }
+        has_entries = true;
+    }
+
+    if (input.bad()) {
+        return "failed to read pattern table: " + path.string();
+    }
+    if (!has_entries) {
+        return "pattern table has no entries";
+    }
+
+    loaded.enabled = true;
+    tables = loaded;
+    return {};
+}
+
 } // namespace
 
 EvaluationConfigLoadResult parse_evaluation_config(std::string_view text) {
@@ -198,6 +283,12 @@ EvaluationConfigLoadResult parse_evaluation_config(std::string_view text) {
 
             if (key == "name") {
                 result.name = std::string{value};
+            } else if (key == "pattern_table") {
+                if (value.empty()) {
+                    result.error = line_error(line_number, "empty pattern_table path");
+                    return result;
+                }
+                result.pattern_table_path = std::string{value};
             } else if (const std::optional<std::size_t> index = feature_key_index(key);
                        index.has_value()) {
                 const std::optional<int> parsed = parse_eval_int(value);
@@ -231,7 +322,7 @@ EvaluationConfigLoadResult parse_evaluation_config(std::string_view text) {
     }
 
     for (std::size_t index = 0; index < feature_keys.size(); ++index) {
-        if (!seen_features[index]) {
+        if (feature_keys[index].required && !seen_features[index]) {
             result.error = "missing required key: " + std::string{feature_keys[index].key};
             return result;
         }
@@ -265,6 +356,18 @@ EvaluationConfigLoadResult load_evaluation_config_file(const std::filesystem::pa
     EvaluationConfigLoadResult result = parse_evaluation_config(text);
     if (!result.ok()) {
         result.error = path.string() + ": " + result.error;
+        return result;
+    }
+
+    if (result.pattern_table_path.has_value()) {
+        const std::filesystem::path table_path{*result.pattern_table_path};
+        const std::filesystem::path resolved_table_path =
+            table_path.is_absolute() ? table_path : path.parent_path() / table_path;
+        if (const std::string error =
+                load_pattern_table_file(result.config.pattern_tables, resolved_table_path);
+            !error.empty()) {
+            result.error = resolved_table_path.string() + ": " + error;
+        }
     }
     return result;
 }

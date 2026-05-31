@@ -140,6 +140,14 @@ class EvalConfigTunerTests(unittest.TestCase):
         self.assertEqual(parsed.values()["opening.mobility"], 8)
         self.assertEqual(parsed.values()["opening_max_occupied"], 20)
 
+    def test_eval_parser_preserves_pattern_table_path(self) -> None:
+        parsed = tuner.parse_eval_config_text(
+            BASE_CONFIG_TEXT + "pattern_table=patterns/pattern_teacher_v0.tsv\n"
+        )
+
+        self.assertEqual(parsed.text_entries[0].key, "pattern_table")
+        self.assertEqual(parsed.text_entries[0].value, "patterns/pattern_teacher_v0.tsv")
+
     def test_eval_parser_rejects_duplicate_numeric_keys(self) -> None:
         with self.assertRaises(ScriptError) as context:
             tuner.parse_eval_config_text("name=x\nopening.mobility=8\nopening.mobility=9\n")
