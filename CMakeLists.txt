@@ -92,6 +92,7 @@ othello_add_executable(othello_tests
     tests/evaluation_tests.cpp
     tests/exact_label_dump_tests.cpp
     tests/hash_tests.cpp
+    tests/jsonl_tests.cpp
     tests/analyze_tests.cpp
     tests/match_runner_tests.cpp
     tests/nboard_protocol_tests.cpp
