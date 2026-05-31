@@ -35,6 +35,17 @@ std::string format_principal_variation(const std::vector<Square>& principal_vari
     return text.empty() ? "-" : text;
 }
 
+std::string_view search_score_kind_name(SearchScoreKind kind) noexcept {
+    switch (kind) {
+    case SearchScoreKind::Heuristic:
+        return "heuristic";
+    case SearchScoreKind::ExactDiscMarginScaled:
+        return "exact_disc_margin_scaled";
+    }
+
+    return "unknown";
+}
+
 double elapsed_ms(std::chrono::nanoseconds elapsed) noexcept {
     return std::chrono::duration<double, std::milli>{elapsed}.count();
 }

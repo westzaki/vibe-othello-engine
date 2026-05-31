@@ -32,17 +32,6 @@ using Clock = std::chrono::steady_clock;
     return "unknown";
 }
 
-[[nodiscard]] std::string_view search_score_kind_name(SearchScoreKind kind) noexcept {
-    switch (kind) {
-    case SearchScoreKind::Heuristic:
-        return "heuristic";
-    case SearchScoreKind::ExactDiscMarginScaled:
-        return "exact_disc_margin_scaled";
-    }
-
-    return "unknown";
-}
-
 [[nodiscard]] SearchOptions make_search_options(const AnalysisOptions& options) noexcept {
     return apply_evaluator_selection(SearchOptions{
         .max_depth = options.depth,

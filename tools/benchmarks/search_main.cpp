@@ -41,6 +41,7 @@ using othello::tools::beta_cut_first_move_percentage;
 using othello::tools::elapsed_ms;
 using othello::tools::format_principal_variation;
 using othello::tools::JsonObjectWriter;
+using othello::tools::search_score_kind_name;
 using othello::tools::tt_hit_percentage;
 
 constexpr int exact_endgame_score_scale = 1'000;
@@ -240,17 +241,6 @@ void print_usage(std::string_view program_name) {
         return "fixed";
     case SearchRunMode::Iterative:
         return "iterative";
-    }
-
-    return "unknown";
-}
-
-[[nodiscard]] std::string_view score_kind_name(othello::SearchScoreKind kind) noexcept {
-    switch (kind) {
-    case othello::SearchScoreKind::Heuristic:
-        return "heuristic";
-    case othello::SearchScoreKind::ExactDiscMarginScaled:
-        return "exact_disc_margin_scaled";
     }
 
     return "unknown";
@@ -1471,7 +1461,7 @@ void write_search_jsonl(const SearchBenchmarkResult& result, PositionSet positio
     writer.uint_field("position_count", result.position_count);
     write_json_square_field(writer, "best_move", result.sample_best_move);
     writer.int_field("score", result.sample_score);
-    writer.string_field("score_kind", score_kind_name(result.sample_score_kind));
+    writer.string_field("score_kind", search_score_kind_name(result.sample_score_kind));
     writer.bool_field("used_exact_endgame", result.sample_used_exact_endgame);
     write_json_optional_int_field(writer, "exact_disc_margin", result.sample_exact_disc_margin);
     write_json_pv_field(writer, std::cout, "principal_variation",
@@ -1512,7 +1502,7 @@ void write_position_jsonl(const PositionBenchmarkResult& result, PositionSet pos
     writer.string_field("exact_skip_reason", result.exact_skip_reason);
     write_json_square_field(writer, "best_move", result.sample_best_move);
     writer.int_field("score", result.sample_score);
-    writer.string_field("score_kind", score_kind_name(result.sample_score_kind));
+    writer.string_field("score_kind", search_score_kind_name(result.sample_score_kind));
     writer.bool_field("used_exact_endgame", result.sample_used_exact_endgame);
     write_json_optional_int_field(writer, "exact_disc_margin", result.sample_exact_disc_margin);
     write_json_pv_field(writer, std::cout, "principal_variation",
