@@ -1,5 +1,7 @@
 #pragma once
 
+#include <bit>
+#include <cstddef>
 #include <cstdint>
 
 namespace othello::tt_detail {
@@ -33,5 +35,20 @@ enum class BoundKind : std::uint8_t {
     }
     return false;
 }
+
+[[nodiscard]] constexpr std::size_t
+bucket_count_for_entry_count(std::size_t entry_count, std::size_t bucket_width) noexcept {
+    if (entry_count == 0 || bucket_width == 0) {
+        return 0;
+    }
+    const std::size_t requested_buckets = ((entry_count - 1) / bucket_width) + 1;
+    return std::bit_ceil(requested_buckets);
+}
+
+static_assert(bucket_count_for_entry_count(0, 4) == 0);
+static_assert(bucket_count_for_entry_count(1, 4) == 1);
+static_assert(bucket_count_for_entry_count(4, 4) == 1);
+static_assert(bucket_count_for_entry_count(5, 4) == 2);
+static_assert(bucket_count_for_entry_count(17, 4) == 8);
 
 } // namespace othello::tt_detail

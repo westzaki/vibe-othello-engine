@@ -4,7 +4,6 @@
 #include "tt_common.hpp"
 
 #include <array>
-#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -20,6 +19,7 @@ using search_detail::node_result_from_transposition_entry;
 using search_detail::NodeResult;
 using tt_detail::BoundKind;
 using tt_detail::bound_for_score;
+using tt_detail::bucket_count_for_entry_count;
 using tt_detail::proves_cutoff;
 
 struct ExactTranspositionEntry {
@@ -144,24 +144,15 @@ private:
                             std::optional<std::size_t> requested_entries) noexcept {
         const std::size_t default_entry_count = entry_count_for_empties(root_empties);
         if (!requested_entries.has_value()) {
-            return bucket_count_for_entry_count(default_entry_count);
+            return bucket_count_for_entry_count(default_entry_count, bucket_width);
         }
         if (*requested_entries == 0) {
             return 0;
         }
         if (*requested_entries > max_diagnostic_entry_count) {
-            return bucket_count_for_entry_count(default_entry_count);
+            return bucket_count_for_entry_count(default_entry_count, bucket_width);
         }
-        return bucket_count_for_entry_count(*requested_entries);
-    }
-
-    [[nodiscard]] static constexpr std::size_t
-    bucket_count_for_entry_count(std::size_t entry_count) noexcept {
-        if (entry_count == 0) {
-            return 0;
-        }
-        const std::size_t requested_buckets = ((entry_count - 1) / bucket_width) + 1;
-        return std::bit_ceil(requested_buckets);
+        return bucket_count_for_entry_count(*requested_entries, bucket_width);
     }
 
     std::size_t bucket_count_ = 0;

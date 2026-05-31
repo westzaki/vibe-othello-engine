@@ -5,7 +5,6 @@
 
 #include <algorithm>
 #include <array>
-#include <bit>
 #include <cassert>
 #include <cstddef>
 #include <limits>
@@ -48,6 +47,7 @@ using search_detail::principal_variation_with_move;
 using search_detail::PrincipalVariation;
 using tt_detail::BoundKind;
 using tt_detail::bound_for_score;
+using tt_detail::bucket_count_for_entry_count;
 using tt_detail::proves_cutoff;
 
 struct PrincipalVariationHint {
@@ -181,20 +181,10 @@ private:
         constexpr std::size_t max_power_of_two = std::size_t{1}
                                                  << (std::numeric_limits<std::size_t>::digits - 1);
         if (requested > max_power_of_two / bucket_width) {
-            return default_entry_count / bucket_width;
+            return bucket_count_for_entry_count(default_entry_count, bucket_width);
         }
 
-        const std::size_t requested_buckets =
-            std::max(std::size_t{1}, (requested + bucket_width - 1) / bucket_width);
-        if (std::has_single_bit(requested_buckets)) {
-            return requested_buckets;
-        }
-
-        std::size_t bucket_count = 1;
-        while (bucket_count < requested_buckets) {
-            bucket_count <<= 1;
-        }
-        return bucket_count;
+        return bucket_count_for_entry_count(requested, bucket_width);
     }
 
     std::size_t bucket_count_ = 0;
