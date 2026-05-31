@@ -67,6 +67,8 @@ FetchContent_MakeAvailable(Catch2)
 add_library(othello STATIC
     src/endgame.cpp
     src/evaluation.cpp
+    src/evaluation_features.cpp
+    src/evaluation_patterns.cpp
     src/evaluation_presets.cpp
     src/hash.cpp
     src/notation.cpp
