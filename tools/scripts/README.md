@@ -86,6 +86,34 @@ held-out exact labels, search bench, match runner or base/head comparison, and
 external sanity checks when appropriate before creating any named candidate or
 promotion PR.
 
+Validate generated `.eval` candidates on held-out exact-label JSONL:
+
+```sh
+python3 tools/scripts/eval_config_validate.py \
+  --validation-labels runs/exact-label-workflow/heldout/labels.jsonl \
+  --base-config data/eval/current_default.eval \
+  --candidate-dir runs/eval-config-tuner/smoke/configs \
+  --train-summary runs/eval-config-tuner/smoke/summary.tsv \
+  --build-dir build \
+  --out runs/eval-config-validation/smoke \
+  --top 10
+```
+
+Generate validation labels separately from the labels used for tuning, for
+example by running `exact_label_workflow.py` with a different seed or input
+position source. The validator does not generate configs or tune weights; it
+runs `othello_eval_vs_exact` for the base config and candidate configs, computes
+the same diagnostic objective as the tuner, and writes
+`validation_report.md`, per-config analyzer reports, logs, and `summary.tsv`
+under `runs/eval-config-validation/...`.
+
+Held-out validation is still diagnostic evidence only. It is not Elo, not a
+strength claim, and not a default-promotion gate. The objective remains
+label-distribution dependent, and validation labels may still be biased. After a
+candidate looks promising on held-out exact labels, use search bench, match
+runner or base/head comparison, and external sanity checks when appropriate
+before making any promotion claim.
+
 For evaluator config evidence:
 
 ```sh
