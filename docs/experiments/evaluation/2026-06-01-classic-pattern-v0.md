@@ -1,11 +1,24 @@
 # 2026-06-01 Classic Pattern v0
 
-Status: experimental report, not current guidance.
+Status: experimental report, negative result, not current guidance.
 
 This report records a broad classic sparse-pattern baseline after
-`pattern_teacher_v0` and `pattern_teacher_v1`. It is not a default-promotion
+`pattern_teacher_v0` and `pattern_teacher_v1`. It is useful as broad
+pattern-family plumbing and indexer/loader validation, but it is rejected as a
+stronger evaluator candidate. `pattern_teacher_v0` remains the preferred
+experimental pattern baseline for comparisons. This is not a default-promotion
 proposal, not a C++ `EvaluationPreset`, not an Elo claim, not proof of strength,
 and it does not change exact solver or search semantics.
+
+## Decision
+
+`classic_pattern_v0` is retained only as an experimental reproducibility
+artifact and broad-pattern plumbing baseline. It should not be treated as a
+preferred evaluator candidate and should not be used for strength claims.
+
+The 2027 usable-row NTest run showed train improvement, but the broader sparse
+residual-count table did not generalize on validation or holdout. On holdout,
+`pattern_teacher_v0` remained the stronger experimental pattern baseline.
 
 ## Metadata
 
@@ -26,7 +39,7 @@ Compared configs and tables:
 | classic_othello_v3_teacher_aggressive | `data/eval/classic_othello_v3_teacher_aggressive.eval` | `cbaec437d6dfb2efc1b6af7afb977a030bd4c7aab54386d65f4739bf0495b7be` |
 | pattern_teacher_v0 | `data/eval/pattern_teacher_v0.eval` | `020fc737bbf1a5e264559e857c2f4995fcc23def8b56d28113dc3b00a5290743` |
 | pattern_teacher_v1 | `data/eval/pattern_teacher_v1.eval` | `dd8e614e1dc14a316e07600136ddf51713e31d025f610dbffe1ad7c98263dbb8` |
-| classic_pattern_v0 | `data/eval/classic_pattern_v0.eval` | `2dd735a6f79ee8238f2be4cbd373898d4166fe6cbad6d0fd35d798d3cf78945a` |
+| classic_pattern_v0 | `data/eval/classic_pattern_v0.eval` | `fa8f57935c03af349f2e4437790106724f6bf1f6be3d98ad4cb155be0ed43fad` |
 | classic_pattern_v0 table | `data/eval/patterns/classic_pattern_v0.tsv` | `99f234ef9831a59fe80e20dbb3737c188946b5b204f46aeac87fc9ba3ebc1022` |
 
 ## Hypothesis
@@ -44,6 +57,7 @@ This experiment deliberately keeps the change bounded:
 - no external-engine logic in engine core
 - no raw teacher or exact labels committed
 - one sparse table path loaded through `.eval`
+- rejected candidate metadata kept with the config and report
 
 ## Representation
 
@@ -71,9 +85,10 @@ Committed table shape:
 | `diagonal_8` | 6561 | 48 | Main diagonals |
 | `inner_row_8` | 6561 | 80 | Second ranks and files |
 
-The committed broad table was trained from the final train split only. It was
-kept as a reviewable experimental baseline even though the validation and
-holdout metrics do not justify promotion.
+The committed broad table was trained from the final train split only. It is
+kept as a reviewable reproducibility artifact for broad pattern plumbing, not
+as the next evaluator baseline. The validation and holdout metrics reject it as
+a stronger candidate.
 
 ## Teacher Data
 
@@ -258,7 +273,7 @@ Holdout split:
 Compared with `pattern_teacher_v0`, `broad_all` recovered 32 train misses and
 introduced 23 train regressions. On validation it recovered 15 and regressed
 18; on holdout it recovered 13 and regressed 19. This is the main reason the
-broad table is not promoted.
+broad table is rejected as a stronger evaluator candidate.
 
 Top bucket counts for `broad_all`:
 
@@ -297,7 +312,8 @@ Held-out exact labels:
 `classic_pattern_v0` slightly improves held-out exact-best top-group count
 against v3, but it ties v3 rank sum and gap, loses to `pattern_teacher_v0` and
 `pattern_teacher_v1` on held-out exact-best rank sum, and loses on train exact
-metrics.
+metrics. This isolated top-group improvement is not enough to support a
+strength-improvement claim.
 
 ## Search Validation
 
@@ -320,13 +336,29 @@ relative to the baseline and all compared pattern configs in this run.
 
 ## Conclusion
 
-`classic_pattern_v0` is useful as a broad sparse-pattern plumbing and review
-baseline, but it should not be promoted as a strength improvement. The expanded
-2027-row teacher set showed train improvement, but validation and holdout did
-not generalize. The held-out exact set has one encouraging top-group metric, but
-the broader exact and search picture is mixed to negative.
+`classic_pattern_v0` is useful as broad sparse-pattern plumbing and
+indexer/loader validation, but it is rejected as a stronger evaluator
+candidate. It should not be promoted, should not become a preferred candidate,
+and should not be used for strength claims. `pattern_teacher_v0` remains the
+preferred experimental pattern baseline for comparisons based on the holdout
+metrics.
 
-Recommended next step: keep the broad family support and table loader tests,
-but treat this table as an experimental baseline. A future iteration should
-prefer narrower family selection, stronger regularization, or a phase-aware
-split before any default promotion is considered.
+The result suggests that simply adding broader families with sparse residual
+count training is not enough. The table increased vocabulary and fit the train
+split, but validation, holdout, and search validation did not support a
+generalized improvement.
+
+Recommended next direction is learning-foundation work rather than adding more
+pattern families in this PR:
+
+- introduce a `PatternTableBundle` or equivalent table ownership model so large
+  tables are not copied by value through configs
+- keep TSV as the source/review format, but use a dense runtime table or future
+  binary `.ptab` execution format when the representation grows
+- support phase-specific tables instead of one shared table plus phase weights
+- improve the trainer objective and regularization before widening vocabulary
+  again
+- build deterministic dataset, split, and manifest foundations for teacher and
+  exact-label experiments
+- clean up rejected eval configs in a future focused PR, without mixing that
+  cleanup into this plumbing/report PR

@@ -5,9 +5,14 @@
 # source_report: docs/experiments/evaluation/2026-06-01-classic-pattern-v0.md
 # not_default: true
 # not_promoted: true
-# purpose: Broad classic sparse pattern baseline using corner, edge-context, diagonal, and inner-row families.
+# decision: rejected_as_stronger_candidate
+# retained_for: broad_pattern_plumbing_and_reproducibility
+# preferred_experimental_pattern_baseline: data/eval/pattern_teacher_v0.eval
+# do_not_use_for_strength_claims: true
+# purpose: Broad classic sparse pattern plumbing artifact using corner, edge-context, diagonal, and inner-row families.
 # validation: See docs/experiments/evaluation/2026-06-01-classic-pattern-v0.md.
 # caveat: Experimental config only; not the default evaluator and not a C++ preset.
+# note: validation/holdout did not beat pattern_teacher_v0; see source_report.
 name=classic_pattern_v0
 pattern_table=patterns/classic_pattern_v0.tsv
 
