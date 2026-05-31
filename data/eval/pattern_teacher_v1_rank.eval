@@ -1,13 +1,15 @@
 # schema_version: eval.v1
-# status: experimental
+# status: rejected_experimental
 # created_at: 2026-06-01
 # based_on: data/eval/classic_othello_v3_teacher_aggressive.eval
 # source_report: docs/experiments/evaluation/2026-06-01-pattern-teacher-v1.md
+# decision: rejected as a stronger evaluator; retained only for reproducibility.
+# retained_for: reproducibility of split-training and rank-aware evidence only.
 # not_default: true
 # not_promoted: true
 # purpose: Rank-aware train-split sparse pattern candidate.
 # validation: See docs/experiments/evaluation/2026-06-01-pattern-teacher-v1.md.
-# caveat: Experimental config only; not the default evaluator and not a C++ preset.
+# caveat: Rejected experimental config only; not the default evaluator and not a C++ preset.
 name=pattern_teacher_v1_rank
 pattern_table=patterns/pattern_teacher_v1_rank.tsv
 
