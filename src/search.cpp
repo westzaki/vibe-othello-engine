@@ -309,10 +309,15 @@ constexpr int search_score_max = 1'000'000'000;
 // Keep exact root endgame scores comparable with evaluate_basic terminal scores.
 // If the terminal score weight in evaluation.cpp changes, update this scale too.
 constexpr int exact_endgame_score_scale = 1'000;
-constexpr int adaptive_exact_always_max_empties = 14;
-constexpr int adaptive_exact_max_empties = 16;
-constexpr int adaptive_exact_max_legal_moves = 10;
-constexpr int adaptive_exact_max_opponent_legal_moves = 10;
+
+struct ExactRootPolicyParams {
+    int always_exact_max_empties = 14;
+    int adaptive_max_empties = 16;
+    int max_legal_moves = 10;
+    int max_opponent_legal_moves = 10;
+};
+
+constexpr ExactRootPolicyParams adaptive16_exact_root_policy_params{};
 
 [[nodiscard]] int evaluate_for_search(const Board& board, SearchContext& context) noexcept {
     ++context.stats.eval_calls;
@@ -780,11 +785,13 @@ decide_exact_endgame_root(const Board& board, const SearchOptions& options) noex
         return decision;
     }
 
-    if (decision.empty_count <= adaptive_exact_always_max_empties) {
+    constexpr ExactRootPolicyParams policy = adaptive16_exact_root_policy_params;
+
+    if (decision.empty_count <= policy.always_exact_max_empties) {
         decision.solve_exact = true;
         return decision;
     }
-    if (decision.empty_count > adaptive_exact_max_empties) {
+    if (decision.empty_count > policy.adaptive_max_empties) {
         decision.skip_reason = ExactEndgameRootSkipReason::AboveThreshold;
         return decision;
     }
@@ -795,11 +802,11 @@ decide_exact_endgame_root(const Board& board, const SearchOptions& options) noex
         decision.skip_reason = ExactEndgameRootSkipReason::AdaptiveRootPass;
         return decision;
     }
-    if (decision.legal_moves_current > adaptive_exact_max_legal_moves) {
+    if (decision.legal_moves_current > policy.max_legal_moves) {
         decision.skip_reason = ExactEndgameRootSkipReason::AdaptiveTooManyLegalMoves;
         return decision;
     }
-    if (decision.legal_moves_opponent > adaptive_exact_max_opponent_legal_moves) {
+    if (decision.legal_moves_opponent > policy.max_opponent_legal_moves) {
         decision.skip_reason = ExactEndgameRootSkipReason::AdaptiveOpponentTooManyLegalMoves;
         return decision;
     }
