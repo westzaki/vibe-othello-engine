@@ -331,6 +331,7 @@ class EvalExperimentMatrixTests(unittest.TestCase):
         self.assertIn("--positions evaluation", report)
         self.assertIn("--by-position", report)
         self.assertIn("Search positions: `evaluation`", report)
+        self.assertIn("Search positions apply to search screening only", report)
         self.assertIn("Search by-position: `on`", report)
 
     def test_dry_run_with_configs_emits_eval_config_commands(self) -> None:

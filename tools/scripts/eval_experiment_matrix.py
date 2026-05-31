@@ -885,6 +885,7 @@ def render_report(
         f"- Openings: `{config.openings}`",
         f"- Exact endgame threshold: `{config.exact_endgame_threshold}`",
         f"- Search positions: `{config.positions}`",
+        "- Search positions apply to search screening only; match steps use openings.",
         f"- Search by-position: `{'on' if config.by_position else 'off'}`",
         f"- Allow error games: `{'true' if config.allow_errors else 'false'}`",
         "",
@@ -1193,7 +1194,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--positions",
         default="smoke",
         choices=("smoke", "suite", "evaluation"),
-        help="search bench position set (default: smoke)",
+        help="search bench position set for search screening only; match steps use --openings",
     )
     parser.add_argument(
         "--by-position",

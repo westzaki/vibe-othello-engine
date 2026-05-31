@@ -199,12 +199,14 @@ Useful outputs include:
 
 Do not overfit to one position.
 
-The committed `data/positions/evaluation/diagnostic_suite.txt` file is a small
-curated diagnostic suite for this step. It covers semantic situations such as
-corner access, X-square danger, mobility pressure, frontier-heavy shapes, edge
-patterns, and late-pre-endgame boards where exact root solving should be
-disabled when measuring heuristic midgame evaluation. The suite is intentionally
-small and is not a representative training distribution or strength proof.
+The committed `data/positions/evaluation/diagnostic_suite.txt` file is the
+source of truth for the small curated `evaluation` diagnostic position set.
+`othello_search_bench --positions evaluation` loads that file directly. It
+covers semantic situations such as corner access, X-square danger, mobility
+pressure, frontier-heavy shapes, edge patterns, and late-pre-endgame boards
+where exact root solving should be disabled when measuring heuristic midgame
+evaluation. The suite is intentionally small and is not a representative
+training distribution or strength proof.
 
 Examples:
 
@@ -230,7 +232,9 @@ Examples:
 For exact-label or eval-vs-exact workflows, reuse the same committed positions
 with `--skip-sampling` and keep generated labels/reports under `runs/`.
 
-Evaluator candidate matrices can use the same search-bench position selector:
+Evaluator candidate matrices can use the same search-bench position selector for
+search screening. Match steps in the matrix still use the configured opening
+suite, not the `evaluation` positions:
 
 ```sh
 python3 tools/scripts/eval_experiment_matrix.py \
@@ -246,6 +250,10 @@ python3 tools/scripts/eval_experiment_matrix.py \
   --seed 20260531 \
   --exact-endgame-threshold 0
 ```
+
+Treat score, best move, PV, checksum, or node-count changes on this suite as
+evaluation behavior evidence, not as automatic regressions. Evaluator promotion
+still needs broader search, match, base/head, or exact-label evidence.
 
 ### 6. Run benchmark profiles
 

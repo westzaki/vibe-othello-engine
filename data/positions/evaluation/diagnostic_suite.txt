@@ -3,6 +3,7 @@
 # These positions are curated semantic fixtures, not a representative training set.
 
 # name: eval-corner-access-a1
+# phase: opening
 # tags: corner_access,corner_available,opening,x_square_danger,x_square_risk
 # note: White has tactical corner access pressure near A1.
 ........
@@ -16,6 +17,7 @@
 side=W
 
 # name: eval-x-square-danger
+# phase: midgame
 # tags: x_square_danger,x_square_risk,midgame,high_mobility,score_lopsided
 # note: X-square danger and local corner shape should be visible in breakdowns.
 .....W..
@@ -29,6 +31,7 @@ side=W
 side=B
 
 # name: eval-mobility-pressure
+# phase: midgame
 # tags: mobility_pressure,low_mobility,pass,edge_heavy
 # note: Low-mobility edge pressure case for candidate mobility weighting.
 WWWWBBBB
@@ -42,6 +45,7 @@ W.BBB.B.
 side=B
 
 # name: eval-frontier-heavy-ring
+# phase: midgame
 # tags: frontier_heavy,midgame,x_square_risk
 # note: Compact frontier-heavy ring around a single black disc.
 ........
@@ -55,6 +59,7 @@ side=B
 side=B
 
 # name: eval-edge-pattern-lopsided
+# phase: midgame
 # tags: edge_pattern,edge_heavy,score_lopsided,midgame,high_mobility
 # note: Lopsided edge shape stresses edge pattern and edge stability features.
 ...B.W.B
@@ -68,6 +73,7 @@ BBBBB...
 side=W
 
 # name: eval-edge-corner-race
+# phase: late_midgame
 # tags: edge_pattern,corner_access,corner_available,edge_heavy,late_midgame,high_mobility,x_square_risk,score_lopsided
 # note: Late edge and corner race where exact root should be disabled for midgame eval measurement.
 ........
@@ -81,6 +87,7 @@ BBBBBBBW
 side=W
 
 # name: eval-late-open-corner
+# phase: late_midgame
 # tags: late_pre_endgame,corner_access,corner_available,edge_heavy,x_square_danger,x_square_risk,high_mobility,score_lopsided
 # note: Late-pre-endgame open-corner shape; use exact root disabled when measuring heuristic eval.
 ...BBB.W
@@ -94,6 +101,7 @@ WBBB....
 side=W
 
 # name: eval-late-dense-mobility
+# phase: endgame-ish
 # tags: late_pre_endgame,high_mobility,corner_available,edge_heavy,dense_late_game,x_square_risk,score_lopsided
 # note: Dense late-pre-endgame mobility case; use exact root disabled for midgame eval measurement.
 ...B....

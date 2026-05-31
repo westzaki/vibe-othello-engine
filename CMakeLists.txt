@@ -194,6 +194,23 @@ set_tests_properties(
     PROPERTIES PASS_REGULAR_EXPRESSION "eval-late-dense-mobility"
 )
 
+othello_add_tool_smoke_test(
+    othello_search_bench_evaluation_positions_jsonl
+    othello_search_bench
+    --positions evaluation
+    --mode iterative
+    --depths 1
+    --repetitions 1
+    --tt on
+    --pvs on
+    --exact-endgame-threshold 0
+    --format jsonl
+)
+set_tests_properties(
+    othello_search_bench_evaluation_positions_jsonl
+    PROPERTIES PASS_REGULAR_EXPRESSION "\"positions\":\"evaluation\".*\"position_count\":8"
+)
+
 othello_add_help_contains_test(
     othello_analyze_position_help_includes_eval_config
     othello_analyze_position

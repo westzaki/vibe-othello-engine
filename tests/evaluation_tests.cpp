@@ -1,6 +1,6 @@
 #include "common/eval_config_io.hpp"
 #include "common/evaluator_selection.hpp"
-#include "exact_labels/exact_label_dump.hpp"
+#include "positions/metrics.hpp"
 #include "positions/search_positions.hpp"
 #include "positions/tags.hpp"
 #include "test_helpers.hpp"
@@ -38,11 +38,6 @@ side=W)");
 
 [[nodiscard]] std::filesystem::path sample_eval_config_path(std::string_view file_name) {
     return std::filesystem::path{OTHELLO_SOURCE_DIR} / "data" / "eval" / file_name;
-}
-
-[[nodiscard]] std::filesystem::path evaluation_position_suite_path() {
-    return std::filesystem::path{OTHELLO_SOURCE_DIR} / "data" / "positions" / "evaluation" /
-           "diagnostic_suite.txt";
 }
 
 [[nodiscard]] std::string read_text_file(const std::filesystem::path& path) {
@@ -272,8 +267,9 @@ TEST_CASE("Committed eval config fixtures parse and preserve intended identities
 TEST_CASE("Committed evaluation diagnostic positions parse", "[evaluation]") {
     std::string error;
 
-    const auto positions = othello::tools::exact_labels::parse_position_text(
-        read_text_file(evaluation_position_suite_path()), error);
+    const auto positions = othello::benchmarks::load_positions_from_text(
+        read_text_file(othello::benchmarks::evaluation_diagnostic_suite_path()),
+        "diagnostic_suite.txt", error);
 
     INFO(error);
     REQUIRE(positions.has_value());
@@ -284,18 +280,49 @@ TEST_CASE("Committed evaluation diagnostic positions parse", "[evaluation]") {
 }
 
 TEST_CASE("Search benchmark exposes evaluation diagnostic positions", "[evaluation]") {
-    const auto positions = othello::benchmarks::make_search_evaluation_positions();
+    std::string error;
+    const auto file_positions = othello::benchmarks::load_positions_from_file(
+        othello::benchmarks::evaluation_diagnostic_suite_path(), error);
+    const auto search_positions = othello::benchmarks::make_search_evaluation_positions();
 
-    REQUIRE(positions.has_value());
-    CHECK(positions->size() == 8);
-    CHECK(std::ranges::any_of(*positions, [](const othello::benchmarks::Position& position) {
-        return position.name == "eval-corner-access-a1" &&
-               othello::benchmarks::has_tag(position.tags, "corner_access");
-    }));
-    CHECK(std::ranges::any_of(*positions, [](const othello::benchmarks::Position& position) {
-        return position.name == "eval-late-dense-mobility" &&
-               othello::benchmarks::has_tag(position.tags, "late_pre_endgame");
-    }));
+    INFO(error);
+    REQUIRE(file_positions.has_value());
+    REQUIRE(search_positions.has_value());
+    REQUIRE(search_positions->size() == file_positions->size());
+    REQUIRE(search_positions->size() == 8);
+
+    for (std::size_t index = 0; index < search_positions->size(); ++index) {
+        const auto& expected = (*file_positions)[index];
+        const auto& actual = (*search_positions)[index];
+        CHECK(actual.name == expected.name);
+        CHECK(actual.phase == expected.phase);
+        CHECK(actual.tags == expected.tags);
+        CHECK(actual.notes == expected.notes);
+        CHECK(actual.board_text == expected.board_text);
+        CHECK(othello::benchmarks::same_board(actual.board, expected.board));
+    }
+
+    const auto& corner_access = search_positions->front();
+    CHECK(corner_access.name == "eval-corner-access-a1");
+    CHECK(corner_access.phase == "opening");
+    CHECK(othello::benchmarks::has_tag(corner_access.tags, "corner_access"));
+    CHECK(corner_access.notes == "White has tactical corner access pressure near A1.");
+    CHECK(corner_access.board_text ==
+          "........\n"
+          ".B......\n"
+          "..B.B...\n"
+          "...BB...\n"
+          ".WWWWW..\n"
+          "..B.....\n"
+          "........\n"
+          "........\n"
+          "side=W");
+
+    const auto& dense_late = search_positions->back();
+    CHECK(dense_late.name == "eval-late-dense-mobility");
+    CHECK(dense_late.phase == "endgame-ish");
+    CHECK(othello::benchmarks::has_tag(dense_late.tags, "late_pre_endgame"));
+    CHECK(othello::benchmarks::has_tag(dense_late.tags, "dense_late_game"));
 }
 
 TEST_CASE("Tool evaluator selection resolves presets and config files", "[evaluation]") {

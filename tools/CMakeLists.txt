@@ -23,6 +23,10 @@ add_library(othello_tools_positions OBJECT
 
 target_link_libraries(othello_tools_positions PRIVATE othello)
 target_include_directories(othello_tools_positions PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_definitions(othello_tools_positions
+    PRIVATE
+        OTHELLO_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+)
 othello_enable_sanitizers(othello_tools_positions)
 list(APPEND OTHELLO_CLANG_TIDY_TARGETS othello_tools_positions)
 
