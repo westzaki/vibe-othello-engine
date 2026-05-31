@@ -154,6 +154,27 @@ othello_add_help_contains_test(
 )
 
 othello_add_help_contains_test(
+    othello_search_bench_help_includes_format
+    othello_search_bench
+    "--format"
+)
+
+othello_add_tool_smoke_test(
+    othello_search_bench_jsonl_includes_score_kind
+    othello_search_bench
+    --mode fixed
+    --depths 1
+    --positions smoke
+    --repetitions 1
+    --exact-endgame-threshold 0
+    --format jsonl
+)
+set_tests_properties(
+    othello_search_bench_jsonl_includes_score_kind
+    PROPERTIES PASS_REGULAR_EXPRESSION "\"tool\":\"othello_search_bench\".*\"score_kind\""
+)
+
+othello_add_help_contains_test(
     othello_analyze_position_help_includes_eval_config
     othello_analyze_position
     "--eval-config"
@@ -192,6 +213,13 @@ othello_add_expect_failure_test(
 )
 
 othello_add_expect_failure_test(
+    othello_search_bench_rejects_invalid_format
+    othello_search_bench
+    "invalid --format value"
+    --format yaml
+)
+
+othello_add_expect_failure_test(
     othello_analyze_position_rejects_eval_preset_with_eval_config
     othello_analyze_position
     "cannot combine --eval-preset and --eval-config"
@@ -226,4 +254,29 @@ othello_add_help_contains_test(
     othello_endgame_bench_help_includes_exact_tt_entries
     othello_endgame_bench
     "--exact-tt-entries"
+)
+
+othello_add_help_contains_test(
+    othello_endgame_bench_help_includes_format
+    othello_endgame_bench
+    "--format"
+)
+
+othello_add_tool_smoke_test(
+    othello_endgame_bench_jsonl_includes_disc_margin
+    othello_endgame_bench
+    --positions smoke
+    --repetitions 1
+    --format jsonl
+)
+set_tests_properties(
+    othello_endgame_bench_jsonl_includes_disc_margin
+    PROPERTIES PASS_REGULAR_EXPRESSION "\"tool\":\"othello_endgame_bench\".*\"disc_margin\""
+)
+
+othello_add_expect_failure_test(
+    othello_endgame_bench_rejects_invalid_format
+    othello_endgame_bench
+    "invalid --format value"
+    --format yaml
 )

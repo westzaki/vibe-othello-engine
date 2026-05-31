@@ -1,6 +1,7 @@
 #include "common/cli.hpp"
 #include "common/evaluator_selection.hpp"
 #include "common/formatting.hpp"
+#include "common/jsonl.hpp"
 #include "common/stats.hpp"
 #include "positions/metrics.hpp"
 #include "positions/search_positions.hpp"
@@ -60,6 +61,11 @@ enum class PositionSet {
     Threshold,
 };
 
+enum class OutputFormat {
+    Text,
+    Jsonl,
+};
+
 enum class ExactRootProfileKind {
     Engine,
     Adaptive16Current,
@@ -116,6 +122,7 @@ struct BenchmarkOptions {
         fixed_exact_root_profile(othello::SearchOptions{}.exact_endgame_empty_threshold)};
     int aspiration_window = othello::SearchOptions{}.aspiration_window;
     int aspiration_max_researches = othello::SearchOptions{}.aspiration_max_researches;
+    OutputFormat output_format = OutputFormat::Text;
     othello::tools::EvaluatorSelection evaluator;
 };
 
@@ -135,6 +142,9 @@ struct SearchBenchmarkResult {
     int depth;
     std::optional<othello::Square> sample_best_move;
     int sample_score;
+    othello::SearchScoreKind sample_score_kind = othello::SearchScoreKind::Heuristic;
+    bool sample_used_exact_endgame = false;
+    std::optional<int> sample_exact_disc_margin;
     std::vector<othello::Square> sample_principal_variation;
     std::uint64_t searches;
     std::chrono::nanoseconds elapsed;
@@ -162,6 +172,9 @@ struct PositionBenchmarkResult {
     int depth;
     std::optional<othello::Square> sample_best_move;
     int sample_score;
+    othello::SearchScoreKind sample_score_kind = othello::SearchScoreKind::Heuristic;
+    bool sample_used_exact_endgame = false;
+    std::optional<int> sample_exact_disc_margin;
     std::vector<othello::Square> sample_principal_variation;
     std::uint64_t searches;
     std::chrono::nanoseconds elapsed;
@@ -187,7 +200,7 @@ void print_usage(std::string_view program_name) {
                  " [--pvs on|off] [--aspiration on|off] [--aspiration-window N]"
                  " [--aspiration-max-researches N] [--exact-endgame-threshold N]"
                  " [--exact-endgame-thresholds LIST]"
-                 " [--eval-preset NAME] [--eval-config PATH]\n"
+                 " [--eval-preset NAME] [--eval-config PATH] [--format text|jsonl]\n"
               << '\n'
               << "Options:\n"
               << "  --depths LIST       comma-separated positive search depths\n"
@@ -216,6 +229,7 @@ void print_usage(std::string_view program_name) {
                  "adaptive16_shape, or adaptive16_split\n"
               << "  --eval-preset NAME builtin evaluator preset name\n"
               << "  --eval-config PATH load evaluator weights from a .eval config file\n"
+              << "  --format FORMAT    output format: text or jsonl (default: text)\n"
               << "  --help              show this help text\n";
 }
 
@@ -225,6 +239,17 @@ void print_usage(std::string_view program_name) {
         return "fixed";
     case SearchRunMode::Iterative:
         return "iterative";
+    }
+
+    return "unknown";
+}
+
+[[nodiscard]] std::string_view score_kind_name(othello::SearchScoreKind kind) noexcept {
+    switch (kind) {
+    case othello::SearchScoreKind::Heuristic:
+        return "heuristic";
+    case othello::SearchScoreKind::ExactDiscMarginScaled:
+        return "exact_disc_margin_scaled";
     }
 
     return "unknown";
@@ -403,6 +428,16 @@ parse_exact_root_profiles(std::string_view text) {
         return SearchBenchmarkMode::Both;
     }
 
+    return std::nullopt;
+}
+
+[[nodiscard]] std::optional<OutputFormat> parse_output_format(std::string_view text) noexcept {
+    if (text == "text") {
+        return OutputFormat::Text;
+    }
+    if (text == "jsonl") {
+        return OutputFormat::Jsonl;
+    }
     return std::nullopt;
 }
 
@@ -649,6 +684,22 @@ parse_exact_root_profiles(std::string_view text) {
                 return std::nullopt;
             }
             options.repetitions = *repetitions;
+            continue;
+        }
+
+        if (option == "--format") {
+            ++index;
+            if (index >= args.size()) {
+                std::cerr << "--format requires text or jsonl\n";
+                return std::nullopt;
+            }
+
+            const auto output_format = parse_output_format(args[index]);
+            if (!output_format.has_value()) {
+                std::cerr << "invalid --format value; expected text or jsonl\n";
+                return std::nullopt;
+            }
+            options.output_format = *output_format;
             continue;
         }
 
@@ -994,6 +1045,9 @@ benchmark_search(const std::vector<othello::benchmarks::Position>& positions, in
     std::optional<othello::Square> sample_best_move;
     int sample_score = 0;
     std::vector<othello::Square> sample_principal_variation;
+    othello::SearchScoreKind sample_score_kind = othello::SearchScoreKind::Heuristic;
+    bool sample_used_exact_endgame = false;
+    std::optional<int> sample_exact_disc_margin;
 
     for (const auto& position : positions) {
         if (benchmark_exact_root_decision(position.board, search_options, exact_root_profile)
@@ -1021,6 +1075,9 @@ benchmark_search(const std::vector<othello::benchmarks::Position>& positions, in
             if (searches == 0) {
                 sample_best_move = result.best_move;
                 sample_score = result.score;
+                sample_score_kind = result.score_kind;
+                sample_used_exact_endgame = result.used_exact_endgame;
+                sample_exact_disc_margin = result.exact_disc_margin;
                 sample_principal_variation = result.principal_variation;
             }
             total_nodes += result.nodes;
@@ -1046,6 +1103,9 @@ benchmark_search(const std::vector<othello::benchmarks::Position>& positions, in
         .depth = depth,
         .sample_best_move = sample_best_move,
         .sample_score = sample_score,
+        .sample_score_kind = sample_score_kind,
+        .sample_used_exact_endgame = sample_used_exact_endgame,
+        .sample_exact_disc_margin = sample_exact_disc_margin,
         .sample_principal_variation = sample_principal_variation,
         .searches = searches,
         .elapsed = elapsed,
@@ -1074,6 +1134,9 @@ benchmark_position(const othello::benchmarks::Position& position, int depth,
     std::optional<othello::Square> sample_best_move;
     int sample_score = 0;
     std::vector<othello::Square> sample_principal_variation;
+    othello::SearchScoreKind sample_score_kind = othello::SearchScoreKind::Heuristic;
+    bool sample_used_exact_endgame = false;
+    std::optional<int> sample_exact_disc_margin;
 
     const auto start = Clock::now();
     for (std::uint64_t repetition = 0; repetition < repetitions; ++repetition) {
@@ -1092,6 +1155,9 @@ benchmark_position(const othello::benchmarks::Position& position, int depth,
         if (searches == 0) {
             sample_best_move = result.best_move;
             sample_score = result.score;
+            sample_score_kind = result.score_kind;
+            sample_used_exact_endgame = result.used_exact_endgame;
+            sample_exact_disc_margin = result.exact_disc_margin;
             sample_principal_variation = result.principal_variation;
         }
         total_nodes += result.nodes;
@@ -1118,6 +1184,9 @@ benchmark_position(const othello::benchmarks::Position& position, int depth,
         .depth = depth,
         .sample_best_move = sample_best_move,
         .sample_score = sample_score,
+        .sample_score_kind = sample_score_kind,
+        .sample_used_exact_endgame = sample_used_exact_endgame,
+        .sample_exact_disc_margin = sample_exact_disc_margin,
         .sample_principal_variation = sample_principal_variation,
         .searches = searches,
         .elapsed = elapsed,
@@ -1302,6 +1371,248 @@ void print_position_result(const PositionBenchmarkResult& result) {
               << result.work_checksum << '\n';
 }
 
+void write_json_field_name(std::ostream& output, bool& first, std::string_view name) {
+    if (!first) {
+        output << ',';
+    }
+    first = false;
+    othello::tools::write_json_string(output, name);
+    output << ':';
+}
+
+void write_json_string_field(std::ostream& output, bool& first, std::string_view name,
+                             std::string_view value) {
+    write_json_field_name(output, first, name);
+    othello::tools::write_json_string(output, value);
+}
+
+void write_json_bool_field(std::ostream& output, bool& first, std::string_view name, bool value) {
+    write_json_field_name(output, first, name);
+    output << (value ? "true" : "false");
+}
+
+void write_json_optional_int_field(std::ostream& output, bool& first, std::string_view name,
+                                   std::optional<int> value) {
+    write_json_field_name(output, first, name);
+    if (value.has_value()) {
+        output << *value;
+    } else {
+        output << "null";
+    }
+}
+
+void write_json_square_field(std::ostream& output, bool& first, std::string_view name,
+                             std::optional<othello::Square> square) {
+    write_json_field_name(output, first, name);
+    if (square.has_value()) {
+        othello::tools::write_json_string(output, othello::to_string(*square));
+    } else {
+        output << "null";
+    }
+}
+
+void write_json_pv_field(std::ostream& output, bool& first, std::string_view name,
+                         const std::vector<othello::Square>& principal_variation) {
+    write_json_field_name(output, first, name);
+    output << '[';
+    bool first_move = true;
+    for (const othello::Square square : principal_variation) {
+        if (!first_move) {
+            output << ',';
+        }
+        first_move = false;
+        othello::tools::write_json_string(output, othello::to_string(square));
+    }
+    output << ']';
+}
+
+void write_json_search_stats_fields(std::ostream& output, bool& first,
+                                    const othello::SearchStats& stats) {
+    write_json_field_name(output, first, "searched_moves");
+    output << stats.searched_moves;
+    write_json_field_name(output, first, "legal_nodes");
+    output << stats.legal_move_nodes;
+    write_json_field_name(output, first, "eval_calls");
+    output << stats.eval_calls;
+    write_json_field_name(output, first, "pass_nodes");
+    output << stats.pass_nodes;
+    write_json_field_name(output, first, "game_over_nodes");
+    output << stats.game_over_nodes;
+    write_json_field_name(output, first, "beta_cutoffs");
+    output << stats.beta_cutoffs;
+    write_json_field_name(output, first, "beta_cut_first_move_pct");
+    output << beta_cut_first_move_percentage(stats);
+    write_json_field_name(output, first, "tt_lookups");
+    output << stats.tt_lookups;
+    write_json_field_name(output, first, "tt_hits");
+    output << stats.tt_hits;
+    write_json_field_name(output, first, "tt_hit_rate");
+    output << tt_hit_percentage(stats);
+    write_json_field_name(output, first, "tt_stores");
+    output << stats.tt_stores;
+    write_json_field_name(output, first, "tt_overwrites");
+    output << stats.tt_overwrites;
+    write_json_field_name(output, first, "tt_collisions");
+    output << stats.tt_collisions;
+    write_json_field_name(output, first, "tt_rejected_stores");
+    output << stats.tt_rejected_stores;
+    write_json_field_name(output, first, "tt_order_probes");
+    output << stats.tt_move_ordering_probes;
+    write_json_field_name(output, first, "tt_order_hits");
+    output << stats.tt_move_ordering_hits;
+    write_json_field_name(output, first, "tt_order_used");
+    output << stats.tt_move_ordering_used;
+    write_json_field_name(output, first, "pvs_scouts");
+    output << stats.pvs_scouts;
+    write_json_field_name(output, first, "pvs_researches");
+    output << stats.pvs_researches;
+    write_json_field_name(output, first, "pvs_scout_cutoffs");
+    output << stats.pvs_scout_cutoffs;
+    write_json_field_name(output, first, "asp_searches");
+    output << stats.aspiration_searches;
+    write_json_field_name(output, first, "asp_researches");
+    output << stats.aspiration_researches;
+    write_json_field_name(output, first, "asp_fail_lows");
+    output << stats.aspiration_fail_lows;
+    write_json_field_name(output, first, "asp_fail_highs");
+    output << stats.aspiration_fail_highs;
+    write_json_field_name(output, first, "asp_fallbacks");
+    output << stats.aspiration_full_window_fallbacks;
+    write_json_field_name(output, first, "dyn_nodes");
+    output << stats.dynamic_ordering_nodes;
+    write_json_field_name(output, first, "dyn_moves");
+    output << stats.dynamic_ordering_moves;
+}
+
+void write_search_jsonl(const SearchBenchmarkResult& result, PositionSet position_set,
+                        std::uint64_t repetitions) {
+    const auto elapsed_count = result.elapsed.count();
+    const double searches_per_second =
+        elapsed_count == 0 ? 0.0
+                           : (static_cast<double>(result.searches) * 1'000'000'000.0) /
+                                 static_cast<double>(elapsed_count);
+    const double nodes_per_second =
+        elapsed_count == 0 ? 0.0
+                           : (static_cast<double>(result.total_nodes) * 1'000'000'000.0) /
+                                 static_cast<double>(elapsed_count);
+    const double nodes_per_search = result.searches == 0
+                                        ? 0.0
+                                        : static_cast<double>(result.total_nodes) /
+                                              static_cast<double>(result.searches);
+
+    bool first = true;
+    std::cout << '{';
+    write_json_string_field(std::cout, first, "tool", "othello_search_bench");
+    write_json_string_field(std::cout, first, "row", "aggregate");
+    write_json_string_field(std::cout, first, "mode", mode_name(result.mode));
+    write_json_field_name(std::cout, first, "depth");
+    std::cout << result.depth;
+    write_json_string_field(std::cout, first, "positions", position_set_name(position_set));
+    write_json_field_name(std::cout, first, "repetitions");
+    std::cout << repetitions;
+    write_json_bool_field(std::cout, first, "tt", result.use_transposition_table);
+    write_json_bool_field(std::cout, first, "pvs", result.use_pvs);
+    write_json_bool_field(std::cout, first, "aspiration", result.use_aspiration_window);
+    write_json_field_name(std::cout, first, "aspiration_window");
+    std::cout << result.aspiration_window;
+    write_json_field_name(std::cout, first, "aspiration_max_researches");
+    std::cout << result.aspiration_max_researches;
+    write_json_field_name(std::cout, first, "tt_entries");
+    std::cout << result.transposition_table_entries;
+    write_json_string_field(std::cout, first, "exact_endgame_profile",
+                            result.exact_root_profile);
+    write_json_field_name(std::cout, first, "exact_root_positions");
+    std::cout << result.exact_root_positions;
+    write_json_field_name(std::cout, first, "exact_root_searches");
+    std::cout << result.exact_root_searches;
+    write_json_field_name(std::cout, first, "position_count");
+    std::cout << result.position_count;
+    write_json_square_field(std::cout, first, "best_move", result.sample_best_move);
+    write_json_field_name(std::cout, first, "score");
+    std::cout << result.sample_score;
+    write_json_string_field(std::cout, first, "score_kind",
+                            score_kind_name(result.sample_score_kind));
+    write_json_bool_field(std::cout, first, "used_exact_endgame",
+                          result.sample_used_exact_endgame);
+    write_json_optional_int_field(std::cout, first, "exact_disc_margin",
+                                  result.sample_exact_disc_margin);
+    write_json_pv_field(std::cout, first, "principal_variation",
+                        result.sample_principal_variation);
+    write_json_field_name(std::cout, first, "searches");
+    std::cout << result.searches;
+    write_json_field_name(std::cout, first, "elapsed_ms");
+    std::cout << elapsed_ms(result.elapsed);
+    write_json_field_name(std::cout, first, "searches_per_second");
+    std::cout << searches_per_second;
+    write_json_field_name(std::cout, first, "nodes");
+    std::cout << result.total_nodes;
+    write_json_field_name(std::cout, first, "nps");
+    std::cout << nodes_per_second;
+    write_json_field_name(std::cout, first, "nodes_per_search");
+    std::cout << nodes_per_search;
+    write_json_search_stats_fields(std::cout, first, result.total_stats);
+    write_json_string_field(std::cout, first, "result_checksum",
+                            std::to_string(result.result_checksum));
+    write_json_string_field(std::cout, first, "work_checksum",
+                            std::to_string(result.work_checksum));
+    std::cout << "}\n";
+}
+
+void write_position_jsonl(const PositionBenchmarkResult& result, PositionSet position_set,
+                          std::uint64_t repetitions) {
+    bool first = true;
+    std::cout << '{';
+    write_json_string_field(std::cout, first, "tool", "othello_search_bench");
+    write_json_string_field(std::cout, first, "row", "position");
+    write_json_string_field(std::cout, first, "position", result.position_name);
+    write_json_string_field(std::cout, first, "phase", result.phase);
+    write_json_string_field(std::cout, first, "tags", result.tags);
+    write_json_string_field(std::cout, first, "mode", mode_name(result.mode));
+    write_json_string_field(std::cout, first, "positions", position_set_name(position_set));
+    write_json_field_name(std::cout, first, "depth");
+    std::cout << result.depth;
+    write_json_field_name(std::cout, first, "repetitions");
+    std::cout << repetitions;
+    write_json_bool_field(std::cout, first, "tt", result.use_transposition_table);
+    write_json_bool_field(std::cout, first, "pvs", result.use_pvs);
+    write_json_bool_field(std::cout, first, "aspiration", result.use_aspiration_window);
+    write_json_field_name(std::cout, first, "tt_entries");
+    std::cout << result.transposition_table_entries;
+    write_json_string_field(std::cout, first, "exact_endgame_profile",
+                            result.exact_root_profile);
+    write_json_field_name(std::cout, first, "empty_count");
+    std::cout << result.empty_count;
+    write_json_bool_field(std::cout, first, "exact_root", result.exact_root);
+    write_json_string_field(std::cout, first, "exact_skip_reason", result.exact_skip_reason);
+    write_json_square_field(std::cout, first, "best_move", result.sample_best_move);
+    write_json_field_name(std::cout, first, "score");
+    std::cout << result.sample_score;
+    write_json_string_field(std::cout, first, "score_kind",
+                            score_kind_name(result.sample_score_kind));
+    write_json_bool_field(std::cout, first, "used_exact_endgame",
+                          result.sample_used_exact_endgame);
+    write_json_optional_int_field(std::cout, first, "exact_disc_margin",
+                                  result.sample_exact_disc_margin);
+    write_json_pv_field(std::cout, first, "principal_variation",
+                        result.sample_principal_variation);
+    write_json_field_name(std::cout, first, "searches");
+    std::cout << result.searches;
+    write_json_field_name(std::cout, first, "elapsed_ms");
+    std::cout << elapsed_ms(result.elapsed);
+    write_json_field_name(std::cout, first, "nodes");
+    std::cout << result.total_nodes;
+    write_json_field_name(std::cout, first, "nodes_per_search");
+    std::cout << nodes_per_search(result);
+    write_json_field_name(std::cout, first, "nps");
+    std::cout << nodes_per_second(result);
+    write_json_search_stats_fields(std::cout, first, result.total_stats);
+    write_json_string_field(std::cout, first, "result_checksum",
+                            std::to_string(result.result_checksum));
+    write_json_string_field(std::cout, first, "work_checksum",
+                            std::to_string(result.work_checksum));
+    std::cout << "}\n";
+}
+
 [[nodiscard]] std::size_t nearest_rank_index(std::size_t count, int percentile) noexcept {
     if (count == 0) {
         return 0;
@@ -1395,15 +1706,23 @@ void print_position_summary(std::span<const PositionBenchmarkResult> results, Se
 void run_requested_benchmarks(const std::vector<othello::benchmarks::Position>& positions,
                               const BenchmarkOptions& options, int depth,
                               const ExactRootProfile& exact_root_profile) {
+    const auto run_mode = [&](SearchRunMode mode) {
+        auto result = benchmark_search(positions, depth, options.repetitions, options, mode,
+                                       exact_root_profile);
+        if (options.output_format == OutputFormat::Jsonl) {
+            write_search_jsonl(result, options.position_set, options.repetitions);
+        } else {
+            print_search_result(result);
+        }
+    };
+
     if (options.mode == SearchBenchmarkMode::Fixed || options.mode == SearchBenchmarkMode::Both) {
-        print_search_result(benchmark_search(positions, depth, options.repetitions, options,
-                                             SearchRunMode::Fixed, exact_root_profile));
+        run_mode(SearchRunMode::Fixed);
     }
 
     if (options.mode == SearchBenchmarkMode::Iterative ||
         options.mode == SearchBenchmarkMode::Both) {
-        print_search_result(benchmark_search(positions, depth, options.repetitions, options,
-                                             SearchRunMode::Iterative, exact_root_profile));
+        run_mode(SearchRunMode::Iterative);
     }
 }
 
@@ -1415,7 +1734,11 @@ void run_requested_position_benchmarks(const std::vector<othello::benchmarks::Po
         for (const auto& position : positions) {
             auto result = benchmark_position(position, depth, options.repetitions, options, mode,
                                              exact_root_profile);
-            print_position_result(result);
+            if (options.output_format == OutputFormat::Jsonl) {
+                write_position_jsonl(result, options.position_set, options.repetitions);
+            } else {
+                print_position_result(result);
+            }
             results.push_back(std::move(result));
         }
     };
@@ -1486,79 +1809,90 @@ int run_benchmark(std::span<char* const> args) {
         return describe_positions(*positions) ? 0 : 1;
     }
 
-    std::cout << "Othello search benchmark\n";
-    std::cout << "position set: " << position_set_name(options.position_set) << '\n';
-    std::cout << "positions: " << positions->size() << '\n';
-    std::cout << "repetitions: " << options.repetitions << '\n';
-    std::cout << "mode: ";
-    switch (options.mode) {
-    case SearchBenchmarkMode::Fixed:
-        std::cout << "fixed";
-        break;
-    case SearchBenchmarkMode::Iterative:
-        std::cout << "iterative";
-        break;
-    case SearchBenchmarkMode::Both:
-        std::cout << "both";
-        break;
+    if (options.output_format == OutputFormat::Text) {
+        std::cout << "Othello search benchmark\n";
+        std::cout << "position set: " << position_set_name(options.position_set) << '\n';
+        std::cout << "positions: " << positions->size() << '\n';
+        std::cout << "repetitions: " << options.repetitions << '\n';
+        std::cout << "mode: ";
+        switch (options.mode) {
+        case SearchBenchmarkMode::Fixed:
+            std::cout << "fixed";
+            break;
+        case SearchBenchmarkMode::Iterative:
+            std::cout << "iterative";
+            break;
+        case SearchBenchmarkMode::Both:
+            std::cout << "both";
+            break;
+        }
+        std::cout << '\n';
+        const auto default_search_options = othello::SearchOptions{};
+        std::cout << "tt: "
+                  << (options.use_transposition_table.value_or(
+                          default_search_options.use_transposition_table)
+                          ? "on"
+                          : "off")
+                  << '\n';
+        std::cout << "pvs: "
+                  << (options.use_pvs.value_or(default_search_options.use_pvs) ? "on" : "off")
+                  << '\n';
+        std::cout << "aspiration: "
+                  << (options.use_aspiration_window.value_or(
+                          default_search_options.use_aspiration_window)
+                          ? "on"
+                          : "off")
+                  << '\n';
+        std::cout << "aspiration window: " << options.aspiration_window << '\n';
+        std::cout << "aspiration max researches: " << options.aspiration_max_researches << '\n';
+        std::cout << "tt entries: " << options.transposition_table_entries << '\n';
+        std::cout << "exact endgame profiles: "
+                  << exact_root_profile_list_text(options.exact_root_profiles) << '\n';
+        std::cout << "eval preset: " << othello::evaluation_preset_name(options.evaluator.preset)
+                  << '\n';
+        std::cout << "eval config: "
+                  << (options.evaluator.config_path.has_value() ? *options.evaluator.config_path
+                                                                : "-")
+                  << '\n';
+        if (options.by_position) {
+            std::cout << "best_move/score/pv: first sampled result per position\n";
+        } else {
+            std::cout << "best_move/score/pv: first sampled result\n";
+        }
+        std::cout << "depths:";
+        for (const int depth : options.depths) {
+            std::cout << ' ' << depth;
+        }
+        std::cout << "\n\n";
     }
-    std::cout << '\n';
-    const auto default_search_options = othello::SearchOptions{};
-    std::cout << "tt: "
-              << (options.use_transposition_table.value_or(
-                      default_search_options.use_transposition_table)
-                      ? "on"
-                      : "off")
-              << '\n';
-    std::cout << "pvs: "
-              << (options.use_pvs.value_or(default_search_options.use_pvs) ? "on" : "off") << '\n';
-    std::cout << "aspiration: "
-              << (options.use_aspiration_window.value_or(
-                      default_search_options.use_aspiration_window)
-                      ? "on"
-                      : "off")
-              << '\n';
-    std::cout << "aspiration window: " << options.aspiration_window << '\n';
-    std::cout << "aspiration max researches: " << options.aspiration_max_researches << '\n';
-    std::cout << "tt entries: " << options.transposition_table_entries << '\n';
-    std::cout << "exact endgame profiles: "
-              << exact_root_profile_list_text(options.exact_root_profiles) << '\n';
-    std::cout << "eval preset: " << othello::evaluation_preset_name(options.evaluator.preset)
-              << '\n';
-    std::cout << "eval config: "
-              << (options.evaluator.config_path.has_value() ? *options.evaluator.config_path
-                                                            : "-")
-              << '\n';
-    if (options.by_position) {
-        std::cout << "best_move/score/pv: first sampled result per position\n";
-    } else {
-        std::cout << "best_move/score/pv: first sampled result\n";
-    }
-    std::cout << "depths:";
-    for (const int depth : options.depths) {
-        std::cout << ' ' << depth;
-    }
-    std::cout << "\n\n";
 
     if (options.by_position) {
-        std::cout << "by-position: on\n";
-        std::cout << "per-position elapsed_ms and nodes are totals across repetitions\n\n";
+        if (options.output_format == OutputFormat::Text) {
+            std::cout << "by-position: on\n";
+            std::cout << "per-position elapsed_ms and nodes are totals across repetitions\n\n";
+        }
 
         std::vector<PositionBenchmarkResult> position_results;
         position_results.reserve(positions->size() * options.depths.size() *
                                  options.exact_root_profiles.size() * 2);
-        print_position_result_header();
+        if (options.output_format == OutputFormat::Text) {
+            print_position_result_header();
+        }
         for (const auto& profile : options.exact_root_profiles) {
             for (const int depth : options.depths) {
                 run_requested_position_benchmarks(*positions, options, depth, profile,
                                                   position_results);
             }
         }
-        print_requested_position_summaries(position_results, options);
+        if (options.output_format == OutputFormat::Text) {
+            print_requested_position_summaries(position_results, options);
+        }
         return 0;
     }
 
-    print_search_result_header();
+    if (options.output_format == OutputFormat::Text) {
+        print_search_result_header();
+    }
     for (const auto& profile : options.exact_root_profiles) {
         for (const int depth : options.depths) {
             run_requested_benchmarks(*positions, options, depth, profile);
