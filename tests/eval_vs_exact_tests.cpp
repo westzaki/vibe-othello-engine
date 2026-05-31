@@ -59,6 +59,53 @@ TEST_CASE("Eval vs exact analyzer reports tiny exact-label fixture", "[eval-vs-e
     CHECK(markdown.contains("### By Evaluator Phase"));
 }
 
+TEST_CASE("Eval vs exact analyzer reports move-rank analysis when enabled",
+          "[eval-vs-exact]") {
+    const std::string labels = read_fixture("data/labels/exact_label_tiny.jsonl");
+    auto options = default_options();
+    options.move_rank_analysis = true;
+    options.command += " --move-rank-analysis";
+    std::string error;
+
+    const std::optional<othello::tools::eval_vs_exact::AnalyzerReport> report =
+        othello::tools::eval_vs_exact::analyze_exact_label_jsonl(labels, options, error);
+
+    REQUIRE(report.has_value());
+    CHECK(report->summary.move_rank_records_with_scores == 1);
+    CHECK(report->summary.move_rank_records_missing_scores == 2);
+    CHECK(report->summary.move_rank_analyzed == 1);
+    CHECK(report->summary.move_rank_top_exact_best == 1);
+
+    const std::string& markdown = report->markdown;
+    CHECK(markdown.contains("## Move-Rank Analysis"));
+    CHECK(markdown.contains("move_rank_analysis: true"));
+    CHECK(markdown.contains("evaluator_top_exact_best_rate"));
+    CHECK(markdown.contains("exact_best_move_rank_under_evaluator"));
+    CHECK(markdown.contains("Worst Evaluator Top-Move Misses"));
+    CHECK(markdown.contains("records did not include `move_scores`"));
+}
+
+TEST_CASE("Eval vs exact move-rank analysis handles missing move scores",
+          "[eval-vs-exact]") {
+    constexpr std::string_view labels =
+        "{\"schema\":\"exact_label.v1\",\"position_id\":\"pos-000001\","
+        "\"board\":\"BBBBBBBB\\nBBBBBBBB\\nBBBBBBBB\\nBBBBBBBB\\nBBBBBBBB\\nBBBBBBBB\\n"
+        "BBBBBBBB\\nBBBBBBBB\\nside=W\",\"side_to_move\":\"W\",\"empties\":0,"
+        "\"legal_moves\":[],\"exact_score_side_to_move\":-64,\"best_moves\":[],"
+        "\"best_move\":null}\n";
+    auto options = default_options();
+    options.move_rank_analysis = true;
+    std::string error;
+
+    const auto report =
+        othello::tools::eval_vs_exact::analyze_exact_label_jsonl(labels, options, error);
+
+    REQUIRE(report.has_value());
+    CHECK(report->summary.move_rank_records_missing_scores == 1);
+    CHECK(report->summary.move_rank_analyzed == 0);
+    CHECK(report->markdown.contains("no records with usable `move_scores` were available"));
+}
+
 TEST_CASE("Eval vs exact analyzer rejects unsupported schemas", "[eval-vs-exact]") {
     const std::string labels = read_fixture("data/labels/exact_label_unsupported_schema.jsonl");
     std::string error;
@@ -79,6 +126,23 @@ TEST_CASE("Eval vs exact analyzer rejects missing required fields", "[eval-vs-ex
 
     CHECK_FALSE(report.has_value());
     CHECK(error.contains("missing required field: best_move"));
+}
+
+TEST_CASE("Eval vs exact analyzer rejects malformed move scores", "[eval-vs-exact]") {
+    constexpr std::string_view labels =
+        "{\"schema\":\"exact_label.v1\",\"position_id\":\"pos-000001\","
+        "\"board\":\"BBBBBBBB\\nBBBBBBBB\\nBBBBBBBB\\nBBBBBBBB\\nBBBBBBBB\\nBBBBBBBB\\n"
+        "BBBBBBBB\\nBBBBBBW.\\nside=B\",\"side_to_move\":\"B\",\"empties\":1,"
+        "\"legal_moves\":[\"H1\"],\"exact_score_side_to_move\":64,"
+        "\"best_moves\":[\"H1\"],\"best_move\":\"H1\","
+        "\"move_scores\":[{\"move\":\"H1\"}]}\n";
+    std::string error;
+
+    const auto report =
+        othello::tools::eval_vs_exact::analyze_exact_label_jsonl(labels, default_options(), error);
+
+    CHECK_FALSE(report.has_value());
+    CHECK(error.contains("missing required move_scores field: exact_score_side_to_move"));
 }
 
 TEST_CASE("Eval vs exact analyzer rejects boards that do not match label side", "[eval-vs-exact]") {

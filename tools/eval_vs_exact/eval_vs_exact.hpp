@@ -17,6 +17,7 @@ struct AnalyzerOptions {
     int high_confidence_threshold = 250;
     bool phase_breakdown = false;
     bool include_positions = false;
+    bool move_rank_analysis = false;
     std::string timestamp;
     std::string source_sha = "unknown";
     std::string command;
@@ -37,6 +38,14 @@ struct AnalyzerSummary {
     std::size_t wrong_direction = 0;
     std::size_t high_confidence_wrong_direction = 0;
     std::size_t exact_draw_handling = 0;
+    std::size_t move_rank_records_with_scores = 0;
+    std::size_t move_rank_records_missing_scores = 0;
+    std::size_t move_rank_records_no_legal_moves = 0;
+    std::size_t move_rank_analyzed = 0;
+    std::size_t move_rank_top_exact_best = 0;
+    std::size_t move_rank_top_non_best = 0;
+    std::size_t move_rank_exact_best_rank_sum = 0;
+    long long move_rank_eval_score_gap_sum = 0;
 };
 
 struct AnalyzerReport {

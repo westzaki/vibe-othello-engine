@@ -38,6 +38,8 @@ struct ExactLabelRecord {
     int exact_score_side_to_move = 0;
     std::vector<std::string> best_moves;
     std::optional<std::string> best_move;
+    std::vector<exact_labels::MoveScoreLabel> move_scores;
+    bool has_move_scores = false;
 };
 
 struct FieldSeen {
@@ -50,6 +52,12 @@ struct FieldSeen {
     bool exact_score_side_to_move = false;
     bool best_moves = false;
     bool best_move = false;
+    bool move_scores = false;
+};
+
+struct MoveScoreFieldSeen {
+    bool move = false;
+    bool exact_score_side_to_move = false;
 };
 
 class JsonParser {
@@ -127,6 +135,20 @@ public:
                 if (!error.empty()) {
                     return std::nullopt;
                 }
+            } else if (*key == "move_scores") {
+                if (seen.move_scores) {
+                    error = "duplicate field: move_scores";
+                    return std::nullopt;
+                }
+                seen.move_scores = true;
+                record.has_move_scores = true;
+                std::optional<std::vector<exact_labels::MoveScoreLabel>> move_scores =
+                    parse_move_scores_array(error);
+                if (!move_scores.has_value()) {
+                    error = "invalid move_scores: " + error;
+                    return std::nullopt;
+                }
+                record.move_scores = *std::move(move_scores);
             } else if (!skip_value(error)) {
                 return std::nullopt;
             }
@@ -304,6 +326,99 @@ private:
         }
     }
 
+    [[nodiscard]] std::optional<exact_labels::MoveScoreLabel>
+    parse_move_score_object(std::string& error) {
+        if (!consume('{')) {
+            error = "expected move score object";
+            return std::nullopt;
+        }
+
+        exact_labels::MoveScoreLabel score;
+        MoveScoreFieldSeen seen;
+        skip_space();
+        if (consume('}')) {
+            error = "missing required move_scores field: move";
+            return std::nullopt;
+        }
+
+        while (true) {
+            std::optional<std::string> key = parse_string(error);
+            if (!key.has_value()) {
+                return std::nullopt;
+            }
+            skip_space();
+            if (!consume(':')) {
+                error = "expected ':' after move_scores key: " + *key;
+                return std::nullopt;
+            }
+            skip_space();
+
+            if (*key == "move") {
+                if (!parse_required_string(score.move, seen.move, *key, error)) {
+                    return std::nullopt;
+                }
+            } else if (*key == "exact_score_side_to_move") {
+                if (!parse_required_int(score.exact_score_side_to_move,
+                                        seen.exact_score_side_to_move, *key, error)) {
+                    return std::nullopt;
+                }
+            } else if (!skip_value(error)) {
+                return std::nullopt;
+            }
+
+            skip_space();
+            if (consume('}')) {
+                break;
+            }
+            if (!consume(',')) {
+                error = "expected ',' or '}' in move_scores object";
+                return std::nullopt;
+            }
+            skip_space();
+        }
+
+        if (!seen.move) {
+            error = "missing required move_scores field: move";
+            return std::nullopt;
+        }
+        if (!seen.exact_score_side_to_move) {
+            error = "missing required move_scores field: exact_score_side_to_move";
+            return std::nullopt;
+        }
+        return score;
+    }
+
+    [[nodiscard]] std::optional<std::vector<exact_labels::MoveScoreLabel>>
+    parse_move_scores_array(std::string& error) {
+        if (!consume('[')) {
+            error = "expected move_scores array";
+            return std::nullopt;
+        }
+
+        std::vector<exact_labels::MoveScoreLabel> values;
+        skip_space();
+        if (consume(']')) {
+            return values;
+        }
+
+        while (true) {
+            skip_space();
+            std::optional<exact_labels::MoveScoreLabel> value = parse_move_score_object(error);
+            if (!value.has_value()) {
+                return std::nullopt;
+            }
+            values.push_back(*std::move(value));
+            skip_space();
+            if (consume(']')) {
+                return values;
+            }
+            if (!consume(',')) {
+                error = "expected ',' or ']' in move_scores array";
+                return std::nullopt;
+            }
+        }
+    }
+
     [[nodiscard]] bool parse_required_string(std::string& target, bool& seen, std::string_view key,
                                              std::string& error) {
         if (seen) {
@@ -475,11 +590,37 @@ private:
     }
 };
 
+struct EvaluatedMove {
+    std::string move;
+    int exact_score_side_to_move = 0;
+    int eval_score = 0;
+    bool exact_best = false;
+};
+
+struct MoveRankAnalysis {
+    std::string position_id;
+    std::string side_to_move;
+    int empties = 0;
+    std::vector<std::string> exact_best_moves;
+    int exact_best_score = 0;
+    std::string evaluator_top_move;
+    int evaluator_top_eval_score = 0;
+    int evaluator_top_exact_score = 0;
+    bool evaluator_top_is_exact_best = false;
+    int exact_best_rank_under_evaluator = 0;
+    int exact_best_eval_score = 0;
+    int evaluator_score_gap_top_minus_exact_best = 0;
+    int exact_score_gap_exact_best_minus_top = 0;
+    std::vector<EvaluatedMove> ranked_moves;
+};
+
 struct RecordAnalysis {
     ExactLabelRecord label;
     Board board;
     int eval_score = 0;
     EvaluationBreakdown breakdown;
+    std::optional<MoveRankAnalysis> move_rank;
+    std::string move_rank_skip_reason;
 };
 
 struct BucketStats {
@@ -549,6 +690,25 @@ struct FeatureContribution {
     return 64 - std::popcount(board.occupied());
 }
 
+[[nodiscard]] std::string format_label_square(Square square) {
+    std::string text = to_string(square);
+    if (!text.empty() && text.front() >= 'a' && text.front() <= 'h') {
+        text.front() = static_cast<char>(text.front() - 'a' + 'A');
+    }
+    return text;
+}
+
+[[nodiscard]] std::vector<Square> squares_from_bitboard(Bitboard moves) {
+    std::vector<Square> squares;
+    for (int index = Square::min_index; index <= Square::max_index; ++index) {
+        const std::optional<Square> square = Square::from_index(index);
+        if (square.has_value() && (moves & square->bit()) != 0) {
+            squares.push_back(*square);
+        }
+    }
+    return squares;
+}
+
 [[nodiscard]] std::string eval_selection_description(const EvaluatorSelection& selection) {
     if (selection.config_path.has_value()) {
         return "config `" + *selection.config_path + "`";
@@ -591,6 +751,129 @@ top_contributions(const EvaluationBreakdown& breakdown) {
     return contributions;
 }
 
+[[nodiscard]] std::optional<MoveRankAnalysis>
+analyze_move_rank_record(const ExactLabelRecord& label, const Board& board,
+                         const EvaluationConfig& config, std::string& skip_reason,
+                         std::string& error) {
+    skip_reason.clear();
+    if (!label.has_move_scores) {
+        skip_reason = "move_scores missing";
+        return std::nullopt;
+    }
+
+    std::map<std::string, int> exact_scores;
+    for (const exact_labels::MoveScoreLabel& score : label.move_scores) {
+        const auto inserted = exact_scores.emplace(score.move, score.exact_score_side_to_move);
+        if (!inserted.second) {
+            error = "position_id " + label.position_id + ": duplicate move in move_scores: " +
+                    score.move;
+            return std::nullopt;
+        }
+    }
+
+    std::map<std::string, Board> child_boards;
+    for (const Square square : squares_from_bitboard(legal_moves(board))) {
+        const std::optional<Board> child = apply_move(board, square);
+        if (!child.has_value()) {
+            continue;
+        }
+        child_boards.emplace(format_label_square(square), *child);
+    }
+
+    if (child_boards.empty()) {
+        const std::optional<Board> after_pass = pass_turn(board);
+        if (after_pass.has_value()) {
+            child_boards.emplace("PASS", *after_pass);
+        }
+    }
+
+    if (child_boards.empty()) {
+        skip_reason = "no legal root moves";
+        return std::nullopt;
+    }
+    if (exact_scores.empty()) {
+        error = "position_id " + label.position_id +
+                ": move_scores empty for non-terminal root";
+        return std::nullopt;
+    }
+
+    for (const auto& [move, _] : child_boards) {
+        if (!exact_scores.contains(move)) {
+            error = "position_id " + label.position_id + ": move_scores missing legal move: " +
+                    move;
+            return std::nullopt;
+        }
+    }
+    for (const auto& [move, _] : exact_scores) {
+        if (!child_boards.contains(move)) {
+            error = "position_id " + label.position_id + ": move_scores contains illegal move: " +
+                    move;
+            return std::nullopt;
+        }
+    }
+
+    int exact_best_score = label.move_scores.front().exact_score_side_to_move;
+    for (const auto& [_, exact_score] : exact_scores) {
+        exact_best_score = std::max(exact_best_score, exact_score);
+    }
+
+    std::vector<EvaluatedMove> ranked_moves;
+    ranked_moves.reserve(child_boards.size());
+    for (const auto& [move, child] : child_boards) {
+        const int exact_score = exact_scores.at(move);
+        const EvaluationBreakdown child_breakdown =
+            evaluate_basic_breakdown(child, board.side_to_move, config);
+        ranked_moves.push_back(EvaluatedMove{
+            .move = move,
+            .exact_score_side_to_move = exact_score,
+            .eval_score = child_breakdown.total,
+            .exact_best = exact_score == exact_best_score,
+        });
+    }
+
+    std::ranges::sort(ranked_moves, [](const EvaluatedMove& lhs,
+                                       const EvaluatedMove& rhs) noexcept {
+        if (lhs.eval_score != rhs.eval_score) {
+            return lhs.eval_score > rhs.eval_score;
+        }
+        return lhs.move < rhs.move;
+    });
+
+    std::vector<std::string> exact_best_moves;
+    int exact_best_eval_score = ranked_moves.front().eval_score;
+    for (const EvaluatedMove& move : ranked_moves) {
+        if (move.exact_best) {
+            exact_best_moves.push_back(move.move);
+            exact_best_eval_score = std::max(exact_best_eval_score, move.eval_score);
+        }
+    }
+
+    int exact_best_rank = 1;
+    for (const EvaluatedMove& move : ranked_moves) {
+        if (move.eval_score > exact_best_eval_score) {
+            ++exact_best_rank;
+        }
+    }
+
+    const EvaluatedMove& top = ranked_moves.front();
+    return MoveRankAnalysis{
+        .position_id = label.position_id,
+        .side_to_move = label.side_to_move,
+        .empties = label.empties,
+        .exact_best_moves = exact_best_moves,
+        .exact_best_score = exact_best_score,
+        .evaluator_top_move = top.move,
+        .evaluator_top_eval_score = top.eval_score,
+        .evaluator_top_exact_score = top.exact_score_side_to_move,
+        .evaluator_top_is_exact_best = top.exact_best,
+        .exact_best_rank_under_evaluator = exact_best_rank,
+        .exact_best_eval_score = exact_best_eval_score,
+        .evaluator_score_gap_top_minus_exact_best = top.eval_score - exact_best_eval_score,
+        .exact_score_gap_exact_best_minus_top = exact_best_score - top.exact_score_side_to_move,
+        .ranked_moves = ranked_moves,
+    };
+}
+
 void update_summary(AnalyzerSummary& summary, const RecordAnalysis& analysis) noexcept {
     const Sign exact_sign = sign_of(analysis.label.exact_score_side_to_move);
     const Sign eval_sign = sign_of(analysis.eval_score);
@@ -628,6 +911,30 @@ void update_summary(AnalyzerSummary& summary, const RecordAnalysis& analysis) no
     }
     if (wrong_direction(exact_sign, eval_sign)) {
         ++summary.wrong_direction;
+    }
+}
+
+void update_move_rank_summary(AnalyzerSummary& summary, const RecordAnalysis& analysis) noexcept {
+    if (analysis.move_rank.has_value()) {
+        ++summary.move_rank_records_with_scores;
+        ++summary.move_rank_analyzed;
+        summary.move_rank_exact_best_rank_sum += static_cast<std::size_t>(
+            analysis.move_rank->exact_best_rank_under_evaluator);
+        summary.move_rank_eval_score_gap_sum +=
+            analysis.move_rank->evaluator_score_gap_top_minus_exact_best;
+        if (analysis.move_rank->evaluator_top_is_exact_best) {
+            ++summary.move_rank_top_exact_best;
+        } else {
+            ++summary.move_rank_top_non_best;
+        }
+        return;
+    }
+
+    if (analysis.move_rank_skip_reason == "move_scores missing") {
+        ++summary.move_rank_records_missing_scores;
+    } else if (analysis.move_rank_skip_reason == "no legal root moves") {
+        ++summary.move_rank_records_with_scores;
+        ++summary.move_rank_records_no_legal_moves;
     }
 }
 
@@ -775,7 +1082,8 @@ void write_case_list(std::ostream& out, std::span<const RecordAnalysis> cases,
 }
 
 [[nodiscard]] bool analyze_record(const ExactLabelRecord& label, const EvaluationConfig& config,
-                                  RecordAnalysis& analysis, std::string& error) {
+                                  bool move_rank_analysis, RecordAnalysis& analysis,
+                                  std::string& error) {
     const std::optional<Board> board = board_from_string(label.board_text);
     if (!board.has_value()) {
         error = "position_id " + label.position_id + ": failed to parse board";
@@ -799,6 +1107,17 @@ void write_case_list(std::ostream& out, std::span<const RecordAnalysis> cases,
         .eval_score = breakdown.total,
         .breakdown = breakdown,
     };
+
+    if (move_rank_analysis) {
+        std::string skip_reason;
+        std::optional<MoveRankAnalysis> rank_analysis =
+            analyze_move_rank_record(label, *board, config, skip_reason, error);
+        if (!error.empty()) {
+            return false;
+        }
+        analysis.move_rank = std::move(rank_analysis);
+        analysis.move_rank_skip_reason = std::move(skip_reason);
+    }
     return true;
 }
 
@@ -849,6 +1168,145 @@ high_confidence_cases(std::span<const RecordAnalysis> analyses, int threshold) {
     return cases;
 }
 
+[[nodiscard]] std::vector<MoveRankAnalysis>
+move_rank_miss_cases(std::span<const RecordAnalysis> analyses) {
+    std::vector<MoveRankAnalysis> cases;
+    for (const RecordAnalysis& analysis : analyses) {
+        if (analysis.move_rank.has_value() &&
+            !analysis.move_rank->evaluator_top_is_exact_best) {
+            cases.push_back(*analysis.move_rank);
+        }
+    }
+    std::ranges::sort(cases, [](const MoveRankAnalysis& lhs,
+                                const MoveRankAnalysis& rhs) noexcept {
+        if (lhs.evaluator_score_gap_top_minus_exact_best !=
+            rhs.evaluator_score_gap_top_minus_exact_best) {
+            return lhs.evaluator_score_gap_top_minus_exact_best >
+                   rhs.evaluator_score_gap_top_minus_exact_best;
+        }
+        if (lhs.exact_score_gap_exact_best_minus_top !=
+            rhs.exact_score_gap_exact_best_minus_top) {
+            return lhs.exact_score_gap_exact_best_minus_top >
+                   rhs.exact_score_gap_exact_best_minus_top;
+        }
+        return lhs.empties < rhs.empties;
+    });
+    return cases;
+}
+
+void write_move_name_list(std::ostream& out, std::span<const std::string> moves) {
+    if (moves.empty()) {
+        out << "`-`";
+        return;
+    }
+    for (std::size_t index = 0; index < moves.size(); ++index) {
+        if (index != 0) {
+            out << ' ';
+        }
+        out << '`' << moves[index] << '`';
+    }
+}
+
+void write_ranked_move_list(std::ostream& out, std::span<const EvaluatedMove> moves) {
+    if (moves.empty()) {
+        out << "`-`";
+        return;
+    }
+    for (std::size_t index = 0; index < moves.size(); ++index) {
+        if (index != 0) {
+            out << ", ";
+        }
+        const EvaluatedMove& move = moves[index];
+        out << '`' << (index + 1) << ':' << move.move << " eval=" << move.eval_score
+            << " exact=" << move.exact_score_side_to_move;
+        if (move.exact_best) {
+            out << " exact-best";
+        }
+        out << '`';
+    }
+}
+
+void write_move_rank_case_list(std::ostream& out, std::span<const MoveRankAnalysis> cases,
+                               const AnalyzerOptions& options) {
+    if (cases.empty()) {
+        out << "None.\n\n";
+        return;
+    }
+
+    const std::size_t limit = std::min(options.top, cases.size());
+    for (std::size_t index = 0; index < limit; ++index) {
+        const MoveRankAnalysis& analysis = cases[index];
+        out << "### " << (index + 1) << ". " << analysis.position_id << '\n'
+            << "- side_to_move: `" << analysis.side_to_move << "`\n"
+            << "- empties: " << analysis.empties << '\n'
+            << "- evaluator_top_move: `" << analysis.evaluator_top_move << "`"
+            << " (eval_score=" << analysis.evaluator_top_eval_score
+            << ", exact_score_side_to_move=" << analysis.evaluator_top_exact_score << ")\n"
+            << "- exact_best_moves: ";
+        write_move_name_list(out, analysis.exact_best_moves);
+        out << " (exact_score_side_to_move=" << analysis.exact_best_score << ")\n"
+            << "- exact_best_move_rank_under_evaluator: "
+            << analysis.exact_best_rank_under_evaluator << '\n'
+            << "- evaluator_score_gap_top_minus_exact_best: "
+            << analysis.evaluator_score_gap_top_minus_exact_best << " heuristic units\n"
+            << "- exact_score_gap_exact_best_minus_top: "
+            << analysis.exact_score_gap_exact_best_minus_top << " discs\n"
+            << "- ranked_moves: ";
+        write_ranked_move_list(out, analysis.ranked_moves);
+        out << "\n\n";
+    }
+}
+
+void write_move_rank_section(std::ostream& out, const AnalyzerOptions& options,
+                             const AnalyzerSummary& summary,
+                             std::span<const RecordAnalysis> analyses) {
+    if (!options.move_rank_analysis) {
+        return;
+    }
+
+    out << "\n## Move-Rank Analysis\n\n"
+        << "This optional diagnostic compares evaluator root-child ordering with exact "
+           "per-move scores. It is not Elo, not a tuner, and not an automatic promotion "
+           "gate.\n\n"
+        << "- records_with_move_scores: " << summary.move_rank_records_with_scores << '\n'
+        << "- records_missing_move_scores: " << summary.move_rank_records_missing_scores
+        << '\n'
+        << "- records_no_legal_root_moves: " << summary.move_rank_records_no_legal_moves
+        << '\n'
+        << "- move_rank_analyzed: " << summary.move_rank_analyzed << '\n';
+
+    if (summary.move_rank_analyzed == 0) {
+        out << "\nMove-rank analysis was requested, but no records with usable "
+               "`move_scores` were available. Generate labels with "
+               "`othello_exact_label_dump --include-move-scores` to enable this "
+               "diagnostic.\n\n";
+        return;
+    }
+
+    out << "- evaluator_top_exact_best_rate: "
+        << percentage(summary.move_rank_top_exact_best, summary.move_rank_analyzed) << '\n'
+        << "- evaluator_top_non_best_count: " << summary.move_rank_top_non_best << '\n'
+        << "- mean_exact_best_move_rank_under_evaluator: "
+        << mean_text(static_cast<long long>(summary.move_rank_exact_best_rank_sum),
+                     summary.move_rank_analyzed)
+        << '\n'
+        << "- mean_evaluator_score_gap_top_minus_exact_best: "
+        << mean_text(summary.move_rank_eval_score_gap_sum, summary.move_rank_analyzed)
+        << " heuristic units\n";
+
+    if (summary.move_rank_records_missing_scores != 0) {
+        out << "\nCaveat: " << summary.move_rank_records_missing_scores
+            << " records did not include `move_scores` and were skipped for move-rank "
+               "analysis.\n";
+    }
+
+    const std::vector<MoveRankAnalysis> misses = move_rank_miss_cases(analyses);
+    out << "\n### Worst Evaluator Top-Move Misses\n\n"
+        << "Sorted by the evaluator score gap between the evaluator top move and the "
+           "highest-ranked exact-best move.\n\n";
+    write_move_rank_case_list(out, misses, options);
+}
+
 [[nodiscard]] std::string make_markdown_report(const AnalyzerOptions& options,
                                                const AnalyzerSummary& summary,
                                                std::span<const RecordAnalysis> analyses) {
@@ -889,7 +1347,9 @@ high_confidence_cases(std::span<const RecordAnalysis> analyses, int threshold) {
         << "- top: " << options.top << '\n'
         << "- high_confidence_threshold: " << options.high_confidence_threshold
         << " heuristic units\n"
-        << "- include_positions: " << (options.include_positions ? "true" : "false") << "\n\n"
+        << "- include_positions: " << (options.include_positions ? "true" : "false") << '\n'
+        << "- move_rank_analysis: " << (options.move_rank_analysis ? "true" : "false")
+        << "\n\n"
         << "## Summary\n\n"
         << "- records_read: " << summary.records_read << '\n'
         << "- analyzed: " << summary.analyzed << '\n'
@@ -919,6 +1379,8 @@ high_confidence_cases(std::span<const RecordAnalysis> analyses, int threshold) {
         write_bucket_table(out, phase_buckets);
     }
 
+    write_move_rank_section(out, options, summary, analyses);
+
     out << "\n## Worst Wrong-Direction Positions\n\n";
     write_case_list(out, wrong_cases, options);
 
@@ -931,9 +1393,12 @@ high_confidence_cases(std::span<const RecordAnalysis> analyses, int threshold) {
         << "- Exact labels are final disc margins; evaluator scores are uncalibrated heuristic "
            "units.\n"
         << "- Sign agreement is a diagnostic, not an Elo, strength, or promotion claim.\n"
+        << "- Move-rank analysis is diagnostic move-quality evidence, not an Elo, tuner, or "
+           "promotion claim.\n"
         << "- Raw score differences are heuristic-vs-disc comparisons and should not be read as "
            "disc MAE.\n"
-        << "- Best-move agreement is intentionally out of scope for this v1 analyzer.\n"
+        << "- Move-rank analysis requires labels generated with `--include-move-scores` and is "
+           "opt-in via `--move-rank-analysis`.\n"
         << "- Keep raw runs under `runs/`; keep durable summaries under "
            "`docs/perf/baselines/`.\n";
 
@@ -983,11 +1448,14 @@ std::optional<AnalyzerReport> analyze_exact_label_jsonl(std::string_view text,
             }
 
             RecordAnalysis analysis;
-            if (!analyze_record(*label, config, analysis, error)) {
+            if (!analyze_record(*label, config, options.move_rank_analysis, analysis, error)) {
                 error = "line " + std::to_string(line_number) + ": " + error;
                 return std::nullopt;
             }
             update_summary(summary, analysis);
+            if (options.move_rank_analysis) {
+                update_move_rank_summary(summary, analysis);
+            }
             analyses.push_back(std::move(analysis));
         }
 

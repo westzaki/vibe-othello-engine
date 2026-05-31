@@ -233,6 +233,7 @@ Useful outputs include:
 - score
 - best move
 - principal variation
+- exact-best root move rank under the evaluator, when exact move scores are available
 - evaluation breakdown
 - root candidate ordering
 - search stats

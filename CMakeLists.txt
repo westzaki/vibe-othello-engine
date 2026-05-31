@@ -249,6 +249,12 @@ othello_add_help_contains_test(
 )
 
 othello_add_help_contains_test(
+    othello_eval_vs_exact_help_includes_move_rank_analysis
+    othello_eval_vs_exact
+    "--move-rank-analysis"
+)
+
+othello_add_help_contains_test(
     othello_position_sampler_help_includes_target_empties
     othello_position_sampler
     "--target-empties"
