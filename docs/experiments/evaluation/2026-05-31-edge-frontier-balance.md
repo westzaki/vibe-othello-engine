@@ -31,6 +31,55 @@ edge stability.
 The candidate `.eval` files were local experiment artifacts under `runs/` and
 were not committed.
 
+## Candidate Config Diffs
+
+To recreate a candidate, start from `data/eval/current_default.eval` at base ref
+`959ce64c6b5f0bd04358d06d906d4d26f001af6c`, then apply the key changes below.
+Unlisted keys match the baseline config. The sha256 values are from the local
+run artifact files under `runs/`.
+
+### edge_frontier_balance_soft
+
+- sha256: `6078435cca9a5ee81ea55454407e697f31707860b420597c20079623a059c26b`
+
+| key | base | candidate |
+| --- | --- | --- |
+| `name` | `current_default` | `edge_frontier_balance_soft` |
+| `opening.edge_8_pattern` | 2 | 1 |
+| `midgame.edge_8_pattern` | 4 | 3 |
+| `late.edge_8_pattern` | 6 | 5 |
+
+### edge_frontier_balance_mobility
+
+- sha256: `0dc519a9fbaaa9b20ce634d9aa968bca568739d01a0c81cfa52c524a0a25897d`
+
+| key | base | candidate |
+| --- | --- | --- |
+| `name` | `current_default` | `edge_frontier_balance_mobility` |
+| `opening.mobility` | 8 | 9 |
+| `opening.edge_8_pattern` | 2 | 1 |
+| `midgame.mobility` | 10 | 12 |
+| `midgame.frontier` | 6 | 7 |
+| `midgame.edge_8_pattern` | 4 | 3 |
+| `late.mobility` | 6 | 7 |
+| `late.edge_8_pattern` | 6 | 5 |
+
+### edge_frontier_balance_stability
+
+- sha256: `49aba0a94fbaac4754f0379f112d56d3f82a8f550096bf67030fdfa5335e286b`
+
+| key | base | candidate |
+| --- | --- | --- |
+| `name` | `current_default` | `edge_frontier_balance_stability` |
+| `opening.edge_stability_lite` | 2 | 3 |
+| `opening.edge_8_pattern` | 2 | 1 |
+| `midgame.frontier` | 6 | 7 |
+| `midgame.edge_stability_lite` | 4 | 5 |
+| `midgame.edge_8_pattern` | 4 | 3 |
+| `late.frontier` | 3 | 4 |
+| `late.edge_stability_lite` | 8 | 10 |
+| `late.edge_8_pattern` | 6 | 5 |
+
 ## Generated Label Setup
 
 | split | seed | count | target empties | move scores |
@@ -109,12 +158,12 @@ Held-out set, 24 records:
 Move-rank analysis was available because the generated labels included
 `move_scores`.
 
-| config | held-out top exact-best | exact-best rank sum | eval score gap sum | exact score gap sum |
-| --- | ---: | ---: | ---: | ---: |
-| base | 14 | 59 | 796 | 68 |
-| soft | 14 | 58 | 748 | 68 |
-| mobility | 14 | 56 | 751 | 68 |
-| stability | 14 | 57 | 769 | 68 |
+| config | move rank analyzed | top exact-best | top exact-best rate | exact-best rank sum | mean exact-best rank | eval score gap sum | mean eval score gap | exact score gap sum | mean exact score gap |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| base | 24 | 14 | 58.333% | 59 | 2.458 | 796 | 33.167 | 68 | 2.833 |
+| soft | 24 | 14 | 58.333% | 58 | 2.417 | 748 | 31.167 | 68 | 2.833 |
+| mobility | 24 | 14 | 58.333% | 56 | 2.333 | 751 | 31.292 | 68 | 2.833 |
+| stability | 24 | 14 | 58.333% | 57 | 2.375 | 769 | 32.042 | 68 | 2.833 |
 
 No candidate improved the held-out top exact-best count. The worst cases still
 included confident non-best edge moves, so root move quality remains unresolved.
@@ -181,13 +230,16 @@ Negative evidence:
 
 ## Decisions
 
-| candidate | decision |
-| --- | --- |
-| `edge_frontier_balance_soft` | reject for this loop |
-| `edge_frontier_balance_mobility` | needs more data |
-| `edge_frontier_balance_stability` | keep experimental |
+| candidate | decision | reason |
+| --- | --- | --- |
+| `edge_frontier_balance_soft` | reject for this loop | Held-out objective did not improve and match smoke was negative. |
+| `edge_frontier_balance_mobility` | needs more data | Move-rank rank sum improved, but held-out objective did not improve. |
+| `edge_frontier_balance_stability` | keep experimental | Best held-out and match-smoke signal, but elapsed time worsened in search validation. |
 
 There is no default promotion and no named config promotion from this iteration.
+The `edge_frontier_balance_stability` result is an experimental starting point,
+not a promotion candidate, because the search validation showed a runtime
+regression.
 
 ## Caveats
 
@@ -204,6 +256,6 @@ There is no default promotion and no named config promotion from this iteration.
 ## Next Recommended Action
 
 Continue from `edge_frontier_balance_stability`, but narrow the
-`edge_stability_lite` increase to reduce runtime/search impact. Validate on a
-larger held-out exact-label set, run at least a 48-game swapped match, and keep
-exact endgame semantics unchanged.
+`edge_stability_lite` increase because this run showed a runtime regression in
+search validation. Validate on a larger held-out exact-label set, run at least a
+48-game swapped match, and keep exact endgame semantics unchanged.
