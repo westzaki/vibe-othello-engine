@@ -16,11 +16,17 @@ from typing import Any
 from common import ScriptError, parse_csv_paths, quote_command
 
 
-CORNER_SPECS = (
+CORNER_2X3_SPECS = (
     (0, 1, 2, 8, 9, 10),
     (7, 6, 5, 15, 14, 13),
     (56, 57, 58, 48, 49, 50),
     (63, 62, 61, 55, 54, 53),
+)
+CORNER_3X3_SPECS = (
+    (0, 1, 2, 8, 9, 10, 16, 17, 18),
+    (7, 6, 5, 15, 14, 13, 23, 22, 21),
+    (56, 57, 58, 48, 49, 50, 40, 41, 42),
+    (63, 62, 61, 55, 54, 53, 47, 46, 45),
 )
 EDGE_SPECS = (
     (0, 1, 2, 3, 4, 5, 6, 7),
@@ -28,6 +34,38 @@ EDGE_SPECS = (
     (0, 8, 16, 24, 32, 40, 48, 56),
     (7, 15, 23, 31, 39, 47, 55, 63),
 )
+EDGE_X_10_SPECS = (
+    (0, 1, 2, 3, 4, 5, 6, 7, 9, 14),
+    (56, 57, 58, 59, 60, 61, 62, 63, 49, 54),
+    (0, 8, 16, 24, 32, 40, 48, 56, 9, 49),
+    (7, 15, 23, 31, 39, 47, 55, 63, 14, 54),
+)
+DIAGONAL_8_SPECS = (
+    (0, 9, 18, 27, 36, 45, 54, 63),
+    (7, 14, 21, 28, 35, 42, 49, 56),
+)
+INNER_ROW_8_SPECS = (
+    (8, 9, 10, 11, 12, 13, 14, 15),
+    (48, 49, 50, 51, 52, 53, 54, 55),
+    (1, 9, 17, 25, 33, 41, 49, 57),
+    (6, 14, 22, 30, 38, 46, 54, 62),
+)
+
+PATTERN_SPECS: dict[str, tuple[tuple[int, ...], ...]] = {
+    "corner_2x3": CORNER_2X3_SPECS,
+    "corner_3x3": CORNER_3X3_SPECS,
+    "edge_8": EDGE_SPECS,
+    "edge_x_10": EDGE_X_10_SPECS,
+    "diagonal_8": DIAGONAL_8_SPECS,
+    "inner_row_8": INNER_ROW_8_SPECS,
+}
+FAMILY_ORDER = tuple(PATTERN_SPECS)
+FAMILY_ALIASES: dict[str, tuple[str, ...]] = {
+    "legacy": ("corner_2x3", "edge_8"),
+    "broad_all": ("corner_3x3", "edge_8", "edge_x_10", "diagonal_8", "inner_row_8"),
+    "corner_only": ("corner_3x3",),
+    "edge_context_only": ("edge_x_10",),
+}
 
 
 @dataclass(frozen=True)
@@ -71,8 +109,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--table-name", default="pattern_teacher_v0")
     parser.add_argument("--exact-labels", help="optional comma-separated exact labels for filtering")
     parser.add_argument("--limit", type=int, help="optional accepted teacher row limit")
+    parser.add_argument(
+        "--families",
+        default="legacy",
+        help=(
+            "comma-separated pattern families or aliases. Families: "
+            f"{','.join(FAMILY_ORDER)}. Aliases: {','.join(sorted(FAMILY_ALIASES))}"
+        ),
+    )
     parser.add_argument("--corner-pairs", type=int, default=32)
+    parser.add_argument("--corner-3x3-pairs", type=int, default=32)
     parser.add_argument("--edge-pairs", type=int, default=32)
+    parser.add_argument("--edge-x-10-pairs", type=int, default=32)
+    parser.add_argument("--diagonal-pairs", type=int, default=32)
+    parser.add_argument("--inner-row-pairs", type=int, default=32)
     parser.add_argument("--min-abs-diff", type=int, default=3)
     parser.add_argument("--scale", type=int, default=3)
     parser.add_argument("--max-abs-weight", type=int, default=4)
@@ -132,6 +182,39 @@ def parse_split_ratios(text: str) -> SplitRatios:
     if train == 0 or validation == 0 or holdout == 0:
         raise ScriptError("--split-ratios must keep all three splits non-empty")
     return SplitRatios(train=train, validation=validation, holdout=holdout)
+
+
+def parse_families(text: str) -> tuple[str, ...]:
+    families: list[str] = []
+    for raw_part in text.split(","):
+        part = raw_part.strip()
+        if not part:
+            continue
+        expanded = FAMILY_ALIASES.get(part, (part,))
+        for family in expanded:
+            if family not in PATTERN_SPECS:
+                raise ScriptError(f"unknown pattern family: {family}")
+            if family not in families:
+                families.append(family)
+    if not families:
+        raise ScriptError("--families selected no pattern families")
+    return tuple(families)
+
+
+def pair_limit_for_family(args: argparse.Namespace, family: str) -> int:
+    if family == "corner_2x3":
+        return args.corner_pairs
+    if family == "corner_3x3":
+        return args.corner_3x3_pairs
+    if family == "edge_8":
+        return args.edge_pairs
+    if family == "edge_x_10":
+        return args.edge_x_10_pairs
+    if family == "diagonal_8":
+        return args.diagonal_pairs
+    if family == "inner_row_8":
+        return args.inner_row_pairs
+    raise ScriptError(f"unknown pattern family: {family}")
 
 
 def split_name_for_row(row: dict[str, Any], ratios: SplitRatios, seed: int) -> str:
@@ -296,11 +379,16 @@ def pattern_index(rows: list[str], side: str, spec: tuple[int, ...]) -> int:
     return index
 
 
-def pattern_indexes(board_text: str, side: str) -> tuple[list[int], list[int]]:
+def pattern_indexes(board_text: str, side: str, specs: tuple[tuple[int, ...], ...]) -> list[int]:
     rows, _ = parse_board(board_text)
-    corners = [pattern_index(rows, side, spec) for spec in CORNER_SPECS]
-    edges = [pattern_index(rows, side, spec) for spec in EDGE_SPECS]
-    return corners, edges
+    return [pattern_index(rows, side, spec) for spec in specs]
+
+
+def pattern_indexes_by_family(board_text: str, side: str, families: tuple[str, ...]) -> dict[str, list[int]]:
+    return {
+        family: pattern_indexes(board_text, side, PATTERN_SPECS[family])
+        for family in families
+    }
 
 
 def apply_preference_update(
@@ -308,16 +396,15 @@ def apply_preference_update(
     board_text: str,
     teacher_child_board: str,
     compared_child_board: str,
-    corner_counts: collections.Counter[int],
-    edge_counts: collections.Counter[int],
+    family_counts: dict[str, collections.Counter[int]],
+    families: tuple[str, ...],
 ) -> None:
     _, side = parse_board(board_text)
-    teacher_corners, teacher_edges = pattern_indexes(teacher_child_board, side)
-    compared_corners, compared_edges = pattern_indexes(compared_child_board, side)
-    corner_counts.update(teacher_corners)
-    corner_counts.subtract(compared_corners)
-    edge_counts.update(teacher_edges)
-    edge_counts.subtract(compared_edges)
+    teacher_indexes = pattern_indexes_by_family(teacher_child_board, side, families)
+    compared_indexes = pattern_indexes_by_family(compared_child_board, side, families)
+    for family in families:
+        family_counts[family].update(teacher_indexes[family])
+        family_counts[family].subtract(compared_indexes[family])
 
 
 def swapped_index(index: int, cells: int) -> int:
@@ -378,11 +465,20 @@ def sparse_entries(
 def render_table(
     *,
     name: str = "pattern_teacher_v0",
-    corner_entries: list[tuple[int, int]],
-    edge_entries: list[tuple[int, int]],
+    corner_entries: list[tuple[int, int]] | None = None,
+    edge_entries: list[tuple[int, int]] | None = None,
+    family_entries: dict[str, list[tuple[int, int]]] | None = None,
     stats: dict[str, int],
     command: list[str],
 ) -> str:
+    entries_by_family: dict[str, list[tuple[int, int]]] = {}
+    if family_entries is not None:
+        entries_by_family.update(family_entries)
+    if corner_entries is not None:
+        entries_by_family["corner_2x3"] = corner_entries
+    if edge_entries is not None:
+        entries_by_family["edge_8"] = edge_entries
+
     lines = [
         "# schema_version: pattern_table.v1",
         f"# name: {name}",
@@ -392,8 +488,11 @@ def render_table(
     for key in sorted(stats):
         lines.append(f"# {key}: {stats[key]}")
     lines.append("")
-    lines.extend(f"corner_2x3\t{index}\t{value}" for index, value in corner_entries)
-    lines.extend(f"edge_8\t{index}\t{value}" for index, value in edge_entries)
+    for family in FAMILY_ORDER:
+        lines.extend(
+            f"{family}\t{index}\t{value}"
+            for index, value in entries_by_family.get(family, [])
+        )
     return "\n".join(lines) + "\n"
 
 
@@ -402,6 +501,7 @@ def main(argv: list[str] | None = None) -> int:
     teacher_paths = parse_csv_paths(args.teacher_labels)
     exact_best = load_exact_best(parse_csv_paths(args.exact_labels)) if args.exact_labels else {}
     split_ratios = parse_split_ratios(args.split_ratios)
+    families = parse_families(args.families)
     if args.empty_min is not None and args.empty_max is not None and args.empty_min > args.empty_max:
         raise ScriptError("--empty-min cannot be greater than --empty-max")
     rows = accepted_teacher_rows(teacher_paths, args.limit)
@@ -418,11 +518,13 @@ def main(argv: list[str] | None = None) -> int:
     if not rows:
         raise ScriptError("no teacher rows after split filtering")
 
-    corner_counts: collections.Counter[int] = collections.Counter()
-    edge_counts: collections.Counter[int] = collections.Counter()
+    family_counts: dict[str, collections.Counter[int]] = {
+        family: collections.Counter() for family in families
+    }
     stats = collections.Counter[str]()
     stats["accepted_teacher_rows"] = len(rows)
     stats["split_seed"] = args.split_seed
+    stats["family_count"] = len(families)
     for row in rows:
         stats["teacher_rows"] += 1
         board_text = str(row["board_text"])
@@ -467,8 +569,8 @@ def main(argv: list[str] | None = None) -> int:
                             board_text=board_text,
                             teacher_child_board=teacher.child_board,
                             compared_child_board=candidate.child_board,
-                            corner_counts=corner_counts,
-                            edge_counts=edge_counts,
+                            family_counts=family_counts,
+                            families=families,
                         )
                         rank_updates += 1
             if rank_updates == 0:
@@ -476,8 +578,8 @@ def main(argv: list[str] | None = None) -> int:
                     board_text=board_text,
                     teacher_child_board=teacher.child_board,
                     compared_child_board=selected.child_board,
-                    corner_counts=corner_counts,
-                    edge_counts=edge_counts,
+                    family_counts=family_counts,
+                    families=families,
                 )
                 stats["rank_fallback_updates"] += 1
             else:
@@ -488,43 +590,43 @@ def main(argv: list[str] | None = None) -> int:
                 board_text=board_text,
                 teacher_child_board=teacher.child_board,
                 compared_child_board=selected.child_board,
-                corner_counts=corner_counts,
-                edge_counts=edge_counts,
+                family_counts=family_counts,
+                families=families,
             )
             stats["residual_updates"] += 1
 
-    corner_entries = sparse_entries(
-        corner_counts,
-        cells=6,
-        limit_pairs=args.corner_pairs,
-        min_abs_diff=args.min_abs_diff,
-        scale=args.scale,
-        max_abs_weight=args.max_abs_weight,
-    )
-    edge_entries = sparse_entries(
-        edge_counts,
-        cells=8,
-        limit_pairs=args.edge_pairs,
-        min_abs_diff=args.min_abs_diff,
-        scale=args.scale,
-        max_abs_weight=args.max_abs_weight,
-    )
-    stats["corner_entries"] = len(corner_entries)
-    stats["edge_entries"] = len(edge_entries)
+    family_entries: dict[str, list[tuple[int, int]]] = {}
+    for family in families:
+        entries = sparse_entries(
+            family_counts[family],
+            cells=len(PATTERN_SPECS[family][0]),
+            limit_pairs=pair_limit_for_family(args, family),
+            min_abs_diff=args.min_abs_diff,
+            scale=args.scale,
+            max_abs_weight=args.max_abs_weight,
+        )
+        family_entries[family] = entries
+        stats[f"{family}_entries"] = len(entries)
+        if family == "corner_2x3":
+            stats["corner_entries"] = len(entries)
+        elif family == "edge_8":
+            stats["edge_entries"] = len(entries)
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(
         render_table(
             name=args.table_name,
-            corner_entries=corner_entries,
-            edge_entries=edge_entries,
+            family_entries=family_entries,
             stats=dict(stats),
             command=["tools/scripts/pattern_teacher_v0_train.py", *(argv or sys.argv[1:])],
         ),
         encoding="utf-8",
     )
-    print(f"wrote {out} corner_entries={len(corner_entries)} edge_entries={len(edge_entries)}")
+    entry_summary = " ".join(
+        f"{family}_entries={len(family_entries[family])}" for family in families
+    )
+    print(f"wrote {out} {entry_summary}")
     return 0
 
 
