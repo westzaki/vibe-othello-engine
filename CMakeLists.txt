@@ -90,6 +90,7 @@ enable_testing()
 othello_add_executable(othello_tests
     tests/endgame_tests.cpp
     tests/evaluation_tests.cpp
+    tests/exact_label_dump_tests.cpp
     tests/hash_tests.cpp
     tests/analyze_tests.cpp
     tests/match_runner_tests.cpp
@@ -102,6 +103,7 @@ othello_add_executable(othello_tests
     tests/search_tests.cpp
     tests/square_tests.cpp
     $<TARGET_OBJECTS:othello_analyze_core>
+    $<TARGET_OBJECTS:othello_exact_label_dump_core>
     $<TARGET_OBJECTS:othello_match_runner_core>
     $<TARGET_OBJECTS:othello_nboard_protocol>
     $<TARGET_OBJECTS:othello_tools_common>
@@ -157,6 +159,26 @@ othello_add_help_contains_test(
     "--eval-config"
 )
 
+othello_add_help_contains_test(
+    othello_exact_label_dump_help_includes_move_scores
+    othello_exact_label_dump
+    "--include-move-scores"
+)
+
+othello_add_tool_smoke_test(
+    othello_exact_label_dump_smoke
+    othello_exact_label_dump
+    --input "${CMAKE_CURRENT_SOURCE_DIR}/data/positions/exact_label_smoke.txt"
+    --output "${CMAKE_CURRENT_BINARY_DIR}/exact_label_smoke.jsonl"
+    --max-empties 14
+    --limit 10
+    --include-move-scores
+)
+set_tests_properties(
+    othello_exact_label_dump_smoke
+    PROPERTIES PASS_REGULAR_EXPRESSION "labeled=3"
+)
+
 set(OTHELLO_SAMPLE_EVAL_CONFIG
     "${CMAKE_CURRENT_SOURCE_DIR}/data/eval/current_default.eval"
 )
@@ -176,6 +198,14 @@ othello_add_expect_failure_test(
     --stdin
     --eval-preset default
     --eval-config "${OTHELLO_SAMPLE_EVAL_CONFIG}"
+)
+
+othello_add_expect_failure_test(
+    othello_exact_label_dump_rejects_invalid_input
+    othello_exact_label_dump
+    "invalid input"
+    --input "${CMAKE_CURRENT_SOURCE_DIR}/data/positions/exact_label_invalid.txt"
+    --output "${CMAKE_CURRENT_BINARY_DIR}/exact_label_invalid.jsonl"
 )
 
 othello_add_help_contains_test(
