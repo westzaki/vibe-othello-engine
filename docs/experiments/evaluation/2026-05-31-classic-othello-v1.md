@@ -9,10 +9,13 @@ Status: experimental report, not current guidance.
 ## Metadata
 
 - base ref / git SHA: `47b48ecf5e6c604a343ee7ebdb8f68d89231476c`
+- PR head SHA at report creation: `32643939948a52871b8549fe5527acb8683c2c44`
 - baseline config: `data/eval/current_default.eval`
 - baseline config sha256: `42d66384d725c55f46261624d78e4723846d63df1d2c1b41200429c4f4fa99cd`
 - candidate config path: `data/eval/classic_othello_v1.eval`
-- candidate config sha256: `dbc9ed61a2f3910746994b6c14ad6438042a2ef6ea4b1d548a712f6ac60d9487`
+- candidate config sha256: `f43a1de59fc298d4576b75cf807c7cb040cd8ac16349ad01196bda4348af973c`
+- measurement config sha256 before PR-review header metadata update:
+  `dbc9ed61a2f3910746994b6c14ad6438042a2ef6ea4b1d548a712f6ac60d9487`
 - raw output location: `runs/eval-classic-othello-v1/`
 - raw outputs committed: no
 - NTest teacher evidence: not available locally; `runs/local-engines/engines.txt` was not present
