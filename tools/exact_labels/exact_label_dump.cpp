@@ -159,7 +159,7 @@ best_moves_from_root_result(const Board& board, const ExactEndgameResult& result
     return {};
 }
 
-void write_string_array(std::ostream& output, std::span<const std::string> values) {
+void write_string_array_value(std::ostream& output, std::span<const std::string> values) {
     output << '[';
     for (std::size_t index = 0; index < values.size(); ++index) {
         if (index != 0) {
@@ -170,26 +170,32 @@ void write_string_array(std::ostream& output, std::span<const std::string> value
     output << ']';
 }
 
-void write_nullable_string(std::ostream& output, const std::optional<std::string>& value) {
-    if (!value.has_value()) {
-        output << "null";
-        return;
-    }
-    write_json_string(output, *value);
+void write_string_array_field(JsonObjectWriter& writer, std::ostream& output,
+                              std::string_view name, std::span<const std::string> values) {
+    writer.field_name(name);
+    write_string_array_value(output, values);
 }
 
-void write_move_scores(std::ostream& output, std::span<const MoveScoreLabel> move_scores) {
+void write_move_scores_value(std::ostream& output, std::span<const MoveScoreLabel> move_scores) {
     output << '[';
     for (std::size_t index = 0; index < move_scores.size(); ++index) {
         if (index != 0) {
             output << ',';
         }
-        output << "{\"move\":";
-        write_json_string(output, move_scores[index].move);
-        output << ",\"exact_score_side_to_move\":"
-               << move_scores[index].exact_score_side_to_move << '}';
+        JsonObjectWriter score_writer{output};
+        score_writer.begin_object();
+        score_writer.string_field("move", move_scores[index].move);
+        score_writer.int_field("exact_score_side_to_move",
+                               move_scores[index].exact_score_side_to_move);
+        score_writer.end_object();
     }
     output << ']';
+}
+
+void write_move_scores_field(JsonObjectWriter& writer, std::ostream& output,
+                             std::span<const MoveScoreLabel> move_scores) {
+    writer.field_name("move_scores");
+    write_move_scores_value(output, move_scores);
 }
 
 } // namespace
@@ -281,31 +287,30 @@ ExactLabel make_exact_label(const InputPosition& position, bool include_move_sco
 }
 
 void write_jsonl_record(std::ostream& output, const ExactLabel& label) {
-    output << "{\"schema\":";
-    write_json_string(output, label.schema);
-    output << ",\"position_id\":";
-    write_json_string(output, label.position_id);
-    output << ",\"board\":";
-    write_json_string(output, label.board_text);
-    output << ",\"side_to_move\":";
-    write_json_string(output, label.side_to_move);
-    output << ",\"occupied\":" << label.occupied;
-    output << ",\"empties\":" << label.empties;
-    output << ",\"legal_moves\":";
-    write_string_array(output, label.legal_moves);
-    output << ",\"exact_score_side_to_move\":" << label.exact_score_side_to_move;
-    output << ",\"best_moves\":";
-    write_string_array(output, label.best_moves);
-    output << ",\"best_move\":";
-    write_nullable_string(output, label.best_move);
-    if (label.include_move_scores) {
-        output << ",\"move_scores\":";
-        write_move_scores(output, label.move_scores);
+    JsonObjectWriter writer{output};
+    writer.begin_object();
+    writer.string_field("schema", label.schema);
+    writer.string_field("position_id", label.position_id);
+    writer.string_field("board", label.board_text);
+    writer.string_field("side_to_move", label.side_to_move);
+    writer.int_field("occupied", label.occupied);
+    writer.int_field("empties", label.empties);
+    write_string_array_field(writer, output, "legal_moves", label.legal_moves);
+    writer.int_field("exact_score_side_to_move", label.exact_score_side_to_move);
+    write_string_array_field(writer, output, "best_moves", label.best_moves);
+    if (label.best_move.has_value()) {
+        writer.string_field("best_move", *label.best_move);
+    } else {
+        writer.null_field("best_move");
     }
-    output << ",\"elapsed_ms\":" << std::fixed << std::setprecision(3) << label.elapsed_ms
-           << std::defaultfloat;
-    output << ",\"nodes\":" << label.nodes;
-    output << "}\n";
+    if (label.include_move_scores) {
+        write_move_scores_field(writer, output, label.move_scores);
+    }
+    writer.field_name("elapsed_ms");
+    output << std::fixed << std::setprecision(3) << label.elapsed_ms << std::defaultfloat;
+    writer.uint_field("nodes", label.nodes);
+    writer.end_object();
+    output << '\n';
 }
 
 bool write_exact_label_jsonl(std::span<const InputPosition> positions, const DumpOptions& options,
