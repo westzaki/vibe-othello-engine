@@ -141,6 +141,26 @@ differences when parsed, optional held-out objective context, and caveats under
 broader search bench, match runner or base/head validation, and external sanity
 when appropriate. Do not commit generated configs or raw workflow outputs.
 
+Run a simple evaluator candidate matrix when candidate `.eval` files already
+exist and the goal is comparable smoke evidence rather than tuning:
+
+```sh
+python3 tools/scripts/eval_candidate_matrix.py \
+  --build-dir build \
+  --labels runs/exact-label-workflow/heldout/labels.jsonl \
+  --candidates runs/eval-config-tuner/smoke/configs/candidate_0001.eval \
+  --out runs/eval-candidates/smoke
+```
+
+The matrix includes the default `data/eval/current_default.eval` baseline when
+present, runs `othello_eval_vs_exact` only when labels are provided, always runs
+the iterative TT/PVS/aspiration search-bench smoke profile, and writes
+`report.md`, `summary.tsv`, per-candidate logs, and search-bench aggregate JSONL
+under the requested output directory. The summary records config fingerprints,
+result/work checksums, nodes, elapsed time, score kind, exact-root usage, and
+candidate-vs-baseline deltas when comparable. It does not tune weights, make a
+strength claim, or promote a default.
+
 For evaluator config evidence:
 
 ```sh

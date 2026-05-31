@@ -82,6 +82,13 @@ identity/options fields, node and speed counters, checksum strings, and the
 `score_kind`, `used_exact_endgame`, and `exact_disc_margin` fields that describe
 the meaning of any sampled `SearchResult::score`.
 
+For `.eval` candidate batches, prefer `tools/scripts/eval_candidate_matrix.py`
+over hand-running separate search-bench commands. It runs the iterative
+TT/PVS/aspiration smoke profile with aggregate JSONL, keeps raw stdout under
+`runs/`, and writes a summary table with candidate-vs-baseline checksum, node,
+and elapsed-time deltas. Treat that output as smoke evidence, not a strength
+claim or default-promotion decision.
+
 Exact endgame benchmark JSONL emits `position` rows. With diagnostic options it
 also emits `root_candidate` rows for `--root-breakdown` and `expanded_child`
 rows for `--expand-worst-candidate`. These rows include exact disc margins,

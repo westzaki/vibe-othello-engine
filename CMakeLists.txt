@@ -89,6 +89,7 @@ set(OTHELLO_CLANG_TIDY_TARGETS othello)
 add_subdirectory(tools)
 
 enable_testing()
+find_package(Python3 COMPONENTS Interpreter)
 
 othello_add_executable(othello_tests
     tests/endgame_tests.cpp
@@ -353,6 +354,23 @@ set_tests_properties(
     othello_eval_vs_exact_smoke_with_eval_config
     PROPERTIES PASS_REGULAR_EXPRESSION "analyzed=3"
 )
+
+if(Python3_Interpreter_FOUND)
+    add_test(
+        NAME eval_candidate_matrix_dry_run
+        COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tools/scripts/eval_candidate_matrix.py"
+            --build-dir "${CMAKE_CURRENT_BINARY_DIR}"
+            --baseline-config "${OTHELLO_SAMPLE_EVAL_CONFIG}"
+            --candidates "${OTHELLO_SAMPLE_EVAL_CONFIG}"
+            --out "${CMAKE_CURRENT_BINARY_DIR}/eval_candidate_matrix_dry_run"
+            --dry-run
+    )
+    set_tests_properties(
+        eval_candidate_matrix_dry_run
+        PROPERTIES PASS_REGULAR_EXPRESSION "report: .*report.md"
+    )
+endif()
 
 othello_add_expect_failure_test(
     othello_analyze_position_rejects_eval_preset_with_eval_config
