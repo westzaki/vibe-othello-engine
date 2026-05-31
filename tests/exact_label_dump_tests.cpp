@@ -2,6 +2,8 @@
 #include "test_helpers.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+#include <filesystem>
+#include <fstream>
 #include <optional>
 #include <othello/othello.hpp>
 #include <sstream>
@@ -23,6 +25,19 @@ namespace {
         .board = board,
         .source_line = 1,
     };
+}
+
+[[nodiscard]] std::filesystem::path position_fixture_path(std::string_view file_name) {
+    return std::filesystem::path{OTHELLO_SOURCE_DIR} / "data" / "positions" / file_name;
+}
+
+[[nodiscard]] std::string read_text_file(const std::filesystem::path& path) {
+    std::ifstream input{path};
+    REQUIRE(input.is_open());
+
+    std::ostringstream buffer;
+    buffer << input.rdbuf();
+    return buffer.str();
 }
 
 [[nodiscard]] Board forced_one_empty_board() {
@@ -78,6 +93,45 @@ TEST_CASE("Exact label parser rejects incomplete board blocks", "[exact-labels]"
     std::string error;
 
     const auto positions = othello::tools::exact_labels::parse_position_text("BBBBBBBB\n", error);
+
+    CHECK_FALSE(positions.has_value());
+    CHECK(error.contains("incomplete board block"));
+}
+
+TEST_CASE("Committed exact label smoke fixture parses and writes labels", "[exact-labels]") {
+    std::string error;
+    const auto positions = othello::tools::exact_labels::parse_position_text(
+        read_text_file(position_fixture_path("exact_label_smoke.txt")), error);
+    REQUIRE(positions.has_value());
+    REQUIRE(positions->size() == 3);
+
+    std::ostringstream output;
+    DumpSummary summary;
+    const bool ok = othello::tools::exact_labels::write_exact_label_jsonl(
+        *positions,
+        DumpOptions{
+            .limit = std::nullopt,
+            .max_empties = 14,
+            .include_move_scores = true,
+        },
+        output, summary, error);
+
+    REQUIRE(ok);
+    CHECK(summary.input_positions == 3);
+    CHECK(summary.labeled == 3);
+    CHECK(summary.skipped_too_many_empties == 0);
+    const std::string jsonl = output.str();
+    CHECK(jsonl.contains("\"schema\":\"exact_label.v1\""));
+    CHECK(jsonl.contains("\"position_id\":\"pos-000001\""));
+    CHECK(jsonl.contains("\"position_id\":\"pos-000002\""));
+    CHECK(jsonl.contains("\"position_id\":\"pos-000003\""));
+}
+
+TEST_CASE("Committed exact label invalid fixture is rejected", "[exact-labels]") {
+    std::string error;
+
+    const auto positions = othello::tools::exact_labels::parse_position_text(
+        read_text_file(position_fixture_path("exact_label_invalid.txt")), error);
 
     CHECK_FALSE(positions.has_value());
     CHECK(error.contains("incomplete board block"));

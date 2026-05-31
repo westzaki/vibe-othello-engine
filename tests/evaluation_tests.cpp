@@ -5,11 +5,13 @@
 #include <catch2/catch_test_macros.hpp>
 #include <othello/othello.hpp>
 
+#include <algorithm>
 #include <filesystem>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <vector>
 
 using othello::Bitboard;
 using othello::Board;
@@ -31,6 +33,21 @@ side=W)");
 
 [[nodiscard]] std::filesystem::path sample_eval_config_path(std::string_view file_name) {
     return std::filesystem::path{OTHELLO_SOURCE_DIR} / "data" / "eval" / file_name;
+}
+
+[[nodiscard]] std::vector<std::filesystem::path> committed_eval_config_paths() {
+    std::vector<std::filesystem::path> paths;
+    const std::filesystem::path eval_dir =
+        std::filesystem::path{OTHELLO_SOURCE_DIR} / "data" / "eval";
+
+    for (const auto& entry : std::filesystem::directory_iterator{eval_dir}) {
+        if (entry.is_regular_file() && entry.path().extension() == ".eval") {
+            paths.push_back(entry.path());
+        }
+    }
+
+    std::sort(paths.begin(), paths.end());
+    return paths;
 }
 
 [[nodiscard]] Board corner_occupancy_board() {
@@ -201,6 +218,36 @@ TEST_CASE("Sample eval configs round-trip to expected evaluator configs", "[eval
     expected_soft.midgame.edge_8_pattern = 3;
     expected_soft.late.edge_8_pattern = 5;
     CHECK(soft.config == expected_soft);
+}
+
+TEST_CASE("Committed eval config fixtures parse and preserve intended identities",
+          "[evaluation]") {
+    const std::vector<std::filesystem::path> paths = committed_eval_config_paths();
+    REQUIRE_FALSE(paths.empty());
+
+    const othello::EvaluationConfig default_config = othello::default_evaluation_config();
+    const othello::EvaluationConfig phase_aware_config =
+        othello::evaluation_config_for_preset(othello::EvaluationPreset::PhaseAwareV1);
+
+    for (const std::filesystem::path& path : paths) {
+        CAPTURE(path.string());
+
+        const othello::tools::EvaluationConfigLoadResult loaded =
+            othello::tools::load_evaluation_config_file(path);
+        REQUIRE(loaded.ok());
+        REQUIRE(loaded.name.has_value());
+
+        const std::string file_name = path.filename().string();
+        if (file_name == "current_default.eval") {
+            CHECK(loaded.config == default_config);
+        } else {
+            CHECK(loaded.config != default_config);
+        }
+
+        if (file_name == "phase_aware_v1.eval") {
+            CHECK(loaded.config == phase_aware_config);
+        }
+    }
 }
 
 TEST_CASE("Tool evaluator selection resolves presets and config files", "[evaluation]") {
