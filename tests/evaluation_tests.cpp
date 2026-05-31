@@ -1,4 +1,5 @@
 #include "common/eval_config_io.hpp"
+#include "common/evaluator_selection.hpp"
 #include "test_helpers.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -200,6 +201,67 @@ TEST_CASE("Sample eval configs round-trip to expected evaluator configs", "[eval
     expected_soft.midgame.edge_8_pattern = 3;
     expected_soft.late.edge_8_pattern = 5;
     CHECK(soft.config == expected_soft);
+}
+
+TEST_CASE("Tool evaluator selection resolves presets and config files", "[evaluation]") {
+    std::string error;
+
+    const std::optional<othello::tools::EvaluatorSelection> default_selection =
+        othello::tools::parse_evaluator_selection({}, error);
+    REQUIRE(default_selection.has_value());
+    CHECK(default_selection->preset == othello::EvaluationPreset::Default);
+    CHECK_FALSE(default_selection->config_override.has_value());
+    CHECK_FALSE(othello::tools::has_custom_eval_config(*default_selection));
+    CHECK(othello::tools::resolve_evaluator_selection(*default_selection) ==
+          othello::default_evaluation_config());
+
+    const std::optional<othello::tools::EvaluatorSelection> preset_selection =
+        othello::tools::parse_evaluator_selection(
+            {.preset_name = std::string{"phase_aware_v1"}}, error);
+    REQUIRE(preset_selection.has_value());
+    CHECK(preset_selection->preset == othello::EvaluationPreset::PhaseAwareV1);
+    CHECK(othello::tools::resolve_evaluator_selection(*preset_selection) ==
+          othello::evaluation_config_for_preset(othello::EvaluationPreset::PhaseAwareV1));
+
+    const std::string config_path =
+        sample_eval_config_path("default_edge_pattern_8_soft.eval").string();
+    const std::optional<othello::tools::EvaluatorSelection> config_selection =
+        othello::tools::parse_evaluator_selection({.config_path = config_path}, error);
+    REQUIRE(config_selection.has_value());
+    CHECK(config_selection->preset == othello::EvaluationPreset::Default);
+    CHECK(config_selection->config_path == config_path);
+    CHECK(othello::tools::has_custom_eval_config(*config_selection));
+    CHECK(config_selection->config_override.has_value());
+
+    othello::EvaluationConfig expected_soft = othello::default_evaluation_config();
+    expected_soft.opening.edge_8_pattern = 1;
+    expected_soft.midgame.edge_8_pattern = 3;
+    expected_soft.late.edge_8_pattern = 5;
+    CHECK(othello::tools::resolve_evaluator_selection(*config_selection) == expected_soft);
+}
+
+TEST_CASE("Tool evaluator selection rejects ambiguous or invalid input", "[evaluation]") {
+    std::string error;
+
+    const std::optional<othello::tools::EvaluatorSelection> both =
+        othello::tools::parse_evaluator_selection(
+            {.preset_name = std::string{"default"},
+             .config_path = sample_eval_config_path("current_default.eval").string()},
+            error);
+    CHECK_FALSE(both.has_value());
+    CHECK(error.find("cannot combine --eval-preset and --eval-config") != std::string::npos);
+
+    const std::optional<othello::tools::EvaluatorSelection> unknown =
+        othello::tools::parse_evaluator_selection({.preset_name = std::string{"unknown"}},
+                                                  error);
+    CHECK_FALSE(unknown.has_value());
+    CHECK(error.find("unknown evaluation preset") != std::string::npos);
+
+    const std::optional<othello::tools::EvaluatorSelection> missing =
+        othello::tools::parse_evaluator_selection(
+            {.config_path = sample_eval_config_path("missing.eval").string()}, error);
+    CHECK_FALSE(missing.has_value());
+    CHECK(error.find("failed to open evaluation config") != std::string::npos);
 }
 
 TEST_CASE("Eval config parser rejects malformed v1 files", "[evaluation]") {

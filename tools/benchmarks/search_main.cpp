@@ -1,5 +1,5 @@
 #include "common/cli.hpp"
-#include "common/eval_config_io.hpp"
+#include "common/evaluator_selection.hpp"
 #include "common/formatting.hpp"
 #include "common/stats.hpp"
 #include "positions/metrics.hpp"
@@ -116,9 +116,7 @@ struct BenchmarkOptions {
         fixed_exact_root_profile(othello::SearchOptions{}.exact_endgame_empty_threshold)};
     int aspiration_window = othello::SearchOptions{}.aspiration_window;
     int aspiration_max_researches = othello::SearchOptions{}.aspiration_max_researches;
-    othello::EvaluationPreset evaluation_preset = othello::EvaluationPreset::Default;
-    std::optional<othello::EvaluationConfig> evaluation_config_override;
-    std::optional<std::string> evaluation_config_path;
+    othello::tools::EvaluatorSelection evaluator;
 };
 
 struct SearchBenchmarkResult {
@@ -414,8 +412,8 @@ parse_exact_root_profiles(std::string_view text) {
 
 [[nodiscard]] std::optional<BenchmarkOptions> parse_options(std::span<char* const> args) {
     BenchmarkOptions options;
-    bool explicit_eval_preset = false;
     bool explicit_eval_config = false;
+    othello::tools::EvaluatorSelectionInput evaluator_input;
 
     for (std::size_t index = 1; index < args.size(); ++index) {
         const std::string_view option = args[index];
@@ -618,13 +616,7 @@ parse_exact_root_profiles(std::string_view text) {
                 return std::nullopt;
             }
 
-            const auto preset = othello::evaluation_preset_from_name(args[index]);
-            if (!preset.has_value()) {
-                std::cerr << "--eval-preset must name a builtin evaluator preset\n";
-                return std::nullopt;
-            }
-            options.evaluation_preset = *preset;
-            explicit_eval_preset = true;
+            evaluator_input.preset_name = std::string{args[index]};
             continue;
         }
 
@@ -639,15 +631,7 @@ parse_exact_root_profiles(std::string_view text) {
                 return std::nullopt;
             }
 
-            const std::string path{args[index]};
-            const othello::tools::EvaluationConfigLoadResult loaded =
-                othello::tools::load_evaluation_config_file(path);
-            if (!loaded.ok()) {
-                std::cerr << loaded.error << '\n';
-                return std::nullopt;
-            }
-            options.evaluation_config_override = loaded.config;
-            options.evaluation_config_path = path;
+            evaluator_input.config_path = std::string{args[index]};
             explicit_eval_config = true;
             continue;
         }
@@ -672,10 +656,14 @@ parse_exact_root_profiles(std::string_view text) {
         return std::nullopt;
     }
 
-    if (explicit_eval_preset && explicit_eval_config) {
-        std::cerr << "cannot combine --eval-preset and --eval-config\n";
+    std::string evaluator_error;
+    const std::optional<othello::tools::EvaluatorSelection> evaluator =
+        othello::tools::parse_evaluator_selection(evaluator_input, evaluator_error);
+    if (!evaluator.has_value()) {
+        std::cerr << evaluator_error << '\n';
         return std::nullopt;
     }
+    options.evaluator = *evaluator;
 
     return options;
 }
@@ -938,9 +926,7 @@ make_search_options(const BenchmarkOptions& options, int depth,
     search_options.exact_endgame_root_policy = exact_root_profile.policy;
     search_options.aspiration_window = options.aspiration_window;
     search_options.aspiration_max_researches = options.aspiration_max_researches;
-    search_options.evaluation_preset = options.evaluation_preset;
-    search_options.evaluation_config_override = options.evaluation_config_override;
-    return search_options;
+    return othello::tools::apply_evaluator_selection(search_options, options.evaluator);
 }
 
 [[nodiscard]] othello::SearchResult exact_endgame_search_result(const othello::Board& board) {
@@ -1537,11 +1523,11 @@ int run_benchmark(std::span<char* const> args) {
     std::cout << "tt entries: " << options.transposition_table_entries << '\n';
     std::cout << "exact endgame profiles: "
               << exact_root_profile_list_text(options.exact_root_profiles) << '\n';
-    std::cout << "eval preset: " << othello::evaluation_preset_name(options.evaluation_preset)
+    std::cout << "eval preset: " << othello::evaluation_preset_name(options.evaluator.preset)
               << '\n';
     std::cout << "eval config: "
-              << (options.evaluation_config_path.has_value() ? *options.evaluation_config_path
-                                                             : "-")
+              << (options.evaluator.config_path.has_value() ? *options.evaluator.config_path
+                                                            : "-")
               << '\n';
     if (options.by_position) {
         std::cout << "best_move/score/pv: first sampled result per position\n";
