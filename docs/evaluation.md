@@ -142,6 +142,19 @@ Each candidate in a batch must be named, measured, and reported separately.
 A PR may contain a candidate batch when the purpose is experimentation. Promoting
 a new default evaluator should normally promote one selected candidate at a time.
 
+## Candidate Matrix Workflow
+
+Use `tools/scripts/eval_candidate_matrix.py` when one or more `.eval` candidate
+files already exist and the next step is to gather comparable smoke evidence
+against the current baseline. The workflow runs existing C++ tools for each
+baseline/candidate config, records exact commands, keeps raw logs under the
+requested `runs/` output directory, and writes a local Markdown report.
+
+This workflow is an orchestration aid, not a tuner or promotion gate. Its
+eval-vs-exact and search-bench rows make the next evaluation decision possible,
+but they are smoke evidence only unless followed by broader deterministic
+matches or base/head comparison.
+
 ## Autonomous Evaluation Loop
 
 When asked to improve evaluation, an agent should normally follow this loop.
