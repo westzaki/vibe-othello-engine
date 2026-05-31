@@ -163,6 +163,30 @@ set_tests_properties(
 )
 
 add_test(
+    NAME othello_search_bench_help_includes_format
+    COMMAND $<TARGET_FILE:othello_search_bench> --help
+)
+set_tests_properties(
+    othello_search_bench_help_includes_format
+    PROPERTIES PASS_REGULAR_EXPRESSION "--format"
+)
+
+add_test(
+    NAME othello_search_bench_jsonl_includes_score_kind
+    COMMAND $<TARGET_FILE:othello_search_bench>
+        --mode fixed
+        --depths 1
+        --positions smoke
+        --repetitions 1
+        --exact-endgame-threshold 0
+        --format jsonl
+)
+set_tests_properties(
+    othello_search_bench_jsonl_includes_score_kind
+    PROPERTIES PASS_REGULAR_EXPRESSION "\"tool\":\"othello_search_bench\".*\"score_kind\""
+)
+
+add_test(
     NAME othello_analyze_position_help_includes_eval_config
     COMMAND $<TARGET_FILE:othello_analyze_position> --help
 )
@@ -199,6 +223,13 @@ othello_add_expect_failure_test(
 )
 
 othello_add_expect_failure_test(
+    othello_search_bench_rejects_invalid_format
+    othello_search_bench
+    "invalid --format value"
+    --format yaml
+)
+
+othello_add_expect_failure_test(
     othello_analyze_position_rejects_eval_preset_with_eval_config
     othello_analyze_position
     "cannot combine --eval-preset and --eval-config"
@@ -231,4 +262,32 @@ add_test(
 set_tests_properties(
     othello_endgame_bench_help_includes_exact_tt_entries
     PROPERTIES PASS_REGULAR_EXPRESSION "--exact-tt-entries"
+)
+
+add_test(
+    NAME othello_endgame_bench_help_includes_format
+    COMMAND $<TARGET_FILE:othello_endgame_bench> --help
+)
+set_tests_properties(
+    othello_endgame_bench_help_includes_format
+    PROPERTIES PASS_REGULAR_EXPRESSION "--format"
+)
+
+add_test(
+    NAME othello_endgame_bench_jsonl_includes_disc_margin
+    COMMAND $<TARGET_FILE:othello_endgame_bench>
+        --positions smoke
+        --repetitions 1
+        --format jsonl
+)
+set_tests_properties(
+    othello_endgame_bench_jsonl_includes_disc_margin
+    PROPERTIES PASS_REGULAR_EXPRESSION "\"tool\":\"othello_endgame_bench\".*\"disc_margin\""
+)
+
+othello_add_expect_failure_test(
+    othello_endgame_bench_rejects_invalid_format
+    othello_endgame_bench
+    "invalid --format value"
+    --format yaml
 )

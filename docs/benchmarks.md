@@ -65,6 +65,32 @@ longer numbers. Current examples:
 
 Available options may change; use `--help` for current details.
 
+## Machine-readable JSONL Output
+
+Benchmark tools default to the existing human-readable text output. Pass
+`--format jsonl` when scripts need stable one-object-per-line rows instead of
+scraping text tables:
+
+```sh
+./build/othello_search_bench --mode fixed --depths 5 --positions smoke --format jsonl
+./build/othello_endgame_bench --positions smoke --empties 10 --format jsonl
+```
+
+Search benchmark JSONL emits `aggregate` rows for normal summaries and
+`position` rows when `--by-position` is enabled. Search rows include stable
+identity/options fields, node and speed counters, checksum strings, and the
+`score_kind`, `used_exact_endgame`, and `exact_disc_margin` fields that describe
+the meaning of any sampled `SearchResult::score`.
+
+Exact endgame benchmark JSONL emits `position` rows. With diagnostic options it
+also emits `root_candidate` rows for `--root-breakdown` and `expanded_child`
+rows for `--expand-worst-candidate`. These rows include exact disc margins,
+node/time counters, principal variations, TT stats, and position metrics where
+available.
+
+Text remains the default format for human runs and existing scripts. JSONL
+output is written to stdout and does not add an external JSON dependency.
+
 ## Search Benchmarks
 
 Use Release builds for performance comparisons:
