@@ -157,6 +157,17 @@ labels are final disc margins, while evaluator scores are heuristic units. Raw
 score differences are therefore uncalibrated heuristic-vs-disc comparisons and
 must not be reported as disc-margin MAE.
 
+When labels were generated with `--include-move-scores`, pass
+`--move-rank-analysis` to add a root move-quality diagnostic. This evaluates
+each legal root child from the original side-to-move perspective, ranks moves by
+the evaluator score, and reports how highly exact-best moves rank plus cases
+where the evaluator top score group does not contain an exact-best move.
+Evaluator scores can tie, so top-move hit reporting uses the full top score
+group; the report may still show one deterministic selected top move for
+inspection. This is root-child move-quality diagnostic evidence for evaluation
+work; it is not Elo, a tuner, a promotion gate, a strength claim, or an
+automatic default recommendation.
+
 The high-confidence disagreement threshold defaults to `250` heuristic units.
 Tune `--high-confidence-threshold` for the evaluator scale and validation goal
 of the current run. The v1 analyzer is fail-fast for malformed or semantically

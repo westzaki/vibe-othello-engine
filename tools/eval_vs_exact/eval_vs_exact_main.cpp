@@ -27,6 +27,7 @@ struct Options {
     int high_confidence_threshold = 250;
     bool phase_breakdown = false;
     bool include_positions = false;
+    bool move_rank_analysis = false;
     bool help = false;
 };
 
@@ -34,7 +35,8 @@ void print_usage(std::string_view program_name) {
     std::cout << "usage: " << program_name
               << " --labels PATH --output PATH (--eval-preset NAME | --eval-config PATH)"
                  " [--top N] [--high-confidence-threshold N]"
-                 " [--phase-breakdown] [--include-positions] [--help]\n"
+                 " [--phase-breakdown] [--include-positions] [--move-rank-analysis]"
+                 " [--help]\n"
               << '\n'
               << "Options:\n"
               << "  --labels PATH         read exact_label.v1 JSONL labels\n"
@@ -47,6 +49,8 @@ void print_usage(std::string_view program_name) {
                  " (default: 250)\n"
               << "  --phase-breakdown     include evaluator phase bucket summary\n"
               << "  --include-positions   include board text in disagreement sections\n"
+              << "  --move-rank-analysis  analyze evaluator root-move ranking when labels include"
+                 " move_scores\n"
               << "  --help                show this help text\n";
 }
 
@@ -65,6 +69,10 @@ void print_usage(std::string_view program_name) {
         }
         if (option == "--include-positions") {
             options.include_positions = true;
+            continue;
+        }
+        if (option == "--move-rank-analysis") {
+            options.move_rank_analysis = true;
             continue;
         }
         if (option == "--labels") {
@@ -231,6 +239,7 @@ static int run(int argc, char** argv) {
         .high_confidence_threshold = parsed->high_confidence_threshold,
         .phase_breakdown = parsed->phase_breakdown,
         .include_positions = parsed->include_positions,
+        .move_rank_analysis = parsed->move_rank_analysis,
         .timestamp = current_timestamp_utc(),
 #ifdef OTHELLO_SOURCE_SHA
         .source_sha = OTHELLO_SOURCE_SHA,
