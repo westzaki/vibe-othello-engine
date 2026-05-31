@@ -14,6 +14,9 @@ enum class EvaluationPhase {
     Late,
 };
 
+// Public preset names are compatibility surface. Prefer .eval config files for
+// experimental evaluator candidates; add enum entries only for stable,
+// long-lived built-in presets.
 enum class EvaluationPreset {
     Default,
     PhaseAwareV1,
