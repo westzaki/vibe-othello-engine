@@ -1,0 +1,1 @@
+{"schema":"exact_label.v1","position_id":"pos-000001","board":"BBBBBBBB\nBBBBBBBB\nBBBBBBBB\nBBBBBBBB\nBBBBBBBB\nBBBBBBBB\nBBBBBBBB\nBBBBBBBB\nside=W","side_to_move":"W","occupied":64,"empties":0,"legal_moves":[],"exact_score_side_to_move":-64,"best_moves":[],"elapsed_ms":0.001,"nodes":1}
