@@ -294,6 +294,19 @@ class EvalConfigSearchValidateTests(unittest.TestCase):
         self.assertIn("--eval-config", command)
         self.assertIn("--exact-endgame-threshold", command)
         self.assertIn("--depths", command)
+        self.assertEqual(command[command.index("--positions") + 1], "smoke")
+
+    def test_search_bench_command_uses_configured_positions(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            config = make_config(
+                Path(temp),
+                extra_args=["--depths", "4", "--positions", "evaluation"],
+            )
+
+            command = search_validate.search_command(config, eval_config=Path(temp) / "candidate.eval")
+
+        self.assertIn("--positions", command)
+        self.assertEqual(command[command.index("--positions") + 1], "evaluation")
 
     def test_match_runner_command_includes_eval_configs_and_swap_sides(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -379,6 +392,7 @@ class EvalConfigSearchValidateTests(unittest.TestCase):
         self.assertIn("No strength claim", report)
         self.assertIn("## Commands", report)
         self.assertIn("--eval-config", report)
+        self.assertIn("positions: `smoke`", report)
         self.assertIn("--swap-sides true", report)
         self.assertIn("candidate_0001\tyes", summary)
 
