@@ -1,6 +1,7 @@
 #include "common/cli.hpp"
 #include "common/formatting.hpp"
 #include "common/jsonl.hpp"
+#include "common/output_format.hpp"
 #include "common/stats.hpp"
 #include "positions/endgame_fixtures.hpp"
 #include "positions/metrics.hpp"
@@ -37,17 +38,14 @@ using othello::tools::elapsed_ms;
 using othello::tools::format_principal_variation;
 using othello::tools::format_square;
 using othello::tools::JsonObjectWriter;
+using othello::tools::OutputFormat;
+using othello::tools::parse_output_format;
 using othello::tools::tt_hit_percentage;
 
 enum class PositionSet {
     Smoke,
     Suite,
     Endgame,
-};
-
-enum class OutputFormat {
-    Text,
-    Jsonl,
 };
 
 struct BenchmarkOptions {
@@ -184,16 +182,6 @@ void print_usage(std::string_view program_name) {
     }
     if (text == "endgame") {
         return PositionSet::Endgame;
-    }
-    return std::nullopt;
-}
-
-[[nodiscard]] std::optional<OutputFormat> parse_output_format(std::string_view text) noexcept {
-    if (text == "text") {
-        return OutputFormat::Text;
-    }
-    if (text == "jsonl") {
-        return OutputFormat::Jsonl;
     }
     return std::nullopt;
 }

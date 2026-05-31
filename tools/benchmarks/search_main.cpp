@@ -2,6 +2,7 @@
 #include "common/evaluator_selection.hpp"
 #include "common/formatting.hpp"
 #include "common/jsonl.hpp"
+#include "common/output_format.hpp"
 #include "common/stats.hpp"
 #include "positions/metrics.hpp"
 #include "positions/search_positions.hpp"
@@ -41,6 +42,8 @@ using othello::tools::beta_cut_first_move_percentage;
 using othello::tools::elapsed_ms;
 using othello::tools::format_principal_variation;
 using othello::tools::JsonObjectWriter;
+using othello::tools::OutputFormat;
+using othello::tools::parse_output_format;
 using othello::tools::search_score_kind_name;
 using othello::tools::tt_hit_percentage;
 
@@ -61,11 +64,6 @@ enum class PositionSet {
     Smoke,
     Suite,
     Threshold,
-};
-
-enum class OutputFormat {
-    Text,
-    Jsonl,
 };
 
 enum class ExactRootProfileKind {
@@ -419,16 +417,6 @@ parse_exact_root_profiles(std::string_view text) {
         return SearchBenchmarkMode::Both;
     }
 
-    return std::nullopt;
-}
-
-[[nodiscard]] std::optional<OutputFormat> parse_output_format(std::string_view text) noexcept {
-    if (text == "text") {
-        return OutputFormat::Text;
-    }
-    if (text == "jsonl") {
-        return OutputFormat::Jsonl;
-    }
     return std::nullopt;
 }
 
