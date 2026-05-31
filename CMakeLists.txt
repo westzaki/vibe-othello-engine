@@ -99,6 +99,7 @@ othello_add_executable(othello_tests
     tests/nboard_protocol_tests.cpp
     tests/notation_tests.cpp
     tests/player_tests.cpp
+    tests/position_sampler_tests.cpp
     tests/reference_rules.cpp
     tests/reference_rules_tests.cpp
     tests/rules_tests.cpp
@@ -109,6 +110,7 @@ othello_add_executable(othello_tests
     $<TARGET_OBJECTS:othello_exact_label_dump_core>
     $<TARGET_OBJECTS:othello_match_runner_core>
     $<TARGET_OBJECTS:othello_nboard_protocol>
+    $<TARGET_OBJECTS:othello_position_sampler_core>
     $<TARGET_OBJECTS:othello_tools_common>
 )
 
@@ -211,6 +213,41 @@ othello_add_help_contains_test(
     othello_eval_vs_exact_help_includes_high_confidence_threshold
     othello_eval_vs_exact
     "--high-confidence-threshold"
+)
+
+othello_add_help_contains_test(
+    othello_position_sampler_help_includes_target_empties
+    othello_position_sampler
+    "--target-empties"
+)
+
+othello_add_help_contains_test(
+    othello_position_sampler_help_includes_seed
+    othello_position_sampler
+    "--seed"
+)
+
+othello_add_tool_smoke_test(
+    othello_position_sampler_smoke
+    othello_position_sampler
+    --output "${CMAKE_CURRENT_BINARY_DIR}/position_sampler_smoke.txt"
+    --count 3
+    --target-empties 56,58
+    --seed 20260531
+)
+set_tests_properties(
+    othello_position_sampler_smoke
+    PROPERTIES PASS_REGULAR_EXPRESSION "sampled=3"
+)
+
+othello_add_expect_failure_test(
+    othello_position_sampler_rejects_invalid_target_empties
+    othello_position_sampler
+    "target-empties"
+    --output "${CMAKE_CURRENT_BINARY_DIR}/bad_position_sample.txt"
+    --count 1
+    --target-empties "8,,10"
+    --seed 20260531
 )
 
 othello_add_tool_smoke_test(

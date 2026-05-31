@@ -47,6 +47,61 @@ SHA, and caveats with any durable summary.
 The default `--max-empties 14` is a conservative safety cap; positions above the
 cap are skipped with a summary instead of solved.
 
+## Sampling Workflow
+
+`othello_position_sampler` creates reproducible random-playout board positions
+in the same 9-line format accepted by `othello_exact_label_dump`. It starts from
+the initial Othello position, plays random legal moves using the existing C++
+rule engine, handles legal passes, and writes board positions only. It does not
+write exact labels and does not use an evaluator.
+
+Example:
+
+```sh
+./build/othello_position_sampler \
+  --output runs/positions/sample_empties_8_10_12.txt \
+  --count 20 \
+  --target-empties 8,10,12 \
+  --seed 20260531
+```
+
+Use `--unique true|false` to control board+side deduplication. The default is
+`true`. If the sampler cannot produce enough positions within its attempt
+budget, it fails instead of silently writing fewer positions.
+
+For the full sampling-to-labeling workflow, use the Python orchestrator:
+
+```sh
+python3 tools/scripts/exact_label_workflow.py \
+  --build-dir build \
+  --out runs/exact-label-workflow/smoke \
+  --count 20 \
+  --target-empties 8,10,12 \
+  --seed 20260531 \
+  --max-empties 14 \
+  --eval-preset default \
+  --analyze
+```
+
+The workflow writes:
+
+- sampled positions as `positions.txt`
+- exact-label JSONL as `labels.jsonl`
+- optional eval-vs-exact Markdown as `eval-vs-exact.md`
+- command logs under `logs/`
+- a `workflow.md` summary with metadata, exact commands, counts, and caveats
+
+Random playout samples are reproducible smoke and teacher-data inputs, not a
+representative Othello training distribution. Exact labels are final disc
+margins from the side-to-move perspective. Eval-vs-exact scores are heuristic
+units and must not be interpreted as disc margins.
+
+Keep raw workflow output under `runs/`; do not commit generated datasets.
+Durable summaries should include the command, source SHA, input labels,
+selected evaluator or config, and caveats. This workflow is an analysis and data
+generation aid only: it makes no strength claim and does not imply automatic
+default evaluator promotion.
+
 ## Eval-vs-Exact Analysis
 
 `othello_eval_vs_exact` compares exact-label JSONL against one selected
