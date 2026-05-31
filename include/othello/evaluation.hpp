@@ -3,6 +3,8 @@
 #include <othello/board.hpp>
 #include <othello/types.hpp>
 
+#include <array>
+#include <cstdint>
 #include <optional>
 #include <string_view>
 
@@ -56,6 +58,15 @@ enum class Edge8PatternEdge {
 
 inline constexpr int edge_8_pattern_table_size = 6561;
 
+struct EvaluationPatternTables {
+    bool enabled = false;
+    std::array<std::int16_t, corner_2x3_pattern_table_size> corner_2x3{};
+    std::array<std::int16_t, edge_8_pattern_table_size> edge_8{};
+
+    [[nodiscard]] friend bool operator==(const EvaluationPatternTables&,
+                                         const EvaluationPatternTables&) = default;
+};
+
 struct EvaluationFeatureWeights {
     int disc_difference = 0;
     int mobility = 0;
@@ -68,6 +79,7 @@ struct EvaluationFeatureWeights {
     int corner_2x3_pattern = 0;
     int edge_stability_lite = 0;
     int edge_8_pattern = 0;
+    int pattern_table = 0;
 
     [[nodiscard]] friend bool operator==(const EvaluationFeatureWeights&,
                                          const EvaluationFeatureWeights&) = default;
@@ -112,6 +124,7 @@ struct EvaluationConfig {
     };
     int opening_max_occupied = 20;
     int midgame_max_occupied = 44;
+    EvaluationPatternTables pattern_tables{};
 
     [[nodiscard]] friend bool operator==(const EvaluationConfig&,
                                          const EvaluationConfig&) = default;
@@ -180,6 +193,10 @@ struct EvaluationBreakdown {
     int edge_8_pattern_weight = 0;
     int edge_8_pattern_score = 0;
 
+    int pattern_table = 0;
+    int pattern_table_weight = 0;
+    int pattern_table_score = 0;
+
     bool terminal = false;
     int terminal_disc_difference = 0;
     int terminal_score_weight = 1000;
@@ -200,6 +217,10 @@ struct EvaluationBreakdown {
 [[nodiscard]] int edge_8_pattern_table_value(int index) noexcept;
 [[nodiscard]] int edge_8_pattern_value(const Board& board, Side side) noexcept;
 [[nodiscard]] int edge_8_pattern_score(const Board& board, Side side) noexcept;
+[[nodiscard]] int evaluation_pattern_table_value(
+    const Board& board, Side side, const EvaluationPatternTables& tables) noexcept;
+[[nodiscard]] int evaluation_pattern_table_score(
+    const Board& board, Side side, const EvaluationPatternTables& tables) noexcept;
 [[nodiscard]] EvaluationBreakdown evaluate_basic_breakdown(const Board& board,
                                                            Side side) noexcept;
 [[nodiscard]] EvaluationBreakdown evaluate_basic_breakdown(const Board& board, Side side,

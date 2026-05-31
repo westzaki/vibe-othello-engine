@@ -9,6 +9,7 @@
 #include <othello/othello.hpp>
 
 #include <algorithm>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <optional>
@@ -135,7 +136,8 @@ void check_breakdown_matches_basic(const Board& board, Side side) {
            breakdown.corner_access_score + breakdown.x_square_danger_score +
            breakdown.frontier_score + breakdown.corner_local_2x3_score +
            breakdown.corner_2x3_pattern_score +
-           breakdown.edge_stability_lite_score + breakdown.edge_8_pattern_score;
+           breakdown.edge_stability_lite_score + breakdown.edge_8_pattern_score +
+           breakdown.pattern_table_score;
 }
 
 [[nodiscard]] othello::EvaluationConfig corner_local_only_config(int weight) noexcept {
@@ -170,6 +172,16 @@ void check_breakdown_matches_basic(const Board& board, Side side) {
     };
 }
 
+[[nodiscard]] othello::EvaluationConfig pattern_table_only_config(int weight) {
+    othello::EvaluationConfig config{
+        .opening = othello::EvaluationFeatureWeights{.pattern_table = weight},
+        .midgame = othello::EvaluationFeatureWeights{.pattern_table = weight},
+        .late = othello::EvaluationFeatureWeights{.pattern_table = weight},
+    };
+    config.pattern_tables.enabled = true;
+    return config;
+}
+
 void check_non_terminal_breakdown_math(const Board& board, Side side) {
     REQUIRE_FALSE(othello::is_game_over(board));
 
@@ -197,6 +209,8 @@ void check_non_terminal_breakdown_math(const Board& board, Side side) {
           breakdown.edge_stability_lite * breakdown.edge_stability_lite_weight);
     CHECK(breakdown.edge_8_pattern_score ==
           breakdown.edge_8_pattern * breakdown.edge_8_pattern_weight);
+    CHECK(breakdown.pattern_table_score ==
+          breakdown.pattern_table * breakdown.pattern_table_weight);
     CHECK(breakdown.terminal_disc_difference == 0);
     CHECK(breakdown.terminal_score == 0);
     CHECK(breakdown.total == non_terminal_score_sum(breakdown));
@@ -232,6 +246,22 @@ TEST_CASE("Sample eval configs round-trip to expected evaluator configs", "[eval
     expected_soft.midgame.edge_8_pattern = 3;
     expected_soft.late.edge_8_pattern = 5;
     CHECK(soft.config == expected_soft);
+
+    const othello::tools::EvaluationConfigLoadResult pattern =
+        othello::tools::load_evaluation_config_file(
+            sample_eval_config_path("pattern_teacher_v0.eval"));
+    REQUIRE(pattern.ok());
+    REQUIRE(pattern.name.has_value());
+    CHECK(*pattern.name == "pattern_teacher_v0");
+    CHECK(pattern.pattern_table_path == "patterns/pattern_teacher_v0.tsv");
+    CHECK(pattern.config.pattern_tables.enabled);
+    CHECK(pattern.config.opening.pattern_table == 10);
+    CHECK(pattern.config.midgame.pattern_table == 10);
+    CHECK(pattern.config.late.pattern_table == 10);
+    CHECK(std::ranges::count_if(pattern.config.pattern_tables.corner_2x3,
+                                [](std::int16_t value) { return value != 0; }) == 64);
+    CHECK(std::ranges::count_if(pattern.config.pattern_tables.edge_8,
+                                [](std::int16_t value) { return value != 0; }) == 64);
 }
 
 TEST_CASE("Committed eval config fixtures parse and preserve intended identities",
@@ -1267,6 +1297,43 @@ TEST_CASE("Edge 8 pattern is symmetric across colors and separable from edge sta
     CHECK(combined.edge_8_pattern_weight > 0);
     CHECK(no_edge_lite.edge_stability_lite_weight == 0);
     CHECK(no_edge_lite.edge_8_pattern_weight > 0);
+}
+
+TEST_CASE("External pattern table is deterministic and config gated", "[evaluation]") {
+    othello::EvaluationConfig config = pattern_table_only_config(7);
+    config.pattern_tables.corner_2x3[1] = 3;
+    config.pattern_tables.corner_2x3[2] = -3;
+    config.pattern_tables.edge_8[1] = 2;
+    config.pattern_tables.edge_8[2] = -2;
+
+    const Board board = extra_disc_board(othello::test::bit("a1"));
+    const othello::EvaluationBreakdown first =
+        othello::evaluate_basic_breakdown(board, Side::Black, config);
+    const othello::EvaluationBreakdown second =
+        othello::evaluate_basic_breakdown(board, Side::Black, config);
+
+    CHECK(first.pattern_table == 7);
+    CHECK(first.pattern_table_weight == 7);
+    CHECK(first.pattern_table_score == 49);
+    CHECK(first.total == 49);
+    CHECK(second.pattern_table == first.pattern_table);
+    CHECK(second.total == first.total);
+
+    othello::EvaluationConfig disabled = config;
+    disabled.pattern_tables.enabled = false;
+    const othello::EvaluationBreakdown disabled_breakdown =
+        othello::evaluate_basic_breakdown(board, Side::Black, disabled);
+    CHECK(disabled_breakdown.pattern_table == 0);
+    CHECK(disabled_breakdown.pattern_table_score == 0);
+    CHECK(disabled_breakdown.total == 0);
+
+    othello::EvaluationConfig zero_weight = config;
+    zero_weight.opening.pattern_table = 0;
+    const othello::EvaluationBreakdown zero_weight_breakdown =
+        othello::evaluate_basic_breakdown(board, Side::Black, zero_weight);
+    CHECK(zero_weight_breakdown.pattern_table == 0);
+    CHECK(zero_weight_breakdown.pattern_table_score == 0);
+    CHECK(zero_weight_breakdown.total == 0);
 }
 
 TEST_CASE("Classic lite scores participate in configured total math", "[evaluation]") {

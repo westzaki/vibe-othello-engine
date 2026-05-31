@@ -733,6 +733,7 @@ top_contributions(const EvaluationBreakdown& breakdown) {
         {.name = "corner_2x3_pattern", .score = breakdown.corner_2x3_pattern_score},
         {.name = "edge_stability_lite", .score = breakdown.edge_stability_lite_score},
         {.name = "edge_8_pattern", .score = breakdown.edge_8_pattern_score},
+        {.name = "pattern_table", .score = breakdown.pattern_table_score},
         {.name = "terminal_score", .score = breakdown.terminal_score},
     };
 

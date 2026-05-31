@@ -323,4 +323,27 @@ int edge_8_pattern_score(const Board& board, Side side) noexcept {
     return edge_8_pattern_value(board, side);
 }
 
+int evaluation_pattern_table_value(const Board& board, Side side,
+                                   const EvaluationPatternTables& tables) noexcept {
+    if (!tables.enabled) {
+        return 0;
+    }
+
+    int value = 0;
+    for (const Corner2x3PatternSpec& spec : corner_2x3_pattern_specs) {
+        value += tables.corner_2x3[static_cast<std::size_t>(
+            corner_2x3_pattern_index(board, side, spec.corner))];
+    }
+    for (const Edge8PatternSpec& spec : edge_8_pattern_specs) {
+        value += tables.edge_8[static_cast<std::size_t>(
+            edge_8_pattern_index(board, side, spec.edge))];
+    }
+    return value;
+}
+
+int evaluation_pattern_table_score(const Board& board, Side side,
+                                   const EvaluationPatternTables& tables) noexcept {
+    return evaluation_pattern_table_value(board, side, tables);
+}
+
 } // namespace othello

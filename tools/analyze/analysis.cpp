@@ -7,6 +7,7 @@
 #include <chrono>
 #include <iomanip>
 #include <iostream>
+#include <sstream>
 #include <vector>
 
 namespace othello::tools::analyze {
@@ -108,6 +109,10 @@ void print_evaluation_breakdown(const EvaluationBreakdown& evaluation, std::stri
               << indent << "edge_8_pattern_weight: " << evaluation.edge_8_pattern_weight << '\n'
               << indent << "edge_8_pattern_score: " << evaluation.edge_8_pattern_score
               << '\n'
+              << indent << "pattern_table: " << evaluation.pattern_table << '\n'
+              << indent << "pattern_table_weight: " << evaluation.pattern_table_weight << '\n'
+              << indent << "pattern_table_score: " << evaluation.pattern_table_score
+              << '\n'
               << indent << "terminal_disc_difference: " << evaluation.terminal_disc_difference
               << '\n'
               << indent << "terminal_score_weight: " << evaluation.terminal_score_weight << '\n'
@@ -136,6 +141,14 @@ void print_candidate_stats(const SearchStats& stats, std::string_view indent) {
               << indent << "aspiration_fail_highs: " << stats.aspiration_fail_highs << '\n'
               << indent << "aspiration_fallbacks: "
               << stats.aspiration_full_window_fallbacks << '\n';
+}
+
+void print_indented_board(const Board& board, std::string_view indent) {
+    std::istringstream lines{to_string(board)};
+    std::string line;
+    while (std::getline(lines, line)) {
+        std::cout << indent << line << '\n';
+    }
 }
 
 [[nodiscard]] int candidate_sort_index(const RootCandidateAnalysis& candidate) noexcept {
@@ -318,6 +331,9 @@ void print_report(const Board& board, const AnalysisOptions& options, const Sear
     for (const RootCandidateAnalysis& candidate : candidates) {
         std::cout << "  - move: "
                   << (candidate.pass ? "pass" : format_square(candidate.move)) << '\n'
+                  << "    child_board:\n";
+        print_indented_board(candidate.child_board, "      ");
+        std::cout
                   << "    child_side_to_move: " << side_name(candidate.child_board.side_to_move)
                   << '\n'
                   << "    depth: " << candidate.depth << '\n'

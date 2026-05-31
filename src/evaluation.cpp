@@ -57,6 +57,7 @@ EvaluationBreakdown evaluate_basic_breakdown(const Board& board, Side side,
         .corner_2x3_pattern_weight = weights.corner_2x3_pattern,
         .edge_stability_lite_weight = weights.edge_stability_lite,
         .edge_8_pattern_weight = weights.edge_8_pattern,
+        .pattern_table_weight = weights.pattern_table,
         .terminal_score_weight = terminal_score_weight,
     };
 
@@ -120,12 +121,18 @@ EvaluationBreakdown evaluate_basic_breakdown(const Board& board, Side side,
     breakdown.edge_8_pattern_score =
         breakdown.edge_8_pattern * breakdown.edge_8_pattern_weight;
 
+    if (breakdown.pattern_table_weight != 0 && config.pattern_tables.enabled) {
+        breakdown.pattern_table = evaluation_pattern_table_score(board, side, config.pattern_tables);
+    }
+    breakdown.pattern_table_score = breakdown.pattern_table * breakdown.pattern_table_weight;
+
     breakdown.total = breakdown.disc_difference_score + breakdown.mobility_score +
                       breakdown.corner_occupancy_score + breakdown.potential_mobility_score +
                       breakdown.corner_access_score + breakdown.x_square_danger_score +
                       breakdown.frontier_score + breakdown.corner_local_2x3_score +
                       breakdown.corner_2x3_pattern_score +
-                      breakdown.edge_stability_lite_score + breakdown.edge_8_pattern_score;
+                      breakdown.edge_stability_lite_score + breakdown.edge_8_pattern_score +
+                      breakdown.pattern_table_score;
     return breakdown;
 }
 

@@ -151,6 +151,7 @@ TEST_CASE("Position analysis print includes corner pattern breakdown fields", "[
         .exact_endgame_empty_threshold = 0,
         .use_pvs = true,
         .evaluator = {.preset = othello::EvaluationPreset::CornerPattern2x3V1},
+        .root_candidates = true,
     };
     const othello::SearchResult result = othello::tools::analyze::run_search(board, options);
 
@@ -160,6 +161,7 @@ TEST_CASE("Position analysis print includes corner pattern breakdown fields", "[
     std::cout.rdbuf(previous_buffer);
 
     const std::string output = captured.str();
+    CHECK(output.find("child_board:") != std::string::npos);
     CHECK(output.find("corner_2x3_pattern:") != std::string::npos);
     CHECK(output.find("corner_2x3_pattern_weight:") != std::string::npos);
     CHECK(output.find("corner_2x3_pattern_score:") != std::string::npos);
