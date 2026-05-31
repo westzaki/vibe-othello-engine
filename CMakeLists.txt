@@ -90,6 +90,7 @@ enable_testing()
 othello_add_executable(othello_tests
     tests/endgame_tests.cpp
     tests/evaluation_tests.cpp
+    tests/exact_label_dump_tests.cpp
     tests/hash_tests.cpp
     tests/analyze_tests.cpp
     tests/match_runner_tests.cpp
@@ -102,6 +103,7 @@ othello_add_executable(othello_tests
     tests/search_tests.cpp
     tests/square_tests.cpp
     $<TARGET_OBJECTS:othello_analyze_core>
+    $<TARGET_OBJECTS:othello_exact_label_dump_core>
     $<TARGET_OBJECTS:othello_match_runner_core>
     $<TARGET_OBJECTS:othello_nboard_protocol>
     $<TARGET_OBJECTS:othello_tools_common>
@@ -125,94 +127,82 @@ endif()
 list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
 include(Catch)
 catch_discover_tests(othello_tests)
+include(cmake/OthelloToolTests.cmake)
 
-add_test(
-    NAME othello_nboard_engine_help_includes_eval_preset
-    COMMAND $<TARGET_FILE:othello_nboard_engine> --help
-)
-set_tests_properties(
+othello_add_help_contains_test(
     othello_nboard_engine_help_includes_eval_preset
-    PROPERTIES PASS_REGULAR_EXPRESSION "--eval-preset"
+    othello_nboard_engine
+    "--eval-preset"
 )
 
-add_test(
-    NAME othello_nboard_engine_help_includes_exact_threshold
-    COMMAND $<TARGET_FILE:othello_nboard_engine> --help
-)
-set_tests_properties(
+othello_add_help_contains_test(
     othello_nboard_engine_help_includes_exact_threshold
-    PROPERTIES PASS_REGULAR_EXPRESSION "--exact-endgame-threshold"
+    othello_nboard_engine
+    "--exact-endgame-threshold"
 )
 
-add_test(
-    NAME othello_search_bench_help_includes_exact_threshold_matrix
-    COMMAND $<TARGET_FILE:othello_search_bench> --help
-)
-set_tests_properties(
+othello_add_help_contains_test(
     othello_search_bench_help_includes_exact_threshold_matrix
-    PROPERTIES PASS_REGULAR_EXPRESSION "--exact-endgame-thresholds"
+    othello_search_bench
+    "--exact-endgame-thresholds"
 )
 
-add_test(
-    NAME othello_search_bench_help_includes_eval_config
-    COMMAND $<TARGET_FILE:othello_search_bench> --help
-)
-set_tests_properties(
+othello_add_help_contains_test(
     othello_search_bench_help_includes_eval_config
-    PROPERTIES PASS_REGULAR_EXPRESSION "--eval-config"
+    othello_search_bench
+    "--eval-config"
 )
 
-add_test(
-    NAME othello_search_bench_help_includes_format
-    COMMAND $<TARGET_FILE:othello_search_bench> --help
-)
-set_tests_properties(
+othello_add_help_contains_test(
     othello_search_bench_help_includes_format
-    PROPERTIES PASS_REGULAR_EXPRESSION "--format"
+    othello_search_bench
+    "--format"
 )
 
-add_test(
-    NAME othello_search_bench_jsonl_includes_score_kind
-    COMMAND $<TARGET_FILE:othello_search_bench>
-        --mode fixed
-        --depths 1
-        --positions smoke
-        --repetitions 1
-        --exact-endgame-threshold 0
-        --format jsonl
+othello_add_tool_smoke_test(
+    othello_search_bench_jsonl_includes_score_kind
+    othello_search_bench
+    --mode fixed
+    --depths 1
+    --positions smoke
+    --repetitions 1
+    --exact-endgame-threshold 0
+    --format jsonl
 )
 set_tests_properties(
     othello_search_bench_jsonl_includes_score_kind
     PROPERTIES PASS_REGULAR_EXPRESSION "\"tool\":\"othello_search_bench\".*\"score_kind\""
 )
 
-add_test(
-    NAME othello_analyze_position_help_includes_eval_config
-    COMMAND $<TARGET_FILE:othello_analyze_position> --help
+othello_add_help_contains_test(
+    othello_analyze_position_help_includes_eval_config
+    othello_analyze_position
+    "--eval-config"
+)
+
+othello_add_help_contains_test(
+    othello_exact_label_dump_help_includes_move_scores
+    othello_exact_label_dump
+    "--include-move-scores"
+)
+
+othello_add_tool_smoke_test(
+    othello_exact_label_dump_smoke
+    othello_exact_label_dump
+    --input "${CMAKE_CURRENT_SOURCE_DIR}/data/positions/exact_label_smoke.txt"
+    --output "${CMAKE_CURRENT_BINARY_DIR}/exact_label_smoke.jsonl"
+    --max-empties 14
+    --limit 10
+    --include-move-scores
 )
 set_tests_properties(
-    othello_analyze_position_help_includes_eval_config
-    PROPERTIES PASS_REGULAR_EXPRESSION "--eval-config"
+    othello_exact_label_dump_smoke
+    PROPERTIES PASS_REGULAR_EXPRESSION "labeled=3"
 )
 
 set(OTHELLO_SAMPLE_EVAL_CONFIG
     "${CMAKE_CURRENT_SOURCE_DIR}/data/eval/current_default.eval"
 )
-set(OTHELLO_EXPECT_FAILURE_SCRIPT
-    "${CMAKE_CURRENT_SOURCE_DIR}/tools/cmake/expect_failure.cmake"
-)
-
-function(othello_add_expect_failure_test name target pattern)
-    string(JOIN "|" OTHELLO_EXPECT_FAILURE_ARGS ${ARGN})
-    add_test(
-        NAME ${name}
-        COMMAND ${CMAKE_COMMAND}
-            "-DEXPECT_FAILURE_COMMAND=$<TARGET_FILE:${target}>"
-            "-DEXPECT_FAILURE_ARGS=${OTHELLO_EXPECT_FAILURE_ARGS}"
-            "-DEXPECT_FAILURE_PATTERN=${pattern}"
-            -P "${OTHELLO_EXPECT_FAILURE_SCRIPT}"
-    )
-endfunction()
 
 othello_add_expect_failure_test(
     othello_search_bench_rejects_eval_preset_with_eval_config
@@ -238,13 +228,18 @@ othello_add_expect_failure_test(
     --eval-config "${OTHELLO_SAMPLE_EVAL_CONFIG}"
 )
 
-add_test(
-    NAME othello_nboard_engine_help_includes_eval_config
-    COMMAND $<TARGET_FILE:othello_nboard_engine> --help
+othello_add_expect_failure_test(
+    othello_exact_label_dump_rejects_invalid_input
+    othello_exact_label_dump
+    "invalid input"
+    --input "${CMAKE_CURRENT_SOURCE_DIR}/data/positions/exact_label_invalid.txt"
+    --output "${CMAKE_CURRENT_BINARY_DIR}/exact_label_invalid.jsonl"
 )
-set_tests_properties(
+
+othello_add_help_contains_test(
     othello_nboard_engine_help_includes_eval_config
-    PROPERTIES PASS_REGULAR_EXPRESSION "--eval-config"
+    othello_nboard_engine
+    "--eval-config"
 )
 
 othello_add_expect_failure_test(
@@ -255,30 +250,24 @@ othello_add_expect_failure_test(
     --eval-config "${OTHELLO_SAMPLE_EVAL_CONFIG}"
 )
 
-add_test(
-    NAME othello_endgame_bench_help_includes_exact_tt_entries
-    COMMAND $<TARGET_FILE:othello_endgame_bench> --help
-)
-set_tests_properties(
+othello_add_help_contains_test(
     othello_endgame_bench_help_includes_exact_tt_entries
-    PROPERTIES PASS_REGULAR_EXPRESSION "--exact-tt-entries"
+    othello_endgame_bench
+    "--exact-tt-entries"
 )
 
-add_test(
-    NAME othello_endgame_bench_help_includes_format
-    COMMAND $<TARGET_FILE:othello_endgame_bench> --help
-)
-set_tests_properties(
+othello_add_help_contains_test(
     othello_endgame_bench_help_includes_format
-    PROPERTIES PASS_REGULAR_EXPRESSION "--format"
+    othello_endgame_bench
+    "--format"
 )
 
-add_test(
-    NAME othello_endgame_bench_jsonl_includes_disc_margin
-    COMMAND $<TARGET_FILE:othello_endgame_bench>
-        --positions smoke
-        --repetitions 1
-        --format jsonl
+othello_add_tool_smoke_test(
+    othello_endgame_bench_jsonl_includes_disc_margin
+    othello_endgame_bench
+    --positions smoke
+    --repetitions 1
+    --format jsonl
 )
 set_tests_properties(
     othello_endgame_bench_jsonl_includes_disc_margin

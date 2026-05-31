@@ -1,5 +1,7 @@
 #pragma once
 
+#include "common/evaluator_selection.hpp"
+
 #include <chrono>
 #include <cstddef>
 #include <optional>
@@ -27,9 +29,7 @@ struct AnalysisOptions {
     bool use_aspiration_window = SearchOptions{}.use_aspiration_window;
     int aspiration_window = SearchOptions{}.aspiration_window;
     int aspiration_max_researches = SearchOptions{}.aspiration_max_researches;
-    EvaluationPreset evaluation_preset = EvaluationPreset::Default;
-    std::optional<EvaluationConfig> evaluation_config_override;
-    std::optional<std::string> evaluation_config_path;
+    EvaluatorSelection evaluator;
     bool root_candidates = false;
 };
 

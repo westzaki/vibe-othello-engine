@@ -137,32 +137,32 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
     CHECK(adaptive_exact_options.exact_endgame_root_policy ==
           othello::ExactEndgameRootPolicy::Adaptive16);
     CHECK(runner::make_search_options(*tt_entries).transposition_table_entries == 262144U);
-    CHECK(eval_default->search_options.evaluation_preset ==
+    CHECK(eval_default->search_options.evaluator.preset ==
           othello::EvaluationPreset::Default);
     CHECK(runner::make_search_options(*eval_default).evaluation_preset ==
           othello::EvaluationPreset::Default);
     CHECK(othello::resolve_evaluation_config(runner::make_search_options(*eval_default)) ==
           othello::default_evaluation_config());
-    CHECK(eval_phase_aware->search_options.evaluation_preset ==
+    CHECK(eval_phase_aware->search_options.evaluator.preset ==
           othello::EvaluationPreset::PhaseAwareV1);
     CHECK(runner::make_search_options(*eval_phase_aware).evaluation_preset ==
           othello::EvaluationPreset::PhaseAwareV1);
     CHECK(othello::resolve_evaluation_config(runner::make_search_options(*eval_phase_aware)) ==
           othello::evaluation_config_for_preset(othello::EvaluationPreset::PhaseAwareV1));
-    CHECK(eval_smoke->search_options.evaluation_preset ==
+    CHECK(eval_smoke->search_options.evaluator.preset ==
           othello::EvaluationPreset::MobilityPlusSmoke);
     CHECK(runner::make_search_options(*eval_smoke).evaluation_preset ==
           othello::EvaluationPreset::MobilityPlusSmoke);
     CHECK(othello::resolve_evaluation_config(runner::make_search_options(*eval_smoke)) ==
           othello::evaluation_config_for_preset(othello::EvaluationPreset::MobilityPlusSmoke));
-    CHECK(eval_frontier->search_options.evaluation_preset ==
+    CHECK(eval_frontier->search_options.evaluator.preset ==
           othello::EvaluationPreset::FrontierOpen2Mid2LatePlus1);
     CHECK(runner::make_search_options(*eval_frontier).evaluation_preset ==
           othello::EvaluationPreset::FrontierOpen2Mid2LatePlus1);
     CHECK(othello::resolve_evaluation_config(runner::make_search_options(*eval_frontier)) ==
           othello::evaluation_config_for_preset(
               othello::EvaluationPreset::FrontierOpen2Mid2LatePlus1));
-    CHECK(eval_classic_corner->search_options.evaluation_preset ==
+    CHECK(eval_classic_corner->search_options.evaluator.preset ==
           othello::EvaluationPreset::ClassicCornerLiteV1);
     CHECK(runner::make_search_options(*eval_classic_edge).evaluation_preset ==
           othello::EvaluationPreset::ClassicEdgeLiteV1);

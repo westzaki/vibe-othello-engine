@@ -1,0 +1,32 @@
+# Terminal fixture: White to move loses by 64 discs.
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+side=W
+
+# Root pass fixture: Black must pass, but the score is still Black-to-move perspective.
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBWB.
+side=B
+
+# One-empty forced move fixture.
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBW.
+side=B

@@ -1,7 +1,7 @@
 #include "analyze/analysis.hpp"
 #include "common/board_io.hpp"
 #include "common/cli.hpp"
-#include "common/eval_config_io.hpp"
+#include "common/evaluator_selection.hpp"
 
 #include <chrono>
 #include <exception>
@@ -64,8 +64,8 @@ void print_usage(std::string_view program_name) {
 [[nodiscard]] std::optional<AnalysisOptions> parse_options(std::span<char* const> args,
                                                            bool& help_requested) {
     AnalysisOptions options;
-    bool explicit_eval_preset = false;
     bool explicit_eval_config = false;
+    othello::tools::EvaluatorSelectionInput evaluator_input;
 
     for (std::size_t index = 1; index < args.size(); ++index) {
         const std::string_view arg{args[index]};
@@ -164,14 +164,11 @@ void print_usage(std::string_view program_name) {
             options.exact_endgame_empty_threshold = *threshold;
         } else if (arg == "--eval-preset") {
             const auto value = othello::tools::next_argument(args, index, arg);
-            const auto preset =
-                value.has_value() ? othello::evaluation_preset_from_name(*value) : std::nullopt;
-            if (!preset.has_value()) {
+            if (!value.has_value()) {
                 std::cerr << "invalid --eval-preset value\n";
                 return std::nullopt;
             }
-            options.evaluation_preset = *preset;
-            explicit_eval_preset = true;
+            evaluator_input.preset_name = std::string{*value};
         } else if (arg == "--eval-config") {
             const auto value = othello::tools::next_argument(args, index, arg);
             if (!value.has_value() || value->empty()) {
@@ -183,15 +180,7 @@ void print_usage(std::string_view program_name) {
                 return std::nullopt;
             }
 
-            const std::string path{*value};
-            const othello::tools::EvaluationConfigLoadResult loaded =
-                othello::tools::load_evaluation_config_file(path);
-            if (!loaded.ok()) {
-                std::cerr << loaded.error << '\n';
-                return std::nullopt;
-            }
-            options.evaluation_config_override = loaded.config;
-            options.evaluation_config_path = path;
+            evaluator_input.config_path = std::string{*value};
             explicit_eval_config = true;
         } else if (arg == "--root-candidates" || arg == "--root-breakdown") {
             options.root_candidates = true;
@@ -207,10 +196,14 @@ void print_usage(std::string_view program_name) {
         return std::nullopt;
     }
 
-    if (explicit_eval_preset && explicit_eval_config) {
-        std::cerr << "cannot combine --eval-preset and --eval-config\n";
+    std::string evaluator_error;
+    const std::optional<othello::tools::EvaluatorSelection> evaluator =
+        othello::tools::parse_evaluator_selection(evaluator_input, evaluator_error);
+    if (!evaluator.has_value()) {
+        std::cerr << evaluator_error << '\n';
         return std::nullopt;
     }
+    options.evaluator = *evaluator;
 
     return options;
 }
