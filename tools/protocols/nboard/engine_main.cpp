@@ -1,5 +1,5 @@
 #include "common/cli.hpp"
-#include "common/eval_config_io.hpp"
+#include "common/evaluator_selection.hpp"
 #include "protocols/nboard/game_codec.hpp"
 
 #include <iostream>
@@ -14,9 +14,7 @@ namespace {
 struct Options {
     int depth = 4;
     int exact_endgame_empty_threshold = 12;
-    othello::EvaluationPreset evaluation_preset = othello::EvaluationPreset::Default;
-    std::optional<othello::EvaluationConfig> evaluation_config_override;
-    std::optional<std::string> evaluation_config_path;
+    othello::tools::EvaluatorSelection evaluator;
     bool verbose = false;
     bool help = false;
 };
@@ -40,8 +38,8 @@ void print_usage(std::string_view program) {
 
 [[nodiscard]] std::optional<Options> parse_options(std::span<char* const> args) {
     Options options;
-    bool explicit_eval_preset = false;
     bool explicit_eval_config = false;
+    othello::tools::EvaluatorSelectionInput evaluator_input;
     for (std::size_t index = 1; index < args.size(); ++index) {
         const std::string_view arg{args[index]};
         if (arg == "--help") {
@@ -65,14 +63,11 @@ void print_usage(std::string_view program) {
         }
         if (arg == "--eval-preset") {
             const auto value = othello::tools::next_argument(args, index, arg);
-            const auto preset =
-                value.has_value() ? othello::evaluation_preset_from_name(*value) : std::nullopt;
-            if (!preset.has_value()) {
+            if (!value.has_value()) {
                 std::cerr << "invalid --eval-preset value\n";
                 return std::nullopt;
             }
-            options.evaluation_preset = *preset;
-            explicit_eval_preset = true;
+            evaluator_input.preset_name = std::string{*value};
             continue;
         }
         if (arg == "--eval-config") {
@@ -86,15 +81,7 @@ void print_usage(std::string_view program) {
                 return std::nullopt;
             }
 
-            const std::string path{*value};
-            const othello::tools::EvaluationConfigLoadResult loaded =
-                othello::tools::load_evaluation_config_file(path);
-            if (!loaded.ok()) {
-                std::cerr << loaded.error << '\n';
-                return std::nullopt;
-            }
-            options.evaluation_config_override = loaded.config;
-            options.evaluation_config_path = path;
+            evaluator_input.config_path = std::string{*value};
             explicit_eval_config = true;
             continue;
         }
@@ -112,10 +99,14 @@ void print_usage(std::string_view program) {
         std::cerr << "unknown option: " << arg << '\n';
         return std::nullopt;
     }
-    if (explicit_eval_preset && explicit_eval_config) {
-        std::cerr << "cannot combine --eval-preset and --eval-config\n";
+    std::string evaluator_error;
+    const std::optional<othello::tools::EvaluatorSelection> evaluator =
+        othello::tools::parse_evaluator_selection(evaluator_input, evaluator_error);
+    if (!evaluator.has_value()) {
+        std::cerr << evaluator_error << '\n';
         return std::nullopt;
     }
+    options.evaluator = *evaluator;
     return options;
 }
 
@@ -136,14 +127,16 @@ void print_usage(std::string_view program) {
 
 [[nodiscard]] std::optional<othello::Square> choose_move(const othello::Board& board,
                                                          const Options& engine_options) {
-    const othello::SearchOptions options{
-        .max_depth = engine_options.depth,
-        .use_transposition_table = true,
-        .exact_endgame_empty_threshold = engine_options.exact_endgame_empty_threshold,
-        .use_pvs = true,
-        .evaluation_preset = engine_options.evaluation_preset,
-        .evaluation_config_override = engine_options.evaluation_config_override,
-    };
+    const othello::SearchOptions options =
+        othello::tools::apply_evaluator_selection(othello::SearchOptions{
+                                                      .max_depth = engine_options.depth,
+                                                      .use_transposition_table = true,
+                                                      .exact_endgame_empty_threshold =
+                                                          engine_options
+                                                              .exact_endgame_empty_threshold,
+                                                      .use_pvs = true,
+                                                  },
+                                                  engine_options.evaluator);
     const othello::SearchResult result = othello::search(board, options);
     if (result.best_move.has_value()) {
         return result.best_move;

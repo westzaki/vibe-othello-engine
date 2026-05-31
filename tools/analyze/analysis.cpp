@@ -44,7 +44,7 @@ using Clock = std::chrono::steady_clock;
 }
 
 [[nodiscard]] SearchOptions make_search_options(const AnalysisOptions& options) noexcept {
-    return SearchOptions{
+    return apply_evaluator_selection(SearchOptions{
         .max_depth = options.depth,
         .use_transposition_table = options.use_transposition_table,
         .transposition_table_entries = options.transposition_table_entries,
@@ -53,9 +53,7 @@ using Clock = std::chrono::steady_clock;
         .use_aspiration_window = options.use_aspiration_window,
         .aspiration_window = options.aspiration_window,
         .aspiration_max_researches = options.aspiration_max_researches,
-        .evaluation_preset = options.evaluation_preset,
-        .evaluation_config_override = options.evaluation_config_override,
-    };
+    }, options.evaluator);
 }
 
 [[nodiscard]] SearchResult run_search_with_depth(const Board& board, const AnalysisOptions& options,
@@ -289,10 +287,9 @@ void print_report(const Board& board, const AnalysisOptions& options, const Sear
               << "aspiration_window: " << options.aspiration_window << '\n'
               << "aspiration_max_researches: " << options.aspiration_max_researches << '\n'
               << "exact_endgame_threshold: " << options.exact_endgame_empty_threshold << '\n'
-              << "eval_preset: " << evaluation_preset_name(options.evaluation_preset) << '\n'
+              << "eval_preset: " << evaluation_preset_name(options.evaluator.preset) << '\n'
               << "eval_config: "
-              << (options.evaluation_config_path.has_value() ? *options.evaluation_config_path
-                                                             : "-")
+              << (options.evaluator.config_path.has_value() ? *options.evaluator.config_path : "-")
               << '\n'
               << "elapsed_ms: " << std::fixed << std::setprecision(3)
               << elapsed_ms(elapsed) << '\n'

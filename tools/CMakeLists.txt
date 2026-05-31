@@ -2,6 +2,7 @@ add_library(othello_tools_common OBJECT
     common/board_io.cpp
     common/cli.cpp
     common/eval_config_io.cpp
+    common/evaluator_selection.cpp
     common/formatting.cpp
     common/jsonl.cpp
     common/stats.cpp
