@@ -41,6 +41,36 @@ def write_positions(directory: Path, text: str = BOARD9_POSITION) -> Path:
     return path
 
 
+def write_legal_validator(directory: Path, *, legal_moves: str = "d3 c4 d6") -> Path:
+    path = directory / "fake_legal_validator.py"
+    path.write_text(
+        "#!/usr/bin/env python3\n"
+        + textwrap.dedent(
+            f"""
+            import argparse
+            import sys
+
+            parser = argparse.ArgumentParser()
+            parser.add_argument("--stdin", action="store_true")
+            parser.add_argument("--move", required=True)
+            args = parser.parse_args()
+
+            sys.stdin.read()
+            legal_moves = {legal_moves!r}.split()
+            legal = args.move in legal_moves
+            print("legal_move_valid=" + ("true" if legal else "false"))
+            print("legal_validation_source=fake-validator")
+            print("legal_moves=" + " ".join(legal_moves))
+            print("error=" + ("-" if legal else "illegal move"))
+            sys.exit(0 if legal else 1)
+            """
+        ),
+        encoding="utf-8",
+    )
+    path.chmod(0o755)
+    return path
+
+
 def read_rows(path: Path) -> list[dict[str, object]]:
     with path.open("r", encoding="utf-8") as handle:
         return [json.loads(line) for line in handle if line.strip()]
@@ -54,6 +84,7 @@ def make_config(
     positions_text: str = BOARD9_POSITION,
 ) -> workflow.WorkflowConfig:
     positions = write_positions(temp_dir, positions_text)
+    legal_validator = write_legal_validator(temp_dir)
     args = [
         "--positions",
         str(positions),
@@ -61,6 +92,8 @@ def make_config(
         str(temp_dir / "workflow"),
         "--engine-name",
         "fake",
+        "--legal-validator",
+        str(legal_validator),
     ]
     if extra_args:
         args.extend(extra_args)
@@ -89,9 +122,11 @@ class ExternalTeacherLabelWorkflowTests(unittest.TestCase):
         self.assertEqual(row["position_name"], "initial")
         self.assertEqual(row["status"], "ok")
         self.assertEqual(row["move"], "d3")
+        self.assertIsNone(row["engine_move"])
         self.assertIs(row["move_token_valid"], True)
-        self.assertIsNone(row["legal_move_valid"])
-        self.assertEqual(row["legal_validation_source"], "unavailable")
+        self.assertIs(row["legal_move_valid"], True)
+        self.assertEqual(row["legal_validation_source"], str(config.legal_validator))
+        self.assertEqual(row["legal_moves"], ["d3", "c4", "d6"])
         self.assertIn("board_text", row)
         self.assertIn("external_input_text", row)
         self.assertIn("No strength claim", report)
@@ -109,7 +144,25 @@ class ExternalTeacherLabelWorkflowTests(unittest.TestCase):
         self.assertEqual(row["status"], "failed")
         self.assertIsNone(row["move"])
         self.assertIs(row["move_token_valid"], False)
+        self.assertIsNone(row["legal_move_valid"])
         self.assertIn("invalid move format", row["error"])
+
+    def test_illegal_engine_move_is_recorded_as_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            config = make_config(temp_path, engine_args=["--move", "a1"])
+
+            exit_code = workflow.run_workflow(config)
+            row = read_rows(config.labels_path)[0]
+            log_text = Path(row["log_path"]).read_text(encoding="utf-8")
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(row["status"], "failed")
+        self.assertEqual(row["move"], "a1")
+        self.assertIs(row["move_token_valid"], True)
+        self.assertIs(row["legal_move_valid"], False)
+        self.assertEqual(row["legal_validation_error"], "illegal move")
+        self.assertIn("legal_move_valid: False", log_text)
 
     def test_timeout_is_recorded(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -161,6 +214,7 @@ class ExternalTeacherLabelWorkflowTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(row["status"], "skipped")
         self.assertEqual(row["error"], "dry-run")
+        self.assertEqual(row["legal_validation_error"], "dry-run")
         self.assertIn("Status: dry run", report)
         self.assertIn("command:", log_text)
         self.assertIn("status: skipped", log_text)
@@ -212,6 +266,9 @@ class ExternalTeacherLabelWorkflowTests(unittest.TestCase):
         self.assertEqual(row["adapter"], "ntest")
         self.assertEqual(row["protocol"], "nboard")
         self.assertEqual(row["depth"], 6)
+        self.assertEqual(row["engine_move"], "d3")
+        self.assertEqual(row["move"], "d6")
+        self.assertIs(row["legal_move_valid"], True)
         self.assertEqual(row["external_input_format"], "nboard-game")
         self.assertIn("BO[8", row["external_input_text"])
 
@@ -237,6 +294,7 @@ class ExternalTeacherLabelWorkflowTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             temp_path = Path(temp)
             positions = write_positions(temp_path)
+            legal_validator = write_legal_validator(temp_path)
             out_dir = temp_path / "workflow"
             completed = subprocess.run(
                 [
@@ -249,6 +307,8 @@ class ExternalTeacherLabelWorkflowTests(unittest.TestCase):
                     "--allow-failures",
                     "--engine-name",
                     "fake",
+                    "--legal-validator",
+                    str(legal_validator),
                     "--engine-cmd",
                     "--",
                     sys.executable,

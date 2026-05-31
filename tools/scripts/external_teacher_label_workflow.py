@@ -22,8 +22,10 @@ from external_engines.one_shot import request_best_move as request_one_shot_best
 SCHEMA_NAME = "teacher_label.v1"
 DEFAULT_TIMEOUT_MS = 1000
 DEFAULT_NTEST_DEPTH = 26
+DEFAULT_LEGAL_VALIDATOR = Path("build") / "othello_validate_move"
 
 _BOARD_ROW_PATTERN = re.compile(r"^[.BW]{8}$")
+_MOVE_PATTERN = re.compile(r"^[a-h][1-8]$", re.IGNORECASE)
 _KNOWN_METADATA_KEYS = {"name", "phase", "tags", "note"}
 
 
@@ -56,6 +58,7 @@ class WorkflowConfig:
     workdir: str | None
     env: dict[str, str]
     engine_command: list[str]
+    legal_validator: Path | None
     dry_run: bool
     allow_failures: bool
     invocation: list[str] = field(default_factory=list)
@@ -88,7 +91,21 @@ class RunSummary:
     skipped: int
     timed_out: int
     invalid_move_token: int
+    illegal_move: int
+    legal_validation_failed: int
     limit_skipped: int
+
+
+@dataclass(frozen=True)
+class LegalValidationResult:
+    valid: bool | None
+    source: str
+    legal_moves: list[str]
+    error: str | None = None
+    command: list[str] = field(default_factory=list)
+    exit_code: int | None = None
+    stdout: str = ""
+    stderr: str = ""
 
 
 def parse_positive_int(value: str) -> int:
@@ -142,7 +159,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "%(prog)s --positions PATH [--out DIR] [--input-format auto|board9|raw|nboard-game] "
             "[--limit N] [--timeout-ms N] [--workdir PATH] [--env KEY=VALUE] "
             "[--adapter one-shot|ntest] [--protocol nboard|one-shot] [--depth N] "
-            "[--engine-name NAME] --engine-cmd -- COMMAND [ARGS...]"
+            "[--engine-name NAME] [--legal-validator PATH] --engine-cmd -- COMMAND [ARGS...]"
         ),
     )
     parser.add_argument("--positions", required=True, help="input positions file")
@@ -180,6 +197,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="environment override for the engine process; repeatable",
     )
     parser.add_argument("--engine-name", help="human label for the teacher engine")
+    parser.add_argument(
+        "--legal-validator",
+        default=str(DEFAULT_LEGAL_VALIDATOR),
+        help="C++ move validator path for board9 inputs (default: build/othello_validate_move)",
+    )
     parser.add_argument("--dry-run", action="store_true", help="write planned JSONL/report/logs only")
     parser.add_argument(
         "--allow-failures",
@@ -229,6 +251,7 @@ def config_from_args(args: argparse.Namespace, invocation: list[str] | None = No
         workdir=args.workdir,
         env=args.env_overrides,
         engine_command=list(args.engine_command),
+        legal_validator=Path(args.legal_validator) if args.legal_validator else None,
         dry_run=args.dry_run,
         allow_failures=args.allow_failures,
         invocation=invocation or [],
@@ -496,6 +519,31 @@ def adapter_input_for_position(config: WorkflowConfig, position: InputPosition) 
     return position.external_input_text, position.input_format
 
 
+def ntest_nboard_move_to_board9(move: str | None) -> str | None:
+    if move is None or move == "pass":
+        return move
+    if _MOVE_PATTERN.fullmatch(move) is None:
+        return move
+    return f"{move[0].lower()}{9 - int(move[1])}"
+
+
+def normalize_adapter_move_for_position(
+    config: WorkflowConfig,
+    position: InputPosition,
+    external_input_format: str,
+    move: str | None,
+) -> str | None:
+    if (
+        position.board_text is not None
+        and position.input_format == "board9"
+        and config.adapter == "ntest"
+        and config.protocol == "nboard"
+        and external_input_format == "nboard-game"
+    ):
+        return ntest_nboard_move_to_board9(move)
+    return move
+
+
 def request_engine_move(config: WorkflowConfig, input_text: str) -> EngineMoveResult:
     if config.adapter == "ntest":
         return request_ntest_best_move(
@@ -515,6 +563,89 @@ def request_engine_move(config: WorkflowConfig, input_text: str) -> EngineMoveRe
         timeout_ms=config.timeout_ms,
         workdir=config.workdir,
         env=config.env,
+    )
+
+
+def _parse_validator_output(text: str) -> tuple[bool | None, list[str], str | None]:
+    valid: bool | None = None
+    legal_moves: list[str] = []
+    error: str | None = None
+    for line in text.splitlines():
+        key, separator, value = line.partition("=")
+        if not separator:
+            continue
+        if key == "legal_move_valid":
+            if value == "true":
+                valid = True
+            elif value == "false":
+                valid = False
+        elif key == "legal_moves":
+            legal_moves = [part for part in value.split() if part]
+        elif key == "error" and value != "-":
+            error = value
+    return valid, legal_moves, error
+
+
+def validate_legal_move(
+    config: WorkflowConfig,
+    position: InputPosition,
+    move: str | None,
+) -> LegalValidationResult:
+    if move is None:
+        return LegalValidationResult(valid=None, source="not-run", legal_moves=[])
+    if position.board_text is None:
+        return LegalValidationResult(
+            valid=None,
+            source="unavailable",
+            legal_moves=[],
+        )
+    if config.legal_validator is None:
+        return LegalValidationResult(
+            valid=None,
+            source="unavailable",
+            legal_moves=[],
+            error="legal validator is not configured",
+        )
+
+    command = [str(config.legal_validator), "--stdin", "--move", move]
+    try:
+        completed = subprocess.run(
+            command,
+            input=position.board_text,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as exc:
+        return LegalValidationResult(
+            valid=None,
+            source=str(config.legal_validator),
+            legal_moves=[],
+            error=f"failed to run legal validator: {exc}",
+            command=command,
+        )
+
+    valid, legal_moves, output_error = _parse_validator_output(completed.stdout)
+    if valid is None:
+        return LegalValidationResult(
+            valid=None,
+            source=str(config.legal_validator),
+            legal_moves=legal_moves,
+            error="legal validator produced no parseable result",
+            command=command,
+            exit_code=completed.returncode,
+            stdout=completed.stdout,
+            stderr=completed.stderr,
+        )
+    return LegalValidationResult(
+        valid=valid,
+        source=str(config.legal_validator),
+        legal_moves=legal_moves,
+        error=output_error,
+        command=command,
+        exit_code=completed.returncode,
+        stdout=completed.stdout,
+        stderr=completed.stderr,
     )
 
 
@@ -538,6 +669,27 @@ def _result_error(result: EngineMoveResult) -> str | None:
     return None
 
 
+def _row_error(result: EngineMoveResult, validation: LegalValidationResult) -> str | None:
+    result_error = _result_error(result)
+    if result_error is not None:
+        return result_error
+    if validation.valid is False:
+        return validation.error or "illegal move according to rule-core validator"
+    if validation.valid is None and validation.error is not None:
+        return validation.error
+    return None
+
+
+def _row_status(result: EngineMoveResult, validation: LegalValidationResult) -> str:
+    if result.move is None or result.exit_code != 0 or result.timed_out:
+        return "failed"
+    if validation.valid is False:
+        return "failed"
+    if validation.valid is None and validation.error is not None:
+        return "failed"
+    return "ok"
+
+
 def write_position_log(
     path: Path,
     *,
@@ -547,6 +699,8 @@ def write_position_log(
     external_input_format: str,
     status: str,
     result: EngineMoveResult | None = None,
+    normalized_move: str | None = None,
+    validation: LegalValidationResult | None = None,
     error: str | None = None,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -575,13 +729,26 @@ def write_position_log(
     if result is not None:
         lines.extend(
             [
-                f"move: {result.move if result.move is not None else '-'}",
+                f"engine_move: {result.move if result.move is not None else '-'}",
+                f"move: {normalized_move if normalized_move is not None else result.move if result.move is not None else '-'}",
                 f"elapsed_ms: {result.elapsed_ms:.2f}",
                 f"exit_code: {result.exit_code}",
                 f"timed_out: {'true' if result.timed_out else 'false'}",
                 f"result_error: {_result_error(result) or '-'}",
             ]
         )
+    if validation is not None:
+        lines.extend(
+            [
+                f"legal_move_valid: {validation.valid if validation.valid is not None else 'null'}",
+                f"legal_validation_source: {validation.source}",
+                f"legal_validation_exit_code: {validation.exit_code if validation.exit_code is not None else 'n/a'}",
+                f"legal_validation_error: {validation.error or '-'}",
+                f"legal_moves: {' '.join(validation.legal_moves) if validation.legal_moves else '-'}",
+            ]
+        )
+        if validation.command:
+            lines.append(f"legal_validation_command: {quote_command(validation.command)}")
     lines.extend(
         [
             "",
@@ -596,6 +763,17 @@ def write_position_log(
             "",
         ]
     )
+    if validation is not None:
+        lines.extend(
+            [
+                "legal_validation_stdout:",
+                validation.stdout,
+                "",
+                "legal_validation_stderr:",
+                validation.stderr,
+                "",
+            ]
+        )
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
@@ -614,6 +792,12 @@ def dry_run_row(
         external_input_text=external_input_text,
         external_input_format=external_input_format,
         status="skipped",
+        validation=LegalValidationResult(
+            valid=None,
+            source=str(config.legal_validator) if config.legal_validator is not None else "unavailable",
+            legal_moves=[],
+            error="dry-run",
+        ),
         error="dry-run",
     )
     return base_row(
@@ -626,6 +810,12 @@ def dry_run_row(
         status="skipped",
         move=None,
         move_token_valid=None,
+        validation=LegalValidationResult(
+            valid=None,
+            source=str(config.legal_validator) if config.legal_validator is not None else "unavailable",
+            legal_moves=[],
+            error="dry-run",
+        ),
         elapsed_ms=None,
         exit_code=None,
         timed_out=False,
@@ -644,6 +834,8 @@ def base_row(
     status: str,
     move: str | None,
     move_token_valid: bool | None,
+    validation: LegalValidationResult,
+    engine_move: str | None = None,
     elapsed_ms: float | None,
     exit_code: int | None,
     timed_out: bool,
@@ -661,9 +853,12 @@ def base_row(
         "timeout_ms": config.timeout_ms,
         "status": status,
         "move": move,
+        "engine_move": engine_move,
         "move_token_valid": move_token_valid,
-        "legal_move_valid": None,
-        "legal_validation_source": "unavailable",
+        "legal_move_valid": validation.valid,
+        "legal_validation_source": validation.source,
+        "legal_validation_error": validation.error,
+        "legal_moves": validation.legal_moves,
         "elapsed_ms": elapsed_ms,
         "exit_code": exit_code,
         "timed_out": timed_out,
@@ -704,6 +899,7 @@ def run_position(
         result = request_engine_move(config, external_input_text)
     except ExternalEngineError as exc:
         error = str(exc)
+        validation = LegalValidationResult(valid=None, source="not-run", legal_moves=[])
         write_position_log(
             log_path,
             config=config,
@@ -711,6 +907,7 @@ def run_position(
             external_input_text=external_input_text,
             external_input_format=external_input_format,
             status="failed",
+            validation=validation,
             error=error,
         )
         return base_row(
@@ -723,14 +920,22 @@ def run_position(
             status="failed",
             move=None,
             move_token_valid=None,
+            validation=validation,
             elapsed_ms=None,
             exit_code=None,
             timed_out=False,
             error=error,
         )
 
-    status = "ok" if result.move is not None and result.exit_code == 0 and not result.timed_out else "failed"
-    error = _result_error(result)
+    normalized_move = normalize_adapter_move_for_position(
+        config,
+        position,
+        external_input_format,
+        result.move,
+    )
+    validation = validate_legal_move(config, position, normalized_move)
+    status = _row_status(result, validation)
+    error = _row_error(result, validation)
     write_position_log(
         log_path,
         config=config,
@@ -739,6 +944,8 @@ def run_position(
         external_input_format=external_input_format,
         status=status,
         result=result,
+        normalized_move=normalized_move,
+        validation=validation,
         error=error,
     )
     return base_row(
@@ -749,8 +956,10 @@ def run_position(
         external_input_text,
         external_input_format,
         status=status,
-        move=result.move,
+        move=normalized_move,
         move_token_valid=_move_token_valid(result),
+        validation=validation,
+        engine_move=result.move if result.move != normalized_move else None,
         elapsed_ms=result.elapsed_ms,
         exit_code=result.exit_code,
         timed_out=result.timed_out,
@@ -772,6 +981,13 @@ def summarize_rows(
         skipped=sum(1 for row in rows if row["status"] == "skipped") + limit_skipped,
         timed_out=sum(1 for row in rows if row["timed_out"]),
         invalid_move_token=sum(1 for row in rows if row["move_token_valid"] is False),
+        illegal_move=sum(1 for row in rows if row["legal_move_valid"] is False),
+        legal_validation_failed=sum(
+            1
+            for row in rows
+            if row["legal_move_valid"] is None
+            and row["legal_validation_error"] not in (None, "dry-run")
+        ),
         limit_skipped=limit_skipped,
     )
 
@@ -815,6 +1031,7 @@ def render_report(config: WorkflowConfig, metadata: Metadata, summary: RunSummar
         f"- timeout_ms: `{config.timeout_ms}`",
         f"- workdir: `{config.workdir if config.workdir is not None else 'n/a'}`",
         f"- input_format: `{config.input_format}`",
+        f"- legal_validator: `{config.legal_validator if config.legal_validator is not None else 'n/a'}`",
         f"- command_template: `{command}`",
         "",
         "## Counts",
@@ -826,6 +1043,8 @@ def render_report(config: WorkflowConfig, metadata: Metadata, summary: RunSummar
         f"- skipped: `{summary.skipped}`",
         f"- timed_out: `{summary.timed_out}`",
         f"- invalid_move_token: `{summary.invalid_move_token}`",
+        f"- illegal_move: `{summary.illegal_move}`",
+        f"- legal_validation_failed: `{summary.legal_validation_failed}`",
     ]
     if summary.limit_skipped:
         lines.append(f"- skipped_by_limit: `{summary.limit_skipped}`")
@@ -842,7 +1061,8 @@ def render_report(config: WorkflowConfig, metadata: Metadata, summary: RunSummar
             "## Caveats",
             "",
             "- Teacher labels are reference-engine evidence only, not exact truth.",
-            "- Legal-move validation is unavailable in this Python workflow; `legal_move_valid` is `null`.",
+            "- 9-line board labels are validated with the configured C++ rule-core validator.",
+            "- Raw external-input labels cannot be legally validated unless a board9 position is also available.",
             "- Move-token validation only checks adapter-level parseability such as `a1` through `h8` or `pass`.",
             "- Real NTest is optional; fake-engine tests cover CI process handling and parser behavior.",
             "- Generated labels are local artifacts and should not be committed.",

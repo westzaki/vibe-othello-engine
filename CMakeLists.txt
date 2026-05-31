@@ -266,6 +266,35 @@ othello_add_help_contains_test(
     "--seed"
 )
 
+othello_add_help_contains_test(
+    othello_validate_move_help_includes_move
+    othello_validate_move
+    "--move"
+)
+
+othello_add_tool_smoke_test(
+    othello_validate_move_accepts_legal_move
+    othello_validate_move
+    --board-file
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/scripts/fixtures/pr115_divergence_board.txt"
+    --move
+    a1
+)
+set_tests_properties(
+    othello_validate_move_accepts_legal_move
+    PROPERTIES PASS_REGULAR_EXPRESSION "legal_move_valid=true"
+)
+
+othello_add_expect_failure_test(
+    othello_validate_move_rejects_illegal_move
+    othello_validate_move
+    "legal_move_valid=false"
+    --board-file
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/scripts/fixtures/pr115_divergence_board.txt"
+    --move
+    h8
+)
+
 othello_add_tool_smoke_test(
     othello_position_sampler_smoke
     othello_position_sampler

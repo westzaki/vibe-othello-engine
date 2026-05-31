@@ -378,6 +378,7 @@ python3 tools/scripts/external_teacher_label_workflow.py \
   --timeout-ms 10000 \
   --workdir /path/to/ntest/build \
   --engine-name ntest6 \
+  --legal-validator build/othello_validate_move \
   --engine-cmd -- /path/to/ntest/build/ntest x
 ```
 
@@ -387,11 +388,13 @@ default depth 26, or pass an explicit stronger depth for real teacher evidence;
 the depth 6 command above is only a quick smoke example.
 
 Teacher labels are reference-engine evidence, not exact truth, Elo, or a
-default-promotion recommendation. The Python workflow does not perform legal
-move validation, so rows record `legal_move_valid: null` with
-`legal_validation_source: unavailable`. Keep generated labels and raw logs under
-`runs/`; do not commit them, and never commit external engine binaries or local
-engine paths.
+default-promotion recommendation. For 9-line board inputs, the workflow
+validates the returned move with the C++ rule-core `othello_validate_move` tool
+and records `legal_move_valid`, `legal_validation_source`, and `legal_moves`;
+illegal moves are recorded as failed rows. Raw external-input text cannot be
+legally validated unless a board9 position is also available. Keep generated
+labels and raw logs under `runs/`; do not commit them, and never commit external
+engine binaries or local engine paths.
 
 Probe the canonical external engine adapter CLI with the fake engine:
 
