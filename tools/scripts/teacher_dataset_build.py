@@ -26,6 +26,8 @@ DEFAULT_SPLIT_RATIOS = (70, 15, 15)
 DEFAULT_SPLIT_SEED = 20260601
 DEFAULT_SHARD_SIZE = 1000
 DEFAULT_EXACT_MAX_EMPTIES = 14
+DEFAULT_LABEL_JOBS = 1
+DEFAULT_POSITION_LOG_MODE = "all"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -69,6 +71,10 @@ class BuildConfig:
     teacher_protocol: str
     teacher_depth: int | None
     teacher_timeout_ms: int
+    label_jobs: int
+    position_log_mode: str
+    teacher_workdir: str | None
+    teacher_env: dict[str, str]
     teacher_engine_name: str | None
     teacher_engine_cmd: list[str]
     legal_validator: Path | None
@@ -144,6 +150,16 @@ def _split_teacher_engine_args(values: list[str]) -> tuple[list[str], list[str]]
     return builder_args, engine_args[1:]
 
 
+def _parse_teacher_env(values: list[str]) -> dict[str, str]:
+    environment: dict[str, str] = {}
+    for value in values:
+        key, separator, env_value = value.partition("=")
+        if not separator or key == "":
+            raise ScriptError(f"--teacher-env must be KEY=VALUE, got: {value}")
+        environment[key] = env_value
+    return environment
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     values = list(sys.argv[1:] if argv is None else argv)
     builder_args, teacher_engine_cmd = _split_teacher_engine_args(values)
@@ -198,6 +214,26 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--teacher-depth", type=parse_positive_int)
     parser.add_argument("--teacher-timeout-ms", type=parse_positive_int, default=1000)
+    parser.add_argument(
+        "--label-jobs",
+        type=parse_positive_int,
+        default=DEFAULT_LABEL_JOBS,
+        help="maximum concurrent teacher-label requests per shard (default: 1)",
+    )
+    parser.add_argument(
+        "--position-log-mode",
+        choices=teacher_workflow.POSITION_LOG_MODES,
+        default=DEFAULT_POSITION_LOG_MODE,
+        help="per-position teacher log policy: all, failures, or none (default: all)",
+    )
+    parser.add_argument("--teacher-workdir", help="working directory for the teacher engine process")
+    parser.add_argument(
+        "--teacher-env",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="environment override for the teacher engine process; repeatable",
+    )
     parser.add_argument("--teacher-engine-name")
     parser.add_argument("--legal-validator", help="C++ move validator path")
     parser.add_argument("--build-exact-overlap", action="store_true")
@@ -225,6 +261,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             raise ScriptError("--teacher-depth is only valid with --teacher-adapter ntest --teacher-protocol nboard")
         if args.teacher_protocol == "nboard" and args.teacher_depth is None:
             args.teacher_depth = 26
+    args.teacher_env_overrides = _parse_teacher_env(args.teacher_env)
     return args
 
 
@@ -292,6 +329,10 @@ def config_from_args(args: argparse.Namespace, invocation: list[str] | None = No
         teacher_protocol=args.teacher_protocol,
         teacher_depth=args.teacher_depth,
         teacher_timeout_ms=args.teacher_timeout_ms,
+        label_jobs=args.label_jobs,
+        position_log_mode=args.position_log_mode,
+        teacher_workdir=args.teacher_workdir,
+        teacher_env=args.teacher_env_overrides,
         teacher_engine_name=args.teacher_engine_name,
         teacher_engine_cmd=list(args.teacher_engine_cmd),
         legal_validator=Path(args.legal_validator) if args.legal_validator else None,
@@ -554,13 +595,17 @@ def _teacher_workflow_config(
         protocol=config.teacher_protocol,
         depth=config.teacher_depth,
         timeout_ms=config.teacher_timeout_ms,
-        workdir=None,
-        env={},
+        workdir=config.teacher_workdir,
+        env=dict(config.teacher_env),
         engine_command=config.teacher_engine_cmd,
         legal_validator=config.legal_validator,
         dry_run=config.dry_run,
         allow_failures=True,
-        invocation=config.invocation,
+        jobs=config.label_jobs,
+        position_log_mode=config.position_log_mode,
+        invocation=redact_command(config.invocation),
+        report_workdir=redact_token(config.teacher_workdir) if config.teacher_workdir else None,
+        report_engine_command=redact_command(config.teacher_engine_cmd),
     )
 
 
@@ -642,6 +687,10 @@ def run_teacher_labels(config: BuildConfig, records: list[PositionRecord]) -> tu
         "protocol": config.teacher_protocol,
         "depth": config.teacher_depth,
         "timeout_ms": config.teacher_timeout_ms,
+        "label_jobs": config.label_jobs,
+        "position_log_mode": config.position_log_mode,
+        "teacher_workdir": redact_token(config.teacher_workdir) if config.teacher_workdir else None,
+        "teacher_env_keys": sorted(config.teacher_env),
         "command": redact_command(config.teacher_engine_cmd),
         "shard_count": len(label_paths),
         "resume": config.resume,
@@ -765,14 +814,40 @@ def sha256_file(path: Path) -> str:
 
 
 def redact_token(token: str) -> str:
+    if token.startswith("--") and "=" in token:
+        key, _, value = token.partition("=")
+        return f"{key}={redact_token(value)}"
     path = Path(token)
     if path.is_absolute():
         return f"<absolute-path:{path.name}>"
     return token
 
 
+def redact_env_assignment(token: str) -> str:
+    key, separator, _ = token.partition("=")
+    if not separator or not key:
+        return "<env>"
+    return f"{key}=<redacted>"
+
+
 def redact_command(command: list[str]) -> list[str]:
-    return [redact_token(part) for part in command]
+    redacted: list[str] = []
+    redact_next_env = False
+    for part in command:
+        if redact_next_env:
+            redacted.append(redact_env_assignment(part))
+            redact_next_env = False
+            continue
+        if part == "--teacher-env":
+            redacted.append(part)
+            redact_next_env = True
+            continue
+        if part.startswith("--teacher-env="):
+            flag, _, value = part.partition("=")
+            redacted.append(f"{flag}={redact_env_assignment(value)}")
+            continue
+        redacted.append(redact_token(part))
+    return redacted
 
 
 def sanitized_invocation(invocation: list[str]) -> str:
@@ -917,6 +992,10 @@ def write_manifest(
             "protocol": config.teacher_protocol,
             "depth": config.teacher_depth,
             "timeout_ms": config.teacher_timeout_ms,
+            "label_jobs": config.label_jobs,
+            "position_log_mode": config.position_log_mode,
+            "teacher_workdir": redact_token(config.teacher_workdir) if config.teacher_workdir else None,
+            "teacher_env_keys": sorted(config.teacher_env),
             "command": redact_command(config.teacher_engine_cmd),
             "legal_validator": redact_token(str(config.legal_validator)) if config.legal_validator else None,
         },
@@ -994,6 +1073,10 @@ def write_dataset_card(config: BuildConfig, records: list[PositionRecord], summa
             f"- protocol: `{config.teacher_protocol}`",
             f"- depth: `{config.teacher_depth if config.teacher_depth is not None else 'n/a'}`",
             f"- timeout_ms: `{config.teacher_timeout_ms}`",
+            f"- label_jobs: `{config.label_jobs}`",
+            f"- position_log_mode: `{config.position_log_mode}`",
+            f"- teacher_workdir: `{redact_token(config.teacher_workdir) if config.teacher_workdir else 'n/a'}`",
+            f"- teacher_env_keys: `{', '.join(sorted(config.teacher_env)) if config.teacher_env else 'n/a'}`",
             f"- command: `{quote_command(redact_command(config.teacher_engine_cmd)) if config.teacher_engine_cmd else 'n/a'}`",
             "",
             "## Legal Validation Summary",
