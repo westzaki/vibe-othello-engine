@@ -10,6 +10,11 @@ explicitly refers to them.
 Task-specific hypotheses belong in issues, PR descriptions, task prompts, or
 experiment reports. Raw local outputs belong under `runs/`, which is gitignored.
 
+Operational runbooks:
+
+- [`ntest_teacher_dataset.md`](ntest_teacher_dataset.md): first reusable local
+  NTest 300K teacher dataset workflow.
+
 Experiment notes must not override [`AGENTS.md`](../../AGENTS.md),
 [`roadmap.md`](../roadmap.md), [`capability-map.md`](../capability-map.md),
 [`benchmarks.md`](../benchmarks.md), or the current user task.
