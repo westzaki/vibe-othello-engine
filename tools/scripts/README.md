@@ -396,6 +396,12 @@ legally validated unless a board9 position is also available. Keep generated
 labels and raw logs under `runs/`; do not commit them, and never commit external
 engine binaries or local engine paths.
 
+Reusable teacher/exact datasets should be copied out of worktree-local `runs/`
+into a shared dataset root. Scripts that support shared artifacts accept
+`dataset:...` references and resolve the root from `--dataset-root`,
+`VIBE_OTHELLO_DATASET_ROOT`, or ignored `config/datasets.local.toml`; see
+`docs/datasets/README.md`.
+
 Probe the canonical external engine adapter CLI with the fake engine:
 
 ```sh

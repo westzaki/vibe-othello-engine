@@ -13,7 +13,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from common import ScriptError, parse_csv_paths, quote_command
+from common import ScriptError, parse_csv_values, quote_command
+from dataset_paths import resolve_path_references
 
 
 CORNER_2X3_SPECS = (
@@ -103,6 +104,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         description="Generate a sparse pattern table from teacher-vs-evaluator residuals."
     )
     parser.add_argument("--teacher-labels", required=True, help="comma-separated teacher JSONL")
+    parser.add_argument(
+        "--dataset-root",
+        help="shared dataset root for dataset: references; overrides VIBE_OTHELLO_DATASET_ROOT",
+    )
     parser.add_argument("--eval-config", required=True, help="residual baseline .eval config")
     parser.add_argument("--analyze-position", default="build/othello_analyze_position")
     parser.add_argument("--out", required=True, help="output pattern table TSV")
@@ -149,6 +154,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--empty-min", type=int, help="minimum root empty count to include")
     parser.add_argument("--empty-max", type=int, help="maximum root empty count to include")
     return parser.parse_args(argv)
+
+
+def parse_label_paths(value: str, *, dataset_root: str | None = None) -> list[Path]:
+    return resolve_path_references(
+        parse_csv_values(value, error_label="label path list"),
+        explicit_root=dataset_root,
+    )
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -498,8 +510,12 @@ def render_table(
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    teacher_paths = parse_csv_paths(args.teacher_labels)
-    exact_best = load_exact_best(parse_csv_paths(args.exact_labels)) if args.exact_labels else {}
+    teacher_paths = parse_label_paths(args.teacher_labels, dataset_root=args.dataset_root)
+    exact_best = (
+        load_exact_best(parse_label_paths(args.exact_labels, dataset_root=args.dataset_root))
+        if args.exact_labels
+        else {}
+    )
     split_ratios = parse_split_ratios(args.split_ratios)
     families = parse_families(args.families)
     if args.empty_min is not None and args.empty_max is not None and args.empty_min > args.empty_max:

@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from common import ScriptError, quote_command, read_jsonl
+from dataset_paths import resolve_path_references
 from eval_config_tuner import sha256_file
 
 
@@ -79,6 +80,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--teacher-labels", nargs="+", required=True)
     parser.add_argument("--exact-labels", nargs="*", default=[])
+    parser.add_argument(
+        "--dataset-root",
+        help="shared dataset root for dataset: references; overrides VIBE_OTHELLO_DATASET_ROOT",
+    )
     parser.add_argument("--config", action="append", type=parse_target, required=True)
     parser.add_argument("--out", required=True, help="output directory, normally under runs/")
     parser.add_argument("--build-dir", default="build")
@@ -94,8 +99,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def config_from_args(args: argparse.Namespace, invocation: list[str] | None = None) -> MiningConfig:
     build_dir = Path(args.build_dir)
     return MiningConfig(
-        teacher_labels=tuple(Path(path) for path in args.teacher_labels),
-        exact_labels=tuple(Path(path) for path in args.exact_labels),
+        teacher_labels=tuple(
+            resolve_path_references(args.teacher_labels, explicit_root=args.dataset_root)
+        ),
+        exact_labels=tuple(
+            resolve_path_references(args.exact_labels, explicit_root=args.dataset_root)
+        ),
         targets=tuple(args.config),
         out_dir=Path(args.out),
         build_dir=build_dir,

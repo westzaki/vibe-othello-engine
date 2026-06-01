@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import unittest
 import argparse
+import tempfile
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parents[1]
@@ -72,6 +73,36 @@ class TeacherLabelMistakeMiningTests(unittest.TestCase):
         self.assertEqual(target.path, Path("data/eval/classic_othello_v1.eval"))
         with self.assertRaises(argparse.ArgumentTypeError):
             mining.parse_target("missing")
+
+    def test_config_from_args_resolves_dataset_label_references(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "datasets"
+            root.mkdir()
+            args = mining.parse_args(
+                [
+                    "--teacher-labels",
+                    "dataset:teacher/labels.jsonl",
+                    "--exact-labels",
+                    "dataset:exact/labels.jsonl",
+                    "--dataset-root",
+                    str(root),
+                    "--config",
+                    "classic=data/eval/classic_othello_v1.eval",
+                    "--out",
+                    "runs/mistakes",
+                ]
+            )
+
+            config = mining.config_from_args(args)
+
+        self.assertEqual(
+            config.teacher_labels,
+            ((root / "teacher" / "labels.jsonl").resolve(strict=False),),
+        )
+        self.assertEqual(
+            config.exact_labels,
+            ((root / "exact" / "labels.jsonl").resolve(strict=False),),
+        )
 
 
 if __name__ == "__main__":

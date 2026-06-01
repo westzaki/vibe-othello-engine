@@ -1,0 +1,14 @@
+# Copy this file to config/datasets.local.toml and edit local paths.
+# Do not commit config/datasets.local.toml.
+
+[datasets]
+root = "/path/to/vibe-othello-datasets"
+
+[teacher.ntest_depth26_2027]
+description = "Validated NTest depth-26 teacher labels from classic-pattern-v0 experiments."
+dataset_id = "ntest-depth26-2027"
+path = "teacher/ntest-depth26-2027"
+manifest = "manifest.json"
+positions = "positions/positions.jsonl"
+labels = "labels/merged.jsonl"
+exact_overlap = "exact-overlap/labels.jsonl"
