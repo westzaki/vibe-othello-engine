@@ -321,6 +321,14 @@ TEST_CASE("Sample eval configs round-trip to expected evaluator configs", "[eval
     CHECK(pattern_copy == pattern.config);
     CHECK(pattern_copy.pattern_tables == pattern.config.pattern_tables);
 
+    const othello::tools::EvaluationConfigLoadResult pattern_reloaded =
+        othello::tools::load_evaluation_config_file(
+            sample_eval_config_path("pattern_teacher_v0.eval"));
+    REQUIRE(pattern_reloaded.ok());
+    REQUIRE(pattern_reloaded.config.pattern_tables != nullptr);
+    CHECK(pattern_reloaded.config.pattern_tables != pattern.config.pattern_tables);
+    CHECK(pattern_reloaded.config == pattern.config);
+
     const othello::tools::EvaluationConfigLoadResult reboot =
         othello::tools::load_evaluation_config_file(
             sample_eval_config_path("pattern_reboot_v0.eval"));
