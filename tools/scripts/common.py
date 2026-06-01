@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shlex
 import subprocess
@@ -107,6 +108,17 @@ def write_report_section(lines: list[str], heading: str, body: str | Sequence[st
 
 def quote_command(command: Sequence[str]) -> str:
     return " ".join(shlex.quote(part) for part in command)
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    try:
+        with path.open("rb") as input_file:
+            for chunk in iter(lambda: input_file.read(65536), b""):
+                digest.update(chunk)
+    except OSError as exc:
+        raise ScriptError(f"failed to read file for SHA256: {path}: {exc}") from exc
+    return digest.hexdigest()
 
 
 def run_command(command: Sequence[str]) -> int:
