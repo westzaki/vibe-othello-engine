@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run staged evaluator-preset experiment matrices.
+"""Run staged .eval config experiment matrices.
 
 This script orchestrates existing C++ binaries and summarizes their output. It
 does not implement Othello rules or make strength claims.
@@ -19,7 +19,6 @@ from common import (
     ScriptError,
     parse_bool,
     parse_csv_paths as common_parse_csv_paths,
-    parse_csv_values,
     quote_command,
     slugify,
     write_report_section,
@@ -40,21 +39,23 @@ class EvalTarget:
 
     @property
     def slug(self) -> str:
-        return slugify(self.label, fallback="preset")
+        return slugify(self.label, fallback="evaluator")
 
     @property
-    def search_option(self) -> str:
-        return "--eval-config" if self.kind == "config" else "--eval-preset"
+    def search_args(self) -> list[str]:
+        if self.kind == "config":
+            return ["--eval-config", self.value]
+        return []
 
     @property
-    def player_option(self) -> str:
-        return "eval_config" if self.kind == "config" else "eval"
+    def player_suffix(self) -> str:
+        if self.kind == "config":
+            return f",eval_config={self.value}"
+        return ""
 
 
 @dataclass(frozen=True)
 class EvalExperimentConfig:
-    presets: list[str]
-    reference_preset: str
     small_depths: list[int]
     extended_depths: list[int]
     small_games: int
@@ -83,18 +84,14 @@ class EvalExperimentConfig:
     ntest_openings: Path | None = None
 
     @property
-    def preset_targets(self) -> list[EvalTarget]:
-        return [EvalTarget(kind="preset", value=preset, label=preset) for preset in self.presets]
-
-    @property
     def eval_targets(self) -> list[EvalTarget]:
-        return [*self.preset_targets, *self.configs]
+        return self.configs
 
     @property
     def reference_target(self) -> EvalTarget:
         if self.reference_config is not None:
             return self.reference_config
-        return EvalTarget(kind="preset", value=self.reference_preset, label=self.reference_preset)
+        return EvalTarget(kind="default", value="", label="built-in default")
 
     @property
     def candidate_targets(self) -> list[EvalTarget]:
@@ -106,7 +103,7 @@ class EvalExperimentConfig:
         ]
 
     @property
-    def candidate_presets(self) -> list[str]:
+    def candidate_labels(self) -> list[str]:
         return [target.label for target in self.candidate_targets]
 
     @property
@@ -171,10 +168,6 @@ class CandidateDecision:
     depth_avg_diffs: dict[int, float] = field(default_factory=dict)
 
 
-def parse_csv_names(value: str) -> list[str]:
-    return parse_csv_values(value, error_label="preset list")
-
-
 def parse_csv_paths(value: str) -> list[Path]:
     return common_parse_csv_paths(value, error_label="config list")
 
@@ -197,13 +190,9 @@ def config_target(path: Path) -> EvalTarget:
     return EvalTarget(kind="config", value=str(path), label=eval_config_label(path))
 
 
-def eval_target(value: EvalTarget | str) -> EvalTarget:
-    if isinstance(value, EvalTarget):
-        return value
-    return EvalTarget(kind="preset", value=value, label=value)
-
-
 def target_display(target: EvalTarget) -> str:
+    if target.kind == "default":
+        return f"default ({target.label})"
     return f"{target.kind}:{target.value} ({target.label})"
 
 
@@ -295,8 +284,7 @@ def detect_build_type(build_dir: Path) -> str:
     return "unknown"
 
 
-def build_search_bench_command(config: EvalExperimentConfig, preset: EvalTarget | str) -> list[str]:
-    target = eval_target(preset)
+def build_search_bench_command(config: EvalExperimentConfig, target: EvalTarget) -> list[str]:
     command = [
         str(config.search_bench),
         "--mode",
@@ -313,8 +301,7 @@ def build_search_bench_command(config: EvalExperimentConfig, preset: EvalTarget 
         "on",
         "--aspiration",
         "on",
-        target.search_option,
-        target.value,
+        *target.search_args,
         "--exact-endgame-threshold",
         str(config.exact_endgame_threshold),
     ]
@@ -323,19 +310,18 @@ def build_search_bench_command(config: EvalExperimentConfig, preset: EvalTarget 
     return command
 
 
-def search_output_path(config: EvalExperimentConfig, preset: EvalTarget | str) -> Path:
-    return config.out_dir / "search" / f"{eval_target(preset).slug}.txt"
+def search_output_path(config: EvalExperimentConfig, target: EvalTarget) -> Path:
+    return config.out_dir / "search" / f"{target.slug}.txt"
 
 
 def build_match_command(
     config: EvalExperimentConfig,
-    preset: EvalTarget | str,
+    target: EvalTarget,
     depth: int,
     *,
     stage: str = "small",
     games: int | None = None,
 ) -> MatchRun:
-    target = eval_target(preset)
     reference = config.reference_target
     match_games = config.small_games if games is None else games
     output_path = (
@@ -347,9 +333,9 @@ def build_match_command(
     command = [
         str(config.match_runner),
         "--black",
-        f"search:depth={depth},tt=on,pvs=on,exact=off,{target.player_option}={target.value}",
+        f"search:depth={depth},tt=on,pvs=on,exact=off{target.player_suffix}",
         "--white",
-        f"search:depth={depth},tt=on,pvs=on,exact=off,{reference.player_option}={reference.value}",
+        f"search:depth={depth},tt=on,pvs=on,exact=off{reference.player_suffix}",
         "--games",
         str(match_games),
         "--swap-sides",
@@ -373,8 +359,7 @@ def build_match_command(
     )
 
 
-def build_ntest_command(config: EvalExperimentConfig, preset: EvalTarget | str) -> NTestRun:
-    target = eval_target(preset)
+def build_ntest_command(config: EvalExperimentConfig, target: EvalTarget) -> NTestRun:
     if config.ntest_engine is None:
         raise ScriptError("ntest engine is not configured")
     if config.engines is None:
@@ -390,7 +375,7 @@ def build_ntest_command(config: EvalExperimentConfig, preset: EvalTarget | str) 
     command = [
         str(config.match_runner),
         "--black",
-        f"search:depth={depth},tt=on,pvs=on,exact=off,{target.player_option}={target.value}",
+        f"search:depth={depth},tt=on,pvs=on,exact=off{target.player_suffix}",
         "--white",
         f"external:{config.ntest_engine}",
         "--games",
@@ -679,7 +664,7 @@ def select_ntest_targets(
     targets: list[EvalTarget] = [config.reference_target]
     targets_by_label = {target.label: target for target in config.candidate_targets}
     promoted = [decision.preset for decision in decisions if decision.promoted_to_extended]
-    fallback = config.candidate_presets[: config.promote_top] if config.promote_top > 0 else []
+    fallback = config.candidate_labels[: config.promote_top] if config.promote_top > 0 else []
     for label in promoted or fallback:
         target = targets_by_label.get(label)
         if target is not None and target not in targets:
@@ -701,7 +686,7 @@ def _md(value: object) -> str:
 
 def render_match_table(runs: list[MatchRun]) -> str:
     lines = [
-        "| preset | stage | depth | games | wins | losses | draws | avg diff | errors | node ratio | time ratio | JSONL |",
+        "| evaluator | stage | depth | games | wins | losses | draws | avg diff | errors | node ratio | time ratio | JSONL |",
         "| :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | :--- |",
     ]
     if not runs:
@@ -740,7 +725,7 @@ def render_match_table(runs: list[MatchRun]) -> str:
 
 def render_promotion_table(decisions: list[CandidateDecision]) -> str:
     lines = [
-        "| preset | status | promoted | games | W-L-D | avg diff | errors | node ratio | time ratio | reasons |",
+        "| evaluator | status | promoted | games | W-L-D | avg diff | errors | node ratio | time ratio | reasons |",
         "| :--- | :--- | :---: | ---: | :--- | ---: | ---: | ---: | ---: | :--- |",
     ]
     if not decisions:
@@ -771,7 +756,7 @@ def render_promotion_table(decisions: list[CandidateDecision]) -> str:
 
 def render_ntest_table(ntest_runs: list[NTestRun]) -> str:
     lines = [
-        "| preset | depth | games | wins | losses | draws | avg diff | errors | error | JSONL |",
+        "| evaluator | depth | games | wins | losses | draws | avg diff | errors | error | JSONL |",
         "| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | :--- | :--- |",
     ]
     if not ntest_runs:
@@ -804,7 +789,7 @@ def ntest_issue_runs(ntest_runs: list[NTestRun]) -> list[NTestRun]:
 
 def render_search_table(search_runs: list[SearchBenchRun], *, dry_run: bool) -> str:
     lines = [
-        "| preset | status | output |",
+        "| evaluator | status | output |",
         "| :--- | :--- | :--- |",
     ]
     if not search_runs:
@@ -855,7 +840,7 @@ def render_report(
     lines = [
         "# Evaluation Experiment Matrix",
         "",
-        "Status: dry run." if dry_run else "Status: local evaluator preset experiment.",
+        "Status: dry run." if dry_run else "Status: local evaluator config experiment.",
         "",
         "No strength claim. This report supports reproducible comparison and triage only.",
         "",
@@ -866,10 +851,8 @@ def render_report(
         f"- Git SHA: `{git.sha}`",
         f"- Build dir: `{config.build_dir}`",
         f"- Build type: `{detect_build_type(config.build_dir)}`",
-        f"- Candidate presets: `{','.join(config.presets)}`",
-        f"- Reference preset: `{config.reference_preset}`",
         f"- Candidate configs: `{','.join(config_labels) if config_labels else 'none'}`",
-        f"- Reference config: `{config.reference_config.label if config.reference_config else 'none'}`",
+        f"- Reference config: `{config.reference_config.label if config.reference_config else 'built-in default'}`",
         f"- Candidate evaluators: `{','.join(candidate_labels)}`",
         f"- Reference evaluator: `{config.reference_target.label}`",
         f"- Search depths: `{','.join(str(depth) for depth in config.search_depths)}`",
@@ -1056,7 +1039,7 @@ def run_matrix(config: EvalExperimentConfig, *, dry_run: bool) -> int:
             small_runs.append(run if dry_run else _execute_match_run(run))
 
     if dry_run:
-        selected_for_extended = config.candidate_presets[: config.promote_top]
+        selected_for_extended = config.candidate_labels[: config.promote_top]
         decisions = [
             CandidateDecision(
                 preset=preset,
@@ -1064,10 +1047,10 @@ def run_matrix(config: EvalExperimentConfig, *, dry_run: bool) -> int:
                 promoted_to_extended=preset in selected_for_extended,
                 reasons=["dry run"],
             )
-            for preset in config.candidate_presets
+            for preset in config.candidate_labels
         ]
     else:
-        decisions = decide_promotions(config.candidate_presets, small_runs, search_runs, config)
+        decisions = decide_promotions(config.candidate_labels, small_runs, search_runs, config)
         selected_for_extended = [decision.preset for decision in decisions if decision.promoted_to_extended]
 
     extended_runs: list[MatchRun] = []
@@ -1139,15 +1122,9 @@ def _positive_float(value: str) -> float:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run staged evaluator preset search and match experiments."
+        description="Run staged .eval config search and match experiments."
     )
-    parser.add_argument("--presets", default="", help="comma-separated evaluator preset names")
     parser.add_argument("--configs", default="", help="comma-separated .eval config paths")
-    parser.add_argument(
-        "--reference-preset",
-        default="default",
-        help="opponent preset for candidate matches (default: default)",
-    )
     parser.add_argument("--reference-config", help="opponent .eval config path")
     parser.add_argument(
         "--depths",
@@ -1223,7 +1200,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--smoke-run",
         action="store_true",
-        help="limit to the first two presets, first small depth, and at most six small games",
+        help="limit to the first two configs, first small depth, and at most six small games",
     )
     parser.add_argument("--dry-run", action="store_true", help="write commands/report only")
     return parser.parse_args(argv)
@@ -1237,12 +1214,11 @@ def _parse_optional_depths(value: str | None) -> list[int]:
 
 def config_from_args(args: argparse.Namespace) -> EvalExperimentConfig:
     build_dir = Path(args.build_dir)
-    presets = parse_csv_names(args.presets) if args.presets.strip() else []
     config_paths = parse_csv_paths(args.configs) if args.configs.strip() else []
     configs = [config_target(path) for path in config_paths]
     reference_config = config_target(Path(args.reference_config)) if args.reference_config else None
-    if not presets and not configs:
-        raise ScriptError("at least one evaluator is required; pass --presets or --configs")
+    if not configs:
+        raise ScriptError("at least one evaluator config is required; pass --configs")
     small_depths = _parse_optional_depths(args.small_depths) or _parse_optional_depths(args.depths)
     if not small_depths:
         raise ScriptError("small depths are required; pass --small-depths or --depths")
@@ -1255,8 +1231,7 @@ def config_from_args(args: argparse.Namespace) -> EvalExperimentConfig:
     if promote_top < 0:
         raise ScriptError(f"promote-top must be nonnegative: {promote_top}")
     if args.smoke_run:
-        presets = presets[:2]
-        configs = configs[: max(0, 2 - len(presets))]
+        configs = configs[:2]
         small_depths = small_depths[:1]
         extended_depths = extended_depths[:1]
         small_games = min(small_games, 6)
@@ -1265,15 +1240,13 @@ def config_from_args(args: argparse.Namespace) -> EvalExperimentConfig:
     reference_target = (
         reference_config
         if reference_config is not None
-        else EvalTarget(kind="preset", value=args.reference_preset, label=args.reference_preset)
+        else EvalTarget(kind="default", value="", label="built-in default")
     )
     validate_unique_eval_targets(
-        [*(EvalTarget(kind="preset", value=preset, label=preset) for preset in presets), *configs],
+        configs,
         reference_target,
     )
     return EvalExperimentConfig(
-        presets=presets,
-        reference_preset=args.reference_preset,
         small_depths=small_depths,
         extended_depths=extended_depths,
         small_games=small_games,

@@ -48,19 +48,6 @@ side=B)");
     return runner::make_search_options(require_player_spec(spec_text));
 }
 
-void check_eval_preset_spec(std::string_view spec_text, othello::EvaluationPreset expected) {
-    const runner::PlayerSpec spec = require_player_spec(spec_text);
-    CHECK(spec.search_options.evaluator.preset == expected);
-    CHECK(runner::make_search_options(spec).evaluation_preset == expected);
-}
-
-void check_eval_preset_config(std::string_view spec_text, othello::EvaluationPreset expected) {
-    const othello::SearchOptions options = require_search_options(spec_text);
-    CHECK(options.evaluation_preset == expected);
-    CHECK(othello::resolve_evaluation_config(options) ==
-          othello::evaluation_config_for_preset(expected));
-}
-
 } // namespace
 
 TEST_CASE("Search player specs require positive depth", "[match-runner]") {
@@ -99,42 +86,9 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
           othello::ExactEndgameRootPolicy::Adaptive16);
     CHECK(require_search_options("search:depth=4,tt_entries=262144")
               .transposition_table_entries == 262144U);
-
-    check_eval_preset_config("search:depth=4,eval=default", othello::EvaluationPreset::Default);
-    check_eval_preset_config("search:depth=4,eval=phase_aware_v1",
-                             othello::EvaluationPreset::PhaseAwareV1);
-    check_eval_preset_config("search:depth=4,eval=mobility_plus_smoke",
-                             othello::EvaluationPreset::MobilityPlusSmoke);
-    check_eval_preset_config("search:depth=4,eval=frontier_open2_mid2_late_plus1",
-                             othello::EvaluationPreset::FrontierOpen2Mid2LatePlus1);
-    check_eval_preset_spec("search:depth=4,eval=classic_corner_lite_v1",
-                           othello::EvaluationPreset::ClassicCornerLiteV1);
-    check_eval_preset_spec("search:depth=4,eval=classic_edge_lite_v1",
-                           othello::EvaluationPreset::ClassicEdgeLiteV1);
-    check_eval_preset_spec("search:depth=4,eval=classic_features_lite_v1",
-                           othello::EvaluationPreset::ClassicFeaturesLiteV1);
-    check_eval_preset_spec("search:depth=4,eval=classic_features_lite_aggressive",
-                           othello::EvaluationPreset::ClassicFeaturesLiteAggressive);
-    check_eval_preset_spec("search:depth=4,eval=frontier_classic_features_lite_v1",
-                           othello::EvaluationPreset::FrontierClassicFeaturesLiteV1);
-    check_eval_preset_spec("search:depth=4,eval=corner_pattern_2x3_v1",
-                           othello::EvaluationPreset::CornerPattern2x3V1);
-    check_eval_preset_spec("search:depth=4,eval=corner_pattern_2x3_aggressive",
-                           othello::EvaluationPreset::CornerPattern2x3Aggressive);
-    check_eval_preset_spec("search:depth=4,eval=frontier_corner_pattern_2x3_v1",
-                           othello::EvaluationPreset::FrontierCornerPattern2x3V1);
-    check_eval_preset_spec("search:depth=4,eval=frontier_corner_pattern_edge_lite_v1",
-                           othello::EvaluationPreset::FrontierCornerPatternEdgeLiteV1);
-    check_eval_preset_spec("search:depth=4,eval=edge_pattern_8_v1",
-                           othello::EvaluationPreset::EdgePattern8V1);
-    check_eval_preset_spec("search:depth=4,eval=edge_pattern_8_aggressive",
-                           othello::EvaluationPreset::EdgePattern8Aggressive);
-    check_eval_preset_spec("search:depth=4,eval=default_edge_pattern_8_v1",
-                           othello::EvaluationPreset::DefaultEdgePattern8V1);
-    check_eval_preset_spec("search:depth=4,eval=default_edge_pattern_8_no_edge_lite",
-                           othello::EvaluationPreset::DefaultEdgePattern8NoEdgeLite);
-    check_eval_preset_spec("search:depth=4,eval=default_edge_pattern_8_aggressive",
-                           othello::EvaluationPreset::DefaultEdgePattern8Aggressive);
+    CHECK_FALSE(depth_only_options.evaluation_config_override.has_value());
+    CHECK(othello::resolve_evaluation_config(depth_only_options) ==
+          othello::default_evaluation_config());
 
     const othello::SearchOptions eval_config_options = require_search_options(
         "search:depth=4,eval_config=" +
@@ -157,23 +111,12 @@ TEST_CASE("Search player specs reject invalid options", "[match-runner]") {
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,exact=-1").has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,exact=adaptive17").has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,tt_entries=-1").has_value());
-    CHECK_FALSE(runner::parse_player_spec("search:depth=4,eval=unknown").has_value());
-    CHECK_FALSE(runner::parse_player_spec("search:depth=4,eval=default,eval=default")
-                    .has_value());
+    CHECK_FALSE(runner::parse_player_spec("search:depth=4,eval=default").has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,eval_config=missing.eval").has_value());
     CHECK_FALSE(runner::parse_player_spec(
                     "search:depth=4,eval_config=" +
                     sample_eval_config_path("current_default.eval") +
                     ",eval_config=" + sample_eval_config_path("current_default.eval"))
-                    .has_value());
-    CHECK_FALSE(runner::parse_player_spec(
-                    "search:depth=4,eval=default,eval_config=" +
-                    sample_eval_config_path("current_default.eval"))
-                    .has_value());
-    CHECK_FALSE(runner::parse_player_spec(
-                    "search:depth=4,eval_config=" +
-                    sample_eval_config_path("current_default.eval") +
-                    ",eval=default")
                     .has_value());
 }
 

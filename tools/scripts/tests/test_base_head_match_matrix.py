@@ -62,8 +62,8 @@ class BaseHeadMatchMatrixTests(unittest.TestCase):
             config = replace(
                 matrix_config(Path(temp)),
                 head_engine_args=[
-                    "--eval-preset",
-                    "mobility_plus_smoke",
+                    "--eval-config",
+                    "data/eval/current_default.eval",
                     "--exact-endgame-threshold",
                     "0",
                 ],
@@ -75,10 +75,10 @@ class BaseHeadMatchMatrixTests(unittest.TestCase):
         head_line = next(line for line in lines if line.startswith("head|"))
         base_line = next(line for line in lines if line.startswith("base|"))
         self.assertIn(
-            "|--eval-preset|mobility_plus_smoke|--exact-endgame-threshold|0",
+            "|--eval-config|data/eval/current_default.eval|--exact-endgame-threshold|0",
             head_line,
         )
-        self.assertNotIn("--eval-preset", base_line)
+        self.assertNotIn("--eval-config", base_line)
         self.assertNotIn("--exact-endgame-threshold", base_line)
 
     def test_engine_args_reject_pipe_delimiter(self) -> None:
@@ -146,8 +146,8 @@ class BaseHeadMatchMatrixTests(unittest.TestCase):
             config = replace(
                 matrix_config(Path(temp)),
                 head_engine_args=[
-                    "--eval-preset",
-                    "mobility_plus_smoke",
+                    "--eval-config",
+                    "data/eval/current_default.eval",
                     "--exact-endgame-threshold",
                     "0",
                 ],
@@ -163,7 +163,7 @@ class BaseHeadMatchMatrixTests(unittest.TestCase):
 
         self.assertIn("Base engine args: `(none)`", report)
         self.assertIn(
-            "Head engine args: `--eval-preset mobility_plus_smoke --exact-endgame-threshold 0`",
+            "Head engine args: `--eval-config data/eval/current_default.eval --exact-endgame-threshold 0`",
             report,
         )
 
@@ -189,9 +189,9 @@ class BaseHeadMatchMatrixTests(unittest.TestCase):
                 "--out",
                 "runs/base-head/example",
                 "--head-engine-arg",
-                "--eval-preset",
+                "--eval-config",
                 "--head-engine-arg",
-                "mobility_plus_smoke",
+                "data/eval/current_default.eval",
                 "--head-engine-arg",
                 "--exact-endgame-threshold",
                 "--head-engine-arg",
@@ -202,7 +202,7 @@ class BaseHeadMatchMatrixTests(unittest.TestCase):
 
         self.assertEqual(
             args.head_engine_arg,
-            ["--eval-preset", "mobility_plus_smoke", "--exact-endgame-threshold", "0"],
+            ["--eval-config", "data/eval/current_default.eval", "--exact-endgame-threshold", "0"],
         )
         self.assertEqual(args.base_engine_arg, [])
 

@@ -160,14 +160,6 @@ void print_usage(std::string_view program_name) {
                 return std::nullopt;
             }
             options.exact_endgame_empty_threshold = *threshold;
-        } else if (arg == "--eval-preset") {
-            std::string evaluator_cli_error;
-            if (othello::tools::parse_evaluator_cli_option(args, index, evaluator_cli,
-                                                            evaluator_cli_error) ==
-                othello::tools::EvaluatorCliParseResult::Error) {
-                std::cerr << evaluator_cli_error << '\n';
-                return std::nullopt;
-            }
         } else if (arg == "--eval-config") {
             std::string evaluator_cli_error;
             if (othello::tools::parse_evaluator_cli_option(args, index, evaluator_cli,

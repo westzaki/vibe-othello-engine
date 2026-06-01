@@ -716,7 +716,7 @@ struct FeatureContribution {
     if (selection.config_path.has_value()) {
         return "config `" + *selection.config_path + "`";
     }
-    return "preset `" + std::string{evaluation_preset_name(selection.preset)} + "`";
+    return "built-in default evaluator";
 }
 
 [[nodiscard]] std::vector<FeatureContribution>

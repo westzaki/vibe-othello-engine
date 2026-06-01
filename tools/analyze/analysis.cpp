@@ -289,9 +289,9 @@ void print_report(const Board& board, const AnalysisOptions& options, const Sear
               << "aspiration_window: " << options.aspiration_window << '\n'
               << "aspiration_max_researches: " << options.aspiration_max_researches << '\n'
               << "exact_endgame_threshold: " << options.exact_endgame_empty_threshold << '\n'
-              << "eval_preset: " << evaluation_preset_name(options.evaluator.preset) << '\n'
               << "eval_config: "
-              << (options.evaluator.config_path.has_value() ? *options.evaluator.config_path : "-")
+              << (options.evaluator.config_path.has_value() ? *options.evaluator.config_path
+                                                            : "built-in default")
               << '\n'
               << "elapsed_ms: " << std::fixed << std::setprecision(3)
               << elapsed_ms(elapsed) << '\n'

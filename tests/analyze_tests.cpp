@@ -150,9 +150,10 @@ TEST_CASE("Position analysis print includes corner pattern breakdown fields", "[
         .use_transposition_table = true,
         .exact_endgame_empty_threshold = 0,
         .use_pvs = true,
-        .evaluator = {.preset = othello::EvaluationPreset::CornerPattern2x3V1},
         .root_candidates = true,
     };
+    options.evaluator.config_override =
+        othello::evaluation_config_for_preset(othello::EvaluationPreset::CornerPattern2x3V1);
     const othello::SearchResult result = othello::tools::analyze::run_search(board, options);
 
     std::ostringstream captured;
@@ -175,8 +176,9 @@ TEST_CASE("Position analysis print includes edge 8 pattern breakdown fields", "[
         .use_transposition_table = true,
         .exact_endgame_empty_threshold = 0,
         .use_pvs = true,
-        .evaluator = {.preset = othello::EvaluationPreset::EdgePattern8V1},
     };
+    options.evaluator.config_override =
+        othello::evaluation_config_for_preset(othello::EvaluationPreset::EdgePattern8V1);
     const othello::SearchResult result = othello::tools::analyze::run_search(board, options);
 
     std::ostringstream captured;

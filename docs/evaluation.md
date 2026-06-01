@@ -330,7 +330,7 @@ suite, not the `evaluation` positions:
 python3 tools/scripts/eval_experiment_matrix.py \
   --build-dir build \
   --out runs/eval-matrix/evaluation-diagnostic \
-  --presets default,phase_aware_v1 \
+  --configs data/eval/phase_aware_v1.eval \
   --positions evaluation \
   --small-depths 4 \
   --extended-depths 5 \
@@ -340,6 +340,10 @@ python3 tools/scripts/eval_experiment_matrix.py \
   --seed 20260531 \
   --exact-endgame-threshold 0
 ```
+
+When no `--eval-config` is specified, tools use the built-in default evaluator.
+Evaluator experiments should be represented as `.eval` configs and passed with
+`--eval-config`; the public `--eval-preset` option has been removed.
 
 Treat score, best move, PV, checksum, or node-count changes on this suite as
 evaluation behavior evidence, not as automatic regressions. Evaluator promotion

@@ -53,7 +53,6 @@ python3 tools/scripts/exact_label_workflow.py \
   --skip-sampling \
   --positions data/positions/evaluation/diagnostic_suite.txt \
   --max-empties 14 \
-  --eval-preset default \
   --analyze
 ```
 
@@ -102,7 +101,6 @@ python3 tools/scripts/exact_label_workflow.py \
   --target-empties 8,10,12 \
   --seed 20260531 \
   --max-empties 14 \
-  --eval-preset default \
   --analyze
 ```
 
@@ -138,14 +136,14 @@ Example:
 ./build/othello_eval_vs_exact \
   --labels runs/exact-labels/smoke.jsonl \
   --output runs/eval-vs-exact/smoke-default.md \
-  --eval-preset default \
   --high-confidence-threshold 250 \
   --phase-breakdown \
   --include-positions
 ```
 
-For file-based configs, use exactly one `--eval-config` instead of
-`--eval-preset`:
+When no `--eval-config` is specified, the built-in default evaluator is used.
+Evaluator experiments should pass exactly one `.eval` file with
+`--eval-config`; the public `--eval-preset` option has been removed:
 
 ```sh
 ./build/othello_eval_vs_exact \

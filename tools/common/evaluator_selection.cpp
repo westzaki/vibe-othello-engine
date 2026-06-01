@@ -12,12 +12,11 @@ EvaluationConfig resolve_evaluator_selection(const EvaluatorSelection& selection
     if (selection.config_override.has_value()) {
         return *selection.config_override;
     }
-    return evaluation_config_for_preset(selection.preset);
+    return default_evaluation_config();
 }
 
 SearchOptions apply_evaluator_selection(SearchOptions options,
                                         const EvaluatorSelection& selection) noexcept {
-    options.evaluation_preset = selection.preset;
     options.evaluation_config_override = selection.config_override;
     return options;
 }
@@ -26,23 +25,7 @@ std::optional<EvaluatorSelection>
 parse_evaluator_selection(const EvaluatorSelectionInput& input, std::string& error_message) {
     error_message.clear();
 
-    if (input.preset_name.has_value() && input.config_path.has_value()) {
-        error_message = "cannot combine --eval-preset and --eval-config";
-        return std::nullopt;
-    }
-
     EvaluatorSelection selection;
-    if (input.preset_name.has_value()) {
-        const std::optional<EvaluationPreset> preset =
-            evaluation_preset_from_name(*input.preset_name);
-        if (!preset.has_value()) {
-            error_message = "unknown evaluation preset: " + *input.preset_name;
-            return std::nullopt;
-        }
-        selection.preset = *preset;
-        return selection;
-    }
-
     if (input.config_path.has_value()) {
         if (input.config_path->empty()) {
             error_message = "invalid --eval-config value";
