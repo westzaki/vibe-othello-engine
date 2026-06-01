@@ -201,6 +201,74 @@ The `default-300k` bucket spec is:
 The generated `positions.txt`, `manifest.json`, `qc/`, and `commands.sh` are
 local artifacts. Do not commit generated position pools.
 
+## NTest Teacher Smoke
+
+Use `ntest_teacher_smoke.py` before a full NTest teacher dataset run. It creates
+or reuses a small balanced smoke position pool, runs
+`teacher_dataset_build.py`, measures wall-clock throughput, and writes an
+operational report under `runs/ntest-teacher-smoke/<timestamp>/report.md`.
+This is not a strength claim; it only checks whether a larger 300k overnight
+teacher-label run looks operationally safe.
+
+Depth 10 smoke:
+
+```sh
+python3 tools/scripts/ntest_teacher_smoke.py \
+  --dataset-root "$VIBE_OTHELLO_DATASET_ROOT" \
+  --dataset-id ntest-depth10-smoke \
+  --ntest-workdir /path/to/ntest \
+  --depth 10 \
+  --timeout-ms 60000 \
+  --jobs 4 \
+  --position-log-mode failures \
+  --sampler build/othello_position_sampler \
+  --legal-validator build/othello_validate_move \
+  --seed 20260601 \
+  --bucket-spec smoke \
+  --ntest-cmd -- ./ntest x
+```
+
+Depth 12 smoke:
+
+```sh
+python3 tools/scripts/ntest_teacher_smoke.py \
+  --dataset-root "$VIBE_OTHELLO_DATASET_ROOT" \
+  --dataset-id ntest-depth12-smoke \
+  --ntest-workdir /path/to/ntest \
+  --depth 12 \
+  --timeout-ms 60000 \
+  --jobs 4 \
+  --position-log-mode failures \
+  --sampler build/othello_position_sampler \
+  --legal-validator build/othello_validate_move \
+  --seed 20260601 \
+  --bucket-spec smoke \
+  --ntest-cmd -- ./ntest x
+```
+
+Depth 14 smoke:
+
+```sh
+python3 tools/scripts/ntest_teacher_smoke.py \
+  --dataset-root "$VIBE_OTHELLO_DATASET_ROOT" \
+  --dataset-id ntest-depth14-smoke \
+  --ntest-workdir /path/to/ntest \
+  --depth 14 \
+  --timeout-ms 60000 \
+  --jobs 4 \
+  --position-log-mode failures \
+  --sampler build/othello_position_sampler \
+  --legal-validator build/othello_validate_move \
+  --seed 20260601 \
+  --bucket-spec smoke \
+  --ntest-cmd -- ./ntest x
+```
+
+Read the report's `recommended_action` before starting a full run. If it says
+`reduce depth`, `increase timeout`, `reduce jobs`, or `inspect failures`, fix
+that operational issue first. Generated smoke positions, labels, logs, reports,
+and `commands.sh` are local artifacts and should not be committed.
+
 Real local teacher example, when an external engine is available locally:
 
 ```sh
