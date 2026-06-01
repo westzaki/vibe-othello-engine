@@ -67,10 +67,10 @@ class TeacherLabelMistakeMiningTests(unittest.TestCase):
         self.assertEqual(bucket, "teacher_exact_disagreement")
 
     def test_parse_target_requires_label_and_path(self) -> None:
-        target = mining.parse_target("classic=data/eval/classic_othello_v1.eval")
+        target = mining.parse_target("pattern=data/eval/pattern_teacher_v0.eval")
 
-        self.assertEqual(target.label, "classic")
-        self.assertEqual(target.path, Path("data/eval/classic_othello_v1.eval"))
+        self.assertEqual(target.label, "pattern")
+        self.assertEqual(target.path, Path("data/eval/pattern_teacher_v0.eval"))
         with self.assertRaises(argparse.ArgumentTypeError):
             mining.parse_target("missing")
 
@@ -87,7 +87,7 @@ class TeacherLabelMistakeMiningTests(unittest.TestCase):
                     "--dataset-root",
                     str(root),
                     "--config",
-                    "classic=data/eval/classic_othello_v1.eval",
+                    "pattern=data/eval/pattern_teacher_v0.eval",
                     "--out",
                     "runs/mistakes",
                 ]

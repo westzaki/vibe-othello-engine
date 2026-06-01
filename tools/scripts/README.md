@@ -187,7 +187,7 @@ python3 tools/scripts/evidence.py \
   --profile eval \
   --build-dir build \
   --out runs/evidence/eval-config-example \
-  --eval-configs data/eval/default_edge_pattern_8_soft.eval \
+  --eval-configs data/eval/pattern_teacher_v0.eval \
   --reference-config data/eval/current_default.eval \
   --small-depths 5 \
   --small-games 4

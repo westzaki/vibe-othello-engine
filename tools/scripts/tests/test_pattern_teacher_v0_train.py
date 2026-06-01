@@ -154,7 +154,7 @@ class PatternTeacherTrainTests(unittest.TestCase):
 
     def test_render_table_supports_multiple_families(self) -> None:
         text = trainer.render_table(
-            name="classic_pattern_v0",
+            name="broad_pattern_fixture",
             family_entries={
                 "edge_x_10": [(1, 2), (2, -2)],
                 "corner_3x3": [(4, 1), (8, -1)],
@@ -167,7 +167,7 @@ class PatternTeacherTrainTests(unittest.TestCase):
         self.assertEqual(
             text,
             "# schema_version: pattern_table.v1\n"
-            "# name: classic_pattern_v0\n"
+            "# name: broad_pattern_fixture\n"
             "# generated_by: tools/scripts/pattern_teacher_v0_train.py\n"
             "# command: pattern_teacher_v0_train.py --families broad_all\n"
             "# residual_updates: 1\n"

@@ -123,6 +123,29 @@ fixtures.
 intentional default evaluator change, and use stronger-than-smoke evidence
 before promoting a candidate to the default.
 
+## Engine Default And Research Baseline
+
+The engine default and the active research baseline are different concepts.
+
+`current_default.eval` mirrors the built-in default evaluator. It is the
+compatibility and product-facing baseline. Do not change it as part of a
+research cleanup or pattern-learning setup PR.
+
+Pattern-first research should usually start from `pattern_teacher_v0.eval` or a
+new pattern-only/pattern-first config rather than another scalar residual weight
+tweak. Temporary strength regression is acceptable when the experiment is
+building pattern-table ownership, dataset, trainer objective, regularization,
+or validation foundations.
+
+The scalar feature code remains part of the engine for default compatibility and
+for comparison anchors. That does not make old scalar experiments active
+candidates. Rejected or superseded `.eval` files should generally be removed
+from `data/eval` after their durable report is merged.
+
+Default promotion remains separate. A pattern candidate should become the
+default only after strong evidence across correctness checks, exact-label
+diagnostics, search benchmarks, and match or base/head validation.
+
 ## Othello Evaluation Directions
 
 This section lists durable idea families, not a checklist.

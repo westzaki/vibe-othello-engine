@@ -1,9 +1,61 @@
 # Evaluation Configs
 
-This directory contains fully expanded `.eval` v1 evaluator configs for tools
-that accept `--eval-config PATH` or `eval_config=PATH`.
+This directory contains the small set of `.eval` v1 files that should work on
+the latest `main`. These files are selected explicitly with `--eval-config PATH`
+or `eval_config=PATH`; they do not change the built-in engine default.
 
-Format:
+## Roles
+
+### Engine Default
+
+`current_default.eval` is the fully expanded snapshot of
+`default_evaluation_config()`. It must stay synchronized with the built-in
+default in the same PR as any intentional default evaluator change.
+
+Default promotion is separate from research. It requires strong evidence from
+correctness checks, exact-label diagnostics, search benchmarks, and match or
+base/head validation.
+
+### Pattern Research Baseline
+
+`pattern_teacher_v0.eval` is the retained experimental pattern baseline for the
+pattern-first research restart. It is not the engine default, not a C++
+`EvaluationPreset`, and not a strength claim. It is kept because it is a compact
+pattern-table baseline with durable experiment evidence.
+
+Pattern-first experiments may intentionally be weaker than the engine default
+while they build better table ownership, dataset, trainer, and validation
+foundations.
+
+### Retained Comparison Anchor
+
+`classic_othello_v3_teacher_aggressive.eval` is retained temporarily as a
+scalar comparison anchor for pattern research. It is not a preferred candidate
+and should not be used as a new scalar-tweaking baseline.
+
+### Compatibility Fixture
+
+`phase_aware_v1.eval` is retained as a compatibility snapshot for the public
+`phase_aware_v1` preset. Public C++ presets are compatibility surface; do not
+remove or rename them in cleanup PRs.
+
+## Rejected or Superseded Configs
+
+Rejected and superseded configs should normally be removed from `data/eval`
+after their experiment report is merged. Keeping old `.eval` files active makes
+future agents treat rejected candidates as current options.
+
+Do not create an archive directory here by default. Durable reports under
+`docs/experiments/evaluation/` are the archive. They preserve commands,
+fingerprints, conclusions, and negative evidence without keeping stale configs
+loadable as current candidates.
+
+Keep a rejected config or table only when a current test, tool contract, or
+explicit reproduction task truly needs the exact source-controlled file. If one
+is kept, its header must say it is rejected or retained for reproducibility
+only, and it must not be described as active or preferred.
+
+## Format
 
 - UTF-8 text
 - blank lines and `#` comments are allowed
@@ -12,25 +64,11 @@ Format:
 - `name=...` is metadata only
 - numeric values are signed integers
 - unknown, duplicate, invalid, or missing required keys are errors
-
-These files are data for experiments. They do not change the built-in default
-evaluator unless a tool is explicitly run with the config file.
-
-## Lifecycle Policy
-
-Active configs live in this directory and are expected to work on the latest
-`main`. Archive configs are historical evidence and are not guaranteed to work
-on the latest `main`.
+- `pattern_table=...` paths are resolved relative to the `.eval` file
 
 Active configs must be fully expanded. They should not rely on implicit default
 overlays or missing-key fallback behavior.
 
-Schema changes must update all active configs in the same pull request.
-`current_default.eval` must match `default_evaluation_config()`.
-
-Experimental configs should not stay active indefinitely. Promote a useful
-experiment into a durable active config with current validation notes, or move
-it to an archive when it no longer represents a current candidate.
-
-Raw experiment outputs belong under `runs/`. Durable summaries and baselines
-belong under `docs/perf/baselines/`.
+Raw experiment outputs belong under `runs/`. Raw teacher labels, exact labels,
+match JSONL, benchmark logs, local NTest paths, and local absolute paths should
+not be committed here.
