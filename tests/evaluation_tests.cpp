@@ -1900,6 +1900,115 @@ TEST_CASE("External broad pattern table is antisymmetric under color swap",
           -othello::evaluate_with_config(swapped_inner, Side::Black, config));
 }
 
+TEST_CASE("External pattern table value follows public pattern indexes",
+          "[evaluation]") {
+    othello::PatternTableBundle tables;
+    const Board board =
+        pattern_disc_board(othello::test::bit("a1") | othello::test::bit("c1") |
+                               othello::test::bit("b2") | othello::test::bit("h1") |
+                               othello::test::bit("f3") | othello::test::bit("a8"),
+                           othello::test::bit("b1") | othello::test::bit("a2") |
+                               othello::test::bit("c3") | othello::test::bit("g2") |
+                               othello::test::bit("b8") | othello::test::bit("h8"));
+
+    constexpr std::array corner_2x3_corners{
+        othello::Corner2x3PatternCorner::A1,
+        othello::Corner2x3PatternCorner::H1,
+        othello::Corner2x3PatternCorner::A8,
+        othello::Corner2x3PatternCorner::H8,
+    };
+    constexpr std::array corner_3x3_corners{
+        othello::Corner3x3PatternCorner::A1,
+        othello::Corner3x3PatternCorner::H1,
+        othello::Corner3x3PatternCorner::A8,
+        othello::Corner3x3PatternCorner::H8,
+    };
+    constexpr std::array edge_8_edges{
+        othello::Edge8PatternEdge::Top,
+        othello::Edge8PatternEdge::Bottom,
+        othello::Edge8PatternEdge::Left,
+        othello::Edge8PatternEdge::Right,
+    };
+    constexpr std::array edge_x_10_edges{
+        othello::EdgeX10PatternEdge::Top,
+        othello::EdgeX10PatternEdge::Bottom,
+        othello::EdgeX10PatternEdge::Left,
+        othello::EdgeX10PatternEdge::Right,
+    };
+    constexpr std::array diagonals{
+        othello::Diagonal8PatternDiagonal::A1H8,
+        othello::Diagonal8PatternDiagonal::H1A8,
+    };
+    constexpr std::array inner_rows{
+        othello::InnerRow8PatternLine::Top,
+        othello::InnerRow8PatternLine::Bottom,
+        othello::InnerRow8PatternLine::Left,
+        othello::InnerRow8PatternLine::Right,
+    };
+
+    for (const othello::Corner2x3PatternCorner corner : corner_2x3_corners) {
+        const int index = othello::corner_2x3_pattern_index(board, Side::Black, corner);
+        tables.corner_2x3[static_cast<std::size_t>(index)] =
+            static_cast<std::int16_t>(11 + (index % 17));
+    }
+    for (const othello::Corner3x3PatternCorner corner : corner_3x3_corners) {
+        const int index = othello::corner_3x3_pattern_index(board, Side::Black, corner);
+        tables.corner_3x3[static_cast<std::size_t>(index)] =
+            static_cast<std::int16_t>(23 + (index % 19));
+    }
+    for (const othello::Edge8PatternEdge edge : edge_8_edges) {
+        const int index = othello::edge_8_pattern_index(board, Side::Black, edge);
+        tables.edge_8[static_cast<std::size_t>(index)] =
+            static_cast<std::int16_t>(-7 + (index % 23));
+    }
+    for (const othello::EdgeX10PatternEdge edge : edge_x_10_edges) {
+        const int index = othello::edge_x_10_pattern_index(board, Side::Black, edge);
+        tables.edge_x_10[static_cast<std::size_t>(index)] =
+            static_cast<std::int16_t>(-31 + (index % 29));
+    }
+    for (const othello::Diagonal8PatternDiagonal diagonal : diagonals) {
+        const int index = othello::diagonal_8_pattern_index(board, Side::Black, diagonal);
+        tables.diagonal_8[static_cast<std::size_t>(index)] =
+            static_cast<std::int16_t>(41 + (index % 31));
+    }
+    for (const othello::InnerRow8PatternLine line : inner_rows) {
+        const int index = othello::inner_row_8_pattern_index(board, Side::Black, line);
+        tables.inner_row_8[static_cast<std::size_t>(index)] =
+            static_cast<std::int16_t>(-43 + (index % 37));
+    }
+
+    int expected = 0;
+    for (const othello::Corner2x3PatternCorner corner : corner_2x3_corners) {
+        expected += tables.corner_2x3[static_cast<std::size_t>(
+            othello::corner_2x3_pattern_index(board, Side::Black, corner))];
+    }
+    for (const othello::Corner3x3PatternCorner corner : corner_3x3_corners) {
+        expected += tables.corner_3x3[static_cast<std::size_t>(
+            othello::corner_3x3_pattern_index(board, Side::Black, corner))];
+    }
+    for (const othello::Edge8PatternEdge edge : edge_8_edges) {
+        expected += tables.edge_8[static_cast<std::size_t>(
+            othello::edge_8_pattern_index(board, Side::Black, edge))];
+    }
+    for (const othello::EdgeX10PatternEdge edge : edge_x_10_edges) {
+        expected += tables.edge_x_10[static_cast<std::size_t>(
+            othello::edge_x_10_pattern_index(board, Side::Black, edge))];
+    }
+    for (const othello::Diagonal8PatternDiagonal diagonal : diagonals) {
+        expected += tables.diagonal_8[static_cast<std::size_t>(
+            othello::diagonal_8_pattern_index(board, Side::Black, diagonal))];
+    }
+    for (const othello::InnerRow8PatternLine line : inner_rows) {
+        expected += tables.inner_row_8[static_cast<std::size_t>(
+            othello::inner_row_8_pattern_index(board, Side::Black, line))];
+    }
+
+    CHECK(othello::evaluation_pattern_table_value(board, Side::Black, tables) ==
+          expected);
+    CHECK(othello::evaluation_pattern_table_score(board, Side::Black, tables) ==
+          expected);
+}
+
 TEST_CASE("Classic lite scores participate in configured total math", "[evaluation]") {
     othello::EvaluationConfig config{
         .opening = othello::EvaluationFeatureWeights{
