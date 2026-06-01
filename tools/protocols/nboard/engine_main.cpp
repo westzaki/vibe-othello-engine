@@ -1,4 +1,5 @@
 #include "common/cli.hpp"
+#include "common/evaluator_cli.hpp"
 #include "common/evaluator_selection.hpp"
 #include "protocols/nboard/game_codec.hpp"
 
@@ -21,15 +22,13 @@ struct Options {
 
 void print_usage(std::string_view program) {
     std::cout << "usage: " << program
-              << " [--depth N] [--eval-preset NAME] [--eval-config PATH]"
-                 " [--exact-endgame-threshold N]"
+              << " [--depth N] " << othello::tools::evaluator_cli_usage()
+              << " [--exact-endgame-threshold N]"
                  " [--verbose] [--help]\n"
               << '\n'
               << "Options:\n"
               << "  --depth N          positive search depth (default: 4)\n"
-              << "  --eval-preset NAME builtin compatibility/smoke evaluator preset name\n"
-              << "  --eval-config PATH load evaluator weights from a .eval config file "
-                 "(preferred for experiments)\n"
+              << othello::tools::evaluator_cli_help()
               << "  --exact-endgame-threshold N\n"
               << "                     solve root positions with at most N empties exactly; N <= 0 "
                  "disables (default: 12)\n"
@@ -39,8 +38,7 @@ void print_usage(std::string_view program) {
 
 [[nodiscard]] std::optional<Options> parse_options(std::span<char* const> args) {
     Options options;
-    bool explicit_eval_config = false;
-    othello::tools::EvaluatorSelectionInput evaluator_input;
+    othello::tools::EvaluatorCliParseState evaluator_cli;
     for (std::size_t index = 1; index < args.size(); ++index) {
         const std::string_view arg{args[index]};
         if (arg == "--help") {
@@ -62,28 +60,15 @@ void print_usage(std::string_view program) {
             options.depth = *depth;
             continue;
         }
-        if (arg == "--eval-preset") {
-            const auto value = othello::tools::next_argument(args, index, arg);
-            if (!value.has_value()) {
-                std::cerr << "invalid --eval-preset value\n";
-                return std::nullopt;
-            }
-            evaluator_input.preset_name = std::string{*value};
-            continue;
+        std::string evaluator_cli_error;
+        const othello::tools::EvaluatorCliParseResult evaluator_cli_result =
+            othello::tools::parse_evaluator_cli_option(args, index, evaluator_cli,
+                                                       evaluator_cli_error);
+        if (evaluator_cli_result == othello::tools::EvaluatorCliParseResult::Error) {
+            std::cerr << evaluator_cli_error << '\n';
+            return std::nullopt;
         }
-        if (arg == "--eval-config") {
-            const auto value = othello::tools::next_argument(args, index, arg);
-            if (!value.has_value() || value->empty()) {
-                std::cerr << "invalid --eval-config value\n";
-                return std::nullopt;
-            }
-            if (explicit_eval_config) {
-                std::cerr << "--eval-config may only be specified once\n";
-                return std::nullopt;
-            }
-
-            evaluator_input.config_path = std::string{*value};
-            explicit_eval_config = true;
+        if (evaluator_cli_result == othello::tools::EvaluatorCliParseResult::Parsed) {
             continue;
         }
         if (arg == "--exact-endgame-threshold") {
@@ -102,7 +87,7 @@ void print_usage(std::string_view program) {
     }
     std::string evaluator_error;
     const std::optional<othello::tools::EvaluatorSelection> evaluator =
-        othello::tools::parse_evaluator_selection(evaluator_input, evaluator_error);
+        othello::tools::parse_evaluator_selection(evaluator_cli.input, evaluator_error);
     if (!evaluator.has_value()) {
         std::cerr << evaluator_error << '\n';
         return std::nullopt;

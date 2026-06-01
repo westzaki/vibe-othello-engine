@@ -1,6 +1,7 @@
 #include "analyze/analysis.hpp"
 #include "common/board_io.hpp"
 #include "common/cli.hpp"
+#include "common/evaluator_cli.hpp"
 #include "common/evaluator_selection.hpp"
 
 #include <chrono>
@@ -24,7 +25,8 @@ void print_usage(std::string_view program_name) {
                  " [--tt on|off] [--tt-entries N] [--pvs on|off]"
                  " [--aspiration on|off] [--aspiration-window N]"
                  " [--aspiration-max-researches N] [--exact-endgame-threshold N]"
-                 " [--eval-preset NAME] [--eval-config PATH] [--root-candidates]\n"
+                 " "
+              << othello::tools::evaluator_cli_usage() << " [--root-candidates]\n"
               << '\n'
               << "Options:\n"
               << "  --board-file PATH  read a board in board_from_string format\n"
@@ -43,11 +45,7 @@ void print_usage(std::string_view program_name) {
               << "  --exact-endgame-threshold N\n"
               << "                    solve root positions with at most N empties exactly; N <= 0 "
                  "disables\n"
-              << "  --eval-preset NAME\n"
-              << "                    builtin compatibility/smoke evaluator preset name\n"
-              << "  --eval-config PATH\n"
-              << "                    load evaluator weights from a .eval config file "
-                 "(preferred for experiments)\n"
+              << othello::tools::evaluator_cli_help()
               << "  --root-candidates  analyze each legal root move separately\n"
               << "  --help             show this help text\n";
 }
@@ -65,8 +63,7 @@ void print_usage(std::string_view program_name) {
 [[nodiscard]] std::optional<AnalysisOptions> parse_options(std::span<char* const> args,
                                                            bool& help_requested) {
     AnalysisOptions options;
-    bool explicit_eval_config = false;
-    othello::tools::EvaluatorSelectionInput evaluator_input;
+    othello::tools::EvaluatorCliParseState evaluator_cli;
 
     for (std::size_t index = 1; index < args.size(); ++index) {
         const std::string_view arg{args[index]};
@@ -164,25 +161,21 @@ void print_usage(std::string_view program_name) {
             }
             options.exact_endgame_empty_threshold = *threshold;
         } else if (arg == "--eval-preset") {
-            const auto value = othello::tools::next_argument(args, index, arg);
-            if (!value.has_value()) {
-                std::cerr << "invalid --eval-preset value\n";
+            std::string evaluator_cli_error;
+            if (othello::tools::parse_evaluator_cli_option(args, index, evaluator_cli,
+                                                            evaluator_cli_error) ==
+                othello::tools::EvaluatorCliParseResult::Error) {
+                std::cerr << evaluator_cli_error << '\n';
                 return std::nullopt;
             }
-            evaluator_input.preset_name = std::string{*value};
         } else if (arg == "--eval-config") {
-            const auto value = othello::tools::next_argument(args, index, arg);
-            if (!value.has_value() || value->empty()) {
-                std::cerr << "invalid --eval-config value\n";
+            std::string evaluator_cli_error;
+            if (othello::tools::parse_evaluator_cli_option(args, index, evaluator_cli,
+                                                            evaluator_cli_error) ==
+                othello::tools::EvaluatorCliParseResult::Error) {
+                std::cerr << evaluator_cli_error << '\n';
                 return std::nullopt;
             }
-            if (explicit_eval_config) {
-                std::cerr << "--eval-config may only be specified once\n";
-                return std::nullopt;
-            }
-
-            evaluator_input.config_path = std::string{*value};
-            explicit_eval_config = true;
         } else if (arg == "--root-candidates" || arg == "--root-breakdown") {
             options.root_candidates = true;
         } else {
@@ -199,7 +192,7 @@ void print_usage(std::string_view program_name) {
 
     std::string evaluator_error;
     const std::optional<othello::tools::EvaluatorSelection> evaluator =
-        othello::tools::parse_evaluator_selection(evaluator_input, evaluator_error);
+        othello::tools::parse_evaluator_selection(evaluator_cli.input, evaluator_error);
     if (!evaluator.has_value()) {
         std::cerr << evaluator_error << '\n';
         return std::nullopt;

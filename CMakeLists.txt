@@ -165,6 +165,12 @@ othello_add_help_contains_test(
 )
 
 othello_add_help_contains_test(
+    othello_search_bench_help_mentions_eval_config_preferred
+    othello_search_bench
+    "preferred for experiments"
+)
+
+othello_add_help_contains_test(
     othello_search_bench_help_includes_format
     othello_search_bench
     "--format"
@@ -341,12 +347,59 @@ set(OTHELLO_TINY_EXACT_LABELS
     "${CMAKE_CURRENT_SOURCE_DIR}/data/labels/exact_label_tiny.jsonl"
 )
 
+othello_add_tool_smoke_test(
+    othello_search_bench_smoke_with_eval_preset
+    othello_search_bench
+    --mode fixed
+    --depths 1
+    --positions smoke
+    --repetitions 1
+    --exact-endgame-threshold 0
+    --eval-preset default
+    --format jsonl
+)
+set_tests_properties(
+    othello_search_bench_smoke_with_eval_preset
+    PROPERTIES PASS_REGULAR_EXPRESSION "\"positions\":\"smoke\".*\"position_count\""
+)
+
+othello_add_tool_smoke_test(
+    othello_search_bench_smoke_with_eval_config
+    othello_search_bench
+    --mode fixed
+    --depths 1
+    --positions smoke
+    --repetitions 1
+    --exact-endgame-threshold 0
+    --eval-config "${OTHELLO_SAMPLE_EVAL_CONFIG}"
+    --format jsonl
+)
+set_tests_properties(
+    othello_search_bench_smoke_with_eval_config
+    PROPERTIES PASS_REGULAR_EXPRESSION "\"positions\":\"smoke\".*\"position_count\""
+)
+
 othello_add_expect_failure_test(
     othello_search_bench_rejects_eval_preset_with_eval_config
     othello_search_bench
     "cannot combine --eval-preset and --eval-config"
     --eval-preset default
     --eval-config "${OTHELLO_SAMPLE_EVAL_CONFIG}"
+)
+
+othello_add_expect_failure_test(
+    othello_search_bench_rejects_duplicate_eval_config
+    othello_search_bench
+    "--eval-config may only be specified once"
+    --eval-config "${OTHELLO_SAMPLE_EVAL_CONFIG}"
+    --eval-config "${OTHELLO_SAMPLE_EVAL_CONFIG}"
+)
+
+othello_add_expect_failure_test(
+    othello_search_bench_rejects_unknown_eval_preset
+    othello_search_bench
+    "unknown evaluation preset: not_a_preset"
+    --eval-preset not_a_preset
 )
 
 othello_add_expect_failure_test(
@@ -468,6 +521,15 @@ othello_add_expect_failure_test(
 )
 
 othello_add_expect_failure_test(
+    othello_analyze_position_rejects_duplicate_eval_config
+    othello_analyze_position
+    "--eval-config may only be specified once"
+    --stdin
+    --eval-config "${OTHELLO_SAMPLE_EVAL_CONFIG}"
+    --eval-config "${OTHELLO_SAMPLE_EVAL_CONFIG}"
+)
+
+othello_add_expect_failure_test(
     othello_exact_label_dump_rejects_invalid_input
     othello_exact_label_dump
     "invalid input"
@@ -486,6 +548,14 @@ othello_add_expect_failure_test(
     othello_nboard_engine
     "cannot combine --eval-preset and --eval-config"
     --eval-preset default
+    --eval-config "${OTHELLO_SAMPLE_EVAL_CONFIG}"
+)
+
+othello_add_expect_failure_test(
+    othello_nboard_engine_rejects_duplicate_eval_config
+    othello_nboard_engine
+    "--eval-config may only be specified once"
+    --eval-config "${OTHELLO_SAMPLE_EVAL_CONFIG}"
     --eval-config "${OTHELLO_SAMPLE_EVAL_CONFIG}"
 )
 
