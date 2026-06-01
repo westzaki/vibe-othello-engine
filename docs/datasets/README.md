@@ -205,24 +205,33 @@ Real local teacher example, when an external engine is available locally:
 
 ```sh
 python3 tools/scripts/teacher_dataset_build.py \
-  --dataset-id ntest-depth26-2027 \
+  --dataset-id ntest-depth12-smoke \
   --dataset-root "$VIBE_OTHELLO_DATASET_ROOT" \
-  --positions data/positions/evaluation/diagnostic_suite.txt \
+  --positions dataset:teacher/ntest-depth12-300k/source/smoke-positions.txt \
   --split-seed 20260601 \
   --split-ratios 70,15,15 \
   --shard-size 1000 \
   --teacher-adapter ntest \
   --teacher-protocol nboard \
-  --teacher-depth 26 \
+  --teacher-depth 12 \
   --teacher-timeout-ms 60000 \
-  --teacher-engine-name ntest26-local \
+  --label-jobs 4 \
+  --position-log-mode failures \
+  --teacher-workdir /path/to/ntest \
+  --teacher-env NTEST_HOME=/path/to/ntest \
+  --teacher-engine-name ntest-depth12-local \
   --legal-validator build/othello_validate_move \
   --build-exact-overlap \
   --exact-label-dump build/othello_exact_label_dump \
   --exact-max-empties 14 \
   --include-move-scores \
-  --teacher-engine-cmd -- /path/to/ntest/build/ntest x
+  --teacher-engine-cmd -- ./ntest x
 ```
+
+Always pass `--teacher-depth` explicitly for NTest NBoard runs. The legacy
+adapter default is depth 26 when depth is omitted, which may be too deep for a
+first 300k dataset. Run smoke builds at depth 10, 12, and 14 before starting a
+full overnight run, then choose the full-run depth intentionally.
 
 The command above is an orchestration example only. Do not commit generated
 positions, teacher labels, exact labels, logs, local external-engine paths, or

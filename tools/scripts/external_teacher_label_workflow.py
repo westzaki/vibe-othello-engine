@@ -67,6 +67,8 @@ class WorkflowConfig:
     jobs: int = 1
     position_log_mode: str = "all"
     invocation: list[str] = field(default_factory=list)
+    report_workdir: str | None = None
+    report_engine_command: list[str] | None = None
 
     @property
     def labels_path(self) -> Path:
@@ -1093,8 +1095,11 @@ def workflow_status(config: WorkflowConfig, summary: RunSummary) -> str:
 
 
 def render_report(config: WorkflowConfig, metadata: Metadata, summary: RunSummary) -> str:
-    command = quote_command(config.engine_command)
+    report_engine_command = config.report_engine_command or config.engine_command
+    report_workdir = config.report_workdir if config.report_workdir is not None else config.workdir
+    command = quote_command(report_engine_command)
     invocation = quote_command(config.invocation) if config.invocation else "unknown"
+    workdir = report_workdir if report_workdir is not None else "n/a"
     ntest_board9_support = (
         "supported by serializing board9 positions to NBoard BO[8 ...] text"
         if config.adapter == "ntest" and config.protocol == "nboard"
@@ -1124,7 +1129,7 @@ def render_report(config: WorkflowConfig, metadata: Metadata, summary: RunSummar
         f"- jobs: `{config.jobs}`",
         f"- position_log_mode: `{config.position_log_mode}`",
         f"- allow_failures: `{config.allow_failures}`",
-        f"- workdir: `{config.workdir if config.workdir is not None else 'n/a'}`",
+        f"- workdir: `{workdir}`",
         f"- input_format: `{config.input_format}`",
         f"- legal_validator: `{config.legal_validator if config.legal_validator is not None else 'n/a'}`",
         f"- command_template: `{command}`",

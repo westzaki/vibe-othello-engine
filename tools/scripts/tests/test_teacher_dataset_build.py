@@ -315,6 +315,126 @@ class TeacherDatasetBuildTests(unittest.TestCase):
         self.assertIs(failures[0]["legal_move_valid"], False)
         self.assertEqual(summary["illegal_teacher_moves"], 1)
 
+    def test_teacher_workflow_config_receives_large_run_options(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            positions = write_positions(temp_path)
+            workdir = temp_path / "ntest-resource-dir"
+            workdir.mkdir()
+            config = make_config(
+                temp_path,
+                dataset_root=temp_path / "datasets",
+                positions=positions,
+                extra_args=[
+                    "--teacher-adapter",
+                    "ntest",
+                    "--teacher-protocol",
+                    "nboard",
+                    "--teacher-depth",
+                    "12",
+                    "--teacher-engine-name",
+                    "ntest-depth12",
+                    "--label-jobs",
+                    "3",
+                    "--position-log-mode",
+                    "failures",
+                    "--teacher-workdir",
+                    str(workdir),
+                    "--teacher-env",
+                    "NTEST_HOME=/private/ntest",
+                    "--teacher-env",
+                    "NTEST_THREADS=4",
+                ],
+                engine_args=["x"],
+            )
+
+            workflow_config = builder._teacher_workflow_config(
+                config,
+                shard_positions_path=positions,
+                workflow_out_dir=temp_path / "workflow",
+            )
+
+        self.assertEqual(workflow_config.jobs, 3)
+        self.assertEqual(workflow_config.position_log_mode, "failures")
+        self.assertEqual(workflow_config.workdir, str(workdir))
+        self.assertEqual(
+            workflow_config.env,
+            {
+                "NTEST_HOME": "/private/ntest",
+                "NTEST_THREADS": "4",
+            },
+        )
+        self.assertEqual(workflow_config.depth, 12)
+
+    def test_manifests_record_large_run_options_without_env_values(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            positions = write_positions(temp_path)
+            validator = write_legal_validator(temp_path)
+            workdir = temp_path / "ntest-resource-dir"
+            workdir.mkdir()
+            config = make_config(
+                temp_path,
+                dataset_root=temp_path / "datasets",
+                positions=positions,
+                extra_args=[
+                    "--teacher-engine-name",
+                    "fake",
+                    "--legal-validator",
+                    str(validator),
+                    "--label-jobs",
+                    "2",
+                    "--position-log-mode",
+                    "failures",
+                    "--teacher-workdir",
+                    str(workdir),
+                    "--teacher-env",
+                    "NTEST_SECRET=super-secret-token",
+                    "--teacher-env",
+                    "NTEST_BOOK=/private/ntest/book.bin",
+                ],
+                engine_args=["--move", "d3"],
+            )
+
+            self.assertEqual(builder.run_build(config), 0)
+            manifest = read_json(config.out_dir / "manifest.json")
+            label_manifest = read_json(config.out_dir / "labels" / "fake" / "manifest.json")
+            commands = (config.out_dir / "commands.sh").read_text(encoding="utf-8")
+            card = (config.out_dir / "dataset_card.md").read_text(encoding="utf-8")
+            workflow_reports = [
+                path.read_text(encoding="utf-8")
+                for path in sorted(
+                    (config.out_dir / "labels" / "fake" / "workflow-shards").glob("shard-*/workflow.md")
+                )
+            ]
+
+        teacher_settings = manifest["teacher_engine_settings"]
+        self.assertEqual(teacher_settings["label_jobs"], 2)
+        self.assertEqual(teacher_settings["position_log_mode"], "failures")
+        self.assertEqual(teacher_settings["teacher_workdir"], "<absolute-path:ntest-resource-dir>")
+        self.assertEqual(teacher_settings["teacher_env_keys"], ["NTEST_BOOK", "NTEST_SECRET"])
+        self.assertEqual(label_manifest["label_jobs"], 2)
+        self.assertEqual(label_manifest["position_log_mode"], "failures")
+        self.assertEqual(label_manifest["teacher_workdir"], "<absolute-path:ntest-resource-dir>")
+        self.assertEqual(label_manifest["teacher_env_keys"], ["NTEST_BOOK", "NTEST_SECRET"])
+
+        for text in (
+            json.dumps(manifest, sort_keys=True),
+            json.dumps(label_manifest, sort_keys=True),
+            commands,
+            card,
+            *workflow_reports,
+        ):
+            self.assertNotIn("super-secret-token", text)
+            self.assertNotIn("/private/ntest/book.bin", text)
+            self.assertNotIn(str(workdir), text)
+            self.assertIn("NTEST_SECRET", text)
+            self.assertIn("NTEST_BOOK", text)
+
+        self.assertEqual(len(workflow_reports), 1)
+        self.assertIn("NTEST_SECRET=<redacted>", commands)
+        self.assertIn("NTEST_BOOK=<redacted>", commands)
+
     def test_exact_overlap_can_run_with_fake_exact_tool(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             temp_path = Path(temp)
