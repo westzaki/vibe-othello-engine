@@ -126,10 +126,8 @@ Experimental evaluator candidates should live as explicit `.eval` files and be
 selected with `--eval-config`; generated reports, temporary candidates, and raw
 evidence belong under `runs/` or in PR/task artifacts.
 
-The legacy public `--eval-preset` tool option and C++ evaluator preset
-compatibility API have been removed. Do not add new C++ preset entries as an
-experiment registry; use a named `.eval` file under `data/eval/` or a generated
-candidate under `runs/` instead.
+Do not add evaluator experiments as named C++ API entries. Use a named `.eval`
+file under `data/eval/` or a generated candidate under `runs/` instead.
 
 `data/eval/current_default.eval` is the committed config snapshot of
 `default_evaluation_config()`. Keep it synchronized in the same PR as any
@@ -326,7 +324,7 @@ suite, not the `evaluation` positions:
 python3 tools/scripts/eval_experiment_matrix.py \
   --build-dir build \
   --out runs/eval-matrix/evaluation-diagnostic \
-  --configs data/eval/phase_aware_v1.eval \
+  --configs data/eval/pattern_reboot_v0.eval \
   --positions evaluation \
   --small-depths 4 \
   --extended-depths 5 \
@@ -339,7 +337,7 @@ python3 tools/scripts/eval_experiment_matrix.py \
 
 When no `--eval-config` is specified, tools use the built-in default evaluator.
 Evaluator experiments should be represented as `.eval` configs and passed with
-`--eval-config`; the public `--eval-preset` option has been removed.
+`--eval-config`.
 
 Treat score, best move, PV, checksum, or node-count changes on this suite as
 evaluation behavior evidence, not as automatic regressions. Evaluator promotion
@@ -421,7 +419,7 @@ but has unclear runtime cost, or it needs broader testing.
 
 Promote a candidate as a retained `.eval` config when it is isolated,
 selectable, useful for further testing, but not ready to replace the default.
-Do not promote evaluator candidates by adding new C++ preset APIs.
+Do not promote evaluator candidates by adding named C++ APIs.
 
 Promote a candidate as default only when correctness checks pass, evidence is
 stronger than a smoke test, runtime cost is acceptable or justified, and the

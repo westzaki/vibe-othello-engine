@@ -360,10 +360,10 @@ set_tests_properties(
 )
 
 othello_add_expect_failure_test(
-    othello_search_bench_rejects_removed_eval_option
+    othello_search_bench_rejects_unknown_option
     othello_search_bench
-    "unknown option: --eval-preset"
-    --eval-preset default
+    "unknown option: --unknown-option"
+    --unknown-option
 )
 
 othello_add_expect_failure_test(
@@ -382,12 +382,12 @@ othello_add_expect_failure_test(
 )
 
 othello_add_expect_failure_test(
-    othello_eval_vs_exact_rejects_removed_eval_option
+    othello_eval_vs_exact_rejects_unknown_option
     othello_eval_vs_exact
-    "unknown option: --eval-preset"
+    "unknown option: --unknown-option"
     --labels "${OTHELLO_TINY_EXACT_LABELS}"
     --output "${CMAKE_CURRENT_BINARY_DIR}/eval_vs_exact_rejects_combo.md"
-    --eval-preset default
+    --unknown-option
 )
 
 othello_add_expect_failure_test(
@@ -487,11 +487,11 @@ if(Python3_Interpreter_FOUND)
 endif()
 
 othello_add_expect_failure_test(
-    othello_analyze_position_rejects_removed_eval_option
+    othello_analyze_position_rejects_unknown_option
     othello_analyze_position
-    "unknown option: --eval-preset"
+    "unknown option: --unknown-option"
     --stdin
-    --eval-preset default
+    --unknown-option
 )
 
 othello_add_expect_failure_test(
@@ -518,10 +518,10 @@ othello_add_help_contains_test(
 )
 
 othello_add_expect_failure_test(
-    othello_nboard_engine_rejects_removed_eval_option
+    othello_nboard_engine_rejects_unknown_option
     othello_nboard_engine
-    "unknown option: --eval-preset"
-    --eval-preset default
+    "unknown option: --unknown-option"
+    --unknown-option
 )
 
 othello_add_expect_failure_test(

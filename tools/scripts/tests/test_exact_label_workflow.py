@@ -137,7 +137,6 @@ class ExactLabelWorkflowTests(unittest.TestCase):
         self.assertIn("othello_position_sampler", report)
         self.assertIn("othello_exact_label_dump", report)
         self.assertIn("othello_eval_vs_exact", report)
-        self.assertNotIn("--eval-preset", report)
 
     def test_command_construction_and_tool_overrides_are_respected(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
