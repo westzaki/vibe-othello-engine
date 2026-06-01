@@ -77,6 +77,15 @@ side=B)");
     return buffer.str();
 }
 
+void replace_all(std::string& text, std::string_view from, std::string_view to) {
+    REQUIRE_FALSE(from.empty());
+    std::size_t position = 0;
+    while ((position = text.find(from, position)) != std::string::npos) {
+        text.replace(position, from.size(), to);
+        position += to.size();
+    }
+}
+
 void write_text_file(const std::filesystem::path& path, std::string_view text) {
     std::filesystem::create_directories(path.parent_path());
     std::ofstream output{path};
@@ -735,6 +744,57 @@ TEST_CASE("Eval config parser rejects malformed v1 files", "[evaluation]") {
         othello::tools::parse_evaluation_config("schema_version=eval.v2\n");
     CHECK_FALSE(unsupported_schema.ok());
     CHECK(unsupported_schema.error.find("unsupported schema_version") !=
+          std::string::npos);
+}
+
+TEST_CASE("Eval config parser accepts legacy rule aliases for handcrafted pattern features",
+          "[evaluation]") {
+    const std::string legacy_text =
+        read_text_file(sample_eval_config_path("pattern_teacher_v0.eval"));
+    std::string alias_text = legacy_text;
+    replace_all(alias_text, "opening.corner_2x3_pattern",
+                "opening.legacy_corner_2x3_rule");
+    replace_all(alias_text, "opening.edge_8_pattern", "opening.legacy_edge_8_rule");
+    replace_all(alias_text, "midgame.corner_2x3_pattern",
+                "midgame.legacy_corner_2x3_rule");
+    replace_all(alias_text, "midgame.edge_8_pattern", "midgame.legacy_edge_8_rule");
+    replace_all(alias_text, "late.corner_2x3_pattern", "late.legacy_corner_2x3_rule");
+    replace_all(alias_text, "late.edge_8_pattern", "late.legacy_edge_8_rule");
+
+    const othello::tools::EvaluationConfigLoadResult legacy =
+        othello::tools::parse_evaluation_config(legacy_text);
+    const othello::tools::EvaluationConfigLoadResult alias =
+        othello::tools::parse_evaluation_config(alias_text);
+
+    REQUIRE(legacy.ok());
+    REQUIRE(alias.ok());
+    CHECK(alias.config == legacy.config);
+    CHECK(alias.pattern_table_path == legacy.pattern_table_path);
+    CHECK(alias.config.opening.corner_2x3_pattern == 19);
+    CHECK(alias.config.midgame.edge_8_pattern == 4);
+    CHECK(alias.config.opening.pattern_table == 10);
+    CHECK(alias.config.midgame.pattern_table == 10);
+    CHECK(alias.config.late.pattern_table == 10);
+}
+
+TEST_CASE("Eval config parser rejects canonical and alias keys for the same feature",
+          "[evaluation]") {
+    const othello::tools::EvaluationConfigLoadResult duplicate_corner =
+        othello::tools::parse_evaluation_config(R"(mode=pattern_only
+opening.corner_2x3_pattern=1
+opening.legacy_corner_2x3_rule=2
+)");
+    CHECK_FALSE(duplicate_corner.ok());
+    CHECK(duplicate_corner.error.find("duplicate feature key: opening.corner_2x3_pattern") !=
+          std::string::npos);
+
+    const othello::tools::EvaluationConfigLoadResult duplicate_edge =
+        othello::tools::parse_evaluation_config(R"(mode=pattern_only
+midgame.edge_8_pattern=1
+midgame.legacy_edge_8_rule=2
+)");
+    CHECK_FALSE(duplicate_edge.ok());
+    CHECK(duplicate_edge.error.find("duplicate feature key: midgame.edge_8_pattern") !=
           std::string::npos);
 }
 

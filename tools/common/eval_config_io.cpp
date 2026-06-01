@@ -25,6 +25,11 @@ struct FeatureKeySpec {
     bool required = true;
 };
 
+struct FeatureKeyAliasSpec {
+    std::string_view key;
+    std::string_view canonical_key;
+};
+
 struct ConfigKeySpec {
     std::string_view key;
     int EvaluationConfig::*value;
@@ -124,6 +129,15 @@ constexpr std::array<FeatureKeySpec, 36> feature_keys{{
      &EvaluationFeatureWeights::pattern_table, false},
 }};
 
+constexpr std::array<FeatureKeyAliasSpec, 6> feature_key_aliases{{
+    {"opening.legacy_corner_2x3_rule", "opening.corner_2x3_pattern"},
+    {"opening.legacy_edge_8_rule", "opening.edge_8_pattern"},
+    {"midgame.legacy_corner_2x3_rule", "midgame.corner_2x3_pattern"},
+    {"midgame.legacy_edge_8_rule", "midgame.edge_8_pattern"},
+    {"late.legacy_corner_2x3_rule", "late.corner_2x3_pattern"},
+    {"late.legacy_edge_8_rule", "late.edge_8_pattern"},
+}};
+
 constexpr std::array<ConfigKeySpec, 2> config_keys{{
     {"opening_max_occupied", &EvaluationConfig::opening_max_occupied},
     {"midgame_max_occupied", &EvaluationConfig::midgame_max_occupied},
@@ -196,10 +210,24 @@ template <std::size_t N>
     return {};
 }
 
-[[nodiscard]] std::optional<std::size_t> feature_key_index(std::string_view key) noexcept {
+[[nodiscard]] std::optional<std::size_t>
+canonical_feature_key_index(std::string_view key) noexcept {
     for (std::size_t index = 0; index < feature_keys.size(); ++index) {
         if (feature_keys[index].key == key) {
             return index;
+        }
+    }
+    return std::nullopt;
+}
+
+[[nodiscard]] std::optional<std::size_t> feature_key_index(std::string_view key) noexcept {
+    if (const std::optional<std::size_t> index = canonical_feature_key_index(key);
+        index.has_value()) {
+        return index;
+    }
+    for (const FeatureKeyAliasSpec& alias : feature_key_aliases) {
+        if (alias.key == key) {
+            return canonical_feature_key_index(alias.canonical_key);
         }
     }
     return std::nullopt;
@@ -440,6 +468,12 @@ EvaluationConfigLoadResult parse_evaluation_config(std::string_view text) {
                 if (!parsed.has_value()) {
                     result.error = line_error(line_number, "invalid integer for key: " +
                                                               std::string{key});
+                    return result;
+                }
+                if (seen_features[*index]) {
+                    result.error = line_error(
+                        line_number,
+                        "duplicate feature key: " + std::string{feature_keys[*index].key});
                     return result;
                 }
                 assign_feature_key(result.config, *index, *parsed);
