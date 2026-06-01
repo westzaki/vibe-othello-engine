@@ -85,6 +85,17 @@ only, and it must not be described as active or preferred.
   `pattern_table.late=...` paths select phase-specific learned tables
 - when a phase-specific table is absent, that phase falls back to
   `pattern_table=...` when present
+- `opening.pattern_table`, `midgame.pattern_table`, and `late.pattern_table`
+  are weights for the learned `PatternTableBundle` score
+- `legacy_corner_2x3_rule` and `legacy_edge_8_rule` are aliases for the old
+  handcrafted pattern-rule features formerly written as `corner_2x3_pattern`
+  and `edge_8_pattern`
+
+For new configs, use `pattern_table` for learned pattern-table experiments.
+Use `legacy_corner_2x3_rule` and `legacy_edge_8_rule` only for compatibility
+snapshots, comparisons, or narrow ablations. The old `corner_2x3_pattern` and
+`edge_8_pattern` keys are still accepted so existing configs keep loading, but a
+config must not specify both the old key and its legacy alias for the same phase.
 
 ### Full Snapshot Configs
 
@@ -122,6 +133,11 @@ the no-table case explicit and cheap. Phase-specific keys use the same TSV
 format and the same dense runtime representation; numeric
 `opening.pattern_table`, `midgame.pattern_table`, and `late.pattern_table`
 weights still control each phase's contribution.
+
+The legacy handcrafted pattern-rule feature weights are scalar evaluator
+features, not learned table weights. In config files, prefer
+`opening.legacy_corner_2x3_rule`, `opening.legacy_edge_8_rule`, and the matching
+`midgame.*` / `late.*` keys when a retained comparison needs those old features.
 
 Binary `.ptab` loading, manifests/checksums, compact runtime payloads, and
 phase-specific table manifests are future work. Do not add those concerns to
