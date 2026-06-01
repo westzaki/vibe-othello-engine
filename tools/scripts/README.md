@@ -38,6 +38,7 @@ script.
 | `extract_divergence_positions.py` | legacy | Extract first divergence boards from swap-side match JSONL. | Kept for focused regression diagnosis and historical baseline reproduction. |
 | `forced_move_nboard_wrapper.py` | legacy | Force one diagnostic NBoard move when a target board is reached. | Kept for tactical/debug investigations; not part of engine behavior or normal experiments. |
 | `match_summary.py` | current | Summarize C++ match-runner JSONL. | Shared by current evidence, match, and base/head workflows. |
+| `ntest_teacher_smoke.py` | current | Run a local NTest teacher-label smoke and estimate 300K run feasibility. | Operational preflight before overnight NTest teacher dataset generation; does not make strength claims. |
 | `pattern_teacher_v0_train.py` | current | Train sparse learned pattern tables and provide shared pattern extraction helpers. | Current pattern-table foundation and provenance path for `pattern_teacher_v0.tsv`; also used by phase/pairwise trainers and CTest. |
 | `phase_pattern_table_train.py` | current | Train separate opening/midgame/late sparse pattern tables and local candidate configs. | Recommended pattern-first trainer after reusable dataset setup. |
 | `regularized_pairwise_pattern_train.py` | current | Train phase-specific tables from teacher-vs-engine pairwise preferences. | Current pattern-first trainer foundation for broader regularized experiments. |
