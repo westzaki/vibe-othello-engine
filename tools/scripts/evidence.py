@@ -512,62 +512,6 @@ def eval_search_step(config: EvidenceConfig, target: EvalTarget, index: int) -> 
     )
 
 
-def eval_matrix_step(config: EvidenceConfig, targets: list[EvalTarget]) -> Step:
-    if not targets:
-        return Step(
-            name="eval-experiment-matrix",
-            group="Search / Evaluation Evidence",
-            cwd=config.source_dir,
-            required=False,
-            skipped_reason="no eval configs were provided",
-        )
-    if not opening_exists(config.openings, config.source_dir):
-        return Step(
-            name="eval-experiment-matrix",
-            group="Search / Evaluation Evidence",
-            cwd=config.source_dir,
-            required=False,
-            skipped_reason=f"opening suite not found: {config.openings}",
-        )
-    script = config.source_dir / "tools" / "scripts" / "eval_experiment_matrix.py"
-    command = [
-        sys.executable,
-        str(script),
-        "--small-depths",
-        config.small_depths,
-        "--small-games",
-        str(config.small_games),
-        "--openings",
-        str(config.openings),
-        "--seed",
-        str(config.seed),
-        "--build-dir",
-        str(config.build_dir),
-        "--search-bench",
-        str(config.search_bench),
-        "--match-runner",
-        str(config.match_runner),
-        "--out",
-        str(config.out_dir / "eval-matrix"),
-        "--positions",
-        "smoke",
-        "--exact-endgame-threshold",
-        str(EXACT_MIDGAME_THRESHOLD),
-    ]
-    if config.eval_configs:
-        command.extend(["--configs", ",".join(str(path) for path in config.eval_configs)])
-    if config.reference_config is not None:
-        command.extend(["--reference-config", str(config.reference_config)])
-    return Step(
-        name="eval-experiment-matrix",
-        group="Search / Evaluation Evidence",
-        command=command,
-        cwd=config.source_dir,
-        log_path=log_path(config, "eval-experiment-matrix"),
-        note="matrix report is a triage artifact, not a default-promotion recommendation",
-    )
-
-
 def full_profile_planned_step(config: EvidenceConfig) -> Step:
     return Step(
         name="analyze-position-suite",
@@ -592,7 +536,6 @@ def build_steps(config: EvidenceConfig) -> list[Step]:
                 steps.append(eval_search_step(config, target, index))
         else:
             steps.append(search_smoke_step(config))
-        steps.append(eval_matrix_step(config, targets))
     if config.profile == "full":
         steps.append(endgame_step(config))
         steps.append(full_profile_planned_step(config))

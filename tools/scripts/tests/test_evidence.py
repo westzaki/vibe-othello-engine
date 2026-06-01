@@ -157,43 +157,54 @@ class EvidenceTests(unittest.TestCase):
         self.assertIn("Status: completed with failures", report)
         self.assertIn("`ctest`: failed", report)
 
-    def test_eval_profile_with_configs_emits_eval_config_and_reference_config(self) -> None:
+    def test_eval_profile_with_configs_emits_direct_eval_search_steps(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             temp_path = Path(temp)
             candidate = temp_path / "candidate.eval"
-            reference = temp_path / "reference.eval"
+            second_candidate = temp_path / "second.eval"
             config = make_config(
                 temp_path,
                 profile="eval",
                 dry_run=True,
                 extra_args=[
                     "--eval-configs",
-                    str(candidate),
-                    "--reference-config",
-                    str(reference),
+                    f"{candidate},{second_candidate}",
                     "--small-depths",
                     "5",
                     "--small-games",
                     "2",
                 ],
             )
+            steps = evidence.build_steps(config)
 
             exit_code = evidence.run_evidence(config)
             report = (config.out_dir / "report.md").read_text(encoding="utf-8")
 
+        step_names = [step.name for step in steps]
+        self.assertIn("eval-search-1-candidate", step_names)
+        self.assertIn("eval-search-2-second", step_names)
+        self.assertNotIn("eval-experiment-matrix", step_names)
         self.assertEqual(exit_code, 0)
         self.assertIn("--eval-config", report)
         self.assertIn(str(candidate), report)
-        self.assertIn("--reference-config", report)
-        self.assertIn(str(reference), report)
+        self.assertIn(str(second_candidate), report)
+        self.assertNotIn("eval-experiment-matrix", report)
+        self.assertNotIn("eval_experiment_matrix.py", report)
 
-    def test_eval_matrix_passes_binary_overrides(self) -> None:
+    def test_eval_profile_without_configs_uses_search_smoke(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            config = make_config(Path(temp), profile="eval", dry_run=True)
+            steps = evidence.build_steps(config)
+
+        step_names = [step.name for step in steps]
+        self.assertIn("search-smoke", step_names)
+        self.assertNotIn("eval-experiment-matrix", step_names)
+        self.assertFalse(any(name.startswith("eval-search-") for name in step_names))
+
+    def test_eval_search_passes_search_bench_override(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             temp_path = Path(temp)
-            opening_suite = temp_path / "openings.txt"
-            opening_suite.write_text("D3\n", encoding="utf-8")
             search_bench = temp_path / "custom_search_bench"
-            match_runner = temp_path / "custom_match_runner"
             config = make_config(
                 temp_path,
                 profile="eval",
@@ -201,29 +212,21 @@ class EvidenceTests(unittest.TestCase):
                 extra_args=[
                     "--source-dir",
                     str(temp_path),
-                    "--openings",
-                    str(opening_suite),
                     "--eval-configs",
                     str(temp_path / "candidate.eval"),
                     "--search-bench",
                     str(search_bench),
-                    "--match-runner",
-                    str(match_runner),
                 ],
             )
             steps = evidence.build_steps(config)
 
-        matrix = next(step for step in steps if step.name == "eval-experiment-matrix")
-        self.assertIsNone(matrix.skipped_reason)
-        self.assertIn("--search-bench", matrix.command)
+        search = next(step for step in steps if step.name == "eval-search-1-candidate")
+        self.assertIsNone(search.skipped_reason)
+        self.assertEqual(search.command[0], str(search_bench))
+        self.assertIn("--eval-config", search.command)
         self.assertEqual(
-            matrix.command[matrix.command.index("--search-bench") + 1],
-            str(search_bench),
-        )
-        self.assertIn("--match-runner", matrix.command)
-        self.assertEqual(
-            matrix.command[matrix.command.index("--match-runner") + 1],
-            str(match_runner),
+            search.command[search.command.index("--eval-config") + 1],
+            str(temp_path / "candidate.eval"),
         )
 
     def test_report_marks_exact_threshold_zero_as_midgame_eval_evidence(self) -> None:
