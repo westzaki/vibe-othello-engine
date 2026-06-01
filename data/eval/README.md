@@ -89,8 +89,8 @@ format and the same dense runtime representation; numeric
 weights still control each phase's contribution.
 
 Binary `.ptab` loading, manifests/checksums, compact runtime payloads, and
-compact runtime payloads are future work. Do not add those concerns to `.eval`
-files until the corresponding runtime loader exists.
+phase-specific table manifests are future work. Do not add those concerns to
+`.eval` files until the corresponding runtime loader exists.
 
 Raw experiment outputs belong under `runs/`. Raw teacher labels, exact labels,
 match JSONL, benchmark logs, local NTest paths, and local absolute paths should
