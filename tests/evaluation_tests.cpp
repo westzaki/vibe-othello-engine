@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -206,14 +207,19 @@ void check_breakdown_matches_basic(const Board& board, Side side) {
     };
 }
 
-[[nodiscard]] othello::EvaluationConfig pattern_table_only_config(int weight) {
+[[nodiscard]] othello::EvaluationConfig pattern_table_only_config(
+    int weight, const std::shared_ptr<othello::PatternTableBundle>& tables) {
     othello::EvaluationConfig config{
         .opening = othello::EvaluationFeatureWeights{.pattern_table = weight},
         .midgame = othello::EvaluationFeatureWeights{.pattern_table = weight},
         .late = othello::EvaluationFeatureWeights{.pattern_table = weight},
     };
-    config.pattern_tables.enabled = true;
+    config.pattern_tables = tables;
     return config;
+}
+
+[[nodiscard]] othello::EvaluationConfig pattern_table_only_config(int weight) {
+    return pattern_table_only_config(weight, std::make_shared<othello::PatternTableBundle>());
 }
 
 void check_scalar_weights_zero(const othello::EvaluationFeatureWeights& weights) {
@@ -273,7 +279,7 @@ TEST_CASE("Sample eval configs round-trip to expected evaluator configs", "[eval
     REQUIRE(current_default.name.has_value());
     CHECK(*current_default.name == "current_default");
     CHECK(current_default.config == othello::default_evaluation_config());
-    CHECK_FALSE(current_default.config.pattern_tables.enabled);
+    CHECK(current_default.config.pattern_tables == nullptr);
     CHECK(current_default.config.opening.pattern_table == 0);
     CHECK(current_default.config.midgame.pattern_table == 0);
     CHECK(current_default.config.late.pattern_table == 0);
@@ -293,7 +299,7 @@ TEST_CASE("Sample eval configs round-trip to expected evaluator configs", "[eval
     REQUIRE(scalar_anchor.name.has_value());
     CHECK(*scalar_anchor.name == "classic_othello_v3_teacher_aggressive");
     CHECK(scalar_anchor.config != othello::default_evaluation_config());
-    CHECK_FALSE(scalar_anchor.config.pattern_tables.enabled);
+    CHECK(scalar_anchor.config.pattern_tables == nullptr);
 
     const othello::tools::EvaluationConfigLoadResult pattern =
         othello::tools::load_evaluation_config_file(
@@ -302,14 +308,26 @@ TEST_CASE("Sample eval configs round-trip to expected evaluator configs", "[eval
     REQUIRE(pattern.name.has_value());
     CHECK(*pattern.name == "pattern_teacher_v0");
     CHECK(pattern.pattern_table_path == "patterns/pattern_teacher_v0.tsv");
-    CHECK(pattern.config.pattern_tables.enabled);
+    REQUIRE(pattern.config.pattern_tables != nullptr);
     CHECK(pattern.config.opening.pattern_table == 10);
     CHECK(pattern.config.midgame.pattern_table == 10);
     CHECK(pattern.config.late.pattern_table == 10);
-    CHECK(std::ranges::count_if(pattern.config.pattern_tables.corner_2x3,
+    CHECK(std::ranges::count_if(pattern.config.pattern_tables->corner_2x3,
                                 [](std::int16_t value) { return value != 0; }) == 64);
-    CHECK(std::ranges::count_if(pattern.config.pattern_tables.edge_8,
+    CHECK(std::ranges::count_if(pattern.config.pattern_tables->edge_8,
                                 [](std::int16_t value) { return value != 0; }) == 64);
+
+    const othello::EvaluationConfig pattern_copy = pattern.config;
+    CHECK(pattern_copy == pattern.config);
+    CHECK(pattern_copy.pattern_tables == pattern.config.pattern_tables);
+
+    const othello::tools::EvaluationConfigLoadResult pattern_reloaded =
+        othello::tools::load_evaluation_config_file(
+            sample_eval_config_path("pattern_teacher_v0.eval"));
+    REQUIRE(pattern_reloaded.ok());
+    REQUIRE(pattern_reloaded.config.pattern_tables != nullptr);
+    CHECK(pattern_reloaded.config.pattern_tables != pattern.config.pattern_tables);
+    CHECK(pattern_reloaded.config == pattern.config);
 
     const othello::tools::EvaluationConfigLoadResult reboot =
         othello::tools::load_evaluation_config_file(
@@ -319,7 +337,7 @@ TEST_CASE("Sample eval configs round-trip to expected evaluator configs", "[eval
     CHECK(*reboot.name == "pattern_reboot_v0");
     CHECK(reboot.pattern_table_path == "patterns/pattern_teacher_v0.tsv");
     CHECK(reboot.config != othello::default_evaluation_config());
-    CHECK(reboot.config.pattern_tables.enabled);
+    REQUIRE(reboot.config.pattern_tables != nullptr);
     check_scalar_weights_zero(reboot.config.opening);
     check_scalar_weights_zero(reboot.config.midgame);
     check_scalar_weights_zero(reboot.config.late);
@@ -328,9 +346,9 @@ TEST_CASE("Sample eval configs round-trip to expected evaluator configs", "[eval
     CHECK(reboot.config.late.pattern_table == 4);
     CHECK(reboot.config.opening_max_occupied == 20);
     CHECK(reboot.config.midgame_max_occupied == 44);
-    CHECK(std::ranges::count_if(reboot.config.pattern_tables.corner_2x3,
+    CHECK(std::ranges::count_if(reboot.config.pattern_tables->corner_2x3,
                                 [](std::int16_t value) { return value != 0; }) == 64);
-    CHECK(std::ranges::count_if(reboot.config.pattern_tables.edge_8,
+    CHECK(std::ranges::count_if(reboot.config.pattern_tables->edge_8,
                                 [](std::int16_t value) { return value != 0; }) == 64);
 }
 
@@ -480,7 +498,7 @@ TEST_CASE("Tool evaluator selection resolves presets and config files", "[evalua
     CHECK(config_selection->config_path == config_path);
     CHECK(othello::tools::has_custom_eval_config(*config_selection));
     CHECK(config_selection->config_override.has_value());
-    CHECK(config_selection->config_override->pattern_tables.enabled);
+    CHECK(config_selection->config_override->pattern_tables != nullptr);
     CHECK(config_selection->config_override->opening.pattern_table == 10);
     CHECK(othello::tools::resolve_evaluator_selection(*config_selection) ==
           *config_selection->config_override);
@@ -1525,11 +1543,12 @@ TEST_CASE("Edge 8 pattern is symmetric across colors and separable from edge sta
 }
 
 TEST_CASE("External pattern table is deterministic and config gated", "[evaluation]") {
-    othello::EvaluationConfig config = pattern_table_only_config(7);
-    config.pattern_tables.corner_2x3[1] = 3;
-    config.pattern_tables.corner_2x3[2] = -3;
-    config.pattern_tables.edge_8[1] = 2;
-    config.pattern_tables.edge_8[2] = -2;
+    auto tables = std::make_shared<othello::PatternTableBundle>();
+    othello::EvaluationConfig config = pattern_table_only_config(7, tables);
+    tables->corner_2x3[1] = 3;
+    tables->corner_2x3[2] = -3;
+    tables->edge_8[1] = 2;
+    tables->edge_8[2] = -2;
 
     const Board board = extra_disc_board(othello::test::bit("a1"));
     const othello::EvaluationBreakdown first =
@@ -1545,7 +1564,7 @@ TEST_CASE("External pattern table is deterministic and config gated", "[evaluati
     CHECK(second.total == first.total);
 
     othello::EvaluationConfig disabled = config;
-    disabled.pattern_tables.enabled = false;
+    disabled.pattern_tables.reset();
     const othello::EvaluationBreakdown disabled_breakdown =
         othello::evaluate_basic_breakdown(board, Side::Black, disabled);
     CHECK(disabled_breakdown.pattern_table == 0);
@@ -1563,29 +1582,30 @@ TEST_CASE("External pattern table is deterministic and config gated", "[evaluati
 
 TEST_CASE("External broad pattern table is antisymmetric under color swap",
           "[evaluation]") {
-    othello::EvaluationConfig config = pattern_table_only_config(1);
-    config.pattern_tables.corner_3x3[1] = 3;
-    config.pattern_tables.corner_3x3[2] = -3;
-    config.pattern_tables.edge_x_10[1] = 5;
-    config.pattern_tables.edge_x_10[2] = -5;
-    config.pattern_tables.diagonal_8[1] = 7;
-    config.pattern_tables.diagonal_8[2] = -7;
-    config.pattern_tables.inner_row_8[1] = 11;
-    config.pattern_tables.inner_row_8[2] = -11;
+    auto tables = std::make_shared<othello::PatternTableBundle>();
+    othello::EvaluationConfig config = pattern_table_only_config(1, tables);
+    tables->corner_3x3[1] = 3;
+    tables->corner_3x3[2] = -3;
+    tables->edge_x_10[1] = 5;
+    tables->edge_x_10[2] = -5;
+    tables->diagonal_8[1] = 7;
+    tables->diagonal_8[2] = -7;
+    tables->inner_row_8[1] = 11;
+    tables->inner_row_8[2] = -11;
 
     const Board corner_board = pattern_disc_board(othello::test::bit("a1"));
     const Board swapped_corner = swapped_colors(corner_board);
     CHECK(othello::evaluation_pattern_table_value(corner_board, Side::Black,
-                                                  config.pattern_tables) == 20);
+                                                  *tables) == 20);
     CHECK(othello::evaluation_pattern_table_value(corner_board, Side::Black,
-                                                  config.pattern_tables) ==
+                                                  *tables) ==
           -othello::evaluation_pattern_table_value(swapped_corner, Side::Black,
-                                                   config.pattern_tables));
+                                                   *tables));
 
     const Board inner_board = pattern_disc_board(othello::test::bit("b1"));
     const Board swapped_inner = swapped_colors(inner_board);
     CHECK(othello::evaluation_pattern_table_value(inner_board, Side::Black,
-                                                  config.pattern_tables) == 11);
+                                                  *tables) == 11);
     CHECK(othello::evaluate_with_config(inner_board, Side::Black, config) ==
           -othello::evaluate_with_config(swapped_inner, Side::Black, config));
 }

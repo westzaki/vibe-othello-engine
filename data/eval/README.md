@@ -75,6 +75,15 @@ only, and it must not be described as active or preferred.
 Active configs must be fully expanded. They should not rely on implicit default
 overlays or missing-key fallback behavior.
 
+Pattern table storage is separate from scalar evaluator configuration. Sparse
+TSV files remain the source and review format, but loading expands them into a
+shared dense `PatternTableBundle` for runtime lookup. Scalar-only configs keep
+the no-table case explicit and cheap.
+
+Binary `.ptab` loading, manifests/checksums, compact runtime payloads, and
+phase-specific table bundles are future work. Do not add those concerns to
+`.eval` files until the corresponding runtime loader exists.
+
 Raw experiment outputs belong under `runs/`. Raw teacher labels, exact labels,
 match JSONL, benchmark logs, local NTest paths, and local absolute paths should
 not be committed here.
