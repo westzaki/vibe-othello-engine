@@ -1,0 +1,68 @@
+{
+  "schema": "ntest_teacher_dataset_runbook.v1",
+  "description": "Example local parameters for the first reusable NTest 300K teacher dataset runbook. This file is documentation-oriented and is not consumed directly by the dataset scripts.",
+  "environment": {
+    "VIBE_OTHELLO_DATASET_ROOT": "/path/to/vibe-othello-datasets",
+    "NTEST_BIN": "/path/to/ntest",
+    "NTEST_WORKDIR": "/path/to/ntest-resource-directory",
+    "BUILD_DIR": "build",
+    "DATASET_ID": "ntest-balanced300k-v0",
+    "DEPTH": 12,
+    "TIMEOUT_MS": 5000,
+    "TEACHER_NAME": "ntest${DEPTH}-local",
+    "JOBS": "<machine-dependent>"
+  },
+  "position_pool": {
+    "output": "teacher/${DATASET_ID}/source/positions.txt",
+    "bucket_spec": "52:4000,51:4000,48:5000,47:5000,44:7000,43:7000,40:10000,39:10000,36:14000,35:14000,32:17000,31:17000,28:18000,27:18000,24:18000,23:18000,20:16000,19:16000,16:14000,15:14000,14:11000,13:11000,12:9000,11:9000,10:4500,9:4500,8:2500,7:2500",
+    "seed": 20260601,
+    "sampler": "${BUILD_DIR}/othello_position_sampler",
+    "max_attempts_per_bucket": 20000000
+  },
+  "smoke": {
+    "depths": [
+      10,
+      12,
+      14
+    ],
+    "timeout_ms": "${TIMEOUT_MS}",
+    "bucket_spec": "smoke",
+    "position_log_mode": "failures",
+    "legal_validator": "${BUILD_DIR}/othello_validate_move",
+    "engine_command": [
+      "${NTEST_BIN}",
+      "x"
+    ]
+  },
+  "teacher_dataset_build": {
+    "dataset_id": "${DATASET_ID}",
+    "positions": "${VIBE_OTHELLO_DATASET_ROOT}/teacher/${DATASET_ID}/source/positions.txt",
+    "split_seed": 20260601,
+    "split_ratios": [
+      70,
+      15,
+      15
+    ],
+    "shard_size": 1000,
+    "teacher_adapter": "ntest",
+    "teacher_protocol": "nboard",
+    "teacher_depth": "${DEPTH}",
+    "teacher_timeout_ms": "${TIMEOUT_MS}",
+    "teacher_engine_name": "${TEACHER_NAME}",
+    "teacher_workdir": "${NTEST_WORKDIR}",
+    "label_jobs": "${JOBS}",
+    "position_log_mode": "failures",
+    "legal_validator": "${BUILD_DIR}/othello_validate_move",
+    "resume": true,
+    "allow_failures": true,
+    "teacher_engine_cmd": [
+      "${NTEST_BIN}",
+      "x"
+    ]
+  },
+  "artifact_policy": {
+    "generated_dataset_committed": false,
+    "ntest_committed_or_vendored": false,
+    "ntest_required_in_ci": false
+  }
+}
