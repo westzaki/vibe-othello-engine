@@ -2,13 +2,64 @@
 
 These scripts are lightweight orchestration and reporting helpers for local
 experiments. The C++ tools remain the source of truth for engine execution and
-JSONL generation, while Python is the canonical layer for match summary and
-reporting workflows.
+JSONL generation, while Python is the canonical layer for dataset plumbing,
+pattern-table experiments, match summaries, and reproducible evidence reports.
 
 The scripts use only the Python standard library. They do not import the C++
 engine directly.
 
-## Pattern-first Evaluation Workflow
+## Status Definitions
+
+- `current`: recommended for the current pattern-first workflow or shared PR
+  evidence workflow.
+- `legacy`: still useful for scalar/config diagnostics, compatibility checks,
+  historical comparison, or focused debugging, but not the default path for new
+  pattern-first work.
+- `deprecated`: no longer recommended; removed here when a current workflow
+  covers the use case and repository references are historical only.
+
+Historical experiment reports may still mention removed scripts so old evidence
+keeps its provenance. Do not copy those historical commands as current
+instructions unless this README or a current workflow doc still recommends the
+script.
+
+## Inventory
+
+| Script | Status | Purpose | Keep reason |
+| --- | --- | --- | --- |
+| `base_head_match_matrix.py` | current | Run external-process base/head match matrices. | Recommended for strength-changing code comparisons where in-process players would share one linked implementation. |
+| `common.py` | current | Shared parsing, command, JSONL, slug, and report helpers. | Imported by many current and legacy scripts. |
+| `dataset_paths.py` | current | Resolve `dataset:...` references and shared dataset roots. | Required by reusable teacher/exact dataset workflows. |
+| `eval_candidate_matrix.py` | current | Gather comparable `.eval` candidate smoke evidence from labels and search bench. | Current replacement for ad hoc candidate validation wrappers; also registered in CTest as a dry-run smoke. |
+| `eval_config_tuner.py` | legacy | Perturb fully expanded `.eval` scalar weights against exact-label JSONL. | Kept for debugging existing configs and because current diagnostics reuse its parser/metric helpers; not the default pattern-learning path. |
+| `eval_experiment_matrix.py` | legacy | Run staged preset/config search and match matrices. | Kept for preset compatibility diagnostics and because `evidence.py --profile eval` can still call it. Prefer `.eval` candidates and `eval_candidate_matrix.py` for new pattern work. |
+| `evidence.py` | current | Collect reproducible build/test/benchmark/match evidence for PRs. | Shared evidence workflow for reviewers; wraps C++ tools without making strength claims. |
+| `exact_label_workflow.py` | current | Sample positions, dump exact labels, and optionally run eval-vs-exact analysis. | Current exact-label smoke helper for evaluation investigations. |
+| `external_teacher_label_workflow.py` | current | Generate teacher-label JSONL from external engines. | Current teacher-label entrypoint and a dependency of `teacher_dataset_build.py`. |
+| `extract_divergence_positions.py` | legacy | Extract first divergence boards from swap-side match JSONL. | Kept for focused regression diagnosis and historical baseline reproduction. |
+| `forced_move_nboard_wrapper.py` | legacy | Force one diagnostic NBoard move when a target board is reached. | Kept for tactical/debug investigations; not part of engine behavior or normal experiments. |
+| `match_summary.py` | current | Summarize C++ match-runner JSONL. | Shared by current evidence, match, and base/head workflows. |
+| `pattern_teacher_v0_train.py` | current | Train sparse learned pattern tables and provide shared pattern extraction helpers. | Current pattern-table foundation and provenance path for `pattern_teacher_v0.tsv`; also used by phase/pairwise trainers and CTest. |
+| `phase_pattern_table_train.py` | current | Train separate opening/midgame/late sparse pattern tables and local candidate configs. | Recommended pattern-first trainer after reusable dataset setup. |
+| `regularized_pairwise_pattern_train.py` | current | Train phase-specific tables from teacher-vs-engine pairwise preferences. | Current pattern-first trainer foundation for broader regularized experiments. |
+| `run_external_engine_once.py` | current | Probe one external-engine request through the canonical adapter CLI. | Current process/timeout/protocol smoke path for adapters. |
+| `run_match_experiment.py` | current | Thin subprocess wrapper around `othello_match_runner` plus optional summary. | Current simple match-smoke wrapper used by recent pattern reports. |
+| `teacher_dataset_build.py` | current | Build reusable position shards, manifests, splits, teacher labels, and exact overlap labels under a dataset root. | Recommended durable dataset-builder entrypoint for pattern-first work. |
+| `teacher_label_mistake_mining.py` | current | Mine evaluator move-choice mistakes against validated teacher labels. | Current pattern diagnostics for teacher-vs-engine disagreement and vocabulary gaps. |
+
+## Removed Deprecated Scripts
+
+| Script | Status | Former purpose | Why it was safe to delete |
+| --- | --- | --- | --- |
+| `eval_config_validate.py` | deprecated | Validate generated scalar `.eval` candidates on held-out exact-label JSONL. | Replaced for current work by `eval_candidate_matrix.py --labels ...` and PR evidence reports; remaining repository mentions are historical experiment commands. |
+| `eval_config_search_validate.py` | deprecated | Chain held-out scalar/config summaries into search-bench and match-smoke validation. | Replaced by `eval_candidate_matrix.py`, `run_match_experiment.py`, `base_head_match_matrix.py`, and `evidence.py`; remaining repository mentions are historical experiment commands. |
+| `run_experiment_matrix.py` | deprecated | Run JSON-defined match-runner matrices from `tools/scripts/examples/search_ablation_smoke.json`. | Replaced by explicit `run_match_experiment.py`, `base_head_match_matrix.py`, and `evidence.py` workflows; it had no current docs outside this README and its dedicated test/example. |
+
+The deleted scripts' dedicated tests were removed with them. The committed
+historical experiment reports remain as evidence snapshots; raw/local reruns
+should be rebuilt with the current workflows above.
+
+## Pattern-First Evaluation Workflow
 
 For new evaluation research, start with the current role definitions in
 `data/eval/README.md` before choosing a script. `current_default.eval` is the
@@ -152,7 +203,7 @@ TSVs and `.eval` files remain generated artifacts under `runs/`, and follow-up
 evidence should be recorded in a separate experiment report such as
 `docs(eval): report pairwise pattern v1`.
 
-## General Examples
+## Current Evidence Workflows
 
 Collect a reproducible PR evidence report:
 
@@ -163,22 +214,11 @@ python3 tools/scripts/evidence.py \
   --out runs/evidence/smoke-example
 ```
 
-Evidence reports collect metadata, exact commands, raw command logs, correctness
-checks, and benchmark or match outputs under `runs/evidence/...`. They are
-review aids, not strength claims, Elo estimates, or default-promotion
+Evidence reports collect metadata, exact commands, raw command logs,
+correctness checks, and benchmark or match outputs under `runs/evidence/...`.
+They are review aids, not strength claims, Elo estimates, or default-promotion
 recommendations. Raw logs under `runs/` should not be committed; durable
 summaries belong under `docs/perf/baselines/`.
-
-Profiles:
-
-- `smoke`: configure/build, CTest, and a smoke search benchmark with
-  `--exact-endgame-threshold 0`
-- `pr`: `smoke` plus optional rule-core and self-play smoke evidence when the
-  relevant executable and opening suite are available
-- `eval`: evaluator/config evidence with preset or `.eval` candidates and an
-  optional `eval_experiment_matrix.py` run
-- `full`: conservative wrapper around existing cheap checks; broader suites are
-  reported as skipped when they do not yet exist
 
 Sample positions, dump exact labels, and optionally compare one evaluator
 against those labels:
@@ -201,12 +241,70 @@ not a representative training distribution. The workflow report records exact
 commands, output paths, counts, caveats, and the absence of any strength claim
 or default-promotion recommendation.
 
-## Legacy Scalar/Config Diagnostics
+Run a simple evaluator candidate matrix when candidate `.eval` files already
+exist and the goal is comparable smoke evidence rather than tuning:
 
-The following tuner and validator workflows are legacy scalar/config
-diagnostics. Keep them available for debugging existing `.eval` files,
-calibration issues, and historical comparisons, but do not treat them as the
-default path for new pattern-first strength work.
+```sh
+python3 tools/scripts/eval_candidate_matrix.py \
+  --build-dir build \
+  --labels runs/exact-label-workflow/heldout/labels.jsonl \
+  --candidates runs/eval-config-tuner/smoke/configs/candidate_0001.eval \
+  --out runs/eval-candidates/smoke
+```
+
+The matrix includes the default `data/eval/current_default.eval` baseline when
+present, runs `othello_eval_vs_exact` only when labels are provided, always runs
+the iterative TT/PVS/aspiration search-bench smoke profile, and writes
+`report.md`, `summary.tsv`, per-candidate logs, and search-bench aggregate JSONL
+under the requested output directory. It does not tune weights, make a strength
+claim, or promote a default. Broader matches or base/head comparison are still
+required before any strength claim.
+
+Run the C++ match runner and summarize the result:
+
+```sh
+python3 tools/scripts/run_match_experiment.py \
+  --runner ./build/othello_match_runner \
+  --summary-script tools/scripts/match_summary.py \
+  --black search:depth=4,tt=on,pvs=on,exact=off \
+  --white search:depth=4,tt=off,pvs=off,exact=off \
+  --games 4 \
+  --swap-sides true \
+  --seed 1 \
+  --openings data/openings/smoke_openings.txt \
+  --output build/matches/search4_options_from_python.jsonl \
+  --summary \
+  --by-opening
+```
+
+Run an external-process base/head matrix for a strength-changing PR:
+
+```sh
+python3 tools/scripts/base_head_match_matrix.py \
+  --base-build /tmp/vibe-othello-base/build \
+  --head-build build \
+  --base-repo /tmp/vibe-othello-base \
+  --head-repo . \
+  --openings data/openings/smoke_openings.txt \
+  --depths 4,8 \
+  --games 12 \
+  --seed 20260524 \
+  --out runs/base-head/my-change-smoke
+```
+
+Use this for base/head code comparisons where in-process `search:` players would
+share the same linked evaluator or search implementation. Raw matrix output
+belongs under `runs/`; summarize meaningful snapshots in `docs/perf/baselines/`.
+
+Summarize an existing match runner JSONL file:
+
+```sh
+python3 tools/scripts/match_summary.py \
+  --input build/matches/search4_options.jsonl \
+  --by-opening
+```
+
+## Legacy Diagnostics
 
 Run a small diagnostic `.eval` config tuning experiment from exact-label JSONL:
 
@@ -230,178 +328,8 @@ objective based on sign agreement, wrong-direction count, and high-confidence
 wrong-direction count. Candidate configs are local experiment artifacts, not
 active configs.
 
-The tuner objective is not Elo, not calibrated disc-margin error, and not a
-default-promotion gate. It depends on the input label distribution; random
-playout labels may not be representative. Follow-up validation should use
-held-out exact labels, search bench, match runner or base/head comparison, and
-external sanity checks when appropriate before creating any named candidate or
-promotion PR.
-
-Pass `--move-rank-analysis` when labels include `move_scores` and root
-move-quality evidence should be copied into the tuner report and `summary.tsv`.
-The objective remains the sign-agreement formula; missing `move_scores` are a
-diagnostic caveat, not a workflow failure.
-
-Validate generated `.eval` candidates on held-out exact-label JSONL:
-
-```sh
-python3 tools/scripts/eval_config_validate.py \
-  --validation-labels runs/exact-label-workflow/heldout/labels.jsonl \
-  --base-config data/eval/current_default.eval \
-  --candidate-dir runs/eval-config-tuner/smoke/configs \
-  --train-summary runs/eval-config-tuner/smoke/summary.tsv \
-  --build-dir build \
-  --out runs/eval-config-validation/smoke \
-  --top 10
-```
-
-Generate validation labels separately from the labels used for tuning, for
-example by running `exact_label_workflow.py` with a different seed or input
-position source. The validator does not generate configs or tune weights; it
-runs `othello_eval_vs_exact` for the base config and candidate configs, computes
-the same diagnostic objective as the tuner, and writes
-`validation_report.md`, per-config analyzer reports, logs, and `summary.tsv`
-under `runs/eval-config-validation/...`.
-
-Held-out validation is still diagnostic evidence only. It is not Elo, not a
-strength claim, and not a default-promotion gate. The objective remains
-label-distribution dependent, and validation labels may still be biased. After a
-candidate looks promising on held-out exact labels, use search bench, match
-runner or base/head comparison, and external sanity checks when appropriate
-before making any promotion claim.
-
-Use `--move-rank-analysis` with held-out labels that include `move_scores` to
-record root move-quality counters beside the held-out sign-agreement objective.
-The validator still ranks by the existing diagnostic objective.
-
-Run search-bench and match-smoke validation for top `.eval` candidates:
-
-```sh
-python3 tools/scripts/eval_config_search_validate.py \
-  --base-config data/eval/current_default.eval \
-  --candidate-dir runs/eval-config-tuner/smoke/configs \
-  --heldout-summary runs/eval-config-validation/smoke/summary.tsv \
-  --build-dir build \
-  --out runs/eval-config-search-validation/smoke \
-  --top 3 \
-  --run-search-bench \
-  --run-match-smoke
-```
-
-Use the curated evaluation diagnostic suite by adding `--positions evaluation`
-to the same command when the search-bench step should cover the committed
-evaluation positions instead of the default `smoke` set.
-
-Use this after tuning and held-out exact-label validation to gather smoke
-evidence from `othello_search_bench` and small `othello_match_runner`
-comparisons. Search validation uses `--exact-endgame-threshold 0` by default so
-the search-bench step stays focused on midgame/evaluator behavior unless the
-threshold is explicitly overridden. Match smoke is intentionally small and is
-not an Elo estimate or strength claim.
-
-The search/match validation report records exact commands, raw logs, checksum
-differences when parsed, optional held-out objective context, and caveats under
-`runs/eval-config-search-validation/...`. Candidate promotion still requires
-broader search bench, match runner or base/head validation, and external sanity
-when appropriate. Do not commit generated configs or raw workflow outputs.
-
-## Candidate And Match Evidence Utilities
-
-Run a simple evaluator candidate matrix when candidate `.eval` files already
-exist and the goal is comparable smoke evidence rather than tuning:
-
-```sh
-python3 tools/scripts/eval_candidate_matrix.py \
-  --build-dir build \
-  --labels runs/exact-label-workflow/heldout/labels.jsonl \
-  --candidates runs/eval-config-tuner/smoke/configs/candidate_0001.eval \
-  --out runs/eval-candidates/smoke
-```
-
-The matrix includes the default `data/eval/current_default.eval` baseline when
-present, runs `othello_eval_vs_exact` only when labels are provided, always runs
-the iterative TT/PVS/aspiration search-bench smoke profile, and writes
-`report.md`, `summary.tsv`, per-candidate logs, and search-bench aggregate JSONL
-under the requested output directory. The summary records config fingerprints,
-result/work checksums, nodes, elapsed time, score kind, exact-root usage, and
-candidate-vs-baseline deltas when comparable. It does not tune weights, make a
-strength claim, or promote a default.
-
-When `--move-rank-analysis` is passed and labels include `move_scores`, the
-matrix also records eval-vs-exact root move-quality metrics in the report and
-`summary.tsv`. These metrics are orchestration smoke evidence for the next
-decision; broader matches or base/head comparison are still required before any
-strength claim.
-
-For evaluator config evidence:
-
-```sh
-python3 tools/scripts/evidence.py \
-  --profile eval \
-  --build-dir build \
-  --out runs/evidence/eval-config-example \
-  --eval-configs data/eval/pattern_teacher_v0.eval \
-  --reference-config data/eval/current_default.eval \
-  --small-depths 5 \
-  --small-games 4
-```
-
-Summarize an existing match runner JSONL file:
-
-```sh
-python3 tools/scripts/match_summary.py \
-  --input build/matches/search4_options.jsonl \
-  --by-opening
-```
-
-Run the C++ match runner and summarize the result:
-
-```sh
-python3 tools/scripts/run_match_experiment.py \
-  --runner ./build/othello_match_runner \
-  --summary-script tools/scripts/match_summary.py \
-  --black search:depth=4,tt=on,pvs=on,exact=off \
-  --white search:depth=4,tt=off,pvs=off,exact=off \
-  --games 4 \
-  --swap-sides true \
-  --seed 1 \
-  --openings data/openings/smoke_openings.txt \
-  --output build/matches/search4_options_from_python.jsonl \
-  --summary \
-  --by-opening
-```
-
-Run a small experiment matrix from JSON:
-
-```sh
-python3 tools/scripts/run_experiment_matrix.py \
-  --config tools/scripts/examples/search_ablation_smoke.json \
-  --dry-run
-
-python3 tools/scripts/run_experiment_matrix.py \
-  --config tools/scripts/examples/search_ablation_smoke.json
-```
-
-Run an external-process base/head matrix for a strength-changing PR:
-
-```sh
-python3 tools/scripts/base_head_match_matrix.py \
-  --base-build /tmp/vibe-othello-base/build \
-  --head-build build \
-  --base-repo /tmp/vibe-othello-base \
-  --head-repo . \
-  --openings data/openings/smoke_openings.txt \
-  --depths 4,8 \
-  --games 12 \
-  --seed 20260524 \
-  --out runs/base-head/my-change-smoke
-```
-
-Use this for base/head code comparisons where in-process `search:` players would
-share the same linked evaluator or search implementation. Raw matrix output
-belongs under `runs/`; summarize meaningful snapshots in `docs/perf/baselines/`.
-
-Run a local evaluator-preset wiring smoke:
+Run a staged evaluator-preset or explicit `.eval` matrix only when maintaining
+legacy preset/config plumbing:
 
 ```sh
 python3 tools/scripts/eval_experiment_matrix.py \
@@ -417,66 +345,8 @@ python3 tools/scripts/eval_experiment_matrix.py \
 
 This compares each non-default preset against `default` through the normal C++
 tools. It is legacy preset/config plumbing, not the main path for
-pattern-first learning and not strength evidence by itself.
-
-Run a staged evaluator-preset experiment against an explicit reference preset:
-
-```sh
-python3 tools/scripts/eval_experiment_matrix.py \
-  --presets classic_corner_lite_v1,classic_edge_lite_v1,classic_features_lite_v1,classic_features_lite_aggressive,frontier_classic_features_lite_v1 \
-  --reference-preset frontier_open2_mid2_late_plus1 \
-  --small-depths 5,6 \
-  --extended-depths 7,8 \
-  --small-games 48 \
-  --extended-games 96 \
-  --promote-top 2 \
-  --openings data/openings/eval_regression_openings.txt \
-  --seed 20260530 \
-  --build-dir build \
-  --out runs/eval/evaluator-orchestrator-v2 \
-  --positions suite \
-  --by-position
-```
-
-The staged runner is legacy preset-matrix support. It treats each candidate
-preset as player A and `--reference-preset` as player B. Stage A runs search
-screening for all listed presets, Stage B runs small candidate-vs-reference
-matches, and Stage C runs extended matches only for promoted candidates. The
-legacy `--depths` and `--games` options remain supported as aliases for
-`--small-depths` and `--small-games`; use the explicit staged names when
-maintaining these diagnostics.
-
-Raw command output, match JSONL, summaries, and generated reports belong under
-`runs/`, not in committed docs. The generated report is a triage artifact: it is
-not a strength claim, Elo estimate, or default-promotion recommendation.
-
-Optionally add an NTest sanity hook when a local external-engine config is
-available:
-
-```sh
-python3 tools/scripts/eval_experiment_matrix.py \
-  --presets classic_features_lite_v1,frontier_classic_features_lite_v1 \
-  --reference-preset frontier_open2_mid2_late_plus1 \
-  --small-depths 5,6 \
-  --extended-depths 7,8 \
-  --small-games 48 \
-  --extended-games 96 \
-  --promote-top 1 \
-  --openings data/openings/eval_regression_openings.txt \
-  --seed 20260530 \
-  --build-dir build \
-  --out runs/eval/evaluator-orchestrator-v2-ntest \
-  --run-ntest-sanity \
-  --ntest-engine ntest8 \
-  --engines runs/local-engines/engines.txt \
-  --ntest-depth 6 \
-  --ntest-games 12 \
-  --ntest-openings data/openings/smoke_openings.txt
-```
-
-The NTest sanity hook is optional. If the external engine config is unavailable,
-the report records a skip reason instead of failing the experiment runner.
-External engine binaries are never vendored into this repository.
+pattern-first learning and not strength evidence by itself. New experiments
+should prefer `.eval` configs and current candidate/evidence workflows.
 
 Extract first divergence positions from an existing swap-side base/head JSONL:
 
@@ -500,9 +370,9 @@ python3 tools/scripts/forced_move_nboard_wrapper.py \
 This wrapper is diagnostic-only. It proxies the NBoard line protocol to a child
 engine, tracks the current board by replaying `set game` commands, and returns
 the forced move only when the tracked board exactly matches the target and the
-move is legal. Otherwise it forwards commands unchanged. Nested wrappers can be
-used for multi-ply interventions, but no forced-move policy belongs in engine
-core behavior.
+move is legal. Otherwise it forwards commands unchanged.
+
+## External Engine Helpers
 
 Generate local external-engine teacher labels as JSONL:
 
@@ -518,44 +388,10 @@ python3 tools/scripts/external_teacher_label_workflow.py \
 The workflow reads existing 9-line board position files, calls the selected
 external-engine adapter once per position, and writes `labels.jsonl`,
 `workflow.md`, and raw per-position logs under the requested output directory.
-It can also read raw external-engine text blocks with `--input-format raw` or
-`--input-format nboard-game`.
-
-For local NTest NBoard labels:
-
-```sh
-python3 tools/scripts/external_teacher_label_workflow.py \
-  --positions data/positions/evaluation/diagnostic_suite.txt \
-  --out runs/teacher-labels/ntest-smoke \
-  --adapter ntest \
-  --protocol nboard \
-  --depth 6 \
-  --timeout-ms 10000 \
-  --workdir /path/to/ntest/build \
-  --engine-name ntest6 \
-  --legal-validator build/othello_validate_move \
-  --engine-cmd -- /path/to/ntest/build/ntest x
-```
-
-The NTest NBoard adapter serializes 9-line board positions to the `BO[8 ...]`
-game text expected by NTest's `x` mode. Omit `--depth` to use the adapter's
-default depth 26, or pass an explicit stronger depth for real teacher evidence;
-the depth 6 command above is only a quick smoke example.
-
 Teacher labels are reference-engine evidence, not exact truth, Elo, or a
-default-promotion recommendation. For 9-line board inputs, the workflow
-validates the returned move with the C++ rule-core `othello_validate_move` tool
-and records `legal_move_valid`, `legal_validation_source`, and `legal_moves`;
-illegal moves are recorded as failed rows. Raw external-input text cannot be
-legally validated unless a board9 position is also available. Keep generated
-labels and raw logs under `runs/`; do not commit them, and never commit external
-engine binaries or local engine paths.
-
-Reusable teacher/exact datasets should be copied out of worktree-local `runs/`
-into a shared dataset root. Scripts that support shared artifacts accept
-`dataset:...` references and resolve the root from `--dataset-root`,
-`VIBE_OTHELLO_DATASET_ROOT`, or ignored `config/datasets.local.toml`; see
-`docs/datasets/README.md`.
+default-promotion recommendation. Keep generated labels and raw logs under
+`runs/`; do not commit them, and never commit external engine binaries or local
+engine paths.
 
 Probe the canonical external engine adapter CLI with the fake engine:
 
@@ -568,42 +404,15 @@ printf 'board text\n' | python3 tools/scripts/run_external_engine_once.py \
 
 External engine binaries, including NTest or Edax, are not stored in this
 repository. The current adapter is only a process/timeout/error-handling
-scaffold; engine-specific protocols belong under `external_engines/`. Adapter
-options must appear before the `--engine-cmd --` boundary; everything after that
-boundary is passed to the engine command. The one-shot adapter validates move
-tokens as `a1` through `h8` or `pass`, and the CLI can pass `--workdir PATH` and
-repeated `--env KEY=VALUE` overrides to the engine process.
+scaffold; engine-specific protocols belong under `external_engines/`.
+Adapter options must appear before the `--engine-cmd --` boundary; everything
+after that boundary is passed to the engine command.
 
 Do not add a new per-engine probe CLI for each external engine. Keep
 `run_external_engine_once.py` as the canonical one-move probe and add adapter
 implementations under `external_engines/`.
 
-Probe the NTest proof-of-life adapter with a local wrapper or binary:
-
-```sh
-printf '(;GM[Othello]PC[NBoard]PB[test]PW[test]RE[?]TY[8]BO[8 ---------------------------O*------*O--------------------------- *];)\n' | \
-python3 tools/scripts/run_external_engine_once.py \
-  --stdin-board \
-  --adapter ntest \
-  --protocol nboard \
-  --workdir /path/to/ntest/build \
-  --timeout-ms 10000 \
-  --engine-cmd -- /path/to/ntest/build/ntest x
-```
-
-NTest-specific support defaults to the NBoard external viewer protocol exposed
-by NTest's `x` mode: the adapter sends `nboard 2`, `set depth`, `set game`,
-`go`, and `quit`, then reads the `=== MOVE` response. Use
-`--adapter ntest --protocol one-shot` for local wrapper commands that accept
-board text on stdin and print a move such as `d3` or `pass` on stdout. CI does
-not require NTest; it exercises parser behavior and process handling with the
-fake engine. Full-game external-engine matches are intentionally left for a
-later PR.
-
-One-shot process adapters live in `external_engines/one_shot.py`; NTest-specific
-proof-of-life handling lives in `external_engines/ntest.py`;
-persistent/stateful protocol adapters should grow separately under
-`external_engines/persistent.py`.
+## Tests
 
 Python script tests run in CI. Run the same checks locally with:
 
