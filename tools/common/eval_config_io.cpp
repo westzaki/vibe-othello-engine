@@ -39,6 +39,16 @@ struct PatternTableLoadResult {
     }
 };
 
+struct PatternTablePathKeySpec {
+    std::string_view key;
+    std::optional<std::string> EvaluationConfigLoadResult::*path;
+};
+
+struct PatternTableCacheEntry {
+    std::filesystem::path path;
+    std::shared_ptr<const PatternTableBundle> tables;
+};
+
 constexpr std::array<FeatureKeySpec, 36> feature_keys{{
     {"opening.disc_difference", &EvaluationConfig::opening,
      &EvaluationFeatureWeights::disc_difference},
@@ -110,6 +120,12 @@ constexpr std::array<FeatureKeySpec, 36> feature_keys{{
 constexpr std::array<ConfigKeySpec, 2> config_keys{{
     {"opening_max_occupied", &EvaluationConfig::opening_max_occupied},
     {"midgame_max_occupied", &EvaluationConfig::midgame_max_occupied},
+}};
+
+constexpr std::array<PatternTablePathKeySpec, 3> phase_pattern_table_path_keys{{
+    {"pattern_table.opening", &EvaluationConfigLoadResult::opening_pattern_table_path},
+    {"pattern_table.midgame", &EvaluationConfigLoadResult::midgame_pattern_table_path},
+    {"pattern_table.late", &EvaluationConfigLoadResult::late_pattern_table_path},
 }};
 
 [[nodiscard]] constexpr bool is_ascii_space(char ch) noexcept {
@@ -185,6 +201,16 @@ template <std::size_t N>
 [[nodiscard]] std::optional<std::size_t> config_key_index(std::string_view key) noexcept {
     for (std::size_t index = 0; index < config_keys.size(); ++index) {
         if (config_keys[index].key == key) {
+            return index;
+        }
+    }
+    return std::nullopt;
+}
+
+[[nodiscard]] std::optional<std::size_t>
+phase_pattern_table_path_key_index(std::string_view key) noexcept {
+    for (std::size_t index = 0; index < phase_pattern_table_path_keys.size(); ++index) {
+        if (phase_pattern_table_path_keys[index].key == key) {
             return index;
         }
     }
@@ -300,6 +326,25 @@ load_pattern_table_file(const std::filesystem::path& path) {
     return result;
 }
 
+[[nodiscard]] PatternTableLoadResult
+load_pattern_table_file_cached(const std::filesystem::path& path,
+                               std::vector<PatternTableCacheEntry>& cache) {
+    const std::filesystem::path normalized = path.lexically_normal();
+    for (const PatternTableCacheEntry& entry : cache) {
+        if (entry.path == normalized) {
+            PatternTableLoadResult result;
+            result.tables = entry.tables;
+            return result;
+        }
+    }
+
+    PatternTableLoadResult loaded = load_pattern_table_file(normalized);
+    if (loaded.ok()) {
+        cache.push_back(PatternTableCacheEntry{.path = normalized, .tables = loaded.tables});
+    }
+    return loaded;
+}
+
 } // namespace
 
 EvaluationConfigLoadResult parse_evaluation_config(std::string_view text) {
@@ -347,6 +392,14 @@ EvaluationConfigLoadResult parse_evaluation_config(std::string_view text) {
                     return result;
                 }
                 result.pattern_table_path = std::string{value};
+            } else if (const std::optional<std::size_t> index =
+                           phase_pattern_table_path_key_index(key);
+                       index.has_value()) {
+                if (value.empty()) {
+                    result.error = line_error(line_number, "empty " + std::string{key} + " path");
+                    return result;
+                }
+                result.*(phase_pattern_table_path_keys[*index].path) = std::string{value};
             } else if (const std::optional<std::size_t> index = feature_key_index(key);
                        index.has_value()) {
                 const std::optional<int> parsed = parse_eval_int(value);
@@ -417,16 +470,36 @@ EvaluationConfigLoadResult load_evaluation_config_file(const std::filesystem::pa
         return result;
     }
 
-    if (result.pattern_table_path.has_value()) {
-        const std::filesystem::path table_path{*result.pattern_table_path};
+    std::vector<PatternTableCacheEntry> table_cache;
+    const auto load_optional_pattern_table =
+        [&](const std::optional<std::string>& table_path,
+            std::shared_ptr<const PatternTableBundle> EvaluationConfig::* target) -> bool {
+        if (!table_path.has_value()) {
+            return true;
+        }
+        const std::filesystem::path parsed_table_path{*table_path};
         const std::filesystem::path resolved_table_path =
-            table_path.is_absolute() ? table_path : path.parent_path() / table_path;
-        const PatternTableLoadResult table_result = load_pattern_table_file(resolved_table_path);
+            parsed_table_path.is_absolute() ? parsed_table_path
+                                            : path.parent_path() / parsed_table_path;
+        const PatternTableLoadResult table_result =
+            load_pattern_table_file_cached(resolved_table_path, table_cache);
         if (!table_result.ok()) {
             result.error = resolved_table_path.string() + ": " + table_result.error;
-        } else {
-            result.config.pattern_tables = table_result.tables;
+            return false;
         }
+        result.config.*target = table_result.tables;
+        return true;
+    };
+
+    if (!load_optional_pattern_table(result.pattern_table_path,
+                                     &EvaluationConfig::pattern_tables) ||
+        !load_optional_pattern_table(result.opening_pattern_table_path,
+                                     &EvaluationConfig::opening_pattern_tables) ||
+        !load_optional_pattern_table(result.midgame_pattern_table_path,
+                                     &EvaluationConfig::midgame_pattern_tables) ||
+        !load_optional_pattern_table(result.late_pattern_table_path,
+                                     &EvaluationConfig::late_pattern_tables)) {
+        return result;
     }
     return result;
 }

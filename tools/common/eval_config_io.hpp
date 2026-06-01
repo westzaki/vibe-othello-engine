@@ -12,6 +12,9 @@ struct EvaluationConfigLoadResult {
     EvaluationConfig config{};
     std::optional<std::string> name;
     std::optional<std::string> pattern_table_path;
+    std::optional<std::string> opening_pattern_table_path;
+    std::optional<std::string> midgame_pattern_table_path;
+    std::optional<std::string> late_pattern_table_path;
     std::string error;
 
     [[nodiscard]] bool ok() const noexcept {
