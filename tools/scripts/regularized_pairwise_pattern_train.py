@@ -39,6 +39,8 @@ DEFAULT_PHASE_CUTOFFS = (20, 44)
 SENTINEL_FAMILY = "corner_2x3"
 SENTINEL_ENTRY = (0, 0)
 INT16_LIMIT = 32767
+PAIR_MODES = ("best-vs-engine", "best-vs-all", "rank-weighted", "exact-aware")
+PAIR_WEIGHTINGS = ("uniform", "rank-margin", "score-margin", "exact-boost")
 
 CORNER_2X3_SPECS = (
     (0, 1, 2, 8, 9, 10),
@@ -126,6 +128,12 @@ class TrainerConfig:
     families: tuple[str, ...]
     split: str
     loss: str
+    pair_mode: str
+    pair_weighting: str
+    max_pairs_per_position: int
+    exact_best_weight: float
+    teacher_weight: float
+    min_score_margin: int
     l2: float
     epochs: int
     learning_rate: float
@@ -148,10 +156,16 @@ class PreferencePair:
     board_text: str
     teacher_move: str
     engine_move: str
+    preferred_move: str
+    other_move: str
+    pair_kind: str
+    pair_weight: float
     features: dict[FeatureKey, int]
     exact_best_moves: tuple[str, ...]
-    teacher_score: int | None
-    engine_score: int | None
+    preferred_score: int | None
+    other_score: int | None
+    rank_margin: int | None
+    score_margin: int | None
 
 
 @dataclass(frozen=True)
@@ -164,6 +178,10 @@ class ValidationRecord:
     status: str
     teacher_move: str
     engine_move: str
+    preferred_move: str
+    other_move: str
+    pair_kind: str
+    pair_weight: float | None
     exact_best_moves: tuple[str, ...]
     teacher_exact_best: bool | None
     engine_exact_best: bool | None
@@ -253,6 +271,47 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="teacher split to train/evaluate",
     )
     parser.add_argument("--loss", choices=("logistic", "hinge"), default="logistic")
+    parser.add_argument(
+        "--pair-mode",
+        choices=PAIR_MODES,
+        default="best-vs-engine",
+        help=(
+            "preference-pair generation mode: best-vs-engine preserves the original "
+            "teacher-vs-engine behavior; best-vs-all compares the teacher move with "
+            "all candidate moves; rank-weighted uses lower-ranked root candidates; "
+            "exact-aware prefers exact-best moves when exact labels are available"
+        ),
+    )
+    parser.add_argument(
+        "--pair-weighting",
+        choices=PAIR_WEIGHTINGS,
+        default="uniform",
+        help="pair weight policy used by the trainer objective",
+    )
+    parser.add_argument(
+        "--max-pairs-per-position",
+        type=parse_non_negative_int,
+        default=0,
+        help="cap generated pairs per position; 0 means no cap",
+    )
+    parser.add_argument(
+        "--exact-best-weight",
+        type=parse_positive_float,
+        default=2.0,
+        help="base weight for exact-best preference pairs when exact-aware weighting is used",
+    )
+    parser.add_argument(
+        "--teacher-weight",
+        type=parse_positive_float,
+        default=1.0,
+        help="base weight for teacher fallback pairs when exact-boost weighting is used",
+    )
+    parser.add_argument(
+        "--min-score-margin",
+        type=parse_non_negative_int,
+        default=0,
+        help="drop pairs with smaller root score margins when both candidate scores are available",
+    )
     parser.add_argument("--l2", type=parse_non_negative_float, default=0.001)
     parser.add_argument("--epochs", type=parse_positive_int, default=5)
     parser.add_argument("--learning-rate", type=parse_positive_float, default=0.1)
@@ -392,6 +451,12 @@ def config_from_args(
         families=parse_families(args.families),
         split=args.split,
         loss=args.loss,
+        pair_mode=args.pair_mode,
+        pair_weighting=args.pair_weighting,
+        max_pairs_per_position=args.max_pairs_per_position,
+        exact_best_weight=args.exact_best_weight,
+        teacher_weight=args.teacher_weight,
+        min_score_margin=args.min_score_margin,
         l2=args.l2,
         epochs=args.epochs,
         learning_rate=args.learning_rate,
@@ -698,6 +763,80 @@ def preference_features(
     return delta
 
 
+def root_candidate_moves(root_scores: dict[str, int], legal_moves: set[str]) -> tuple[str, ...]:
+    candidates = {move for move in root_scores if move in legal_moves}
+    if not candidates:
+        candidates = set(legal_moves)
+    return tuple(sorted(candidates))
+
+
+def root_score_ranks(root_scores: dict[str, int]) -> dict[str, int]:
+    ordered_scores = sorted(set(root_scores.values()), reverse=True)
+    score_rank = {score: index + 1 for index, score in enumerate(ordered_scores)}
+    return {move: score_rank[score] for move, score in root_scores.items()}
+
+
+def score_margin_for_pair(
+    root_scores: dict[str, int],
+    preferred_move: str,
+    other_move: str,
+) -> int | None:
+    preferred_score = root_scores.get(preferred_move)
+    other_score = root_scores.get(other_move)
+    if preferred_score is None or other_score is None:
+        return None
+    return preferred_score - other_score
+
+
+def rank_margin_for_pair(
+    ranks: dict[str, int],
+    preferred_move: str,
+    other_move: str,
+) -> int | None:
+    preferred_rank = ranks.get(preferred_move)
+    other_rank = ranks.get(other_move)
+    if preferred_rank is None or other_rank is None:
+        return None
+    return other_rank - preferred_rank
+
+
+def base_pair_weight(config: TrainerConfig, pair_kind: str) -> float:
+    if config.pair_weighting == "exact-boost":
+        return config.exact_best_weight if pair_kind == "exact" else config.teacher_weight
+    return 1.0
+
+
+def pair_objective_weight(
+    config: TrainerConfig,
+    *,
+    pair_kind: str,
+    rank_margin: int | None,
+    score_margin: int | None,
+) -> float:
+    base = base_pair_weight(config, pair_kind)
+    if config.pair_weighting == "rank-margin" and rank_margin is not None:
+        return base * (1.0 + min(max(rank_margin, 0), 8) / 8.0)
+    if config.pair_weighting == "score-margin" and score_margin is not None:
+        return base * (1.0 + min(abs(score_margin), 256) / 128.0)
+    return base
+
+
+def pair_priority(pair: PreferencePair) -> tuple[int, float, str, str]:
+    kind_priority = 0 if pair.pair_kind == "exact" else 1
+    margin = pair.score_margin if pair.score_margin is not None else pair.rank_margin or 0
+    return (kind_priority, -abs(float(margin)), pair.preferred_move, pair.other_move)
+
+
+def limit_pairs_for_position(
+    pairs: list[PreferencePair],
+    max_pairs_per_position: int,
+) -> tuple[list[PreferencePair], int]:
+    if max_pairs_per_position <= 0 or len(pairs) <= max_pairs_per_position:
+        return pairs, 0
+    ordered = sorted(pairs, key=pair_priority)
+    return ordered[:max_pairs_per_position], len(pairs) - max_pairs_per_position
+
+
 def parse_int_value(value: str) -> int | None:
     try:
         return int(value)
@@ -793,6 +932,10 @@ def make_validation_record(
     status: str,
     teacher_move: str,
     engine_move: str,
+    preferred_move: str | None = None,
+    other_move: str | None = None,
+    pair_kind: str = "",
+    pair_weight: float | None = None,
     exact_best: tuple[str, ...],
     model_margin: float | None = None,
     loss: float | None = None,
@@ -806,6 +949,10 @@ def make_validation_record(
         status=status,
         teacher_move=teacher_move,
         engine_move=engine_move,
+        preferred_move=preferred_move or teacher_move,
+        other_move=other_move or engine_move,
+        pair_kind=pair_kind,
+        pair_weight=pair_weight,
         exact_best_moves=exact_best,
         teacher_exact_best=_exact_bool(teacher_move, exact_best),
         engine_exact_best=_exact_bool(engine_move, exact_best),
@@ -814,10 +961,156 @@ def make_validation_record(
     )
 
 
+def should_keep_score_margin(config: TrainerConfig, score_margin: int | None) -> bool:
+    if config.min_score_margin <= 0 or score_margin is None:
+        return True
+    return abs(score_margin) >= config.min_score_margin
+
+
+def make_preference_pair(
+    *,
+    config: TrainerConfig,
+    source: LabelSource,
+    split: str,
+    phase: str,
+    board_text: str,
+    teacher_move: str,
+    engine_move: str,
+    preferred_move: str,
+    other_move: str,
+    pair_kind: str,
+    exact_best: tuple[str, ...],
+    root_scores: dict[str, int],
+    ranks: dict[str, int],
+) -> PreferencePair | None:
+    if preferred_move == other_move:
+        return None
+    score_margin = score_margin_for_pair(root_scores, preferred_move, other_move)
+    if not should_keep_score_margin(config, score_margin):
+        return None
+    rank_margin = rank_margin_for_pair(ranks, preferred_move, other_move)
+    try:
+        preferred_child = apply_move_to_board(board_text, preferred_move)
+        other_child = apply_move_to_board(board_text, other_move)
+    except ScriptError:
+        return None
+    features = preference_features(
+        root_board_text=board_text,
+        teacher_child_board=preferred_child,
+        engine_child_board=other_child,
+        families=config.families,
+    )
+    if not features:
+        return None
+    weight = pair_objective_weight(
+        config,
+        pair_kind=pair_kind,
+        rank_margin=rank_margin,
+        score_margin=score_margin,
+    )
+    return PreferencePair(
+        position_id=position_id_for_source(source),
+        source_path=source.path,
+        source_line=source.line_number,
+        split=split,
+        phase=phase,
+        board_text=board_text,
+        teacher_move=teacher_move,
+        engine_move=engine_move,
+        preferred_move=preferred_move,
+        other_move=other_move,
+        pair_kind=pair_kind,
+        pair_weight=weight,
+        features=features,
+        exact_best_moves=exact_best,
+        preferred_score=root_scores.get(preferred_move),
+        other_score=root_scores.get(other_move),
+        rank_margin=rank_margin,
+        score_margin=score_margin,
+    )
+
+
+def generate_position_pairs(
+    *,
+    config: TrainerConfig,
+    source: LabelSource,
+    split: str,
+    phase: str,
+    board_text: str,
+    teacher_move: str,
+    engine_move: str,
+    legal_moves: set[str],
+    exact_best: tuple[str, ...],
+    root_scores: dict[str, int],
+) -> tuple[list[PreferencePair], collections.Counter[str]]:
+    stats: collections.Counter[str] = collections.Counter()
+    candidates = root_candidate_moves(root_scores, legal_moves)
+    ranks = root_score_ranks(root_scores)
+    generated: list[PreferencePair] = []
+
+    def add_pair(preferred_move: str, other_move: str, pair_kind: str) -> None:
+        pair = make_preference_pair(
+            config=config,
+            source=source,
+            split=split,
+            phase=phase,
+            board_text=board_text,
+            teacher_move=teacher_move,
+            engine_move=engine_move,
+            preferred_move=preferred_move,
+            other_move=other_move,
+            pair_kind=pair_kind,
+            exact_best=exact_best,
+            root_scores=root_scores,
+            ranks=ranks,
+        )
+        if pair is None:
+            stats["candidate_pair_skipped"] += 1
+            return
+        generated.append(pair)
+
+    if config.pair_mode == "best-vs-engine":
+        add_pair(teacher_move, engine_move, "teacher")
+    elif config.pair_mode == "best-vs-all":
+        for candidate in candidates:
+            if candidate != teacher_move:
+                add_pair(teacher_move, candidate, "teacher")
+    elif config.pair_mode == "rank-weighted":
+        teacher_rank = ranks.get(teacher_move)
+        if teacher_rank is None:
+            stats["rank_scores_missing_skipped"] += 1
+        else:
+            for candidate in candidates:
+                if candidate == teacher_move:
+                    continue
+                candidate_rank = ranks.get(candidate)
+                if candidate_rank is not None and candidate_rank > teacher_rank:
+                    add_pair(teacher_move, candidate, "teacher")
+    elif config.pair_mode == "exact-aware":
+        exact_preferred = tuple(move for move in exact_best if move in legal_moves)
+        if exact_preferred:
+            exact_set = set(exact_preferred)
+            for preferred in exact_preferred:
+                for candidate in candidates:
+                    if candidate not in exact_set:
+                        add_pair(preferred, candidate, "exact")
+        else:
+            stats["exact_unavailable_fallback_positions"] += 1
+            for candidate in candidates:
+                if candidate != teacher_move:
+                    add_pair(teacher_move, candidate, "teacher")
+
+    limited, truncated = limit_pairs_for_position(generated, config.max_pairs_per_position)
+    if truncated:
+        stats["max_pairs_truncated"] += 1
+        stats["pairs_truncated"] += truncated
+    return limited, stats
+
+
 def collect_pairs(
     config: TrainerConfig,
     analyzer: Analyzer = run_analysis,
-) -> tuple[list[PreferencePair], list[ValidationRecord], dict[str, int]]:
+) -> tuple[list[PreferencePair], list[ValidationRecord], dict[str, Any]]:
     sources = read_jsonl_sources(config.teacher_labels)
     exact_by_board = load_exact_by_board(config.exact_labels) if config.exact_labels else {}
     pairs: list[PreferencePair] = []
@@ -862,7 +1155,7 @@ def collect_pairs(
 
         exact_record = exact_by_board.get(board_key(board_text))
         exact_best = exact_best_moves(exact_record)
-        if exact_best and teacher_move not in exact_best:
+        if exact_best and teacher_move not in exact_best and config.pair_mode != "exact-aware":
             stats["teacher_exact_disagreements_skipped"] += 1
             validation_records.append(
                 make_validation_record(
@@ -876,10 +1169,12 @@ def collect_pairs(
                 )
             )
             continue
+        if exact_best and teacher_move not in exact_best and config.pair_mode == "exact-aware":
+            stats["teacher_exact_disagreements_used_by_exact_aware"] += 1
 
         analysis: AnalyzeResult | None = None
         engine_move = precomputed_engine_move(record, legal_moves)
-        if engine_move is None:
+        if engine_move is None or config.pair_mode != "best-vs-engine":
             analysis = analyzer(config, board_text)
             engine_move = analysis.best_move
         if engine_move is None or engine_move not in legal_moves:
@@ -898,93 +1193,90 @@ def collect_pairs(
             continue
         if engine_move == teacher_move:
             stats["already_agreed"] += 1
-            validation_records.append(
-                make_validation_record(
-                    source=source,
-                    split=split,
-                    phase=phase,
-                    status="already_agreed",
-                    teacher_move=teacher_move,
-                    engine_move=engine_move,
-                    exact_best=exact_best,
+            if config.pair_mode == "best-vs-engine":
+                validation_records.append(
+                    make_validation_record(
+                        source=source,
+                        split=split,
+                        phase=phase,
+                        status="already_agreed",
+                        teacher_move=teacher_move,
+                        engine_move=engine_move,
+                        exact_best=exact_best,
+                    )
                 )
-            )
-            continue
-
-        try:
-            teacher_child = apply_move_to_board(board_text, teacher_move)
-            engine_child = apply_move_to_board(board_text, engine_move)
-        except ScriptError as exc:
-            stats["apply_move_skipped"] += 1
-            validation_records.append(
-                make_validation_record(
-                    source=source,
-                    split=split,
-                    phase=phase,
-                    status=f"apply_move_error: {exc}",
-                    teacher_move=teacher_move,
-                    engine_move=engine_move,
-                    exact_best=exact_best,
-                )
-            )
-            continue
-
-        features = preference_features(
-            root_board_text=board_text,
-            teacher_child_board=teacher_child,
-            engine_child_board=engine_child,
-            families=config.families,
-        )
-        if not features:
-            stats["zero_delta_skipped"] += 1
-            validation_records.append(
-                make_validation_record(
-                    source=source,
-                    split=split,
-                    phase=phase,
-                    status="zero_feature_delta",
-                    teacher_move=teacher_move,
-                    engine_move=engine_move,
-                    exact_best=exact_best,
-                )
-            )
-            continue
-
+                continue
         root_scores = analysis.root_scores if analysis is not None else {}
-        pair = PreferencePair(
-            position_id=position_id_for_source(source),
-            source_path=source.path,
-            source_line=source.line_number,
+        position_pairs, pair_stats = generate_position_pairs(
+            config=config,
+            source=source,
             split=split,
             phase=phase,
             board_text=board_text,
             teacher_move=teacher_move,
             engine_move=engine_move,
-            features=features,
-            exact_best_moves=exact_best,
-            teacher_score=root_scores.get(teacher_move),
-            engine_score=root_scores.get(engine_move),
+            legal_moves=legal_moves,
+            exact_best=exact_best,
+            root_scores=root_scores,
         )
-        pairs.append(pair)
-        validation_records.append(
-            make_validation_record(
-                source=source,
-                split=split,
-                phase=phase,
-                status="paired",
-                teacher_move=teacher_move,
-                engine_move=engine_move,
-                exact_best=exact_best,
+        stats.update(pair_stats)
+        if not position_pairs:
+            stats["no_pair_generated_skipped"] += 1
+            validation_records.append(
+                make_validation_record(
+                    source=source,
+                    split=split,
+                    phase=phase,
+                    status="no_pair_generated",
+                    teacher_move=teacher_move,
+                    engine_move=engine_move,
+                    exact_best=exact_best,
+                )
             )
-        )
-        stats["preference_pairs"] += 1
-        stats[f"{phase}_pairs"] += 1
+            continue
+
+        pairs.extend(position_pairs)
+        stats["paired_positions"] += 1
+        stats["preference_pairs"] += len(position_pairs)
+        stats[f"{phase}_pairs"] += len(position_pairs)
+        stats["max_pairs_in_position"] = max(stats["max_pairs_in_position"], len(position_pairs))
+        for pair in position_pairs:
+            stats[f"{pair.pair_kind}_pairs"] += 1
+            if pair.pair_kind == "exact":
+                stats["exact_aware_pairs"] += 1
+            validation_records.append(
+                make_validation_record(
+                    source=source,
+                    split=split,
+                    phase=phase,
+                    status="paired",
+                    teacher_move=teacher_move,
+                    engine_move=engine_move,
+                    preferred_move=pair.preferred_move,
+                    other_move=pair.other_move,
+                    pair_kind=pair.pair_kind,
+                    pair_weight=pair.pair_weight,
+                    exact_best=exact_best,
+                )
+            )
 
     for key in (
         "accepted_teacher_rows",
         "already_agreed",
+        "candidate_pair_skipped",
+        "exact_pairs",
+        "exact_aware_pairs",
+        "exact_unavailable_fallback_positions",
+        "max_pairs_in_position",
+        "max_pairs_truncated",
+        "no_pair_generated_skipped",
+        "pairs_truncated",
         "preference_pairs",
+        "paired_positions",
+        "rank_scores_missing_skipped",
         "split_skipped",
+        "teacher_pairs",
+        "teacher_exact_disagreements_used_by_exact_aware",
         "teacher_exact_disagreements_skipped",
         "unusable_teacher_rows",
     ):
@@ -993,7 +1285,13 @@ def collect_pairs(
         stats.setdefault(f"{split}_rows", 0)
     for phase in PHASES:
         stats.setdefault(f"{phase}_pairs", 0)
-    return pairs, validation_records, {key: int(stats[key]) for key in sorted(stats)}
+    row_stats = {key: int(stats[key]) for key in sorted(stats)}
+    row_stats["avg_pairs_per_position"] = (
+        row_stats["preference_pairs"] / row_stats["paired_positions"]
+        if row_stats["paired_positions"]
+        else 0.0
+    )
+    return pairs, validation_records, row_stats
 
 
 def stable_sigmoid_negative_margin(margin: float) -> float:
@@ -1038,7 +1336,7 @@ def train_weights(config: TrainerConfig, pairs: list[PreferencePair]) -> tuple[W
     history: list[dict[str, Any]] = []
     if not pairs:
         for epoch in range(1, config.epochs + 1):
-            history.append({"epoch": epoch, "pairs": 0, "loss": 0.0, "accuracy": 0.0})
+            history.append({"epoch": epoch, **evaluate_pairs(config, weights, pairs)})
         return weights, history
 
     rng = random.Random(config.seed)
@@ -1061,7 +1359,7 @@ def train_weights(config: TrainerConfig, pairs: list[PreferencePair]) -> tuple[W
                 continue
             for key, value in pair.features.items():
                 current = phase_weights.get(key, 0.0)
-                updated = current + config.learning_rate * factor * value
+                updated = current + config.learning_rate * pair.pair_weight * factor * value
                 phase_weights[key] = clamp_weight(updated, config.max_abs_weight)
         metrics = evaluate_pairs(config, weights, pairs)
         history.append({"epoch": epoch, **metrics})
@@ -1074,24 +1372,47 @@ def evaluate_pairs(
     pairs: list[PreferencePair],
 ) -> dict[str, Any]:
     if not pairs:
-        return {"pairs": 0, "loss": 0.0, "accuracy": 0.0, "avg_margin": 0.0}
+        return {
+            "pairs": 0,
+            "loss": 0.0,
+            "weighted_loss": 0.0,
+            "unweighted_loss": 0.0,
+            "accuracy": 0.0,
+            "weighted_accuracy": 0.0,
+            "avg_margin": 0.0,
+            "total_pair_weight": 0.0,
+            "avg_pair_weight": 0.0,
+        }
     losses = []
+    weighted_losses = []
     correct = 0
+    weighted_correct = 0.0
     margins = []
+    total_weight = 0.0
     for pair in pairs:
         margin = pair_margin(weights, pair)
         margins.append(margin)
-        losses.append(pair_loss(config.loss, margin))
+        loss = pair_loss(config.loss, margin)
+        losses.append(loss)
+        weighted_losses.append(loss * pair.pair_weight)
+        total_weight += pair.pair_weight
         if margin > 0.0:
             correct += 1
+            weighted_correct += pair.pair_weight
     l2_term = 0.0
     for phase_weights in weights.values():
         l2_term += sum(value * value for value in phase_weights.values())
+    weighted_loss = sum(weighted_losses) / total_weight if total_weight else 0.0
     return {
         "pairs": len(pairs),
-        "loss": sum(losses) / len(losses) + 0.5 * config.l2 * l2_term,
+        "loss": weighted_loss + 0.5 * config.l2 * l2_term,
+        "weighted_loss": weighted_loss + 0.5 * config.l2 * l2_term,
+        "unweighted_loss": sum(losses) / len(losses) + 0.5 * config.l2 * l2_term,
         "accuracy": correct / len(pairs),
+        "weighted_accuracy": weighted_correct / total_weight if total_weight else 0.0,
         "avg_margin": sum(margins) / len(margins),
+        "total_pair_weight": total_weight,
+        "avg_pair_weight": total_weight / len(pairs),
     }
 
 
@@ -1131,6 +1452,8 @@ def render_phase_table(
         "# no_strength_claim: true",
         "# not_default_promotion: true",
         f"# loss: {config.loss}",
+        f"# pair_mode: {config.pair_mode}",
+        f"# pair_weighting: {config.pair_weighting}",
         f"# l2: {config.l2}",
         f"# epochs: {config.epochs}",
         f"# learning_rate: {config.learning_rate}",
@@ -1194,12 +1517,14 @@ def validation_rows_with_margins(
     records: list[ValidationRecord],
 ) -> list[ValidationRecord]:
     pair_by_source = {
-        (pair.source_path, pair.source_line): pair
+        (pair.source_path, pair.source_line, pair.preferred_move, pair.other_move): pair
         for pair in pairs
     }
     updated: list[ValidationRecord] = []
     for record in records:
-        pair = pair_by_source.get((record.source_path, record.source_line))
+        pair = pair_by_source.get(
+            (record.source_path, record.source_line, record.preferred_move, record.other_move)
+        )
         if pair is None:
             updated.append(record)
             continue
@@ -1214,11 +1539,15 @@ def validation_rows_with_margins(
                 status=record.status,
                 teacher_move=record.teacher_move,
                 engine_move=record.engine_move,
+                preferred_move=record.preferred_move,
+                other_move=record.other_move,
+                pair_kind=record.pair_kind,
+                pair_weight=record.pair_weight,
                 exact_best_moves=record.exact_best_moves,
                 teacher_exact_best=record.teacher_exact_best,
                 engine_exact_best=record.engine_exact_best,
                 model_margin=margin,
-                loss=pair_loss(config.loss, margin),
+                loss=pair_loss(config.loss, margin) * pair.pair_weight,
             )
         )
     return updated
@@ -1234,6 +1563,10 @@ def write_validation_tsv(path: Path, records: list[ValidationRecord]) -> None:
         "status",
         "teacher_move",
         "engine_move",
+        "preferred_move",
+        "other_move",
+        "pair_kind",
+        "pair_weight",
         "exact_best_moves",
         "teacher_exact_best",
         "engine_exact_best",
@@ -1255,6 +1588,10 @@ def write_validation_tsv(path: Path, records: list[ValidationRecord]) -> None:
                     "status": record.status,
                     "teacher_move": record.teacher_move,
                     "engine_move": record.engine_move,
+                    "preferred_move": record.preferred_move,
+                    "other_move": record.other_move,
+                    "pair_kind": record.pair_kind,
+                    "pair_weight": "" if record.pair_weight is None else format_weight(record.pair_weight),
                     "exact_best_moves": " ".join(record.exact_best_moves),
                     "teacher_exact_best": ""
                     if record.teacher_exact_best is None
@@ -1280,15 +1617,22 @@ def collect_git_sha() -> str:
 
 def summarize_weights(config: TrainerConfig, weights: WeightsByPhase) -> dict[str, Any]:
     phases: dict[str, Any] = {}
+    clamp = min(config.max_abs_output_weight, INT16_LIMIT)
     for phase in PHASES:
         entries = phase_entries(weights, phase)
         by_family = collections.Counter(family for family, _, _ in entries)
         quantized = [quantize_output_weight(weight, config) for _, _, weight in entries]
+        saturated = sum(1 for weight in quantized if abs(weight) >= clamp)
+        quantized_zero = sum(1 for weight in quantized if weight == 0)
         phases[phase] = {
             "entries": len(entries),
             "entries_by_family": {family: int(by_family[family]) for family in config.families},
             "max_abs_weight": max((abs(weight) for _, _, weight in entries), default=0.0),
             "max_abs_output_weight": max((abs(weight) for weight in quantized), default=0),
+            "quantized_nonzero_entries": sum(1 for weight in quantized if weight != 0),
+            "quantized_zero_entries": quantized_zero,
+            "saturated_entries": saturated,
+            "saturation_rate": saturated / len(quantized) if quantized else 0.0,
         }
     return phases
 
@@ -1327,6 +1671,12 @@ def render_report(
         f"- split: `{config.split}`",
         f"- families: `{', '.join(config.families)}`",
         f"- loss: `{config.loss}`",
+        f"- pair_mode: `{config.pair_mode}`",
+        f"- pair_weighting: `{config.pair_weighting}`",
+        f"- max_pairs_per_position: `{config.max_pairs_per_position}`",
+        f"- exact_best_weight: `{config.exact_best_weight}`",
+        f"- teacher_weight: `{config.teacher_weight}`",
+        f"- min_score_margin: `{config.min_score_margin}`",
         f"- l2: `{config.l2}`",
         f"- epochs: `{config.epochs}`",
         f"- learning_rate: `{config.learning_rate}`",
@@ -1348,9 +1698,12 @@ def render_report(
             "## Final Metrics",
             "",
             f"- pairs: `{final_metrics['pairs']}`",
-            f"- loss: `{final_metrics['loss']:.6f}`",
+            f"- weighted_loss: `{final_metrics['weighted_loss']:.6f}`",
+            f"- unweighted_loss: `{final_metrics['unweighted_loss']:.6f}`",
             f"- accuracy: `{final_metrics['accuracy']:.6f}`",
+            f"- weighted_accuracy: `{final_metrics['weighted_accuracy']:.6f}`",
             f"- avg_margin: `{final_metrics['avg_margin']:.6f}`",
+            f"- total_pair_weight: `{final_metrics['total_pair_weight']:.6f}`",
             "",
             "## Outputs",
             "",
@@ -1391,11 +1744,16 @@ def train_pairwise_tables(
     final_metrics = evaluate_pairs(config, weights, pairs)
 
     table_paths = {phase: table_dir / f"{phase}.tsv" for phase in PHASES}
+    weight_summary = summarize_weights(config, weights)
     for phase in PHASES:
         entries = phase_entries(weights, phase)
         phase_stats = {
             "paired_rows": row_stats.get(f"{phase}_pairs", 0),
             "entries": len(entries),
+            "quantized_nonzero_entries": weight_summary[phase]["quantized_nonzero_entries"],
+            "quantized_zero_entries": weight_summary[phase]["quantized_zero_entries"],
+            "saturated_entries": weight_summary[phase]["saturated_entries"],
+            "max_abs_output_weight": weight_summary[phase]["max_abs_output_weight"],
         }
         table_paths[phase].write_text(
             render_phase_table(
@@ -1430,6 +1788,12 @@ def train_pairwise_tables(
         "families": list(config.families),
         "split": config.split,
         "loss": config.loss,
+        "pair_mode": config.pair_mode,
+        "pair_weighting": config.pair_weighting,
+        "max_pairs_per_position": config.max_pairs_per_position,
+        "exact_best_weight": config.exact_best_weight,
+        "teacher_weight": config.teacher_weight,
+        "min_score_margin": config.min_score_margin,
         "l2": config.l2,
         "epochs": config.epochs,
         "learning_rate": config.learning_rate,
@@ -1445,7 +1809,7 @@ def train_pairwise_tables(
         "training": {
             "history": history,
             "final_metrics": final_metrics,
-            "weights": summarize_weights(config, weights),
+            "weights": weight_summary,
         },
         "outputs": {
             "tables": {phase: str(path) for phase, path in table_paths.items()},

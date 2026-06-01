@@ -5,6 +5,7 @@ import re
 import sys
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parents[1]
@@ -89,6 +90,18 @@ def fake_analyzer(
     del config
     trainer.apply_move_to_board(board_text, "b1")
     return trainer.AnalyzeResult(best_move="b1", root_scores={"b1": 20, "d1": 10})
+
+
+def wide_fake_analyzer(
+    config: trainer.TrainerConfig, board_text: str
+) -> trainer.AnalyzeResult:
+    del config
+    for move in ("a2", "b1", "d1", "h1"):
+        trainer.apply_move_to_board(board_text, move)
+    return trainer.AnalyzeResult(
+        best_move="a2",
+        root_scores={"a2": 60, "d1": 50, "b1": 40, "h1": 30},
+    )
 
 
 def make_config(
@@ -199,6 +212,145 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
 
         self.assertTrue(features)
         self.assertIn("opening", trainer.PHASES)
+
+    def test_best_vs_engine_pair_generation_preserves_original_behavior(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            config = make_config(temp_path, labels)
+
+            pairs, records, stats = trainer.collect_pairs(config, analyzer=fake_analyzer)
+
+        self.assertEqual(len(pairs), 1)
+        self.assertEqual(pairs[0].preferred_move, "d1")
+        self.assertEqual(pairs[0].other_move, "b1")
+        self.assertEqual(pairs[0].pair_kind, "teacher")
+        self.assertEqual(pairs[0].pair_weight, 1.0)
+        self.assertEqual(stats["preference_pairs"], 1)
+        self.assertTrue(any(record.status == "paired" for record in records))
+
+    def test_best_vs_all_pair_generation_uses_root_candidates(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            config = make_config(temp_path, labels, extra_args=["--pair-mode", "best-vs-all"])
+
+            pairs, _, stats = trainer.collect_pairs(config, analyzer=wide_fake_analyzer)
+
+        self.assertEqual({pair.other_move for pair in pairs}, {"a2", "b1", "h1"})
+        self.assertTrue(all(pair.preferred_move == "d1" for pair in pairs))
+        self.assertEqual(stats["preference_pairs"], 3)
+        self.assertEqual(stats["avg_pairs_per_position"], 3.0)
+
+    def test_rank_weighted_pair_generation_uses_lower_ranked_candidates(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            config = make_config(
+                temp_path,
+                labels,
+                extra_args=[
+                    "--pair-mode",
+                    "rank-weighted",
+                    "--pair-weighting",
+                    "rank-margin",
+                ],
+            )
+
+            pairs, _, stats = trainer.collect_pairs(config, analyzer=wide_fake_analyzer)
+
+        self.assertEqual({pair.other_move for pair in pairs}, {"b1", "h1"})
+        self.assertNotIn("a2", {pair.other_move for pair in pairs})
+        self.assertTrue(all(pair.rank_margin and pair.rank_margin > 0 for pair in pairs))
+        self.assertTrue(all(pair.pair_weight > 1.0 for pair in pairs))
+        self.assertEqual(stats["teacher_pairs"], 2)
+
+    def test_exact_aware_pair_generation_prefers_exact_best_moves(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            exact = write_jsonl(temp_path / "exact.jsonl", [exact_row(TEACHER_BOARD, "b1")])
+            config = make_config(
+                temp_path,
+                labels,
+                exact_labels=exact,
+                extra_args=[
+                    "--pair-mode",
+                    "exact-aware",
+                    "--pair-weighting",
+                    "exact-boost",
+                    "--exact-best-weight",
+                    "2.5",
+                ],
+            )
+
+            pairs, _, stats = trainer.collect_pairs(config, analyzer=wide_fake_analyzer)
+
+        self.assertEqual({pair.preferred_move for pair in pairs}, {"b1"})
+        self.assertEqual({pair.other_move for pair in pairs}, {"a2", "d1", "h1"})
+        self.assertTrue(all(pair.pair_kind == "exact" for pair in pairs))
+        self.assertTrue(all(pair.pair_weight == 2.5 for pair in pairs))
+        self.assertEqual(stats["exact_aware_pairs"], 3)
+        self.assertEqual(stats["teacher_exact_disagreements_used_by_exact_aware"], 1)
+        self.assertEqual(stats["teacher_exact_disagreements_skipped"], 0)
+
+    def test_max_pairs_per_position_caps_generated_pairs(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            config = make_config(
+                temp_path,
+                labels,
+                extra_args=[
+                    "--pair-mode",
+                    "best-vs-all",
+                    "--max-pairs-per-position",
+                    "2",
+                ],
+            )
+
+            pairs, _, stats = trainer.collect_pairs(config, analyzer=wide_fake_analyzer)
+
+        self.assertEqual(len(pairs), 2)
+        self.assertEqual(stats["max_pairs_truncated"], 1)
+        self.assertEqual(stats["pairs_truncated"], 1)
+
+    def test_pair_weights_affect_training_updates(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            config = make_config(temp_path, labels, extra_args=["--epochs", "1", "--l2", "0"])
+            pairs, _, _ = trainer.collect_pairs(config, analyzer=fake_analyzer)
+            light = replace(pairs[0], pair_weight=1.0)
+            heavy = replace(pairs[0], pair_weight=3.0)
+
+            light_weights, _ = trainer.train_weights(config, [light])
+            heavy_weights, _ = trainer.train_weights(config, [heavy])
+
+        key = next(iter(light.features))
+        self.assertGreater(abs(heavy_weights[light.phase][key]), abs(light_weights[light.phase][key]))
+
+    def test_same_seed_is_deterministic_for_generated_tables(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            config_a = make_config(
+                temp_path,
+                labels,
+                extra_args=["--out-dir", str(temp_path / "runs" / "a"), "--pair-mode", "best-vs-all"],
+            )
+            config_b = make_config(
+                temp_path,
+                labels,
+                extra_args=["--out-dir", str(temp_path / "runs" / "b"), "--pair-mode", "best-vs-all"],
+            )
+
+            result_a = trainer.train_pairwise_tables(config_a, analyzer=wide_fake_analyzer)
+            result_b = trainer.train_pairwise_tables(config_b, analyzer=wide_fake_analyzer)
+            table_a = result_a.table_paths["late"].read_text(encoding="utf-8")
+            table_b = result_b.table_paths["late"].read_text(encoding="utf-8")
+
+        self.assertEqual(table_a, table_b)
 
     def test_training_writes_required_outputs_under_runs(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
