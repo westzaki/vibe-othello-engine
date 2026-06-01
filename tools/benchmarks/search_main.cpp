@@ -228,8 +228,9 @@ void print_usage(std::string_view program_name) {
                  "runs; tokens may include adaptive16, adaptive16_current, "
                  "adaptive16_cap8, adaptive16_cap6, adaptive16_opp10, "
                  "adaptive16_shape, or adaptive16_split\n"
-              << "  --eval-preset NAME builtin evaluator preset name\n"
-              << "  --eval-config PATH load evaluator weights from a .eval config file\n"
+              << "  --eval-preset NAME builtin compatibility/smoke evaluator preset name\n"
+              << "  --eval-config PATH load evaluator weights from a .eval config file "
+                 "(preferred for experiments)\n"
               << "  --format FORMAT    output format: text or jsonl (default: text)\n"
               << "  --help              show this help text\n";
 }

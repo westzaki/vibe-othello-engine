@@ -11,9 +11,10 @@ struct EvaluationPresetSpec {
     EvaluationPreset preset;
     std::string_view name;
     EvaluationConfig (*config)() noexcept;
-    // Stable public presets are intended long-lived built-ins. Other entries
-    // remain selectable for compatibility, but should not be copied for every
-    // new evaluator experiment.
+    // Stable public presets are intended long-lived built-ins. Entries with
+    // stable_public=false are legacy experimental aliases: keep them selectable
+    // and behavior-compatible, but do not add new ones for ordinary evaluator
+    // experiments. New experimental weight sets should live in .eval configs.
     bool stable_public = false;
 };
 
@@ -200,9 +201,12 @@ struct EvaluationPresetSpec {
 }
 
 // The first entry for a preset is its canonical name; later duplicate preset
-// entries are accepted legacy aliases. Future experimental candidates should
-// usually be .eval files selected with --eval-config instead of new public enum
-// entries.
+// entries are accepted legacy aliases. Default and PhaseAwareV1 are stable
+// public built-ins. The other entries originated as experiments and remain here
+// only as compatibility names for existing tools, tests, and reports.
+//
+// New evaluator experiments should be added as .eval files and selected with
+// --eval-config. Do not grow this table as an experiment registry.
 constexpr std::array<EvaluationPresetSpec, 19> evaluation_preset_specs{{
     {.preset = EvaluationPreset::Default,
      .name = "default",

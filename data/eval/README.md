@@ -3,6 +3,9 @@
 This directory contains the small set of `.eval` v1 files that should work on
 the latest `main`. These files are selected explicitly with `--eval-config PATH`
 or `eval_config=PATH`; they do not change the built-in engine default.
+Use `.eval` configs for new evaluation experiments. `--eval-preset` remains
+available for built-in compatibility names and smoke checks, not as the normal
+place to publish new research candidates.
 
 ## Roles
 

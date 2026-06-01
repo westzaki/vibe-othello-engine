@@ -17,12 +17,17 @@ enum class EvaluationPhase {
     Late,
 };
 
-// Public preset names are compatibility surface. Prefer .eval config files for
-// experimental evaluator candidates; add enum entries only for stable,
-// long-lived built-in presets.
+// Public preset names are compatibility surface, not a queue of current
+// experiments. Keep existing values and names readable for older tools,
+// wrappers, and benchmark records. Prefer .eval config files for new evaluator
+// experiments; add enum entries only for stable, long-lived built-ins.
 enum class EvaluationPreset {
+    // Stable public built-ins.
     Default,
     PhaseAwareV1,
+
+    // Legacy experimental aliases retained for compatibility. Do not copy this
+    // pattern for new experiments; use .eval configs selected with --eval-config.
     MobilityPlusSmoke,
     FrontierOpen2Mid2LatePlus1,
     ClassicCornerLiteV1,
