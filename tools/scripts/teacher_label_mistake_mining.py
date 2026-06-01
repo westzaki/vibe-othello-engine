@@ -13,9 +13,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from common import ScriptError, quote_command, read_jsonl
+from common import ScriptError, quote_command, read_jsonl, sha256_file
 from dataset_paths import resolve_path_references
-from eval_config_tuner import sha256_file
 
 
 @dataclass(frozen=True)

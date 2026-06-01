@@ -30,9 +30,8 @@ script.
 | `base_head_match_matrix.py` | current | Run external-process base/head match matrices. | Recommended for strength-changing code comparisons where in-process players would share one linked implementation. |
 | `common.py` | current | Shared parsing, command, JSONL, slug, and report helpers. | Imported by many current and legacy scripts. |
 | `dataset_paths.py` | current | Resolve `dataset:...` references and shared dataset roots. | Required by reusable teacher/exact dataset workflows. |
-| `eval_analyzer_metrics.py` | current | Parse `othello_eval_vs_exact` stdout metrics. | Shared by current candidate evidence and legacy tuner tooling without depending on scalar tuning code. |
+| `eval_analyzer_metrics.py` | current | Parse `othello_eval_vs_exact` stdout metrics. | Shared by current candidate evidence and analyzer-report workflows without depending on scalar tuning code. |
 | `eval_candidate_matrix.py` | current | Gather comparable `.eval` candidate smoke evidence from labels and search bench. | Current replacement for ad hoc candidate validation wrappers; also registered in CTest as a dry-run smoke. |
-| `eval_config_tuner.py` | legacy | Perturb fully expanded `.eval` scalar weights against exact-label JSONL. | Kept for debugging existing configs and because current diagnostics reuse its parser/metric helpers; not the default pattern-learning path. |
 | `evidence.py` | current | Collect reproducible build/test/benchmark/match evidence for PRs. | Shared evidence workflow for reviewers; wraps C++ tools without making strength claims. |
 | `exact_label_workflow.py` | current | Sample positions, dump exact labels, and optionally run eval-vs-exact analysis. | Current exact-label smoke helper for evaluation investigations. |
 | `external_teacher_label_workflow.py` | current | Generate teacher-label JSONL from external engines. | Current teacher-label entrypoint and a dependency of `teacher_dataset_build.py`. |
@@ -54,6 +53,7 @@ script.
 | --- | --- | --- | --- |
 | `eval_config_validate.py` | deprecated | Validate generated scalar `.eval` candidates on held-out exact-label JSONL. | Replaced for current work by `eval_candidate_matrix.py --labels ...` and PR evidence reports; remaining repository mentions are historical experiment commands. |
 | `eval_config_search_validate.py` | deprecated | Chain held-out scalar/config summaries into search-bench and match-smoke validation. | Replaced by `eval_candidate_matrix.py`, `run_match_experiment.py`, `base_head_match_matrix.py`, and `evidence.py`; remaining repository mentions are historical experiment commands. |
+| `eval_config_tuner.py` | deprecated | Perturb fully expanded `.eval` scalar weights against exact-label JSONL. | Replaced for current work by `exact_label_workflow.py`, `eval_candidate_matrix.py`, and `evidence.py`; remaining repository mentions are historical experiment commands. |
 | `eval_experiment_matrix.py` | deprecated | Run staged `.eval` config search and match matrices. | Replaced by `eval_candidate_matrix.py`, `run_match_experiment.py`, `base_head_match_matrix.py`, and `evidence.py`; `evidence.py --profile eval` no longer depends on it. |
 | `run_experiment_matrix.py` | deprecated | Run JSON-defined match-runner matrices from `tools/scripts/examples/search_ablation_smoke.json`. | Replaced by explicit `run_match_experiment.py`, `base_head_match_matrix.py`, and `evidence.py` workflows; it had no current docs outside this README and its dedicated test/example. |
 
@@ -87,9 +87,7 @@ Recommended order:
 6. Keep raw labels, exact labels, match JSONL, benchmark logs, and local paths
    out of git.
 
-Do not use `eval_config_tuner.py` as the default next step for pattern
-learning. It remains useful for debugging existing `.eval` configs and scalar
-weight interactions, but it is not the main strength path after the
+Scalar perturbation tuning is no longer a current workflow after the
 pattern-first restart. Do not add one tiny pattern family at a time unless the
 PR is explicitly part of a broader vocabulary and ablation plan. Do not create
 source-controlled `.eval` files for rejected candidates. Do not treat smoke
@@ -249,7 +247,7 @@ exist and the goal is comparable smoke evidence rather than tuning:
 python3 tools/scripts/eval_candidate_matrix.py \
   --build-dir build \
   --labels runs/exact-label-workflow/heldout/labels.jsonl \
-  --candidates runs/eval-config-tuner/smoke/configs/candidate_0001.eval \
+  --candidates runs/pattern-training/phase-broad-v0/candidate.eval \
   --out runs/eval-candidates/smoke
 ```
 
@@ -306,28 +304,6 @@ python3 tools/scripts/match_summary.py \
 ```
 
 ## Legacy Diagnostics
-
-Run a small diagnostic `.eval` config tuning experiment from exact-label JSONL:
-
-```sh
-python3 tools/scripts/eval_config_tuner.py \
-  --labels runs/exact-label-workflow/smoke/labels.jsonl \
-  --base-config data/eval/current_default.eval \
-  --build-dir build \
-  --out runs/eval-config-tuner/smoke \
-  --rounds 1 \
-  --step 1 \
-  --max-candidates 64 \
-  --seed 20260531
-```
-
-Use `exact_label_workflow.py` first when a labels file does not already exist.
-The tuner reads a fully expanded `.eval` config, writes perturbed candidate
-configs under `runs/eval-config-tuner/.../configs/`, runs
-`othello_eval_vs_exact` for each candidate, and ranks candidates by a diagnostic
-objective based on sign agreement, wrong-direction count, and high-confidence
-wrong-direction count. Candidate configs are local experiment artifacts, not
-active configs.
 
 Extract first divergence positions from an existing swap-side base/head JSONL:
 
