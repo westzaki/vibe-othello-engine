@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from common import ScriptError, quote_command, slugify
-from eval_config_tuner import (
+from eval_analyzer_metrics import (
     MOVE_RANK_METRIC_KEYS,
     AnalyzerMetrics,
     move_rank_cells,
