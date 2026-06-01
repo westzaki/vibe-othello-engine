@@ -48,6 +48,26 @@ phase-specific tables, deterministic dataset/split/manifest plumbing, stronger
 trainer objectives and regularization, and a broad known-good Othello pattern
 vocabulary with ablation.
 
+Build reusable teacher/exact dataset artifacts under the shared dataset root:
+
+```sh
+python3 tools/scripts/teacher_dataset_build.py \
+  --dataset-id fake-smoke \
+  --dataset-root "$VIBE_OTHELLO_DATASET_ROOT" \
+  --positions data/positions/evaluation/diagnostic_suite.txt \
+  --shard-size 4 \
+  --teacher-engine-name fake \
+  --legal-validator build/othello_validate_move \
+  --allow-failures \
+  --teacher-engine-cmd -- python3 tools/scripts/external_engines/fake_engine.py --move d3
+```
+
+The builder writes position shards, deterministic split IDs, manifests,
+dataset cards, and QC summaries. Teacher labels and exact overlap labels are
+optional phases. The script is orchestration only: it uses existing C++ tools
+for rule validation and exact labels, and it does not require external engines
+in CI.
+
 ## General Examples
 
 Collect a reproducible PR evidence report:
