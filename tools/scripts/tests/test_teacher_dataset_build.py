@@ -43,11 +43,51 @@ BOARD9_SECOND = """\
 side=W
 """
 
+BOARD9_THIRD = """\
+# name: third
+........
+........
+...B....
+...BB...
+...BW...
+........
+........
+........
+side=W
+"""
+
+BOARD9_FOURTH = """\
+# name: fourth
+........
+........
+........
+..WWW...
+...BW...
+...B....
+........
+........
+side=B
+"""
+
 
 def write_positions(directory: Path, text: str = BOARD9_INITIAL) -> Path:
     path = directory / "positions.txt"
     path.write_text(textwrap.dedent(text), encoding="utf-8")
     return path
+
+
+def write_tiny_position_pool(directory: Path) -> Path:
+    return write_positions(
+        directory,
+        "\n".join(
+            [
+                BOARD9_INITIAL,
+                BOARD9_SECOND,
+                BOARD9_THIRD,
+                BOARD9_FOURTH,
+            ]
+        ),
+    )
 
 
 def write_legal_validator(directory: Path, *, legal_moves: str = "d3 c4 d6") -> Path:
@@ -314,6 +354,123 @@ class TeacherDatasetBuildTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertIs(failures[0]["legal_move_valid"], False)
         self.assertEqual(summary["illegal_teacher_moves"], 1)
+
+    def test_fake_ntest_pipeline_end_to_end_smoke_is_resume_safe(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            dataset_root = temp_path / "datasets"
+            positions = write_tiny_position_pool(temp_path)
+            validator = write_legal_validator(temp_path, legal_moves="d6")
+            pipeline_args = [
+                "--teacher-adapter",
+                "ntest",
+                "--teacher-protocol",
+                "nboard",
+                "--teacher-depth",
+                "12",
+                "--teacher-timeout-ms",
+                "1000",
+                "--teacher-engine-name",
+                "fake-ntest",
+                "--shard-size",
+                "2",
+                "--label-jobs",
+                "2",
+                "--position-log-mode",
+                "failures",
+                "--legal-validator",
+                str(validator),
+            ]
+
+            def pipeline_config(
+                *,
+                extra_args: list[str] | None = None,
+                engine_args: list[str],
+            ) -> builder.BuildConfig:
+                return make_config(
+                    temp_path,
+                    dataset_root=dataset_root,
+                    positions=positions,
+                    extra_args=[*pipeline_args, *(extra_args or [])],
+                    engine_args=engine_args,
+                )
+
+            first = pipeline_config(
+                extra_args=["--resume", "--allow-failures"],
+                engine_args=["--move", "=== D3//0.00"],
+            )
+
+            self.assertEqual(builder.run_build(first), 0)
+            label_root = first.out_dir / "labels" / "fake-ntest"
+            label_paths = sorted((label_root / "shards").glob("labels-*.jsonl"))
+            labels = [row for path in label_paths for row in read_jsonl(path)]
+            first_order = [
+                (row["position_shard"], row["position_index"], row["position_id"])
+                for row in labels
+            ]
+            failed_rows = read_jsonl(label_root / "failed.jsonl")
+            workflow_logs = sorted((label_root / "workflow-shards").glob("shard-*/logs/*.log"))
+
+            self.assertEqual(len(label_paths), 2)
+            self.assertEqual(len(labels), 4)
+            self.assertEqual([row["status"] for row in labels], ["ok", "ok", "ok", "ok"])
+            self.assertTrue(all(row["legal_move_valid"] is True for row in labels))
+            self.assertTrue(all(row["log_path"] is None for row in labels))
+            self.assertEqual([row["position_shard"] for row in labels], [0, 0, 1, 1])
+            self.assertEqual([row["position_index"] for row in labels], [0, 1, 0, 1])
+            self.assertTrue((label_root / "failed.jsonl").is_file())
+            self.assertEqual(failed_rows, [])
+            self.assertEqual(workflow_logs, [])
+            self.assertTrue((first.out_dir / "manifest.json").is_file())
+            self.assertTrue((first.out_dir / "splits" / "train.ids").is_file())
+            self.assertTrue((first.out_dir / "splits" / "validation.ids").is_file())
+            self.assertTrue((first.out_dir / "splits" / "holdout.ids").is_file())
+            self.assertTrue((first.out_dir / "splits" / "split_manifest.json").is_file())
+            self.assertTrue((first.out_dir / "qc" / "phase_distribution.tsv").is_file())
+            self.assertTrue((first.out_dir / "qc" / "legality_summary.json").is_file())
+
+            second = pipeline_config(
+                extra_args=["--resume", "--allow-failures"],
+                engine_args=["--move", "z9"],
+            )
+            self.assertEqual(builder.run_build(second), 0)
+            resumed_labels = [
+                row
+                for path in sorted((label_root / "shards").glob("labels-*.jsonl"))
+                for row in read_jsonl(path)
+            ]
+            resumed_order = [
+                (row["position_shard"], row["position_index"], row["position_id"])
+                for row in resumed_labels
+            ]
+            label_manifest = read_json(label_root / "manifest.json")
+            legality_summary = read_json(first.out_dir / "qc" / "legality_summary.json")
+
+            repeat = pipeline_config(
+                extra_args=["--out", "teacher/tiny-repeat", "--allow-failures"],
+                engine_args=["--move", "=== D3//0.00"],
+            )
+            self.assertEqual(builder.run_build(repeat), 0)
+            repeat_labels = [
+                row
+                for path in sorted(
+                    (repeat.out_dir / "labels" / "fake-ntest" / "shards").glob("labels-*.jsonl")
+                )
+                for row in read_jsonl(path)
+            ]
+            repeat_order = [
+                (row["position_shard"], row["position_index"], row["position_id"])
+                for row in repeat_labels
+            ]
+
+        self.assertEqual(resumed_order, first_order)
+        self.assertEqual(repeat_order, first_order)
+        self.assertEqual([row["status"] for row in resumed_labels], ["ok", "ok", "ok", "ok"])
+        self.assertEqual(label_manifest["resumed_label_shards"], 2)
+        self.assertEqual(label_manifest["counts"]["ok"], 4)
+        self.assertEqual(legality_summary["labels_ok"], 4)
+        self.assertEqual(legality_summary["labels_failed"], 0)
+        self.assertEqual(legality_summary["illegal_teacher_moves"], 0)
 
     def test_teacher_workflow_config_receives_large_run_options(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
