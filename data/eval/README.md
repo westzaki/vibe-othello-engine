@@ -29,6 +29,10 @@ feature weights so future pattern learning can be interpreted independently
 from scalar residual tuning. It is expected to be weaker initially and must not
 be used as a strength candidate or default-promotion signal.
 
+`pattern_only_smoke.eval` is a compact parser smoke fixture for the
+`mode=pattern_only` format. It intentionally does not reference a learned table,
+so it is not a playable experiment or strength candidate.
+
 Pattern-first experiments may intentionally be weaker than the engine default
 while they build better table ownership, dataset, trainer, and validation
 foundations.
@@ -67,9 +71,11 @@ only, and it must not be described as active or preferred.
 - blank lines and `#` comments are allowed
 - one `key=value` per line
 - ASCII whitespace around keys and values is ignored
+- optional `schema_version=eval.v1` is metadata and is validated when present
 - `name=...` is metadata only
+- optional `mode=pattern_only` enables compact learned-table experiments
 - numeric values are signed integers
-- unknown, duplicate, invalid, or missing required keys are errors
+- unknown, duplicate, or invalid keys are errors
 - `pattern_table=...` paths are resolved relative to the `.eval` file and
   remain the global compatibility mode for using one table in every phase
 - optional `pattern_table.opening=...`, `pattern_table.midgame=...`, and
@@ -77,8 +83,34 @@ only, and it must not be described as active or preferred.
 - when a phase-specific table is absent, that phase falls back to
   `pattern_table=...` when present
 
-Active configs must be fully expanded. They should not rely on implicit default
-overlays or missing-key fallback behavior.
+### Full Snapshot Configs
+
+Plain `eval.v1` configs without `mode=pattern_only` are full snapshots. They
+must explicitly list every handcrafted feature weight and phase threshold. Use
+this form for compatibility snapshots such as `current_default.eval`, retained
+scalar anchors, or configs that need to describe the whole evaluator state
+without implicit feature-weight fallback.
+
+### Pattern-Only Configs
+
+`mode=pattern_only` is for learned pattern table experiments. In this mode,
+omitted feature weights default to zero, so a compact experiment can usually
+list only:
+
+- `pattern_table=...` or phase-specific `pattern_table.opening`,
+  `pattern_table.midgame`, and `pattern_table.late` paths
+- `opening.pattern_table`, `midgame.pattern_table`, and `late.pattern_table`
+  weights
+- optional `opening_max_occupied` and `midgame_max_occupied` thresholds
+
+If the thresholds are omitted in `mode=pattern_only`, the loader keeps the
+built-in default phase thresholds. Non-pattern feature keys are still accepted
+for narrow ablations or transitional experiments, but pattern-only configs
+should normally omit them.
+
+New evaluation experiments should be represented as `.eval` files rather than
+new C++ `EvaluationPreset` entries unless the behavior is intended to become a
+stable public compatibility surface.
 
 Pattern table storage is separate from scalar evaluator configuration. Sparse
 TSV files remain the source and review format, but loading expands them into a

@@ -457,6 +457,23 @@ TEST_CASE("Sample eval configs round-trip to expected evaluator configs", "[eval
                                 [](std::int16_t value) { return value != 0; }) == 64);
     CHECK(std::ranges::count_if(reboot.config.pattern_tables->edge_8,
                                 [](std::int16_t value) { return value != 0; }) == 64);
+
+    const othello::tools::EvaluationConfigLoadResult pattern_only_smoke =
+        othello::tools::load_evaluation_config_file(
+            sample_eval_config_path("pattern_only_smoke.eval"));
+    REQUIRE(pattern_only_smoke.ok());
+    REQUIRE(pattern_only_smoke.name.has_value());
+    CHECK(*pattern_only_smoke.name == "pattern_only_smoke");
+    CHECK_FALSE(pattern_only_smoke.pattern_table_path.has_value());
+    CHECK(pattern_only_smoke.config.pattern_tables == nullptr);
+    check_scalar_weights_zero(pattern_only_smoke.config.opening);
+    check_scalar_weights_zero(pattern_only_smoke.config.midgame);
+    check_scalar_weights_zero(pattern_only_smoke.config.late);
+    CHECK(pattern_only_smoke.config.opening.pattern_table == 1);
+    CHECK(pattern_only_smoke.config.midgame.pattern_table == 1);
+    CHECK(pattern_only_smoke.config.late.pattern_table == 1);
+    CHECK(pattern_only_smoke.config.opening_max_occupied == 20);
+    CHECK(pattern_only_smoke.config.midgame_max_occupied == 44);
 }
 
 TEST_CASE("Rejected eval experiments are pruned from the active eval surface",
@@ -653,6 +670,100 @@ TEST_CASE("Eval config parser rejects malformed v1 files", "[evaluation]") {
     const auto missing = othello::tools::parse_evaluation_config("name=missing_keys\n");
     CHECK_FALSE(missing.ok());
     CHECK(missing.error.find("missing required key") != std::string::npos);
+
+    const auto unknown_mode = othello::tools::parse_evaluation_config("mode=unknown\n");
+    CHECK_FALSE(unknown_mode.ok());
+    CHECK(unknown_mode.error.find("unknown mode") != std::string::npos);
+
+    const auto unsupported_schema =
+        othello::tools::parse_evaluation_config("schema_version=eval.v2\n");
+    CHECK_FALSE(unsupported_schema.ok());
+    CHECK(unsupported_schema.error.find("unsupported schema_version") !=
+          std::string::npos);
+}
+
+TEST_CASE("Pattern-only eval config parser defaults omitted feature weights to zero",
+          "[evaluation]") {
+    const othello::tools::EvaluationConfigLoadResult loaded =
+        othello::tools::parse_evaluation_config(R"(schema_version=eval.v1
+mode=pattern_only
+name=compact_pattern
+opening.pattern_table=2
+midgame.pattern_table=3
+late.pattern_table=4
+opening_max_occupied=18
+midgame_max_occupied=42
+)");
+
+    REQUIRE(loaded.ok());
+    REQUIRE(loaded.name.has_value());
+    CHECK(*loaded.name == "compact_pattern");
+    CHECK_FALSE(loaded.pattern_table_path.has_value());
+    check_scalar_weights_zero(loaded.config.opening);
+    check_scalar_weights_zero(loaded.config.midgame);
+    check_scalar_weights_zero(loaded.config.late);
+    CHECK(loaded.config.opening.pattern_table == 2);
+    CHECK(loaded.config.midgame.pattern_table == 3);
+    CHECK(loaded.config.late.pattern_table == 4);
+    CHECK(loaded.config.opening_max_occupied == 18);
+    CHECK(loaded.config.midgame_max_occupied == 42);
+}
+
+TEST_CASE("Pattern-only eval config accepts explicit scalar overrides",
+          "[evaluation]") {
+    const othello::tools::EvaluationConfigLoadResult loaded =
+        othello::tools::parse_evaluation_config(R"(mode=pattern_only
+opening.mobility=5
+midgame.frontier=-2
+late.edge_8_pattern=3
+opening.pattern_table=2
+)");
+
+    REQUIRE(loaded.ok());
+    CHECK(loaded.config.opening.mobility == 5);
+    CHECK(loaded.config.opening.disc_difference == 0);
+    CHECK(loaded.config.midgame.frontier == -2);
+    CHECK(loaded.config.midgame.mobility == 0);
+    CHECK(loaded.config.late.edge_8_pattern == 3);
+    CHECK(loaded.config.late.mobility == 0);
+    CHECK(loaded.config.opening.pattern_table == 2);
+    CHECK(loaded.config.midgame.pattern_table == 0);
+    CHECK(loaded.config.late.pattern_table == 0);
+    CHECK(loaded.config.opening_max_occupied == 20);
+    CHECK(loaded.config.midgame_max_occupied == 44);
+}
+
+TEST_CASE("Pattern-only eval config loader resolves compact pattern table paths",
+          "[evaluation]") {
+    const std::filesystem::path temp_dir = unique_temp_dir("pattern-only-eval-config");
+    write_text_file(temp_dir / "patterns" / "tiny.tsv", "corner_2x3\t1\t6\n");
+    const std::filesystem::path eval_path = temp_dir / "pattern_only.eval";
+    write_text_file(eval_path, R"(schema_version=eval.v1
+mode=pattern_only
+name=pattern_only_tiny
+pattern_table=patterns/tiny.tsv
+opening.pattern_table=2
+midgame.pattern_table=3
+late.pattern_table=4
+opening_max_occupied=16
+midgame_max_occupied=40
+)");
+
+    const othello::tools::EvaluationConfigLoadResult loaded =
+        othello::tools::load_evaluation_config_file(eval_path);
+
+    REQUIRE(loaded.ok());
+    CHECK(loaded.pattern_table_path == "patterns/tiny.tsv");
+    REQUIRE(loaded.config.pattern_tables != nullptr);
+    CHECK(loaded.config.pattern_tables->corner_2x3[1] == 6);
+    check_scalar_weights_zero(loaded.config.opening);
+    check_scalar_weights_zero(loaded.config.midgame);
+    check_scalar_weights_zero(loaded.config.late);
+    CHECK(loaded.config.opening.pattern_table == 2);
+    CHECK(loaded.config.midgame.pattern_table == 3);
+    CHECK(loaded.config.late.pattern_table == 4);
+    CHECK(loaded.config.opening_max_occupied == 16);
+    CHECK(loaded.config.midgame_max_occupied == 40);
 }
 
 TEST_CASE("Eval config loader rejects missing and malformed pattern tables",

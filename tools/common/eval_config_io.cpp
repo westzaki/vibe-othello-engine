@@ -49,6 +49,13 @@ struct PatternTableCacheEntry {
     std::shared_ptr<const PatternTableBundle> tables;
 };
 
+enum class EvaluationConfigMode {
+    Full,
+    PatternOnly,
+};
+
+inline constexpr std::string_view eval_schema_version = "eval.v1";
+
 constexpr std::array<FeatureKeySpec, 36> feature_keys{{
     {"opening.disc_difference", &EvaluationConfig::opening,
      &EvaluationFeatureWeights::disc_difference},
@@ -222,6 +229,16 @@ void assign_feature_key(EvaluationConfig& config, std::size_t index, int value) 
     (config.*spec.phase).*spec.weight = value;
 }
 
+void assign_missing_feature_keys(EvaluationConfig& config,
+                                 const std::array<bool, feature_keys.size()>& seen,
+                                 int value) noexcept {
+    for (std::size_t index = 0; index < feature_keys.size(); ++index) {
+        if (!seen[index]) {
+            assign_feature_key(config, index, value);
+        }
+    }
+}
+
 void assign_config_key(EvaluationConfig& config, std::size_t index, int value) noexcept {
     const ConfigKeySpec& spec = config_keys[index];
     config.*spec.value = value;
@@ -352,6 +369,7 @@ EvaluationConfigLoadResult parse_evaluation_config(std::string_view text) {
     std::array<bool, feature_keys.size()> seen_features{};
     std::array<bool, config_keys.size()> seen_configs{};
     std::vector<std::string> seen_keys;
+    EvaluationConfigMode mode = EvaluationConfigMode::Full;
 
     int line_number = 0;
     std::size_t line_begin = 0;
@@ -386,6 +404,22 @@ EvaluationConfigLoadResult parse_evaluation_config(std::string_view text) {
 
             if (key == "name") {
                 result.name = std::string{value};
+            } else if (key == "schema_version") {
+                if (value != eval_schema_version) {
+                    result.error = line_error(line_number, "unsupported schema_version: " +
+                                                              std::string{value});
+                    return result;
+                }
+            } else if (key == "mode") {
+                if (value == "full") {
+                    mode = EvaluationConfigMode::Full;
+                } else if (value == "pattern_only") {
+                    mode = EvaluationConfigMode::PatternOnly;
+                } else {
+                    result.error = line_error(line_number, "unknown mode: " +
+                                                              std::string{value});
+                    return result;
+                }
             } else if (key == "pattern_table") {
                 if (value.empty()) {
                     result.error = line_error(line_number, "empty pattern_table path");
@@ -432,14 +466,18 @@ EvaluationConfigLoadResult parse_evaluation_config(std::string_view text) {
         line_begin = newline + 1;
     }
 
-    for (std::size_t index = 0; index < feature_keys.size(); ++index) {
-        if (feature_keys[index].required && !seen_features[index]) {
-            result.error = "missing required key: " + std::string{feature_keys[index].key};
-            return result;
+    if (mode == EvaluationConfigMode::PatternOnly) {
+        assign_missing_feature_keys(result.config, seen_features, 0);
+    } else {
+        for (std::size_t index = 0; index < feature_keys.size(); ++index) {
+            if (feature_keys[index].required && !seen_features[index]) {
+                result.error = "missing required key: " + std::string{feature_keys[index].key};
+                return result;
+            }
         }
     }
     for (std::size_t index = 0; index < config_keys.size(); ++index) {
-        if (!seen_configs[index]) {
+        if (mode == EvaluationConfigMode::Full && !seen_configs[index]) {
             result.error = "missing required key: " + std::string{config_keys[index].key};
             return result;
         }
