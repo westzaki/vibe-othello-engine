@@ -37,7 +37,6 @@ A candidate may change:
 - a pattern family
 - a weight set
 - a `.eval` candidate config
-- a stable built-in preset, when the task is explicitly about the compatibility surface
 - the evaluator architecture
 
 The requirement is that the candidate tests one coherent idea and can be compared
@@ -112,28 +111,25 @@ A weight-set candidate changes multiple weights while keeping the evaluator
 structure.
 
 A config candidate introduces an explicit `.eval` file that can be selected with
-`--eval-config`, compared, and rolled back without growing the public C++ preset
-surface.
+`--eval-config`, compared, and rolled back without adding public C++ evaluator
+API.
 
 Large candidates are allowed when they are named, measurable, and reversible.
 
-## Built-in Preset Policy
+## Evaluator Config Policy
 
-Prefer `.eval` config files for experimental evaluator candidates. A candidate
-that only changes weights should normally live as a config file and be selected
-with `--eval-config`; generated reports, temporary candidates, and raw evidence
-belong under `runs/` or in PR/task artifacts.
+The engine has one built-in default evaluator, exposed by
+`default_evaluation_config()`. When no `--eval-config` is specified, tools use
+that built-in default.
 
-Add a public C++ `EvaluationPreset` only for stable defaults or long-lived
-built-ins that external wrappers should be able to select without shipping a
-config file. Do not add one enum entry per experiment, and do not use the enum
-as an experiment history log.
+Experimental evaluator candidates should live as explicit `.eval` files and be
+selected with `--eval-config`; generated reports, temporary candidates, and raw
+evidence belong under `runs/` or in PR/task artifacts.
 
-Existing public preset names are compatibility surface. Do not remove or rename
-them without a clear compatibility plan, even when a preset originated as an
-experiment. New CLI-visible names should remain stable once documented or used by
-fixtures. For new research, prefer a named `.eval` file under `data/eval/` or a
-generated candidate under `runs/` instead.
+The legacy public `--eval-preset` tool option and C++ evaluator preset
+compatibility API have been removed. Do not add new C++ preset entries as an
+experiment registry; use a named `.eval` file under `data/eval/` or a generated
+candidate under `runs/` instead.
 
 `data/eval/current_default.eval` is the committed config snapshot of
 `default_evaluation_config()`. Keep it synchronized in the same PR as any
@@ -425,7 +421,7 @@ but has unclear runtime cost, or it needs broader testing.
 
 Promote a candidate as a retained `.eval` config when it is isolated,
 selectable, useful for further testing, but not ready to replace the default.
-Reserve new named C++ presets for stable compatibility surfaces.
+Do not promote evaluator candidates by adding new C++ preset APIs.
 
 Promote a candidate as default only when correctness checks pass, evidence is
 stronger than a smoke test, runtime cost is acceptable or justified, and the

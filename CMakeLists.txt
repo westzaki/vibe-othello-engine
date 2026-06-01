@@ -69,7 +69,6 @@ add_library(othello STATIC
     src/evaluation.cpp
     src/evaluation_features.cpp
     src/evaluation_patterns.cpp
-    src/evaluation_presets.cpp
     src/hash.cpp
     src/notation.cpp
     src/player.cpp

@@ -192,26 +192,7 @@ TEST_CASE("Search options resolve the default evaluator config", "[search]") {
     CHECK(othello::resolve_evaluation_config(options) == othello::default_evaluation_config());
 }
 
-TEST_CASE("Search options depth zero uses preset-only evaluator selection", "[search]") {
-    const Board board = othello::test::black_must_pass_board();
-    REQUIRE_FALSE(othello::is_game_over(board));
-
-    const othello::SearchOptions options{
-        .max_depth = 0,
-        .exact_endgame_empty_threshold = 0,
-        .evaluation_preset = othello::EvaluationPreset::MobilityPlusSmoke,
-    };
-    const othello::EvaluationConfig smoke_config =
-        othello::evaluation_config_for_preset(othello::EvaluationPreset::MobilityPlusSmoke);
-
-    const othello::SearchResult result = othello::search(board, options);
-
-    CHECK(result.score == othello::evaluate_with_config(board, board.side_to_move, smoke_config));
-    CHECK(result.score != othello::evaluate_basic(board, board.side_to_move));
-    CHECK(result.stats.eval_calls > 0);
-}
-
-TEST_CASE("Search options custom evaluator override wins over preset", "[search]") {
+TEST_CASE("Search options custom evaluator override resolves over the default", "[search]") {
     const auto board = othello::apply_move(Board::initial(), othello::test::square("d3"));
     REQUIRE(board.has_value());
 
@@ -223,7 +204,6 @@ TEST_CASE("Search options custom evaluator override wins over preset", "[search]
     const othello::SearchOptions options{
         .max_depth = 0,
         .exact_endgame_empty_threshold = 0,
-        .evaluation_preset = othello::EvaluationPreset::MobilityPlusSmoke,
         .evaluation_config_override = config,
     };
 
@@ -233,8 +213,7 @@ TEST_CASE("Search options custom evaluator override wins over preset", "[search]
     CHECK(result.score == othello::evaluate_with_config(*board, board->side_to_move, config));
     CHECK(result.score != othello::evaluate_with_config(
                               *board, board->side_to_move,
-                              othello::evaluation_config_for_preset(
-                                  othello::EvaluationPreset::MobilityPlusSmoke)));
+                              othello::default_evaluation_config()));
 }
 
 TEST_CASE("Fixed-depth search treats negative depth as depth zero", "[search]") {
@@ -406,7 +385,6 @@ TEST_CASE("Search uses exact endgame at the root within threshold", "[search]") 
         .exact_endgame_empty_threshold = 1,
         .use_pvs = true,
         .use_aspiration_window = true,
-        .evaluation_preset = othello::EvaluationPreset::MobilityPlusSmoke,
     };
 
     const othello::SearchResult result = othello::search(board, options);
