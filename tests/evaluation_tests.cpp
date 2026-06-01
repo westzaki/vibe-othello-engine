@@ -72,6 +72,11 @@ side=B)");
     return std::filesystem::path{OTHELLO_SOURCE_DIR} / "data" / "eval";
 }
 
+[[nodiscard]] std::filesystem::path test_eval_config_fixture_path(std::string_view file_name) {
+    return std::filesystem::path{OTHELLO_SOURCE_DIR} / "tests" / "fixtures" / "eval" /
+           file_name;
+}
+
 [[nodiscard]] std::string read_text_file(const std::filesystem::path& path) {
     std::ifstream input{path};
     REQUIRE(input.is_open());
@@ -528,7 +533,7 @@ TEST_CASE("Sample eval configs round-trip to expected evaluator configs", "[eval
 
     const othello::tools::EvaluationConfigLoadResult pattern_only_smoke =
         othello::tools::load_evaluation_config_file(
-            sample_eval_config_path("pattern_only_smoke.eval"));
+            test_eval_config_fixture_path("pattern_only_smoke.eval"));
     REQUIRE(pattern_only_smoke.ok());
     REQUIRE(pattern_only_smoke.name.has_value());
     CHECK(*pattern_only_smoke.name == "pattern_only_smoke");
@@ -605,7 +610,6 @@ TEST_CASE("Committed eval artifact surface contains only active fixtures",
     constexpr std::array allowed_eval_configs{
         std::string_view{"classic_othello_v3_teacher_aggressive.eval"},
         std::string_view{"current_default.eval"},
-        std::string_view{"pattern_only_smoke.eval"},
         std::string_view{"pattern_reboot_v0.eval"},
         std::string_view{"pattern_teacher_v0.eval"},
         std::string_view{"phase_aware_v1.eval"},
