@@ -98,6 +98,9 @@ of committed docs.
   `--teacher-labels` and `--exact-labels` entries that start with `dataset:`.
 - `tools/scripts/external_teacher_label_workflow.py` supports `--dataset-root`
   for `--positions` when it starts with `dataset:`.
+- `tools/scripts/balanced_position_pool.py` builds balanced board9 position
+  pools with the C++ position sampler and writes pool manifests/QC under
+  `runs/` or an explicit external dataset root.
 - `tools/scripts/teacher_dataset_build.py` builds reusable position shards,
   deterministic splits, optional teacher labels, optional exact overlap labels,
   manifests, dataset cards, and QC summaries under a dataset root.
@@ -130,6 +133,73 @@ The builder currently consumes board9 input files. For sampled position pools,
 generate a local board9 file with the C++ `build/othello_position_sampler` tool
 first, then pass that file with `--positions`; keep the generated file under
 the dataset root or `runs/`, not source-controlled `data/`.
+
+## Balanced Position Pool
+
+Use `balanced_position_pool.py` to create a reusable board9 source file before
+running a teacher dataset build. The script orchestrates
+`build/othello_position_sampler`; it does not implement Othello rules in
+Python and it does not require NTest.
+
+Quick local smoke, about 1.2k positions:
+
+```sh
+python3 tools/scripts/balanced_position_pool.py \
+  --dataset-root "$VIBE_OTHELLO_DATASET_ROOT" \
+  --output teacher/ntest-depth12-300k/source/smoke-positions.txt \
+  --bucket-spec smoke \
+  --seed 20260601 \
+  --sampler build/othello_position_sampler \
+  --max-attempts-per-bucket 500000
+```
+
+Full 300k pool for the first depth-12 NTest teacher run:
+
+```sh
+python3 tools/scripts/balanced_position_pool.py \
+  --dataset-root "$VIBE_OTHELLO_DATASET_ROOT" \
+  --output teacher/ntest-depth12-300k/source/positions.txt \
+  --bucket-spec default-300k \
+  --seed 20260601 \
+  --sampler build/othello_position_sampler \
+  --max-attempts-per-bucket 20000000
+```
+
+The `default-300k` bucket spec is:
+
+| empties | count |
+| --- | ---: |
+| 52 | 4000 |
+| 51 | 4000 |
+| 48 | 5000 |
+| 47 | 5000 |
+| 44 | 7000 |
+| 43 | 7000 |
+| 40 | 10000 |
+| 39 | 10000 |
+| 36 | 14000 |
+| 35 | 14000 |
+| 32 | 17000 |
+| 31 | 17000 |
+| 28 | 18000 |
+| 27 | 18000 |
+| 24 | 18000 |
+| 23 | 18000 |
+| 20 | 16000 |
+| 19 | 16000 |
+| 16 | 14000 |
+| 15 | 14000 |
+| 14 | 11000 |
+| 13 | 11000 |
+| 12 | 9000 |
+| 11 | 9000 |
+| 10 | 4500 |
+| 9 | 4500 |
+| 8 | 2500 |
+| 7 | 2500 |
+
+The generated `positions.txt`, `manifest.json`, `qc/`, and `commands.sh` are
+local artifacts. Do not commit generated position pools.
 
 Real local teacher example, when an external engine is available locally:
 

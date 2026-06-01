@@ -456,6 +456,14 @@ set_tests_properties(
 
 if(Python3_Interpreter_FOUND)
     add_test(
+        NAME balanced_position_pool_py
+        COMMAND "${Python3_EXECUTABLE}"
+            -m unittest
+            tools/scripts/tests/test_balanced_position_pool.py
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+
+    add_test(
         NAME pattern_teacher_v0_train_py
         COMMAND "${Python3_EXECUTABLE}"
             -m unittest
