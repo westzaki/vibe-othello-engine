@@ -21,7 +21,6 @@ import match_summary
 from common import (
     ScriptError,
     parse_csv_paths,
-    parse_csv_values,
     quote_command,
     slugify,
     write_report_section,
@@ -52,9 +51,7 @@ class EvidenceConfig:
     seed: int
     small_depths: str
     small_games: int
-    eval_presets: list[str]
     eval_configs: list[Path]
-    reference_preset: str
     reference_config: Path | None
     invocation: list[str] = field(default_factory=list)
 
@@ -152,9 +149,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     parser.add_argument("--small-depths", default=DEFAULT_EVAL_DEPTHS)
     parser.add_argument("--small-games", type=_positive_int, default=DEFAULT_EVAL_GAMES)
-    parser.add_argument("--eval-presets", default="", help="comma-separated evaluator presets")
     parser.add_argument("--eval-configs", default="", help="comma-separated .eval config paths")
-    parser.add_argument("--reference-preset", default="default")
     parser.add_argument("--reference-config", help="reference .eval config path")
     return parser.parse_args(argv)
 
@@ -163,7 +158,6 @@ def config_from_args(args: argparse.Namespace, invocation: list[str] | None = No
     source_dir = Path(args.source_dir)
     build_dir = Path(args.build_dir)
     out_dir = Path(args.out) if args.out else default_out_dir(source_dir, args.profile)
-    eval_presets = parse_csv_values(args.eval_presets) if args.eval_presets.strip() else []
     eval_configs = parse_csv_paths(args.eval_configs) if args.eval_configs.strip() else []
     return EvidenceConfig(
         profile=args.profile,
@@ -181,9 +175,7 @@ def config_from_args(args: argparse.Namespace, invocation: list[str] | None = No
         seed=args.seed,
         small_depths=args.small_depths,
         small_games=args.small_games,
-        eval_presets=eval_presets,
         eval_configs=eval_configs,
-        reference_preset=args.reference_preset,
         reference_config=Path(args.reference_config) if args.reference_config else None,
         invocation=invocation or [],
     )
@@ -482,16 +474,13 @@ class EvalTarget:
 
 
 def eval_targets(config: EvidenceConfig) -> list[EvalTarget]:
-    targets = [EvalTarget(kind="preset", value=preset, label=preset) for preset in config.eval_presets]
-    targets.extend(
+    return [
         EvalTarget(kind="config", value=str(path), label=path.stem or str(path))
         for path in config.eval_configs
-    )
-    return targets
+    ]
 
 
 def eval_search_step(config: EvidenceConfig, target: EvalTarget, index: int) -> Step:
-    option = "--eval-config" if target.kind == "config" else "--eval-preset"
     command = [
         str(config.search_bench),
         "--mode",
@@ -508,7 +497,7 @@ def eval_search_step(config: EvidenceConfig, target: EvalTarget, index: int) -> 
         "on",
         "--aspiration",
         "on",
-        option,
+        "--eval-config",
         target.value,
         "--exact-endgame-threshold",
         str(EXACT_MIDGAME_THRESHOLD),
@@ -530,7 +519,7 @@ def eval_matrix_step(config: EvidenceConfig, targets: list[EvalTarget]) -> Step:
             group="Search / Evaluation Evidence",
             cwd=config.source_dir,
             required=False,
-            skipped_reason="no eval presets or configs were provided",
+            skipped_reason="no eval configs were provided",
         )
     if not opening_exists(config.openings, config.source_dir):
         return Step(
@@ -565,14 +554,10 @@ def eval_matrix_step(config: EvidenceConfig, targets: list[EvalTarget]) -> Step:
         "--exact-endgame-threshold",
         str(EXACT_MIDGAME_THRESHOLD),
     ]
-    if config.eval_presets:
-        command.extend(["--presets", ",".join(config.eval_presets)])
     if config.eval_configs:
         command.extend(["--configs", ",".join(str(path) for path in config.eval_configs)])
     if config.reference_config is not None:
         command.extend(["--reference-config", str(config.reference_config)])
-    else:
-        command.extend(["--reference-preset", config.reference_preset])
     return Step(
         name="eval-experiment-matrix",
         group="Search / Evaluation Evidence",

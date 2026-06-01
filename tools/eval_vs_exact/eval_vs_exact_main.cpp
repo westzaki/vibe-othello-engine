@@ -34,8 +34,8 @@ struct Options {
 
 void print_usage(std::string_view program_name) {
     std::cout << "usage: " << program_name
-              << " --labels PATH --output PATH (--eval-preset NAME | --eval-config PATH)"
-                 " [--top N] [--high-confidence-threshold N]"
+              << " --labels PATH --output PATH " << othello::tools::evaluator_cli_usage()
+              << " [--top N] [--high-confidence-threshold N]"
                  " [--phase-breakdown] [--include-positions] [--move-rank-analysis]"
                  " [--help]\n"
               << '\n'
@@ -57,7 +57,6 @@ void print_usage(std::string_view program_name) {
 [[nodiscard]] std::optional<Options> parse_options(std::span<char* const> args) {
     Options options;
     constexpr othello::tools::EvaluatorCliParseOptions evaluator_cli_options{
-        .missing_eval_preset_message = "",
         .missing_eval_config_message = "",
         .reject_empty_eval_config = false,
         .reject_duplicate_eval_config = false,
@@ -148,11 +147,6 @@ void print_usage(std::string_view program_name) {
     }
     if (options.output_path.empty()) {
         std::cerr << "--output is required\n";
-        return std::nullopt;
-    }
-    if (!options.evaluator_cli.input.preset_name.has_value() &&
-        !options.evaluator_cli.input.config_path.has_value()) {
-        std::cerr << "exactly one of --eval-preset or --eval-config is required\n";
         return std::nullopt;
     }
 

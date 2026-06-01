@@ -60,7 +60,6 @@ std::optional<PlayerSpec> parse_player_spec(std::string_view text) {
         bool seen_pvs = false;
         bool seen_exact = false;
         bool seen_tt_entries = false;
-        bool seen_eval = false;
         bool seen_eval_config = false;
         tools::EvaluatorSelectionInput evaluator_input;
 
@@ -140,14 +139,8 @@ std::optional<PlayerSpec> parse_player_spec(std::string_view text) {
                     search_options.transposition_table_entries =
                         static_cast<std::size_t>(*parsed);
                     seen_tt_entries = true;
-                } else if (key == "eval") {
-                    if (seen_eval || seen_eval_config) {
-                        return std::nullopt;
-                    }
-                    evaluator_input.preset_name = std::string{value};
-                    seen_eval = true;
                 } else if (key == "eval_config") {
-                    if (seen_eval || seen_eval_config || value.empty()) {
+                    if (seen_eval_config || value.empty()) {
                         return std::nullopt;
                     }
                     evaluator_input.config_path = std::string{value};

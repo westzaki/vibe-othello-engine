@@ -20,13 +20,12 @@ namespace {
     return othello::tools::eval_vs_exact::AnalyzerOptions{
         .labels_path =
             std::filesystem::path{OTHELLO_SOURCE_DIR} / "data/labels/exact_label_tiny.jsonl",
-        .evaluator = {.preset = othello::EvaluationPreset::Default},
         .top = 10,
         .phase_breakdown = true,
         .include_positions = true,
         .timestamp = "2026-05-31T00:00:00Z",
         .source_sha = "test",
-        .command = "othello_eval_vs_exact --labels fixture --eval-preset default",
+        .command = "othello_eval_vs_exact --labels fixture",
     };
 }
 

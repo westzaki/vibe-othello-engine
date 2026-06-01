@@ -15,13 +15,22 @@ from common import ScriptError  # noqa: E402
 
 
 def experiment_config(temp_dir: Path) -> eval_experiment_matrix.EvalExperimentConfig:
+    candidate = eval_experiment_matrix.EvalTarget(
+        kind="config",
+        value=str(temp_dir / "classic_features_lite_v1.eval"),
+        label="classic_features_lite_v1",
+    )
+    frontier_candidate = eval_experiment_matrix.EvalTarget(
+        kind="config",
+        value=str(temp_dir / "frontier_classic_features_lite_v1.eval"),
+        label="frontier_classic_features_lite_v1",
+    )
+    reference = eval_experiment_matrix.EvalTarget(
+        kind="config",
+        value=str(temp_dir / "frontier_open2_mid2_late_plus1.eval"),
+        label="frontier_open2_mid2_late_plus1",
+    )
     return eval_experiment_matrix.EvalExperimentConfig(
-        presets=[
-            "default",
-            "classic_features_lite_v1",
-            "frontier_classic_features_lite_v1",
-        ],
-        reference_preset="frontier_open2_mid2_late_plus1",
         small_depths=[5, 6],
         extended_depths=[7, 8],
         small_games=48,
@@ -37,6 +46,8 @@ def experiment_config(temp_dir: Path) -> eval_experiment_matrix.EvalExperimentCo
         search_bench=temp_dir / "build" / "othello_search_bench",
         match_runner=temp_dir / "build" / "othello_match_runner",
         exact_endgame_threshold=0,
+        configs=[candidate, frontier_candidate],
+        reference_config=reference,
         positions="smoke",
         by_position=False,
         allow_errors=False,
@@ -84,25 +95,16 @@ def fake_summary(
 
 def fake_match_run(
     config: eval_experiment_matrix.EvalExperimentConfig,
-    preset: str,
+    label: str,
     depth: int,
     summary: match_summary.Summary,
 ) -> eval_experiment_matrix.MatchRun:
-    run = eval_experiment_matrix.build_match_command(config, preset, depth)
+    target = next(target for target in config.candidate_targets if target.label == label)
+    run = eval_experiment_matrix.build_match_command(config, target, depth)
     return replace(run, summary=summary, summary_text="summary\n")
 
 
 class EvalExperimentMatrixTests(unittest.TestCase):
-    def test_parse_csv_names_rejects_empty_entries(self) -> None:
-        self.assertEqual(
-            eval_experiment_matrix.parse_csv_names("default, mobility_plus_smoke"),
-            ["default", "mobility_plus_smoke"],
-        )
-        for value in ("", "default,,mobility_plus_smoke"):
-            with self.subTest(value=value):
-                with self.assertRaises(ScriptError):
-                    eval_experiment_matrix.parse_csv_names(value)
-
     def test_parse_csv_paths_rejects_empty_entries(self) -> None:
         self.assertEqual(
             eval_experiment_matrix.parse_csv_paths("a.eval, b.eval"),
@@ -120,13 +122,42 @@ class EvalExperimentMatrixTests(unittest.TestCase):
                 with self.assertRaises(ScriptError):
                     eval_experiment_matrix.parse_depth_list(value)
 
-    def test_parse_reference_preset(self) -> None:
+    def test_parse_reference_config(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            candidate = temp_path / "candidate.eval"
+            reference = temp_path / "reference.eval"
+            candidate.write_text("name=candidate_config\n", encoding="utf-8")
+            reference.write_text("name=reference_config\n", encoding="utf-8")
+            args = eval_experiment_matrix.parse_args(
+                [
+                    "--configs",
+                    str(candidate),
+                    "--reference-config",
+                    str(reference),
+                    "--small-depths",
+                    "5,6",
+                    "--small-games",
+                    "48",
+                    "--openings",
+                    "data/openings/eval_regression_openings.txt",
+                    "--seed",
+                    "20260530",
+                    "--build-dir",
+                    "build",
+                    "--out",
+                    "runs/eval/example",
+                ]
+            )
+            config = eval_experiment_matrix.config_from_args(args)
+
+        self.assertEqual(config.reference_target.label, "reference_config")
+
+    def test_default_reference_uses_built_in_evaluator(self) -> None:
         args = eval_experiment_matrix.parse_args(
             [
-                "--presets",
-                "classic_features_lite_v1",
-                "--reference-preset",
-                "frontier_open2_mid2_late_plus1",
+                "--configs",
+                "classic_features_lite_v1.eval",
                 "--small-depths",
                 "5,6",
                 "--small-games",
@@ -143,15 +174,16 @@ class EvalExperimentMatrixTests(unittest.TestCase):
         )
         config = eval_experiment_matrix.config_from_args(args)
 
-        self.assertEqual(config.reference_preset, "frontier_open2_mid2_late_plus1")
+        self.assertEqual(config.reference_target.kind, "default")
+        self.assertEqual(config.reference_target.label, "built-in default")
 
     def test_depths_and_games_remain_small_stage_aliases(self) -> None:
         args = eval_experiment_matrix.parse_args(
-            [
-                "--presets",
-                "classic_features_lite_v1",
-                "--depths",
-                "5,6",
+                [
+                    "--configs",
+                    "classic_features_lite_v1.eval",
+                    "--depths",
+                    "5,6",
                 "--games",
                 "48",
                 "--openings",
@@ -175,11 +207,11 @@ class EvalExperimentMatrixTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             config = experiment_config(Path(temp))
             command = eval_experiment_matrix.build_search_bench_command(
-                config, "classic_features_lite_v1"
+                config, config.configs[0]
             )
 
-        self.assertIn("--eval-preset", command)
-        self.assertIn("classic_features_lite_v1", command)
+        self.assertIn("--eval-config", command)
+        self.assertIn(config.configs[0].value, command)
         self.assertEqual(command[command.index("--depths") + 1], "5,6,7,8")
 
     def test_search_bench_command_can_use_evaluation_by_position(self) -> None:
@@ -188,24 +220,27 @@ class EvalExperimentMatrixTests(unittest.TestCase):
                 experiment_config(Path(temp)), positions="evaluation", by_position=True
             )
             command = eval_experiment_matrix.build_search_bench_command(
-                config, "classic_features_lite_v1"
+                config, config.configs[0]
             )
 
         self.assertIn("--positions", command)
         self.assertEqual(command[command.index("--positions") + 1], "evaluation")
         self.assertIn("--by-position", command)
 
-    def test_match_command_uses_reference_preset(self) -> None:
+    def test_match_command_uses_reference_config(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             config = experiment_config(Path(temp))
             run = eval_experiment_matrix.build_match_command(
-                config, "classic_features_lite_v1", 5
+                config, config.configs[0], 5
             )
 
-        self.assertIn("search:depth=5,tt=on,pvs=on,exact=off,eval=classic_features_lite_v1",
-                      run.command)
         self.assertIn(
-            "search:depth=5,tt=on,pvs=on,exact=off,eval=frontier_open2_mid2_late_plus1",
+            f"search:depth=5,tt=on,pvs=on,exact=off,eval_config={config.configs[0].value}",
+            run.command,
+        )
+        self.assertIn(
+            "search:depth=5,tt=on,pvs=on,exact=off,"
+            f"eval_config={config.reference_target.value}",
             run.command,
         )
         self.assertEqual(
@@ -217,10 +252,10 @@ class EvalExperimentMatrixTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             config = experiment_config(Path(temp))
             small = eval_experiment_matrix.build_match_command(
-                config, "classic_features_lite_v1", 5, stage="small", games=48
+                config, config.configs[0], 5, stage="small", games=48
             )
             extended = eval_experiment_matrix.build_match_command(
-                config, "classic_features_lite_v1", 8, stage="extended", games=96
+                config, config.configs[0], 8, stage="extended", games=96
             )
 
         self.assertIn("small", small.output_path.parts)
@@ -228,8 +263,10 @@ class EvalExperimentMatrixTests(unittest.TestCase):
         self.assertEqual(small.command[small.command.index("--games") + 1], "48")
         self.assertIn("extended", extended.output_path.parts)
         self.assertEqual(extended.command[extended.command.index("--games") + 1], "96")
-        self.assertIn("search:depth=8,tt=on,pvs=on,exact=off,eval=classic_features_lite_v1",
-                      extended.command)
+        self.assertIn(
+            f"search:depth=8,tt=on,pvs=on,exact=off,eval_config={config.configs[0].value}",
+            extended.command,
+        )
 
     def test_promotion_helper_promotes_positive_candidate(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -312,8 +349,8 @@ class EvalExperimentMatrixTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertIn("Status: dry run.", report)
-        self.assertIn("Reference preset: `frontier_open2_mid2_late_plus1`", report)
-        self.assertIn("eval=frontier_open2_mid2_late_plus1", report)
+        self.assertIn("Reference config: `frontier_open2_mid2_late_plus1`", report)
+        self.assertIn(f"eval_config={config.reference_target.value}", report)
         self.assertIn("extended", report)
         self.assertIn("--games 96", report)
         self.assertIn("Promotion Table", report)
@@ -403,17 +440,19 @@ class EvalExperimentMatrixTests(unittest.TestCase):
             with self.assertRaisesRegex(ScriptError, "duplicate evaluator label"):
                 eval_experiment_matrix.config_from_args(args)
 
-    def test_config_from_args_rejects_config_label_colliding_with_preset(self) -> None:
+    def test_config_from_args_rejects_config_label_colliding_with_reference(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             temp_path = Path(temp)
             candidate = temp_path / "candidate.eval"
-            candidate.write_text("name=default\n", encoding="utf-8")
+            reference = temp_path / "reference.eval"
+            candidate.write_text("name=reference\n", encoding="utf-8")
+            reference.write_text("name=reference\n", encoding="utf-8")
             args = eval_experiment_matrix.parse_args(
                 [
-                    "--presets",
-                    "default",
                     "--configs",
                     str(candidate),
+                    "--reference-config",
+                    str(reference),
                     "--small-depths",
                     "5",
                     "--small-games",
@@ -485,13 +524,15 @@ class EvalExperimentMatrixTests(unittest.TestCase):
             )
 
             run = eval_experiment_matrix.build_ntest_command(
-                config, "frontier_classic_features_lite_v1"
+                config, config.configs[1]
             )
 
         self.assertIn("external:ntest8", run.command)
         self.assertIn("--engines", run.command)
-        self.assertIn("search:depth=6,tt=on,pvs=on,exact=off,eval=frontier_classic_features_lite_v1",
-                      run.command)
+        self.assertIn(
+            f"search:depth=6,tt=on,pvs=on,exact=off,eval_config={config.configs[1].value}",
+            run.command,
+        )
         self.assertEqual(run.command[run.command.index("--games") + 1], "12")
 
     def test_ntest_report_shows_error_reason(self) -> None:

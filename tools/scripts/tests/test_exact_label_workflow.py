@@ -71,7 +71,6 @@ def write_success_tools(directory: Path) -> tuple[Path, Path, Path]:
         parser = argparse.ArgumentParser()
         parser.add_argument("--labels", required=True)
         parser.add_argument("--output", required=True)
-        parser.add_argument("--eval-preset")
         parser.add_argument("--eval-config")
         args = parser.parse_args()
 
@@ -125,7 +124,7 @@ class ExactLabelWorkflowTests(unittest.TestCase):
             temp_path = Path(temp)
             config = make_config(
                 temp_path,
-                extra_args=["--dry-run", "--analyze", "--eval-preset", "default"],
+                extra_args=["--dry-run", "--analyze"],
             )
 
             exit_code = workflow.run_workflow(config)
@@ -138,6 +137,7 @@ class ExactLabelWorkflowTests(unittest.TestCase):
         self.assertIn("othello_position_sampler", report)
         self.assertIn("othello_exact_label_dump", report)
         self.assertIn("othello_eval_vs_exact", report)
+        self.assertNotIn("--eval-preset", report)
 
     def test_command_construction_and_tool_overrides_are_respected(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -168,23 +168,13 @@ class ExactLabelWorkflowTests(unittest.TestCase):
         self.assertIn("labeled: `4`", report)
         self.assertIn("analyzed: `4`", report)
 
-    def test_analyze_requires_evaluator_selection(self) -> None:
+    def test_analyze_without_eval_config_uses_default_evaluator(self) -> None:
         parsed = workflow.parse_args(["--analyze"])
 
-        with self.assertRaises(ScriptError) as context:
-            workflow.config_from_args(parsed)
+        config = workflow.config_from_args(parsed)
 
-        self.assertIn("--analyze requires", str(context.exception))
-
-    def test_rejects_eval_preset_with_eval_config(self) -> None:
-        parsed = workflow.parse_args(
-            ["--eval-preset", "default", "--eval-config", "data/eval/current_default.eval"]
-        )
-
-        with self.assertRaises(ScriptError) as context:
-            workflow.config_from_args(parsed)
-
-        self.assertIn("cannot combine", str(context.exception))
+        self.assertIsNone(config.eval_config)
+        self.assertNotIn("--eval-config", workflow.analyzer_command(config))
 
     def test_failed_required_command_is_recorded_and_fails_exit(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

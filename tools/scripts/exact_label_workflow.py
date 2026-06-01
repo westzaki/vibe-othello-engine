@@ -28,7 +28,6 @@ class WorkflowConfig:
     target_empties: str
     seed: int
     max_empties: int
-    eval_preset: str | None
     eval_config: Path | None
     analyze: bool
     skip_sampling: bool
@@ -147,7 +146,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=DEFAULT_MAX_EMPTIES,
         help="exact-label dump safety cap",
     )
-    parser.add_argument("--eval-preset", help="analyze with a built-in evaluator preset")
     parser.add_argument("--eval-config", help="analyze with a fully expanded .eval config")
     parser.add_argument("--analyze", action="store_true", help="run othello_eval_vs_exact")
     parser.add_argument(
@@ -173,10 +171,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def config_from_args(args: argparse.Namespace, invocation: list[str] | None = None) -> WorkflowConfig:
     if args.max_empties > 64:
         raise ScriptError("--max-empties must be in [0, 64]")
-    if args.eval_preset and args.eval_config:
-        raise ScriptError("cannot combine --eval-preset and --eval-config")
-    if args.analyze and not (args.eval_preset or args.eval_config):
-        raise ScriptError("--analyze requires --eval-preset or --eval-config")
 
     build_dir = Path(args.build_dir)
     out_dir = Path(args.out) if args.out else default_out_dir()
@@ -194,7 +188,6 @@ def config_from_args(args: argparse.Namespace, invocation: list[str] | None = No
         target_empties=args.target_empties,
         seed=args.seed,
         max_empties=args.max_empties,
-        eval_preset=args.eval_preset,
         eval_config=Path(args.eval_config) if args.eval_config else None,
         analyze=args.analyze,
         skip_sampling=args.skip_sampling,
@@ -273,9 +266,7 @@ def analyzer_command(config: WorkflowConfig) -> list[str]:
         "--output",
         str(config.report_path),
     ]
-    if config.eval_preset:
-        command.extend(["--eval-preset", config.eval_preset])
-    elif config.eval_config:
+    if config.eval_config:
         command.extend(["--eval-config", str(config.eval_config)])
     return command
 

@@ -435,8 +435,6 @@ parse_exact_root_profiles(std::string_view text) {
     BenchmarkOptions options;
     othello::tools::EvaluatorCliParseState evaluator_cli;
     constexpr othello::tools::EvaluatorCliParseOptions evaluator_cli_options{
-        .missing_eval_preset_message =
-            "--eval-preset requires a builtin evaluator preset name",
         .missing_eval_config_message = "--eval-config requires a .eval config path",
         .reject_empty_eval_config = false,
     };
@@ -1742,11 +1740,9 @@ int run_benchmark(std::span<char* const> args) {
         std::cout << "tt entries: " << options.transposition_table_entries << '\n';
         std::cout << "exact endgame profiles: "
                   << exact_root_profile_list_text(options.exact_root_profiles) << '\n';
-        std::cout << "eval preset: " << othello::evaluation_preset_name(options.evaluator.preset)
-                  << '\n';
         std::cout << "eval config: "
                   << (options.evaluator.config_path.has_value() ? *options.evaluator.config_path
-                                                                : "-")
+                                                                : "built-in default")
                   << '\n';
         if (options.by_position) {
             std::cout << "best_move/score/pv: first sampled result per position\n";

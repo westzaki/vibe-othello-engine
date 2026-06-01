@@ -7,7 +7,6 @@
 namespace othello::tools {
 
 struct EvaluatorSelection {
-    EvaluationPreset preset = EvaluationPreset::Default;
     std::optional<EvaluationConfig> config_override = std::nullopt;
     std::optional<std::string> config_path = std::nullopt;
 
@@ -16,7 +15,6 @@ struct EvaluatorSelection {
 };
 
 struct EvaluatorSelectionInput {
-    std::optional<std::string> preset_name = std::nullopt;
     std::optional<std::string> config_path = std::nullopt;
 };
 

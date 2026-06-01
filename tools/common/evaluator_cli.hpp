@@ -16,7 +16,6 @@ enum class EvaluatorCliParseResult {
 };
 
 struct EvaluatorCliParseOptions {
-    std::string_view missing_eval_preset_message = "invalid --eval-preset value";
     std::string_view missing_eval_config_message = "invalid --eval-config value";
     std::string_view empty_eval_config_message = "invalid --eval-config value";
     std::string_view duplicate_eval_config_message =
