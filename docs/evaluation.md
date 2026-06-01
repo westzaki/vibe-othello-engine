@@ -98,6 +98,12 @@ one-pattern-at-a-time incremental additions. A one-family PR should say
 explicitly whether it is a representation test, an ablation, or plumbing for
 that broader vocabulary.
 
+Pattern table ownership is separate from scalar evaluator configuration. TSV
+tables are a source and review format; the evaluator should run against dense
+runtime table bundles. Future binary `.ptab` loading and phase-specific table
+bundles should build on that ownership boundary without changing exact or search
+semantics.
+
 A weight-set candidate changes multiple weights while keeping the evaluator
 structure.
 

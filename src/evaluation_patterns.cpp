@@ -458,11 +458,7 @@ int inner_row_8_pattern_index(const Board& board, Side side,
 }
 
 int evaluation_pattern_table_value(const Board& board, Side side,
-                                   const EvaluationPatternTables& tables) noexcept {
-    if (!tables.enabled) {
-        return 0;
-    }
-
+                                   const PatternTableBundle& tables) noexcept {
     int value = 0;
     for (const Corner2x3PatternSpec& spec : corner_2x3_pattern_specs) {
         value += tables.corner_2x3[static_cast<std::size_t>(
@@ -492,7 +488,7 @@ int evaluation_pattern_table_value(const Board& board, Side side,
 }
 
 int evaluation_pattern_table_score(const Board& board, Side side,
-                                   const EvaluationPatternTables& tables) noexcept {
+                                   const PatternTableBundle& tables) noexcept {
     return evaluation_pattern_table_value(board, side, tables);
 }
 

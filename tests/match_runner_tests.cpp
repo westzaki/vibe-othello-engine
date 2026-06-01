@@ -136,7 +136,7 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
         "search:depth=4,eval_config=" +
         sample_eval_config_path("pattern_teacher_v0.eval"));
     CHECK(eval_config_options.evaluation_config_override.has_value());
-    CHECK(eval_config_options.evaluation_config_override->pattern_tables.enabled);
+    CHECK(eval_config_options.evaluation_config_override->pattern_tables != nullptr);
     CHECK(eval_config_options.evaluation_config_override->opening.pattern_table == 10);
     CHECK(othello::resolve_evaluation_config(eval_config_options) ==
           *eval_config_options.evaluation_config_override);

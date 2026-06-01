@@ -121,8 +121,9 @@ EvaluationBreakdown evaluate_basic_breakdown(const Board& board, Side side,
     breakdown.edge_8_pattern_score =
         breakdown.edge_8_pattern * breakdown.edge_8_pattern_weight;
 
-    if (breakdown.pattern_table_weight != 0 && config.pattern_tables.enabled) {
-        breakdown.pattern_table = evaluation_pattern_table_score(board, side, config.pattern_tables);
+    if (breakdown.pattern_table_weight != 0 && config.pattern_tables != nullptr) {
+        breakdown.pattern_table =
+            evaluation_pattern_table_score(board, side, *config.pattern_tables);
     }
     breakdown.pattern_table_score = breakdown.pattern_table * breakdown.pattern_table_weight;
 

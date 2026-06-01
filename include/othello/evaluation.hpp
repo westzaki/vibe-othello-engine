@@ -5,6 +5,7 @@
 
 #include <array>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string_view>
 
@@ -92,8 +93,7 @@ enum class InnerRow8PatternLine {
 
 inline constexpr int inner_row_8_pattern_table_size = 6561;
 
-struct EvaluationPatternTables {
-    bool enabled = false;
+struct PatternTableBundle {
     std::array<std::int16_t, corner_2x3_pattern_table_size> corner_2x3{};
     std::array<std::int16_t, corner_3x3_pattern_table_size> corner_3x3{};
     std::array<std::int16_t, edge_8_pattern_table_size> edge_8{};
@@ -101,9 +101,11 @@ struct EvaluationPatternTables {
     std::array<std::int16_t, diagonal_8_pattern_table_size> diagonal_8{};
     std::array<std::int16_t, inner_row_8_pattern_table_size> inner_row_8{};
 
-    [[nodiscard]] friend bool operator==(const EvaluationPatternTables&,
-                                         const EvaluationPatternTables&) = default;
+    [[nodiscard]] friend bool operator==(const PatternTableBundle&,
+                                         const PatternTableBundle&) = default;
 };
+
+using EvaluationPatternTables = PatternTableBundle;
 
 struct EvaluationFeatureWeights {
     int disc_difference = 0;
@@ -162,13 +164,27 @@ struct EvaluationConfig {
     };
     int opening_max_occupied = 20;
     int midgame_max_occupied = 44;
-    EvaluationPatternTables pattern_tables{};
+    std::shared_ptr<const PatternTableBundle> pattern_tables{};
 
-    [[nodiscard]] friend bool operator==(const EvaluationConfig&,
-                                         const EvaluationConfig&) = default;
+    [[nodiscard]] friend bool operator==(const EvaluationConfig& lhs,
+                                         const EvaluationConfig& rhs) {
+        if (!(lhs.opening == rhs.opening && lhs.midgame == rhs.midgame &&
+              lhs.late == rhs.late &&
+              lhs.opening_max_occupied == rhs.opening_max_occupied &&
+              lhs.midgame_max_occupied == rhs.midgame_max_occupied)) {
+            return false;
+        }
+        if (lhs.pattern_tables == rhs.pattern_tables) {
+            return true;
+        }
+        if (lhs.pattern_tables == nullptr || rhs.pattern_tables == nullptr) {
+            return false;
+        }
+        return *lhs.pattern_tables == *rhs.pattern_tables;
+    }
 };
 
-[[nodiscard]] constexpr EvaluationConfig default_evaluation_config() noexcept {
+[[nodiscard]] inline EvaluationConfig default_evaluation_config() noexcept {
     return EvaluationConfig{};
 }
 
@@ -264,9 +280,9 @@ struct EvaluationBreakdown {
 [[nodiscard]] int inner_row_8_pattern_index(const Board& board, Side side,
                                             InnerRow8PatternLine line) noexcept;
 [[nodiscard]] int evaluation_pattern_table_value(
-    const Board& board, Side side, const EvaluationPatternTables& tables) noexcept;
+    const Board& board, Side side, const PatternTableBundle& tables) noexcept;
 [[nodiscard]] int evaluation_pattern_table_score(
-    const Board& board, Side side, const EvaluationPatternTables& tables) noexcept;
+    const Board& board, Side side, const PatternTableBundle& tables) noexcept;
 [[nodiscard]] EvaluationBreakdown evaluate_basic_breakdown(const Board& board,
                                                            Side side) noexcept;
 [[nodiscard]] EvaluationBreakdown evaluate_basic_breakdown(const Board& board, Side side,

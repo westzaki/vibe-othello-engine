@@ -17,7 +17,7 @@ struct EvaluationPresetSpec {
     bool stable_public = false;
 };
 
-[[nodiscard]] constexpr EvaluationConfig phase_aware_v1_evaluation_config() noexcept {
+[[nodiscard]] EvaluationConfig phase_aware_v1_evaluation_config() noexcept {
     return EvaluationConfig{
         .opening = EvaluationFeatureWeights{
             .disc_difference = 0,
@@ -51,7 +51,7 @@ struct EvaluationPresetSpec {
     };
 }
 
-[[nodiscard]] constexpr EvaluationConfig mobility_plus_smoke_evaluation_config() noexcept {
+[[nodiscard]] EvaluationConfig mobility_plus_smoke_evaluation_config() noexcept {
     EvaluationConfig config = phase_aware_v1_evaluation_config();
     config.opening.mobility = 10;
     config.midgame.mobility = 12;
@@ -59,7 +59,7 @@ struct EvaluationPresetSpec {
     return config;
 }
 
-[[nodiscard]] constexpr EvaluationConfig frontier_open2_mid2_late_plus1_evaluation_config()
+[[nodiscard]] EvaluationConfig frontier_open2_mid2_late_plus1_evaluation_config()
     noexcept {
     EvaluationConfig config = phase_aware_v1_evaluation_config();
     config.opening.frontier = 5;
@@ -68,7 +68,7 @@ struct EvaluationPresetSpec {
     return config;
 }
 
-[[nodiscard]] constexpr EvaluationConfig classic_corner_lite_v1_evaluation_config() noexcept {
+[[nodiscard]] EvaluationConfig classic_corner_lite_v1_evaluation_config() noexcept {
     EvaluationConfig config = phase_aware_v1_evaluation_config();
     config.opening.corner_local_2x3 = 8;
     config.midgame.corner_local_2x3 = 10;
@@ -76,7 +76,7 @@ struct EvaluationPresetSpec {
     return config;
 }
 
-[[nodiscard]] constexpr EvaluationConfig classic_edge_lite_v1_evaluation_config() noexcept {
+[[nodiscard]] EvaluationConfig classic_edge_lite_v1_evaluation_config() noexcept {
     EvaluationConfig config = phase_aware_v1_evaluation_config();
     config.opening.edge_stability_lite = 2;
     config.midgame.edge_stability_lite = 4;
@@ -84,7 +84,7 @@ struct EvaluationPresetSpec {
     return config;
 }
 
-[[nodiscard]] constexpr EvaluationConfig classic_features_lite_v1_evaluation_config() noexcept {
+[[nodiscard]] EvaluationConfig classic_features_lite_v1_evaluation_config() noexcept {
     EvaluationConfig config = phase_aware_v1_evaluation_config();
     config.opening.corner_local_2x3 = 8;
     config.midgame.corner_local_2x3 = 10;
@@ -95,7 +95,7 @@ struct EvaluationPresetSpec {
     return config;
 }
 
-[[nodiscard]] constexpr EvaluationConfig classic_features_lite_aggressive_evaluation_config()
+[[nodiscard]] EvaluationConfig classic_features_lite_aggressive_evaluation_config()
     noexcept {
     EvaluationConfig config = phase_aware_v1_evaluation_config();
     config.opening.corner_local_2x3 = 14;
@@ -107,7 +107,7 @@ struct EvaluationPresetSpec {
     return config;
 }
 
-[[nodiscard]] constexpr EvaluationConfig frontier_classic_features_lite_v1_evaluation_config()
+[[nodiscard]] EvaluationConfig frontier_classic_features_lite_v1_evaluation_config()
     noexcept {
     EvaluationConfig config = frontier_open2_mid2_late_plus1_evaluation_config();
     config.opening.corner_local_2x3 = 8;
@@ -119,7 +119,7 @@ struct EvaluationPresetSpec {
     return config;
 }
 
-[[nodiscard]] constexpr EvaluationConfig corner_pattern_2x3_v1_evaluation_config() noexcept {
+[[nodiscard]] EvaluationConfig corner_pattern_2x3_v1_evaluation_config() noexcept {
     EvaluationConfig config = phase_aware_v1_evaluation_config();
     config.opening.corner_2x3_pattern = 4;
     config.midgame.corner_2x3_pattern = 6;
@@ -127,7 +127,7 @@ struct EvaluationPresetSpec {
     return config;
 }
 
-[[nodiscard]] constexpr EvaluationConfig corner_pattern_2x3_aggressive_evaluation_config()
+[[nodiscard]] EvaluationConfig corner_pattern_2x3_aggressive_evaluation_config()
     noexcept {
     EvaluationConfig config = phase_aware_v1_evaluation_config();
     config.opening.corner_2x3_pattern = 8;
@@ -136,7 +136,7 @@ struct EvaluationPresetSpec {
     return config;
 }
 
-[[nodiscard]] constexpr EvaluationConfig frontier_corner_pattern_2x3_v1_evaluation_config()
+[[nodiscard]] EvaluationConfig frontier_corner_pattern_2x3_v1_evaluation_config()
     noexcept {
     EvaluationConfig config = frontier_open2_mid2_late_plus1_evaluation_config();
     config.opening.corner_2x3_pattern = 4;
@@ -145,7 +145,7 @@ struct EvaluationPresetSpec {
     return config;
 }
 
-[[nodiscard]] constexpr EvaluationConfig frontier_corner_pattern_edge_lite_v1_evaluation_config()
+[[nodiscard]] EvaluationConfig frontier_corner_pattern_edge_lite_v1_evaluation_config()
     noexcept {
     EvaluationConfig config = frontier_corner_pattern_2x3_v1_evaluation_config();
     config.opening.edge_stability_lite = 2;
@@ -154,7 +154,7 @@ struct EvaluationPresetSpec {
     return config;
 }
 
-[[nodiscard]] constexpr EvaluationConfig edge_pattern_8_v1_evaluation_config() noexcept {
+[[nodiscard]] EvaluationConfig edge_pattern_8_v1_evaluation_config() noexcept {
     EvaluationConfig config = phase_aware_v1_evaluation_config();
     config.opening.edge_8_pattern = 2;
     config.midgame.edge_8_pattern = 4;
@@ -162,7 +162,7 @@ struct EvaluationPresetSpec {
     return config;
 }
 
-[[nodiscard]] constexpr EvaluationConfig edge_pattern_8_aggressive_evaluation_config() noexcept {
+[[nodiscard]] EvaluationConfig edge_pattern_8_aggressive_evaluation_config() noexcept {
     EvaluationConfig config = phase_aware_v1_evaluation_config();
     config.opening.edge_8_pattern = 4;
     config.midgame.edge_8_pattern = 8;
@@ -170,7 +170,7 @@ struct EvaluationPresetSpec {
     return config;
 }
 
-[[nodiscard]] constexpr EvaluationConfig default_edge_pattern_8_v1_evaluation_config() noexcept {
+[[nodiscard]] EvaluationConfig default_edge_pattern_8_v1_evaluation_config() noexcept {
     EvaluationConfig config = default_evaluation_config();
     config.opening.edge_8_pattern = 2;
     config.midgame.edge_8_pattern = 4;
@@ -178,7 +178,7 @@ struct EvaluationPresetSpec {
     return config;
 }
 
-[[nodiscard]] constexpr EvaluationConfig default_edge_pattern_8_no_edge_lite_evaluation_config()
+[[nodiscard]] EvaluationConfig default_edge_pattern_8_no_edge_lite_evaluation_config()
     noexcept {
     EvaluationConfig config = default_evaluation_config();
     config.opening.edge_stability_lite = 0;
@@ -190,7 +190,7 @@ struct EvaluationPresetSpec {
     return config;
 }
 
-[[nodiscard]] constexpr EvaluationConfig default_edge_pattern_8_aggressive_evaluation_config()
+[[nodiscard]] EvaluationConfig default_edge_pattern_8_aggressive_evaluation_config()
     noexcept {
     EvaluationConfig config = default_evaluation_config();
     config.opening.edge_8_pattern = 4;
