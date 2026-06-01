@@ -40,6 +40,11 @@ struct InnerRow8PatternSpec {
     std::array<int, 8> square_indexes{};
 };
 
+struct PatternIndexContext {
+    Bitboard own = 0;
+    Bitboard opponent = 0;
+};
+
 // Canonical order is side-relative and mirrored for each corner:
 // corner, horizontal C-square, horizontal far edge, vertical C-square, X-square,
 // inner support. For a1 this is a1, b1, c1, a2, b2, c2.
@@ -193,25 +198,36 @@ inner_row_8_pattern_spec(InnerRow8PatternLine line) noexcept {
 }
 
 template <std::size_t N>
-[[nodiscard]] int pattern_index_for_squares(const Board& board, Side side,
+[[nodiscard]] int pattern_index_for_squares(const PatternIndexContext& context,
                                             const std::array<int, N>& square_indexes) noexcept {
-    const Bitboard own_discs = board.discs(side);
-    const Bitboard opponent_discs = board.discs(opponent(side));
-
     int index = 0;
     int place_value = 1;
     for (const int square_index : square_indexes) {
         const Bitboard square = square_bit(square_index);
         int state = 0;
-        if ((own_discs & square) != 0) {
+        if ((context.own & square) != 0) {
             state = 1;
-        } else if ((opponent_discs & square) != 0) {
+        } else if ((context.opponent & square) != 0) {
             state = 2;
         }
         index += state * place_value;
         place_value *= 3;
     }
     return index;
+}
+
+[[nodiscard]] PatternIndexContext pattern_index_context(const Board& board,
+                                                        Side side) noexcept {
+    return PatternIndexContext{
+        .own = board.discs(side),
+        .opponent = board.discs(opponent(side)),
+    };
+}
+
+template <std::size_t N>
+[[nodiscard]] int pattern_index_for_squares(const Board& board, Side side,
+                                            const std::array<int, N>& square_indexes) noexcept {
+    return pattern_index_for_squares(pattern_index_context(board, side), square_indexes);
 }
 
 [[nodiscard]] constexpr int pattern_signed_state(int state) noexcept {
@@ -459,30 +475,31 @@ int inner_row_8_pattern_index(const Board& board, Side side,
 
 int evaluation_pattern_table_value(const Board& board, Side side,
                                    const PatternTableBundle& tables) noexcept {
+    const PatternIndexContext context = pattern_index_context(board, side);
     int value = 0;
     for (const Corner2x3PatternSpec& spec : corner_2x3_pattern_specs) {
         value += tables.corner_2x3[static_cast<std::size_t>(
-            corner_2x3_pattern_index(board, side, spec.corner))];
+            pattern_index_for_squares(context, spec.square_indexes))];
     }
     for (const Corner3x3PatternSpec& spec : corner_3x3_pattern_specs) {
         value += tables.corner_3x3[static_cast<std::size_t>(
-            corner_3x3_pattern_index(board, side, spec.corner))];
+            pattern_index_for_squares(context, spec.square_indexes))];
     }
     for (const Edge8PatternSpec& spec : edge_8_pattern_specs) {
         value += tables.edge_8[static_cast<std::size_t>(
-            edge_8_pattern_index(board, side, spec.edge))];
+            pattern_index_for_squares(context, spec.square_indexes))];
     }
     for (const EdgeX10PatternSpec& spec : edge_x_10_pattern_specs) {
         value += tables.edge_x_10[static_cast<std::size_t>(
-            edge_x_10_pattern_index(board, side, spec.edge))];
+            pattern_index_for_squares(context, spec.square_indexes))];
     }
     for (const Diagonal8PatternSpec& spec : diagonal_8_pattern_specs) {
         value += tables.diagonal_8[static_cast<std::size_t>(
-            diagonal_8_pattern_index(board, side, spec.diagonal))];
+            pattern_index_for_squares(context, spec.square_indexes))];
     }
     for (const InnerRow8PatternSpec& spec : inner_row_8_pattern_specs) {
         value += tables.inner_row_8[static_cast<std::size_t>(
-            inner_row_8_pattern_index(board, side, spec.line))];
+            pattern_index_for_squares(context, spec.square_indexes))];
     }
     return value;
 }
