@@ -30,6 +30,7 @@ script.
 | `base_head_match_matrix.py` | current | Run external-process base/head match matrices. | Recommended for strength-changing code comparisons where in-process players would share one linked implementation. |
 | `common.py` | current | Shared parsing, command, JSONL, slug, and report helpers. | Imported by many current and legacy scripts. |
 | `dataset_paths.py` | current | Resolve `dataset:...` references and shared dataset roots. | Required by reusable teacher/exact dataset workflows. |
+| `eval_analyzer_metrics.py` | current | Parse `othello_eval_vs_exact` stdout metrics. | Shared by current candidate evidence and legacy tuner tooling without depending on scalar tuning code. |
 | `eval_candidate_matrix.py` | current | Gather comparable `.eval` candidate smoke evidence from labels and search bench. | Current replacement for ad hoc candidate validation wrappers; also registered in CTest as a dry-run smoke. |
 | `eval_config_tuner.py` | legacy | Perturb fully expanded `.eval` scalar weights against exact-label JSONL. | Kept for debugging existing configs and because current diagnostics reuse its parser/metric helpers; not the default pattern-learning path. |
 | `evidence.py` | current | Collect reproducible build/test/benchmark/match evidence for PRs. | Shared evidence workflow for reviewers; wraps C++ tools without making strength claims. |
