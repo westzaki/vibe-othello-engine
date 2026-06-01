@@ -73,8 +73,8 @@ Train phase-specific broad pattern tables from reusable teacher labels:
 ```sh
 python3 tools/scripts/phase_pattern_table_train.py \
   --dataset-root "$VIBE_OTHELLO_DATASET_ROOT" \
-  --teacher-labels dataset:teacher/ntest-depth26-2027/labels/ntest26-local/shards/labels-0000.jsonl \
-  --exact-labels dataset:teacher/ntest-depth26-2027/exact-overlap/labels.jsonl \
+  --teacher-labels dataset:teacher/ntest-depth26-2027/labels/ntest26/train.jsonl \
+  --exact-labels dataset:teacher/ntest-depth26-2027/exact-overlap/teacher2000_max12_labels.jsonl \
   --eval-config data/eval/pattern_reboot_v0.eval \
   --analyze-position build/othello_analyze_position \
   --out-dir runs/pattern-training/phase-broad-v0 \

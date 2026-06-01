@@ -33,7 +33,7 @@ Use `dataset:relative/path` to read a file below the dataset root:
 ```sh
 python3 tools/scripts/pattern_teacher_v0_train.py \
   --dataset-root /path/to/vibe-othello-datasets \
-  --teacher-labels dataset:teacher/ntest-depth26-2027/labels/merged.jsonl \
+  --teacher-labels dataset:teacher/ntest-depth26-2027/labels/ntest26/train.jsonl \
   --eval-config data/eval/pattern_teacher_v0.eval \
   --out runs/pattern-training/table.tsv
 ```
@@ -42,14 +42,14 @@ Catalog references use the local TOML entry shape:
 
 ```sh
 python3 tools/scripts/pattern_teacher_v0_train.py \
-  --teacher-labels dataset:teacher.ntest_depth26_2027:labels \
-  --exact-labels dataset:teacher.ntest_depth26_2027:exact_overlap \
+  --teacher-labels dataset:teacher.ntest_depth26_2027:train \
+  --exact-labels dataset:teacher.ntest_depth26_2027:exact_teacher2000 \
   --eval-config data/eval/pattern_teacher_v0.eval \
   --out runs/pattern-training/table.tsv
 ```
 
-In the example above, `labels` resolves to
-`$VIBE_OTHELLO_DATASET_ROOT/teacher/ntest-depth26-2027/labels/merged.jsonl`.
+In the example above, `train` resolves to
+`$VIBE_OTHELLO_DATASET_ROOT/teacher/ntest-depth26-2027/labels/ntest26/train.jsonl`.
 
 Plain paths keep their existing meaning. Use plain `runs/...` paths for fresh
 temporary outputs in the current worktree, and use `dataset:...` only for
@@ -62,12 +62,27 @@ vibe-othello-datasets/
   teacher/
     ntest-depth26-2027/
       manifest.json
-      positions/
-        positions.jsonl
+      dataset_card.md
       labels/
-        merged.jsonl
+        ntest26/
+          train.jsonl
+          validation.jsonl
+          holdout.jsonl
+          manifest.json
       exact-overlap/
-        labels.jsonl
+        teacher2000_max12_labels.jsonl
+        teacher_extra30_max12_labels.jsonl
+        train_labels.jsonl
+        heldout_labels.jsonl
+        manifest.json
+      splits/
+        train.ids
+        validation.ids
+        holdout.ids
+      qc/
+        summary.json
+        source_hashes.tsv
+        split_counts.tsv
 ```
 
 Manifests should record the source commands, git SHA, build type, seeds,
