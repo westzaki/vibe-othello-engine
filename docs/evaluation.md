@@ -131,8 +131,9 @@ The engine default and the active research baseline are different concepts.
 compatibility and product-facing baseline. Do not change it as part of a
 research cleanup or pattern-learning setup PR.
 
-Pattern-first research should usually start from `pattern_teacher_v0.eval` or a
-new pattern-only/pattern-first config rather than another scalar residual weight
+Pattern-first research should usually start from `pattern_teacher_v0.eval`, the
+clean pattern-only `pattern_reboot_v0.eval`, or another explicit
+pattern-only/pattern-first config rather than another scalar residual weight
 tweak. Temporary strength regression is acceptable when the experiment is
 building pattern-table ownership, dataset, trainer objective, regularization,
 or validation foundations.

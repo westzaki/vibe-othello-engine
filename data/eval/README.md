@@ -23,6 +23,12 @@ pattern-first research restart. It is not the engine default, not a C++
 `EvaluationPreset`, and not a strength claim. It is kept because it is a compact
 pattern-table baseline with durable experiment evidence.
 
+`pattern_reboot_v0.eval` is the clean pattern-only reboot baseline. It reuses
+the retained `pattern_teacher_v0` table, but zeros all scalar handcrafted
+feature weights so future pattern learning can be interpreted independently
+from scalar residual tuning. It is expected to be weaker initially and must not
+be used as a strength candidate or default-promotion signal.
+
 Pattern-first experiments may intentionally be weaker than the engine default
 while they build better table ownership, dataset, trainer, and validation
 foundations.
