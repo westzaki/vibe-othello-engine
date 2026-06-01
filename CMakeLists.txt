@@ -102,6 +102,7 @@ othello_add_executable(othello_tests
     tests/match_runner_tests.cpp
     tests/nboard_protocol_tests.cpp
     tests/notation_tests.cpp
+    tests/pattern_index_fixture_tests.cpp
     tests/player_tests.cpp
     tests/position_sampler_tests.cpp
     tests/reference_rules.cpp

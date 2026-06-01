@@ -1,0 +1,28 @@
+# schema_version: pattern_index_fixture.v1
+# Board rows are in square-index order, not display order:
+# row 1 is a1..h1, row 8 is a8..h8.
+# The expected values guard current C++ pattern index definitions and Python
+# trainer feature extraction without centralizing the pattern specs.
+
+fixture dense_mixed_index_order
+side_to_move B
+row BWB.WB.W
+row WB..BW.B
+row ..W.B...
+row ...BW...
+row ...WB...
+row ...B.W..
+row B.W..WB.
+row W.BW.BWB
+expect B corner_2x3 A1=151 H1=524 A8=524 H8=583
+expect B corner_3x3 A1=13273 H1=524 A8=524 H8=13705
+expect B edge_8 Top=4795 Bottom=3953 Left=5110 Right=2192
+expect B edge_x_10 Top=11356 Bottom=23636 Left=11671 Right=21875
+expect B diagonal_8 A1H8=3532 H1A8=4592
+expect B inner_row_8 Top=2759 Bottom=1234 Left=5 Right=5103
+expect W corner_2x3 A1=212 H1=316 A8=316 H8=428
+expect W corner_3x3 A1=6773 H1=316 A8=316 H8=6989
+expect W edge_8 Top=2777 Bottom=5635 Left=3650 Right=4381
+expect W edge_x_10 Top=15899 Bottom=45001 Left=16772 Right=43747
+expect W diagonal_8 A1H8=6308 H1A8=2296
+expect W inner_row_8 Top=4786 Bottom=1712 Left=7 Right=3645
