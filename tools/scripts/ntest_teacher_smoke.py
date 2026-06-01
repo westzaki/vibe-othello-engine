@@ -27,6 +27,7 @@ DEFAULT_OVERNIGHT_SECONDS = 12 * 60 * 60
 DEFAULT_TIMEOUT_MS = 60000
 DEFAULT_JOBS = 1
 DEFAULT_POSITION_LOG_MODE = "failures"
+DEFAULT_TEACHER_ENGINE_LIFECYCLE = "per-request"
 DEFAULT_SAMPLER = Path("build") / "othello_position_sampler"
 DEFAULT_LEGAL_VALIDATOR = Path("build") / "othello_validate_move"
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -52,6 +53,7 @@ class SmokeConfig:
     timeout_ms: int
     jobs: int
     position_log_mode: str
+    teacher_engine_lifecycle: str
     sampler: Path
     legal_validator: Path
     seed: int
@@ -150,6 +152,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         choices=teacher_workflow.POSITION_LOG_MODES,
         default=DEFAULT_POSITION_LOG_MODE,
     )
+    parser.add_argument(
+        "--teacher-engine-lifecycle",
+        choices=teacher_workflow.ENGINE_LIFECYCLES,
+        default=DEFAULT_TEACHER_ENGINE_LIFECYCLE,
+    )
     parser.add_argument("--sampler", default=str(DEFAULT_SAMPLER))
     parser.add_argument("--legal-validator", default=str(DEFAULT_LEGAL_VALIDATOR))
     parser.add_argument("--seed", type=parse_non_negative_int, default=DEFAULT_SEED)
@@ -177,6 +184,7 @@ def config_from_args(args: argparse.Namespace, invocation: list[str] | None = No
         timeout_ms=args.timeout_ms,
         jobs=args.jobs,
         position_log_mode=args.position_log_mode,
+        teacher_engine_lifecycle=args.teacher_engine_lifecycle,
         sampler=Path(args.sampler),
         legal_validator=Path(args.legal_validator),
         seed=args.seed,
@@ -259,6 +267,8 @@ def build_teacher_command(config: SmokeConfig) -> list[str]:
         str(config.jobs),
         "--position-log-mode",
         config.position_log_mode,
+        "--teacher-engine-lifecycle",
+        config.teacher_engine_lifecycle,
         "--teacher-engine-name",
         teacher_name(config),
         "--legal-validator",
@@ -506,6 +516,7 @@ def write_report(
         f"- timeout_ms: `{config.timeout_ms}`",
         f"- jobs: `{config.jobs}`",
         f"- position_log_mode: `{config.position_log_mode}`",
+        f"- teacher_engine_lifecycle: `{config.teacher_engine_lifecycle}`",
         f"- position_pool_status: `{result.position_pool_status}`",
         f"- teacher_exit_code: `{result.teacher_exit_code}`",
         f"- recommended_action: `{result.recommended_action}`",

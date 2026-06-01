@@ -91,6 +91,11 @@ generates or reuses a small balanced position pool, calls
 `teacher_dataset_build.py`, measures throughput, and writes a report under
 `runs/ntest-teacher-smoke/<timestamp>/report.md`.
 
+Use `--teacher-engine-lifecycle persistent` for the overnight candidate smoke
+so each worker keeps one NTest NBoard process alive across positions. The
+default `per-request` lifecycle remains useful as a baseline, but it starts a
+new NTest process for every position and may be too slow for 300K labels.
+
 Depth 10:
 
 ```sh
@@ -102,6 +107,7 @@ python3 tools/scripts/ntest_teacher_smoke.py \
   --timeout-ms "$TIMEOUT_MS" \
   --jobs "$JOBS" \
   --position-log-mode failures \
+  --teacher-engine-lifecycle persistent \
   --sampler "$BUILD_DIR/othello_position_sampler" \
   --legal-validator "$BUILD_DIR/othello_validate_move" \
   --seed 20260601 \
@@ -120,6 +126,7 @@ python3 tools/scripts/ntest_teacher_smoke.py \
   --timeout-ms "$TIMEOUT_MS" \
   --jobs "$JOBS" \
   --position-log-mode failures \
+  --teacher-engine-lifecycle persistent \
   --sampler "$BUILD_DIR/othello_position_sampler" \
   --legal-validator "$BUILD_DIR/othello_validate_move" \
   --seed 20260601 \
@@ -138,6 +145,7 @@ python3 tools/scripts/ntest_teacher_smoke.py \
   --timeout-ms "$TIMEOUT_MS" \
   --jobs "$JOBS" \
   --position-log-mode failures \
+  --teacher-engine-lifecycle persistent \
   --sampler "$BUILD_DIR/othello_position_sampler" \
   --legal-validator "$BUILD_DIR/othello_validate_move" \
   --seed 20260601 \
@@ -164,6 +172,45 @@ Interpret the smoke report before continuing:
 Use the report's `recommended_action` as the first operational gate. Continue
 only when the smoke output is clean enough for the target overnight window.
 
+To compare lifecycle overhead at depth 10, run the same smoke twice with
+different dataset IDs:
+
+```sh
+python3 tools/scripts/ntest_teacher_smoke.py \
+  --dataset-root "$VIBE_OTHELLO_DATASET_ROOT" \
+  --dataset-id "$DATASET_ID-smoke-d10-per-request" \
+  --ntest-workdir "$NTEST_WORKDIR" \
+  --depth 10 \
+  --timeout-ms "$TIMEOUT_MS" \
+  --jobs "$JOBS" \
+  --position-log-mode failures \
+  --teacher-engine-lifecycle per-request \
+  --sampler "$BUILD_DIR/othello_position_sampler" \
+  --legal-validator "$BUILD_DIR/othello_validate_move" \
+  --seed 20260601 \
+  --bucket-spec smoke \
+  --ntest-cmd -- "$NTEST_BIN" x
+
+python3 tools/scripts/ntest_teacher_smoke.py \
+  --dataset-root "$VIBE_OTHELLO_DATASET_ROOT" \
+  --dataset-id "$DATASET_ID-smoke-d10-persistent" \
+  --ntest-workdir "$NTEST_WORKDIR" \
+  --depth 10 \
+  --timeout-ms "$TIMEOUT_MS" \
+  --jobs "$JOBS" \
+  --position-log-mode failures \
+  --teacher-engine-lifecycle persistent \
+  --sampler "$BUILD_DIR/othello_position_sampler" \
+  --legal-validator "$BUILD_DIR/othello_validate_move" \
+  --seed 20260601 \
+  --bucket-spec smoke \
+  --ntest-cmd -- "$NTEST_BIN" x
+```
+
+Record `labels_per_second`, `estimated_time_for_300k`, and
+`recommended_action` from both reports. If persistent mode does not reach the
+overnight target cleanly, do not start the 300K run.
+
 ## Full Overnight Run
 
 Run the full label build after the position pool and smoke runs are acceptable.
@@ -186,6 +233,7 @@ python3 tools/scripts/teacher_dataset_build.py \
   --teacher-workdir "$NTEST_WORKDIR" \
   --label-jobs "$JOBS" \
   --position-log-mode failures \
+  --teacher-engine-lifecycle persistent \
   --legal-validator "$BUILD_DIR/othello_validate_move" \
   --resume \
   --allow-failures \

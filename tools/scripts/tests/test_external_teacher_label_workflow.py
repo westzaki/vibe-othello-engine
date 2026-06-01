@@ -18,6 +18,7 @@ from common import ScriptError  # noqa: E402
 
 
 FAKE_ENGINE = SCRIPT_DIR / "external_engines" / "fake_engine.py"
+FAKE_PERSISTENT_NBOARD = SCRIPT_DIR / "external_engines" / "fake_persistent_nboard.py"
 WORKFLOW_SCRIPT = SCRIPT_DIR / "external_teacher_label_workflow.py"
 
 BOARD9_POSITION = """\
@@ -552,6 +553,244 @@ class ExternalTeacherLabelWorkflowTests(unittest.TestCase):
         )
 
         self.assertEqual(parsed.depth, 26)
+
+    def test_engine_lifecycle_defaults_to_per_request(self) -> None:
+        parsed = workflow.parse_args(
+            [
+                "--positions",
+                "positions.txt",
+                "--engine-cmd",
+                "--",
+                "fake-engine",
+            ]
+        )
+
+        self.assertEqual(parsed.engine_lifecycle, "per-request")
+
+    def test_persistent_rejects_unsupported_adapter_protocol(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            config = make_config(
+                temp_path,
+                extra_args=["--engine-lifecycle", "persistent"],
+            )
+
+            with self.assertRaises(ScriptError) as context:
+                workflow.run_workflow(config)
+
+        self.assertIn("persistent requires --adapter ntest --protocol nboard", str(context.exception))
+
+    def test_persistent_ntest_worker_serves_multiple_positions_from_one_process(self) -> None:
+        positions_text = """\
+        # name: p0
+        (;GM[Othello]BO[8 P0];)
+
+        # name: p1
+        (;GM[Othello]BO[8 P1];)
+
+        # name: p2
+        (;GM[Othello]BO[8 P2];)
+        """
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            counter = temp_path / "counter.tsv"
+            config = make_config(
+                temp_path,
+                engine_command=[
+                    sys.executable,
+                    str(FAKE_PERSISTENT_NBOARD),
+                    "--counter-file",
+                    str(counter),
+                ],
+                extra_args=[
+                    "--input-format",
+                    "raw",
+                    "--adapter",
+                    "ntest",
+                    "--protocol",
+                    "nboard",
+                    "--depth",
+                    "10",
+                    "--engine-lifecycle",
+                    "persistent",
+                ],
+                positions_text=positions_text,
+            )
+
+            exit_code = workflow.run_workflow(config)
+            rows = read_rows(config.labels_path)
+            events = counter.read_text(encoding="utf-8").splitlines()
+            report = config.report_path.read_text(encoding="utf-8")
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual([row["position_index"] for row in rows], [0, 1, 2])
+        self.assertTrue(all(row["status"] == "ok" for row in rows))
+        self.assertEqual(sum(1 for line in events if line.endswith("\tstart")), 1)
+        self.assertEqual(sum(1 for line in events if line.endswith("\trequest")), 3)
+        self.assertIn("- engine_lifecycle: `persistent`", report)
+
+    def test_persistent_jobs_keep_deterministic_order_with_multiple_workers(self) -> None:
+        positions_text = "\n\n".join(
+            f"# name: p{index}\n(;GM[Othello]BO[8 P{index}];)" for index in range(8)
+        )
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            counter = temp_path / "counter.tsv"
+            config = make_config(
+                temp_path,
+                engine_command=[
+                    sys.executable,
+                    str(FAKE_PERSISTENT_NBOARD),
+                    "--counter-file",
+                    str(counter),
+                    "--sleep-ms",
+                    "10",
+                ],
+                extra_args=[
+                    "--input-format",
+                    "raw",
+                    "--adapter",
+                    "ntest",
+                    "--protocol",
+                    "nboard",
+                    "--depth",
+                    "10",
+                    "--jobs",
+                    "2",
+                    "--engine-lifecycle",
+                    "persistent",
+                ],
+                positions_text=positions_text,
+            )
+
+            exit_code = workflow.run_workflow(config)
+            rows = read_rows(config.labels_path)
+            events = counter.read_text(encoding="utf-8").splitlines()
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual([row["position_index"] for row in rows], list(range(8)))
+        self.assertTrue(all(row["status"] == "ok" for row in rows))
+        self.assertLessEqual(sum(1 for line in events if line.endswith("\tstart")), 2)
+        self.assertEqual(sum(1 for line in events if line.endswith("\trequest")), 8)
+
+    def test_persistent_invalid_move_token_is_recorded(self) -> None:
+        positions_text = """\
+        # name: bad
+        (;GM[Othello]BO[8 BADTOKEN];)
+        """
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            config = make_config(
+                temp_path,
+                engine_command=[sys.executable, str(FAKE_PERSISTENT_NBOARD)],
+                extra_args=[
+                    "--input-format",
+                    "raw",
+                    "--adapter",
+                    "ntest",
+                    "--protocol",
+                    "nboard",
+                    "--depth",
+                    "10",
+                    "--engine-lifecycle",
+                    "persistent",
+                    "--allow-failures",
+                ],
+                positions_text=positions_text,
+            )
+
+            exit_code = workflow.run_workflow(config)
+            row = read_rows(config.labels_path)[0]
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(row["status"], "failed")
+        self.assertIsNone(row["move"])
+        self.assertIs(row["move_token_valid"], False)
+
+    def test_persistent_restarts_after_engine_exit_mid_run(self) -> None:
+        positions_text = """\
+        # name: ok0
+        (;GM[Othello]BO[8 OK0];)
+
+        # name: exits
+        (;GM[Othello]BO[8 EXIT];)
+
+        # name: ok1
+        (;GM[Othello]BO[8 OK1];)
+        """
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            counter = temp_path / "counter.tsv"
+            config = make_config(
+                temp_path,
+                engine_command=[
+                    sys.executable,
+                    str(FAKE_PERSISTENT_NBOARD),
+                    "--counter-file",
+                    str(counter),
+                ],
+                extra_args=[
+                    "--input-format",
+                    "raw",
+                    "--adapter",
+                    "ntest",
+                    "--protocol",
+                    "nboard",
+                    "--depth",
+                    "10",
+                    "--engine-lifecycle",
+                    "persistent",
+                    "--allow-failures",
+                ],
+                positions_text=positions_text,
+            )
+
+            exit_code = workflow.run_workflow(config)
+            rows = read_rows(config.labels_path)
+            events = counter.read_text(encoding="utf-8").splitlines()
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual([row["status"] for row in rows], ["ok", "failed", "ok"])
+        self.assertEqual(rows[1]["exit_code"], 7)
+        self.assertGreaterEqual(sum(1 for line in events if line.endswith("\tstart")), 2)
+
+    def test_persistent_timeout_kills_worker_and_later_rows_continue(self) -> None:
+        positions_text = """\
+        # name: hang
+        (;GM[Othello]BO[8 HANG];)
+
+        # name: ok
+        (;GM[Othello]BO[8 OK];)
+        """
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            config = make_config(
+                temp_path,
+                engine_command=[sys.executable, str(FAKE_PERSISTENT_NBOARD)],
+                extra_args=[
+                    "--input-format",
+                    "raw",
+                    "--adapter",
+                    "ntest",
+                    "--protocol",
+                    "nboard",
+                    "--depth",
+                    "10",
+                    "--timeout-ms",
+                    "50",
+                    "--engine-lifecycle",
+                    "persistent",
+                    "--allow-failures",
+                ],
+                positions_text=positions_text,
+            )
+
+            exit_code = workflow.run_workflow(config)
+            rows = read_rows(config.labels_path)
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual([row["status"] for row in rows], ["failed", "ok"])
+        self.assertEqual([row["timed_out"] for row in rows], [True, False])
 
     def test_config_from_args_resolves_dataset_positions_reference(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
