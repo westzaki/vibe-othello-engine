@@ -495,6 +495,8 @@ class TeacherDatasetBuildTests(unittest.TestCase):
                     "3",
                     "--position-log-mode",
                     "failures",
+                    "--teacher-engine-lifecycle",
+                    "persistent",
                     "--teacher-workdir",
                     str(workdir),
                     "--teacher-env",
@@ -513,6 +515,7 @@ class TeacherDatasetBuildTests(unittest.TestCase):
 
         self.assertEqual(workflow_config.jobs, 3)
         self.assertEqual(workflow_config.position_log_mode, "failures")
+        self.assertEqual(workflow_config.engine_lifecycle, "persistent")
         self.assertEqual(workflow_config.workdir, str(workdir))
         self.assertEqual(
             workflow_config.env,
@@ -568,10 +571,12 @@ class TeacherDatasetBuildTests(unittest.TestCase):
         teacher_settings = manifest["teacher_engine_settings"]
         self.assertEqual(teacher_settings["label_jobs"], 2)
         self.assertEqual(teacher_settings["position_log_mode"], "failures")
+        self.assertEqual(teacher_settings["engine_lifecycle"], "per-request")
         self.assertEqual(teacher_settings["teacher_workdir"], "<absolute-path:ntest-resource-dir>")
         self.assertEqual(teacher_settings["teacher_env_keys"], ["NTEST_BOOK", "NTEST_SECRET"])
         self.assertEqual(label_manifest["label_jobs"], 2)
         self.assertEqual(label_manifest["position_log_mode"], "failures")
+        self.assertEqual(label_manifest["engine_lifecycle"], "per-request")
         self.assertEqual(label_manifest["teacher_workdir"], "<absolute-path:ntest-resource-dir>")
         self.assertEqual(label_manifest["teacher_env_keys"], ["NTEST_BOOK", "NTEST_SECRET"])
 

@@ -28,6 +28,7 @@ DEFAULT_SHARD_SIZE = 1000
 DEFAULT_EXACT_MAX_EMPTIES = 14
 DEFAULT_LABEL_JOBS = 1
 DEFAULT_POSITION_LOG_MODE = "all"
+DEFAULT_TEACHER_ENGINE_LIFECYCLE = "per-request"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -73,6 +74,7 @@ class BuildConfig:
     teacher_timeout_ms: int
     label_jobs: int
     position_log_mode: str
+    teacher_engine_lifecycle: str
     teacher_workdir: str | None
     teacher_env: dict[str, str]
     teacher_engine_name: str | None
@@ -226,6 +228,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=DEFAULT_POSITION_LOG_MODE,
         help="per-position teacher log policy: all, failures, or none (default: all)",
     )
+    parser.add_argument(
+        "--teacher-engine-lifecycle",
+        choices=teacher_workflow.ENGINE_LIFECYCLES,
+        default=DEFAULT_TEACHER_ENGINE_LIFECYCLE,
+        help="teacher engine lifecycle: per-request or persistent (default: per-request)",
+    )
     parser.add_argument("--teacher-workdir", help="working directory for the teacher engine process")
     parser.add_argument(
         "--teacher-env",
@@ -331,6 +339,7 @@ def config_from_args(args: argparse.Namespace, invocation: list[str] | None = No
         teacher_timeout_ms=args.teacher_timeout_ms,
         label_jobs=args.label_jobs,
         position_log_mode=args.position_log_mode,
+        teacher_engine_lifecycle=args.teacher_engine_lifecycle,
         teacher_workdir=args.teacher_workdir,
         teacher_env=args.teacher_env_overrides,
         teacher_engine_name=args.teacher_engine_name,
@@ -603,6 +612,7 @@ def _teacher_workflow_config(
         allow_failures=True,
         jobs=config.label_jobs,
         position_log_mode=config.position_log_mode,
+        engine_lifecycle=config.teacher_engine_lifecycle,
         invocation=redact_command(config.invocation),
         report_workdir=redact_token(config.teacher_workdir) if config.teacher_workdir else None,
         report_engine_command=redact_command(config.teacher_engine_cmd),
@@ -689,6 +699,7 @@ def run_teacher_labels(config: BuildConfig, records: list[PositionRecord]) -> tu
         "timeout_ms": config.teacher_timeout_ms,
         "label_jobs": config.label_jobs,
         "position_log_mode": config.position_log_mode,
+        "engine_lifecycle": config.teacher_engine_lifecycle,
         "teacher_workdir": redact_token(config.teacher_workdir) if config.teacher_workdir else None,
         "teacher_env_keys": sorted(config.teacher_env),
         "command": redact_command(config.teacher_engine_cmd),
@@ -994,6 +1005,7 @@ def write_manifest(
             "timeout_ms": config.teacher_timeout_ms,
             "label_jobs": config.label_jobs,
             "position_log_mode": config.position_log_mode,
+            "engine_lifecycle": config.teacher_engine_lifecycle,
             "teacher_workdir": redact_token(config.teacher_workdir) if config.teacher_workdir else None,
             "teacher_env_keys": sorted(config.teacher_env),
             "command": redact_command(config.teacher_engine_cmd),
@@ -1075,6 +1087,7 @@ def write_dataset_card(config: BuildConfig, records: list[PositionRecord], summa
             f"- timeout_ms: `{config.teacher_timeout_ms}`",
             f"- label_jobs: `{config.label_jobs}`",
             f"- position_log_mode: `{config.position_log_mode}`",
+            f"- engine_lifecycle: `{config.teacher_engine_lifecycle}`",
             f"- teacher_workdir: `{redact_token(config.teacher_workdir) if config.teacher_workdir else 'n/a'}`",
             f"- teacher_env_keys: `{', '.join(sorted(config.teacher_env)) if config.teacher_env else 'n/a'}`",
             f"- command: `{quote_command(redact_command(config.teacher_engine_cmd)) if config.teacher_engine_cmd else 'n/a'}`",

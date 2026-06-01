@@ -24,6 +24,7 @@ def make_config(temp_path: Path, *, jobs: int = 4) -> smoke.SmokeConfig:
         timeout_ms=60000,
         jobs=jobs,
         position_log_mode="failures",
+        teacher_engine_lifecycle="per-request",
         sampler=temp_path / "build" / "othello_position_sampler",
         legal_validator=temp_path / "build" / "othello_validate_move",
         seed=20260601,
@@ -169,6 +170,8 @@ class NTestTeacherSmokeTests(unittest.TestCase):
         self.assertIn("4", teacher_command)
         self.assertIn("--position-log-mode", teacher_command)
         self.assertIn("failures", teacher_command)
+        self.assertIn("--teacher-engine-lifecycle", teacher_command)
+        self.assertIn("per-request", teacher_command)
         self.assertIn("--teacher-workdir", teacher_command)
         self.assertIn("--teacher-depth", teacher_command)
         self.assertIn("12", teacher_command)
@@ -180,6 +183,24 @@ class NTestTeacherSmokeTests(unittest.TestCase):
         self.assertNotIn(str(config.ntest_cmd[0]), commands_text)
         self.assertIn("<absolute-path:datasets>", commands_text)
         self.assertIn("<absolute-path:ntest>", commands_text)
+
+    def test_persistent_lifecycle_command_construction(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            config = smoke.SmokeConfig(
+                **{
+                    **make_config(temp_path).__dict__,
+                    "teacher_engine_lifecycle": "persistent",
+                }
+            )
+
+            teacher_command = smoke.build_teacher_command(config)
+
+        self.assertIn("--teacher-engine-lifecycle", teacher_command)
+        self.assertEqual(
+            teacher_command[teacher_command.index("--teacher-engine-lifecycle") + 1],
+            "persistent",
+        )
 
     def test_run_smoke_uses_fake_runner_and_collects_summary(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

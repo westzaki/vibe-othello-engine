@@ -9,6 +9,9 @@ import json
 import re
 import subprocess
 import sys
+import queue
+import threading
+from collections.abc import Callable
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -17,7 +20,11 @@ from typing import Any
 from common import ScriptError, quote_command
 from dataset_paths import resolve_path_reference
 from external_engines.common import EngineMoveResult, ExternalEngineError
-from external_engines.ntest import NTestConfig, request_best_move as request_ntest_best_move
+from external_engines.ntest import (
+    NTestConfig,
+    PersistentNTestWorker,
+    request_best_move as request_ntest_best_move,
+)
 from external_engines.one_shot import request_best_move as request_one_shot_best_move
 
 
@@ -26,6 +33,7 @@ DEFAULT_TIMEOUT_MS = 1000
 DEFAULT_NTEST_DEPTH = 26
 DEFAULT_LEGAL_VALIDATOR = Path("build") / "othello_validate_move"
 POSITION_LOG_MODES = ("all", "failures", "none")
+ENGINE_LIFECYCLES = ("per-request", "persistent")
 
 _BOARD_ROW_PATTERN = re.compile(r"^[.BW]{8}$")
 _MOVE_PATTERN = re.compile(r"^[a-h][1-8]$", re.IGNORECASE)
@@ -66,6 +74,7 @@ class WorkflowConfig:
     allow_failures: bool
     jobs: int = 1
     position_log_mode: str = "all"
+    engine_lifecycle: str = "per-request"
     invocation: list[str] = field(default_factory=list)
     report_workdir: str | None = None
     report_engine_command: list[str] | None = None
@@ -166,6 +175,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "%(prog)s --positions PATH [--out DIR] [--input-format auto|board9|raw|nboard-game] "
             "[--limit N] [--timeout-ms N] [--workdir PATH] [--env KEY=VALUE] "
             "[--jobs N] [--position-log-mode all|failures|none] "
+            "[--engine-lifecycle per-request|persistent] "
             "[--adapter one-shot|ntest] [--protocol nboard|one-shot] [--depth N] "
             "[--engine-name NAME] [--legal-validator PATH] --engine-cmd -- COMMAND [ARGS...]"
         ),
@@ -199,6 +209,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         choices=POSITION_LOG_MODES,
         default="all",
         help="per-position log policy: all, failures, or none (default: all)",
+    )
+    parser.add_argument(
+        "--engine-lifecycle",
+        choices=ENGINE_LIFECYCLES,
+        default="per-request",
+        help="engine process lifecycle: per-request or persistent (default: per-request)",
     )
     parser.add_argument("--workdir", help="working directory for the engine process")
     parser.add_argument(
@@ -280,6 +296,7 @@ def config_from_args(args: argparse.Namespace, invocation: list[str] | None = No
         allow_failures=args.allow_failures,
         jobs=args.jobs,
         position_log_mode=args.position_log_mode,
+        engine_lifecycle=args.engine_lifecycle,
         invocation=invocation or [],
     )
 
@@ -592,6 +609,9 @@ def request_engine_move(config: WorkflowConfig, input_text: str) -> EngineMoveRe
     )
 
 
+EngineRequester = Callable[[str], EngineMoveResult]
+
+
 def _parse_validator_output(text: str) -> tuple[bool | None, list[str], str | None]:
     valid: bool | None = None
     legal_moves: list[str] = []
@@ -753,6 +773,7 @@ def write_position_log(
         f"engine_name: {config.engine_name}",
         f"adapter: {config.adapter}",
         f"protocol: {config.protocol}",
+        f"engine_lifecycle: {config.engine_lifecycle}",
         f"depth: {config.depth if config.depth is not None else 'n/a'}",
         f"timeout_ms: {config.timeout_ms}",
         f"command: {quote_command(config.engine_command)}",
@@ -888,6 +909,7 @@ def base_row(
         "engine_name": config.engine_name,
         "adapter": config.adapter,
         "protocol": config.protocol,
+        "engine_lifecycle": config.engine_lifecycle,
         "depth": config.depth,
         "timeout_ms": config.timeout_ms,
         "status": status,
@@ -927,10 +949,11 @@ def base_row(
     return row
 
 
-def run_position(
+def run_position_with_requester(
     config: WorkflowConfig,
     metadata: Metadata,
     position: InputPosition,
+    request_move: EngineRequester,
 ) -> dict[str, Any]:
     external_input_text, external_input_format = adapter_input_for_position(config, position)
 
@@ -944,7 +967,7 @@ def run_position(
         )
 
     try:
-        result = request_engine_move(config, external_input_text)
+        result = request_move(external_input_text)
     except ExternalEngineError as exc:
         error = str(exc)
         status = "failed"
@@ -1021,6 +1044,19 @@ def run_position(
     )
 
 
+def run_position(
+    config: WorkflowConfig,
+    metadata: Metadata,
+    position: InputPosition,
+) -> dict[str, Any]:
+    return run_position_with_requester(
+        config,
+        metadata,
+        position,
+        lambda input_text: request_engine_move(config, input_text),
+    )
+
+
 def summarize_rows(
     *,
     total_input_positions: int,
@@ -1052,6 +1088,13 @@ def validate_config(config: WorkflowConfig) -> None:
     if config.position_log_mode not in POSITION_LOG_MODES:
         choices = "|".join(POSITION_LOG_MODES)
         raise ScriptError(f"--position-log-mode must be one of {choices}")
+    if config.engine_lifecycle not in ENGINE_LIFECYCLES:
+        choices = "|".join(ENGINE_LIFECYCLES)
+        raise ScriptError(f"--engine-lifecycle must be one of {choices}")
+    if config.engine_lifecycle == "persistent" and (
+        config.adapter != "ntest" or config.protocol != "nboard"
+    ):
+        raise ScriptError("--engine-lifecycle persistent requires --adapter ntest --protocol nboard")
 
 
 def run_positions_concurrently(
@@ -1082,6 +1125,55 @@ def run_positions_concurrently(
                 row = future.result()
                 rows_by_index[int(row["position_index"])] = row
             submit_until_full()
+
+    return [rows_by_index[position.position_index] for position in positions]
+
+
+def _persistent_ntest_config(config: WorkflowConfig) -> NTestConfig:
+    return NTestConfig(
+        command=config.engine_command,
+        timeout_ms=config.timeout_ms,
+        workdir=config.workdir,
+        env=config.env,
+        profile=config.protocol,
+        depth=config.depth or DEFAULT_NTEST_DEPTH,
+    )
+
+
+def run_positions_persistent(
+    config: WorkflowConfig,
+    metadata: Metadata,
+    positions: list[InputPosition],
+) -> list[dict[str, Any]]:
+    rows_by_index: dict[int, dict[str, Any]] = {}
+    rows_lock = threading.Lock()
+    work_queue: queue.Queue[InputPosition] = queue.Queue()
+    for position in positions:
+        work_queue.put(position)
+
+    def worker_loop() -> None:
+        with PersistentNTestWorker(_persistent_ntest_config(config)) as worker:
+            while True:
+                try:
+                    position = work_queue.get_nowait()
+                except queue.Empty:
+                    return
+                try:
+                    row = run_position_with_requester(
+                        config,
+                        metadata,
+                        position,
+                        worker.request_best_move,
+                    )
+                    with rows_lock:
+                        rows_by_index[int(row["position_index"])] = row
+                finally:
+                    work_queue.task_done()
+
+    with ThreadPoolExecutor(max_workers=config.jobs) as executor:
+        futures = [executor.submit(worker_loop) for _ in range(config.jobs)]
+        for future in futures:
+            future.result()
 
     return [rows_by_index[position.position_index] for position in positions]
 
@@ -1128,6 +1220,7 @@ def render_report(config: WorkflowConfig, metadata: Metadata, summary: RunSummar
         f"- timeout_ms: `{config.timeout_ms}`",
         f"- jobs: `{config.jobs}`",
         f"- position_log_mode: `{config.position_log_mode}`",
+        f"- engine_lifecycle: `{config.engine_lifecycle}`",
         f"- allow_failures: `{config.allow_failures}`",
         f"- workdir: `{workdir}`",
         f"- input_format: `{config.input_format}`",
@@ -1189,12 +1282,20 @@ def run_workflow(config: WorkflowConfig) -> int:
     config.labels_path.parent.mkdir(parents=True, exist_ok=True)
     with config.labels_path.open("w", encoding="utf-8") as labels_file:
         if config.jobs == 1:
-            for position in requested_positions:
-                row = run_position(config, metadata, position)
-                rows.append(row)
-                labels_file.write(json.dumps(row, sort_keys=True) + "\n")
+            if config.engine_lifecycle == "persistent":
+                rows = run_positions_persistent(config, metadata, requested_positions)
+                for row in rows:
+                    labels_file.write(json.dumps(row, sort_keys=True) + "\n")
+            else:
+                for position in requested_positions:
+                    row = run_position(config, metadata, position)
+                    rows.append(row)
+                    labels_file.write(json.dumps(row, sort_keys=True) + "\n")
         else:
-            rows = run_positions_concurrently(config, metadata, requested_positions)
+            if config.engine_lifecycle == "persistent":
+                rows = run_positions_persistent(config, metadata, requested_positions)
+            else:
+                rows = run_positions_concurrently(config, metadata, requested_positions)
             for row in rows:
                 labels_file.write(json.dumps(row, sort_keys=True) + "\n")
 
