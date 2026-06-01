@@ -8,7 +8,47 @@ reporting workflows.
 The scripts use only the Python standard library. They do not import the C++
 engine directly.
 
-## Examples
+## Pattern-first Evaluation Workflow
+
+For new evaluation research, start with the current role definitions in
+`data/eval/README.md` before choosing a script. `current_default.eval` is the
+engine default and product-facing compatibility baseline, not the research
+baseline. `pattern_teacher_v0.eval` is the retained experimental pattern
+baseline, and `pattern_reboot_v0.eval`, when present, is the clean pattern-only
+research baseline even though it is expected to be weak initially.
+
+The preferred next path is pattern learning foundation work, not another round
+of tiny scalar residual tuning. Use reusable teacher and exact artifacts through
+`dataset:...` references and a dataset root as described in
+`docs/datasets/README.md`; do not assume old worktree-local `runs/` output is
+available.
+
+Recommended order:
+
+1. Build or locate teacher and exact datasets through `dataset:...` references.
+2. Train or generate pattern tables under `runs/` or an external dataset root.
+3. Load candidate tables through `.eval` configs.
+4. Validate on teacher holdout, exact heldout, search validation, and match
+   smoke.
+5. Record a durable experiment report.
+6. Keep raw labels, exact labels, match JSONL, benchmark logs, and local paths
+   out of git.
+
+Do not use `eval_config_tuner.py` as the default next step for pattern
+learning. It remains useful for debugging existing `.eval` configs and scalar
+weight interactions, but it is not the main strength path after the
+pattern-first restart. Do not add one tiny pattern family at a time unless the
+PR is explicitly part of a broader vocabulary and ablation plan. Do not create
+source-controlled `.eval` files for rejected candidates. Do not treat smoke
+evidence as Elo, proof of strength, or default-promotion evidence.
+
+The next implementation direction should be `PatternTableBundle` / table
+ownership, dense runtime tables or a future binary `.ptab` execution format,
+phase-specific tables, deterministic dataset/split/manifest plumbing, stronger
+trainer objectives and regularization, and a broad known-good Othello pattern
+vocabulary with ablation.
+
+## General Examples
 
 Collect a reproducible PR evidence report:
 
@@ -56,6 +96,13 @@ eval-vs-exact analyzer. Random playout samples are reproducible smoke inputs,
 not a representative training distribution. The workflow report records exact
 commands, output paths, counts, caveats, and the absence of any strength claim
 or default-promotion recommendation.
+
+## Legacy Scalar/Config Diagnostics
+
+The following tuner and validator workflows are legacy scalar/config
+diagnostics. Keep them available for debugging existing `.eval` files,
+calibration issues, and historical comparisons, but do not treat them as the
+default path for new pattern-first strength work.
 
 Run a small diagnostic `.eval` config tuning experiment from exact-label JSONL:
 
@@ -153,6 +200,8 @@ differences when parsed, optional held-out objective context, and caveats under
 `runs/eval-config-search-validation/...`. Candidate promotion still requires
 broader search bench, match runner or base/head validation, and external sanity
 when appropriate. Do not commit generated configs or raw workflow outputs.
+
+## Candidate And Match Evidence Utilities
 
 Run a simple evaluator candidate matrix when candidate `.eval` files already
 exist and the goal is comparable smoke evidence rather than tuning:
@@ -263,7 +312,8 @@ python3 tools/scripts/eval_experiment_matrix.py \
 ```
 
 This compares each non-default preset against `default` through the normal C++
-tools. It is for reproducibility plumbing, not strength claims.
+tools. It is legacy preset/config plumbing, not the main path for
+pattern-first learning and not strength evidence by itself.
 
 Run a staged evaluator-preset experiment against an explicit reference preset:
 
@@ -284,12 +334,13 @@ python3 tools/scripts/eval_experiment_matrix.py \
   --by-position
 ```
 
-The staged runner treats each candidate preset as player A and
-`--reference-preset` as player B. Stage A runs search screening for all listed
-presets, Stage B runs small candidate-vs-reference matches, and Stage C runs
-extended matches only for promoted candidates. The legacy `--depths` and
-`--games` options remain supported as aliases for `--small-depths` and
-`--small-games`; use the explicit staged names for new experiments.
+The staged runner is legacy preset-matrix support. It treats each candidate
+preset as player A and `--reference-preset` as player B. Stage A runs search
+screening for all listed presets, Stage B runs small candidate-vs-reference
+matches, and Stage C runs extended matches only for promoted candidates. The
+legacy `--depths` and `--games` options remain supported as aliases for
+`--small-depths` and `--small-games`; use the explicit staged names when
+maintaining these diagnostics.
 
 Raw command output, match JSONL, summaries, and generated reports belong under
 `runs/`, not in committed docs. The generated report is a triage artifact: it is

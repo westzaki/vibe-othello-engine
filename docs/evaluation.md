@@ -92,6 +92,11 @@ activation, or phase-specific weights.
 
 A pattern candidate introduces a pattern feature family, such as edge patterns,
 corner neighborhoods, rows, columns, diagonals, or local board patterns.
+For the current pattern-first research line, prefer a broad known-good Othello
+pattern vocabulary with learned tables and family ablation over
+one-pattern-at-a-time incremental additions. A one-family PR should say
+explicitly whether it is a representation test, an ablation, or plumbing for
+that broader vocabulary.
 
 A weight-set candidate changes multiple weights while keeping the evaluator
 structure.
@@ -140,8 +145,9 @@ or validation foundations.
 
 The scalar feature code remains part of the engine for default compatibility and
 for comparison anchors. That does not make old scalar experiments active
-candidates. Rejected or superseded `.eval` files should generally be removed
-from `data/eval` after their durable report is merged.
+candidates or scalar tweaking the main research path. Rejected or superseded
+`.eval` files should generally be removed from `data/eval` after their durable
+report is merged.
 
 Default promotion remains separate. A pattern candidate should become the
 default only after strong evidence across correctness checks, exact-label
