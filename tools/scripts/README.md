@@ -68,6 +68,30 @@ optional phases. The script is orchestration only: it uses existing C++ tools
 for rule validation and exact labels, and it does not require external engines
 in CI.
 
+Train phase-specific broad pattern tables from reusable teacher labels:
+
+```sh
+python3 tools/scripts/phase_pattern_table_train.py \
+  --dataset-root "$VIBE_OTHELLO_DATASET_ROOT" \
+  --teacher-labels dataset:teacher/ntest-depth26-2027/labels/ntest26-local/shards/labels-0000.jsonl \
+  --exact-labels dataset:teacher/ntest-depth26-2027/exact-overlap/labels.jsonl \
+  --eval-config data/eval/pattern_reboot_v0.eval \
+  --analyze-position build/othello_analyze_position \
+  --out-dir runs/pattern-training/phase-broad-v0 \
+  --table-name phase_broad_v0 \
+  --families broad_all \
+  --update-mode rank \
+  --split train \
+  --depth 1
+```
+
+This is the next pattern-first learning path after the dataset builder and
+phase-specific table loading support. It writes `tables/opening.tsv`,
+`tables/midgame.tsv`, `tables/late.tsv`, `candidate.eval`, `report.md`,
+`summary.json`, and `phase_summary.tsv` under the requested `runs/` directory.
+Generated TSVs and candidate `.eval` files are temporary experiment artifacts;
+do not commit them or treat their smoke validation as strength proof.
+
 ## General Examples
 
 Collect a reproducible PR evidence report:
