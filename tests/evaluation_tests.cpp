@@ -68,6 +68,10 @@ side=B)");
     return std::filesystem::path{OTHELLO_SOURCE_DIR} / "data" / "eval" / file_name;
 }
 
+[[nodiscard]] std::filesystem::path sample_eval_config_dir() {
+    return std::filesystem::path{OTHELLO_SOURCE_DIR} / "data" / "eval";
+}
+
 [[nodiscard]] std::string read_text_file(const std::filesystem::path& path) {
     std::ifstream input{path};
     REQUIRE(input.is_open());
@@ -124,8 +128,7 @@ void write_text_file(const std::filesystem::path& path, std::string_view text) {
 
 [[nodiscard]] std::vector<std::filesystem::path> committed_eval_config_paths() {
     std::vector<std::filesystem::path> paths;
-    const std::filesystem::path eval_dir =
-        std::filesystem::path{OTHELLO_SOURCE_DIR} / "data" / "eval";
+    const std::filesystem::path eval_dir = sample_eval_config_dir();
 
     for (const auto& entry : std::filesystem::directory_iterator{eval_dir}) {
         if (entry.is_regular_file() && entry.path().extension() == ".eval") {
@@ -135,6 +138,30 @@ void write_text_file(const std::filesystem::path& path, std::string_view text) {
 
     std::sort(paths.begin(), paths.end());
     return paths;
+}
+
+[[nodiscard]] std::vector<std::string> committed_artifact_names(
+    const std::filesystem::path& directory, std::string_view extension) {
+    std::vector<std::string> names;
+    for (const auto& entry : std::filesystem::directory_iterator{directory}) {
+        if (entry.is_regular_file() && entry.path().extension() == extension) {
+            names.push_back(entry.path().filename().string());
+        }
+    }
+    std::sort(names.begin(), names.end());
+    return names;
+}
+
+template <std::size_t Size>
+[[nodiscard]] std::vector<std::string> sorted_names(
+    const std::array<std::string_view, Size>& names) {
+    std::vector<std::string> sorted;
+    sorted.reserve(names.size());
+    for (std::string_view name : names) {
+        sorted.emplace_back(name);
+    }
+    std::sort(sorted.begin(), sorted.end());
+    return sorted;
 }
 
 [[nodiscard]] Board corner_occupancy_board() {
@@ -573,30 +600,24 @@ TEST_CASE("Evaluation preset names remain compatibility aliases", "[evaluation]"
           "phase_aware_v1");
 }
 
-TEST_CASE("Rejected eval experiments are pruned from the active eval surface",
+TEST_CASE("Committed eval artifact surface contains only active fixtures",
           "[evaluation]") {
-    constexpr std::array<std::string_view, 14> pruned_artifacts{{
-        "classic_othello_v1.eval",
-        "classic_othello_v2_teacher_safe.eval",
-        "classic_othello_v3_late_exact.eval",
-        "classic_othello_v3_teacher_rank.eval",
-        "classic_pattern_v0.eval",
-        "default_edge_pattern_8_soft.eval",
-        "experimental_edge8_soft_frontier_stability.eval",
-        "pattern_teacher_v1.eval",
-        "pattern_teacher_v1_phase.eval",
-        "pattern_teacher_v1_rank.eval",
-        "patterns/classic_pattern_v0.tsv",
-        "patterns/pattern_teacher_v1.tsv",
-        "patterns/pattern_teacher_v1_phase.tsv",
-        "patterns/pattern_teacher_v1_rank.tsv",
-    }};
+    constexpr std::array allowed_eval_configs{
+        std::string_view{"classic_othello_v3_teacher_aggressive.eval"},
+        std::string_view{"current_default.eval"},
+        std::string_view{"pattern_only_smoke.eval"},
+        std::string_view{"pattern_reboot_v0.eval"},
+        std::string_view{"pattern_teacher_v0.eval"},
+        std::string_view{"phase_aware_v1.eval"},
+    };
+    constexpr std::array allowed_pattern_tables{
+        std::string_view{"pattern_teacher_v0.tsv"},
+    };
 
-    for (std::string_view artifact : pruned_artifacts) {
-        const std::string artifact_name{artifact};
-        CAPTURE(artifact_name);
-        CHECK_FALSE(std::filesystem::exists(sample_eval_config_path(artifact_name)));
-    }
+    CHECK(committed_artifact_names(sample_eval_config_dir(), ".eval") ==
+          sorted_names(allowed_eval_configs));
+    CHECK(committed_artifact_names(sample_eval_config_path("patterns"), ".tsv") ==
+          sorted_names(allowed_pattern_tables));
 }
 
 TEST_CASE("Committed eval config fixtures parse and preserve intended identities",
