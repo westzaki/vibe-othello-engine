@@ -7,10 +7,72 @@ import unittest
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parents[1]
+REPO_ROOT = SCRIPT_DIR.parents[1]
 sys.path.insert(0, str(SCRIPT_DIR))
 
 import pattern_teacher_v0_train as trainer  # noqa: E402
 from common import ScriptError  # noqa: E402
+
+
+PATTERN_FIXTURE_INSTANCES = {
+    "corner_2x3": ("A1", "H1", "A8", "H8"),
+    "corner_3x3": ("A1", "H1", "A8", "H8"),
+    "edge_8": ("Top", "Bottom", "Left", "Right"),
+    "edge_x_10": ("Top", "Bottom", "Left", "Right"),
+    "diagonal_8": ("A1H8", "H1A8"),
+    "inner_row_8": ("Top", "Bottom", "Left", "Right"),
+}
+
+
+def load_pattern_index_fixtures() -> list[dict[str, object]]:
+    path = REPO_ROOT / "tests" / "fixtures" / "pattern_index_drift.txt"
+    fixtures: list[dict[str, object]] = []
+    current: dict[str, object] | None = None
+
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+
+        parts = line.split()
+        if parts[0] == "fixture":
+            if current is not None:
+                fixtures.append(current)
+            current = {
+                "name": parts[1],
+                "side_to_move": "B",
+                "rows": [],
+                "expectations": [],
+            }
+            continue
+
+        assert current is not None
+        if parts[0] == "side_to_move":
+            current["side_to_move"] = parts[1]
+        elif parts[0] == "row":
+            rows = current["rows"]
+            assert isinstance(rows, list)
+            rows.append(parts[1])
+        elif parts[0] == "expect":
+            expectations = current["expectations"]
+            assert isinstance(expectations, list)
+            indexes: list[tuple[str, int]] = []
+            for token in parts[3:]:
+                name, _, value = token.partition("=")
+                indexes.append((name, int(value)))
+            expectations.append(
+                {
+                    "side": parts[1],
+                    "family": parts[2],
+                    "indexes": indexes,
+                }
+            )
+        else:
+            raise AssertionError(f"unknown fixture keyword: {parts[0]}")
+
+    if current is not None:
+        fixtures.append(current)
+    return fixtures
 
 
 class PatternTeacherTrainTests(unittest.TestCase):
@@ -129,6 +191,34 @@ class PatternTeacherTrainTests(unittest.TestCase):
         self.assertEqual(first["edge_x_10"][0], 45943)
         self.assertEqual(first["diagonal_8"][0], 22)
         self.assertEqual(first["inner_row_8"][0], 1463)
+
+    def test_pattern_index_fixture_matches_expected_values(self) -> None:
+        fixtures = load_pattern_index_fixtures()
+
+        self.assertTrue(fixtures)
+        for fixture in fixtures:
+            rows = fixture["rows"]
+            self.assertIsInstance(rows, list)
+            self.assertEqual(len(rows), 8)
+            board = "\n".join([*rows, f"side={fixture['side_to_move']}"])
+
+            expectations = fixture["expectations"]
+            self.assertIsInstance(expectations, list)
+            self.assertEqual(len(expectations), 12)
+            for expectation in expectations:
+                family = expectation["family"]
+                side = expectation["side"]
+                indexes = expectation["indexes"]
+
+                self.assertIn(family, PATTERN_FIXTURE_INSTANCES)
+                self.assertEqual(
+                    [name for name, _ in indexes],
+                    list(PATTERN_FIXTURE_INSTANCES[family]),
+                )
+                self.assertEqual(
+                    trainer.pattern_indexes_by_family(board, side, (family,))[family],
+                    [value for _, value in indexes],
+                )
 
     def test_render_table_is_deterministic(self) -> None:
         text = trainer.render_table(
