@@ -92,6 +92,66 @@ phase-specific table loading support. It writes `tables/opening.tsv`,
 Generated TSVs and candidate `.eval` files are temporary experiment artifacts;
 do not commit them or treat their smoke validation as strength proof.
 
+Train regularized pairwise pattern tables when the goal is to improve the
+pattern objective directly rather than tune scalar residual weights:
+
+```sh
+python3 tools/scripts/regularized_pairwise_pattern_train.py \
+  --teacher-labels dataset:teacher.ntest_depth26_2027:train \
+  --exact-labels dataset:teacher.ntest_depth26_2027:exact_teacher2000,dataset:teacher.ntest_depth26_2027:exact_extra30 \
+  --eval-config data/eval/pattern_reboot_v0.eval \
+  --analyze-position build/othello_analyze_position \
+  --out-dir runs/pattern-training/pairwise-v1 \
+  --families broad_all \
+  --split train \
+  --loss logistic \
+  --pair-mode exact-aware \
+  --pair-weighting exact-boost \
+  --exact-best-weight 2.0 \
+  --teacher-weight 1.0 \
+  --max-pairs-per-position 8 \
+  --l2 0.01 \
+  --epochs 5 \
+  --learning-rate 0.05 \
+  --max-abs-weight 8 \
+  --output-scale 8 \
+  --max-abs-output-weight 32767 \
+  --seed 20260601
+```
+
+Pair modes:
+
+- `best-vs-engine`: preserves the original trainer behavior. The teacher move
+  is preferred over the current engine-selected move only.
+- `best-vs-all`: compares the teacher move against all legal/root candidates.
+  Use this when the single engine move is too narrow and the trainer needs more
+  move-ordering signal per position.
+- `rank-weighted`: compares the teacher move against lower-ranked root
+  candidates and can weight those pairs by root rank or score margin. Use this
+  when root candidate scores are available and tiny score ties should matter
+  less than clear rank gaps.
+- `exact-aware`: when exact labels exist, exact-best moves are preferred over
+  non-exact-best legal/root candidates. Rows without exact labels fall back to
+  teacher preferences. This is the preferred v1 objective after the pairwise-v0
+  report because it reduces dependence on a single teacher-vs-engine pair.
+
+Pair weighting:
+
+- `uniform` keeps every generated pair at weight `1.0`.
+- `rank-margin` modestly increases weight for larger root-rank gaps.
+- `score-margin` modestly increases weight for larger root-score gaps.
+- `exact-boost` uses `--exact-best-weight` for exact-best pairs and
+  `--teacher-weight` for teacher fallback pairs.
+
+Use `--max-pairs-per-position` to cap pair explosion and keep the objective
+from simply overfitting harder. The trainer reports weighted train loss, train
+pair accuracy, generated pair counts, pairs per position, exact-aware pairs,
+phase/family entries, quantization stats, and saturation stats. High train
+accuracy is a diagnostic only; it is not evidence of playing strength. Candidate
+TSVs and `.eval` files remain generated artifacts under `runs/`, and follow-up
+evidence should be recorded in a separate experiment report such as
+`docs(eval): report pairwise pattern v1`.
+
 ## General Examples
 
 Collect a reproducible PR evidence report:
