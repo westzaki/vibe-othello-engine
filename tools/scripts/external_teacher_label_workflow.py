@@ -9,6 +9,7 @@ import json
 import re
 import subprocess
 import sys
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,7 @@ SCHEMA_NAME = "teacher_label.v1"
 DEFAULT_TIMEOUT_MS = 1000
 DEFAULT_NTEST_DEPTH = 26
 DEFAULT_LEGAL_VALIDATOR = Path("build") / "othello_validate_move"
+POSITION_LOG_MODES = ("all", "failures", "none")
 
 _BOARD_ROW_PATTERN = re.compile(r"^[.BW]{8}$")
 _MOVE_PATTERN = re.compile(r"^[a-h][1-8]$", re.IGNORECASE)
@@ -62,6 +64,8 @@ class WorkflowConfig:
     legal_validator: Path | None
     dry_run: bool
     allow_failures: bool
+    jobs: int = 1
+    position_log_mode: str = "all"
     invocation: list[str] = field(default_factory=list)
 
     @property
@@ -159,6 +163,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         usage=(
             "%(prog)s --positions PATH [--out DIR] [--input-format auto|board9|raw|nboard-game] "
             "[--limit N] [--timeout-ms N] [--workdir PATH] [--env KEY=VALUE] "
+            "[--jobs N] [--position-log-mode all|failures|none] "
             "[--adapter one-shot|ntest] [--protocol nboard|one-shot] [--depth N] "
             "[--engine-name NAME] [--legal-validator PATH] --engine-cmd -- COMMAND [ARGS...]"
         ),
@@ -181,6 +186,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--limit", type=parse_non_negative_int, help="maximum positions to request")
     parser.add_argument("--timeout-ms", type=parse_positive_int, default=DEFAULT_TIMEOUT_MS)
+    parser.add_argument(
+        "--jobs",
+        type=parse_positive_int,
+        default=1,
+        help="maximum concurrent external-engine requests (default: 1)",
+    )
+    parser.add_argument(
+        "--position-log-mode",
+        choices=POSITION_LOG_MODES,
+        default="all",
+        help="per-position log policy: all, failures, or none (default: all)",
+    )
     parser.add_argument("--workdir", help="working directory for the engine process")
     parser.add_argument(
         "--adapter",
@@ -259,6 +276,8 @@ def config_from_args(args: argparse.Namespace, invocation: list[str] | None = No
         legal_validator=Path(args.legal_validator) if args.legal_validator else None,
         dry_run=args.dry_run,
         allow_failures=args.allow_failures,
+        jobs=args.jobs,
+        position_log_mode=args.position_log_mode,
         invocation=invocation or [],
     )
 
@@ -695,6 +714,20 @@ def _row_status(result: EngineMoveResult, validation: LegalValidationResult) -> 
     return "ok"
 
 
+def should_write_position_log(config: WorkflowConfig, status: str) -> bool:
+    if config.position_log_mode == "all":
+        return True
+    if config.position_log_mode == "failures":
+        return status == "failed"
+    return False
+
+
+def position_log_path(config: WorkflowConfig, position: InputPosition, status: str) -> Path | None:
+    if not should_write_position_log(config, status):
+        return None
+    return config.logs_dir / f"position-{position.position_index:06d}.log"
+
+
 def write_position_log(
     path: Path,
     *,
@@ -786,25 +819,28 @@ def dry_run_row(
     config: WorkflowConfig,
     metadata: Metadata,
     position: InputPosition,
-    log_path: Path,
     external_input_text: str,
     external_input_format: str,
 ) -> dict[str, Any]:
-    write_position_log(
-        log_path,
-        config=config,
-        position=position,
-        external_input_text=external_input_text,
-        external_input_format=external_input_format,
-        status="skipped",
-        validation=LegalValidationResult(
-            valid=None,
-            source=str(config.legal_validator) if config.legal_validator is not None else "unavailable",
-            legal_moves=[],
-            error="dry-run",
-        ),
+    status = "skipped"
+    validation = LegalValidationResult(
+        valid=None,
+        source=str(config.legal_validator) if config.legal_validator is not None else "unavailable",
+        legal_moves=[],
         error="dry-run",
     )
+    log_path = position_log_path(config, position, status)
+    if log_path is not None:
+        write_position_log(
+            log_path,
+            config=config,
+            position=position,
+            external_input_text=external_input_text,
+            external_input_format=external_input_format,
+            status=status,
+            validation=validation,
+            error="dry-run",
+        )
     return base_row(
         config,
         metadata,
@@ -812,15 +848,10 @@ def dry_run_row(
         log_path,
         external_input_text,
         external_input_format,
-        status="skipped",
+        status=status,
         move=None,
         move_token_valid=None,
-        validation=LegalValidationResult(
-            valid=None,
-            source=str(config.legal_validator) if config.legal_validator is not None else "unavailable",
-            legal_moves=[],
-            error="dry-run",
-        ),
+        validation=validation,
         elapsed_ms=None,
         exit_code=None,
         timed_out=False,
@@ -832,7 +863,7 @@ def base_row(
     config: WorkflowConfig,
     metadata: Metadata,
     position: InputPosition,
-    log_path: Path,
+    log_path: Path | None,
     external_input_text: str,
     external_input_format: str,
     *,
@@ -845,6 +876,7 @@ def base_row(
     exit_code: int | None,
     timed_out: bool,
     error: str | None,
+    result: EngineMoveResult | None = None,
 ) -> dict[str, Any]:
     row: dict[str, Any] = {
         "schema": SCHEMA_NAME,
@@ -868,10 +900,21 @@ def base_row(
         "exit_code": exit_code,
         "timed_out": timed_out,
         "error": error,
-        "log_path": str(log_path),
+        "log_path": str(log_path) if log_path is not None else None,
         "generated_at": metadata.generated_at,
         "git_sha": metadata.git_sha,
     }
+    if log_path is None and status != "ok":
+        row.update(
+            {
+                "engine_stdout": result.raw_output if result is not None else "",
+                "engine_stderr": result.raw_error if result is not None else "",
+                "legal_validation_command": validation.command,
+                "legal_validation_exit_code": validation.exit_code,
+                "legal_validation_stdout": validation.stdout,
+                "legal_validation_stderr": validation.stderr,
+            }
+        )
     if position.name is not None:
         row["position_name"] = position.name
     if position.metadata:
@@ -888,14 +931,12 @@ def run_position(
     position: InputPosition,
 ) -> dict[str, Any]:
     external_input_text, external_input_format = adapter_input_for_position(config, position)
-    log_path = config.logs_dir / f"position-{position.position_index:06d}.log"
 
     if config.dry_run:
         return dry_run_row(
             config,
             metadata,
             position,
-            log_path,
             external_input_text,
             external_input_format,
         )
@@ -904,17 +945,20 @@ def run_position(
         result = request_engine_move(config, external_input_text)
     except ExternalEngineError as exc:
         error = str(exc)
+        status = "failed"
         validation = LegalValidationResult(valid=None, source="not-run", legal_moves=[])
-        write_position_log(
-            log_path,
-            config=config,
-            position=position,
-            external_input_text=external_input_text,
-            external_input_format=external_input_format,
-            status="failed",
-            validation=validation,
-            error=error,
-        )
+        log_path = position_log_path(config, position, status)
+        if log_path is not None:
+            write_position_log(
+                log_path,
+                config=config,
+                position=position,
+                external_input_text=external_input_text,
+                external_input_format=external_input_format,
+                status=status,
+                validation=validation,
+                error=error,
+            )
         return base_row(
             config,
             metadata,
@@ -922,7 +966,7 @@ def run_position(
             log_path,
             external_input_text,
             external_input_format,
-            status="failed",
+            status=status,
             move=None,
             move_token_valid=None,
             validation=validation,
@@ -941,18 +985,20 @@ def run_position(
     validation = validate_legal_move(config, position, normalized_move)
     status = _row_status(result, validation)
     error = _row_error(result, validation)
-    write_position_log(
-        log_path,
-        config=config,
-        position=position,
-        external_input_text=external_input_text,
-        external_input_format=external_input_format,
-        status=status,
-        result=result,
-        normalized_move=normalized_move,
-        validation=validation,
-        error=error,
-    )
+    log_path = position_log_path(config, position, status)
+    if log_path is not None:
+        write_position_log(
+            log_path,
+            config=config,
+            position=position,
+            external_input_text=external_input_text,
+            external_input_format=external_input_format,
+            status=status,
+            result=result,
+            normalized_move=normalized_move,
+            validation=validation,
+            error=error,
+        )
     return base_row(
         config,
         metadata,
@@ -969,6 +1015,7 @@ def run_position(
         exit_code=result.exit_code,
         timed_out=result.timed_out,
         error=error,
+        result=result,
     )
 
 
@@ -995,6 +1042,46 @@ def summarize_rows(
         ),
         limit_skipped=limit_skipped,
     )
+
+
+def validate_config(config: WorkflowConfig) -> None:
+    if config.jobs <= 0:
+        raise ScriptError("--jobs must be a positive integer")
+    if config.position_log_mode not in POSITION_LOG_MODES:
+        choices = "|".join(POSITION_LOG_MODES)
+        raise ScriptError(f"--position-log-mode must be one of {choices}")
+
+
+def run_positions_concurrently(
+    config: WorkflowConfig,
+    metadata: Metadata,
+    positions: list[InputPosition],
+) -> list[dict[str, Any]]:
+    rows_by_index: dict[int, dict[str, Any]] = {}
+    position_iter = iter(positions)
+    max_pending = max(1, config.jobs * 2)
+
+    with ThreadPoolExecutor(max_workers=config.jobs) as executor:
+        pending: set[Any] = set()
+
+        def submit_until_full() -> None:
+            while len(pending) < max_pending:
+                try:
+                    position = next(position_iter)
+                except StopIteration:
+                    return
+                pending.add(executor.submit(run_position, config, metadata, position))
+
+        submit_until_full()
+        while pending:
+            done, _ = wait(pending, return_when=FIRST_COMPLETED)
+            for future in done:
+                pending.remove(future)
+                row = future.result()
+                rows_by_index[int(row["position_index"])] = row
+            submit_until_full()
+
+    return [rows_by_index[position.position_index] for position in positions]
 
 
 def workflow_status(config: WorkflowConfig, summary: RunSummary) -> str:
@@ -1034,6 +1121,9 @@ def render_report(config: WorkflowConfig, metadata: Metadata, summary: RunSummar
         f"- protocol: `{config.protocol}`",
         f"- depth: `{depth_text}`",
         f"- timeout_ms: `{config.timeout_ms}`",
+        f"- jobs: `{config.jobs}`",
+        f"- position_log_mode: `{config.position_log_mode}`",
+        f"- allow_failures: `{config.allow_failures}`",
         f"- workdir: `{config.workdir if config.workdir is not None else 'n/a'}`",
         f"- input_format: `{config.input_format}`",
         f"- legal_validator: `{config.legal_validator if config.legal_validator is not None else 'n/a'}`",
@@ -1081,6 +1171,7 @@ def render_report(config: WorkflowConfig, metadata: Metadata, summary: RunSummar
 
 
 def run_workflow(config: WorkflowConfig) -> int:
+    validate_config(config)
     config.out_dir.mkdir(parents=True, exist_ok=True)
     metadata = collect_metadata()
     positions = parse_positions(config.positions_path, config.input_format)
@@ -1092,10 +1183,15 @@ def run_workflow(config: WorkflowConfig) -> int:
     rows: list[dict[str, Any]] = []
     config.labels_path.parent.mkdir(parents=True, exist_ok=True)
     with config.labels_path.open("w", encoding="utf-8") as labels_file:
-        for position in requested_positions:
-            row = run_position(config, metadata, position)
-            rows.append(row)
-            labels_file.write(json.dumps(row, sort_keys=True) + "\n")
+        if config.jobs == 1:
+            for position in requested_positions:
+                row = run_position(config, metadata, position)
+                rows.append(row)
+                labels_file.write(json.dumps(row, sort_keys=True) + "\n")
+        else:
+            rows = run_positions_concurrently(config, metadata, requested_positions)
+            for row in rows:
+                labels_file.write(json.dumps(row, sort_keys=True) + "\n")
 
     summary = summarize_rows(
         total_input_positions=len(positions),

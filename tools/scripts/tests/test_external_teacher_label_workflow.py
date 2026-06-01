@@ -6,6 +6,7 @@ import sys
 import tempfile
 import textwrap
 import unittest
+from concurrent.futures import Future
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parents[1]
@@ -71,6 +72,34 @@ def write_legal_validator(directory: Path, *, legal_moves: str = "d3 c4 d6") -> 
     return path
 
 
+def write_stdin_router_engine(directory: Path) -> Path:
+    path = directory / "stdin_router_engine.py"
+    path.write_text(
+        "#!/usr/bin/env python3\n"
+        + textwrap.dedent(
+            """
+            import sys
+            import time
+
+            text = sys.stdin.read()
+            if "SLOW" in text:
+                time.sleep(0.2)
+                print("d3")
+            elif "BADTOKEN" in text:
+                print("z9")
+            elif "EXIT7" in text:
+                print("boom", file=sys.stderr)
+                sys.exit(7)
+            else:
+                print("d3")
+            """
+        ),
+        encoding="utf-8",
+    )
+    path.chmod(0o755)
+    return path
+
+
 def read_rows(path: Path) -> list[dict[str, object]]:
     with path.open("r", encoding="utf-8") as handle:
         return [json.loads(line) for line in handle if line.strip()]
@@ -79,7 +108,8 @@ def read_rows(path: Path) -> list[dict[str, object]]:
 def make_config(
     temp_dir: Path,
     *,
-    engine_args: list[str],
+    engine_args: list[str] | None = None,
+    engine_command: list[str] | None = None,
     extra_args: list[str] | None = None,
     positions_text: str = BOARD9_POSITION,
 ) -> workflow.WorkflowConfig:
@@ -97,7 +127,8 @@ def make_config(
     ]
     if extra_args:
         args.extend(extra_args)
-    args.extend(["--engine-cmd", "--", sys.executable, str(FAKE_ENGINE), *engine_args])
+    command = engine_command or [sys.executable, str(FAKE_ENGINE), *(engine_args or [])]
+    args.extend(["--engine-cmd", "--", *command])
     parsed = workflow.parse_args(args)
     return workflow.config_from_args(
         parsed,
@@ -131,6 +162,238 @@ class ExternalTeacherLabelWorkflowTests(unittest.TestCase):
         self.assertIn("external_input_text", row)
         self.assertIn("No strength claim", report)
         self.assertIn("fake-engine tests cover CI", report)
+
+    def test_jobs_keeps_labels_in_position_index_order_with_slow_engine(self) -> None:
+        positions_text = """\
+        # name: slow
+        SLOW
+
+        # name: fast
+        FAST
+
+        # name: normal
+        NORMAL
+        """
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            engine = write_stdin_router_engine(temp_path)
+            config = make_config(
+                temp_path,
+                engine_command=[sys.executable, str(engine)],
+                extra_args=["--input-format", "raw", "--jobs", "3"],
+                positions_text=positions_text,
+            )
+
+            exit_code = workflow.run_workflow(config)
+            rows = read_rows(config.labels_path)
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual([row["position_index"] for row in rows], [0, 1, 2])
+        self.assertEqual([row["position_name"] for row in rows], ["slow", "fast", "normal"])
+        self.assertTrue(all(row["status"] == "ok" for row in rows))
+
+    def test_jobs_uses_bounded_pending_future_window(self) -> None:
+        positions_text = "\n\n".join(f"# name: p{index}\nP{index}" for index in range(9))
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            config = make_config(
+                temp_path,
+                engine_command=["unused"],
+                extra_args=["--input-format", "raw", "--jobs", "2"],
+                positions_text=positions_text,
+            )
+            positions = workflow.parse_positions(config.positions_path, config.input_format)
+            metadata = workflow.Metadata(generated_at="test", git_sha="test")
+            max_pending = config.jobs * 2
+            outstanding: set[Future[dict[str, object]]] = set()
+            observed_pending_sizes: list[int] = []
+
+            class TrackingExecutor:
+                def __init__(self, *, max_workers: int) -> None:
+                    self.max_workers = max_workers
+
+                def __enter__(self) -> TrackingExecutor:
+                    return self
+
+                def __exit__(self, *_: object) -> bool:
+                    return False
+
+                def submit(
+                    self,
+                    fn: object,
+                    config_arg: object,
+                    metadata_arg: object,
+                    position: object,
+                ) -> Future[dict[str, object]]:
+                    future: Future[dict[str, object]] = Future()
+                    future.set_result(
+                        {
+                            "position_index": getattr(position, "position_index"),
+                            "position_name": getattr(position, "name"),
+                        }
+                    )
+                    outstanding.add(future)
+                    if len(outstanding) > max_pending:
+                        raise AssertionError("submitted more than the pending-future window")
+                    return future
+
+            def fake_wait(
+                futures: object,
+                *,
+                return_when: object,
+            ) -> tuple[set[Future[dict[str, object]]], set[Future[dict[str, object]]]]:
+                pending = set(futures)
+                observed_pending_sizes.append(len(pending))
+                done = {next(iter(pending))}
+                outstanding.difference_update(done)
+                return done, pending - done
+
+            original_executor = workflow.ThreadPoolExecutor
+            original_wait = workflow.wait
+            try:
+                workflow.ThreadPoolExecutor = TrackingExecutor  # type: ignore[assignment]
+                workflow.wait = fake_wait  # type: ignore[assignment]
+                rows = workflow.run_positions_concurrently(config, metadata, positions)
+            finally:
+                workflow.ThreadPoolExecutor = original_executor  # type: ignore[assignment]
+                workflow.wait = original_wait  # type: ignore[assignment]
+
+        self.assertEqual([row["position_index"] for row in rows], list(range(9)))
+        self.assertGreater(len(positions), max_pending)
+        self.assertTrue(observed_pending_sizes)
+        self.assertLessEqual(max(observed_pending_sizes), max_pending)
+
+    def test_position_log_mode_failures_writes_only_failed_logs(self) -> None:
+        positions_text = """\
+        # name: ok
+        OK
+
+        # name: bad-token
+        BADTOKEN
+        """
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            engine = write_stdin_router_engine(temp_path)
+            config = make_config(
+                temp_path,
+                engine_command=[sys.executable, str(engine)],
+                extra_args=[
+                    "--input-format",
+                    "raw",
+                    "--position-log-mode",
+                    "failures",
+                    "--allow-failures",
+                ],
+                positions_text=positions_text,
+            )
+
+            exit_code = workflow.run_workflow(config)
+            rows = read_rows(config.labels_path)
+            report = config.report_path.read_text(encoding="utf-8")
+            failed_log_exists = Path(str(rows[1]["log_path"])).is_file()
+            log_names = sorted(path.name for path in config.logs_dir.glob("*.log"))
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(rows[0]["status"], "ok")
+        self.assertIsNone(rows[0]["log_path"])
+        self.assertNotIn("engine_stdout", rows[0])
+        self.assertNotIn("engine_stderr", rows[0])
+        self.assertEqual(rows[1]["status"], "failed")
+        self.assertIsNotNone(rows[1]["log_path"])
+        self.assertNotIn("engine_stdout", rows[1])
+        self.assertNotIn("engine_stderr", rows[1])
+        self.assertTrue(failed_log_exists)
+        self.assertEqual(log_names, ["position-000001.log"])
+        self.assertIn("- position_log_mode: `failures`", report)
+
+    def test_position_log_mode_none_writes_diagnostics_without_logs(self) -> None:
+        positions_text = """\
+        # name: ok
+        OK
+
+        # name: bad-token
+        BADTOKEN
+        """
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            engine = write_stdin_router_engine(temp_path)
+            config = make_config(
+                temp_path,
+                engine_command=[sys.executable, str(engine)],
+                extra_args=[
+                    "--input-format",
+                    "raw",
+                    "--position-log-mode",
+                    "none",
+                    "--allow-failures",
+                ],
+                positions_text=positions_text,
+            )
+
+            exit_code = workflow.run_workflow(config)
+            rows = read_rows(config.labels_path)
+            report = config.report_path.read_text(encoding="utf-8")
+            logs_dir_exists = config.logs_dir.exists()
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(rows[0]["status"], "ok")
+        self.assertIsNone(rows[0]["log_path"])
+        self.assertNotIn("engine_stdout", rows[0])
+        self.assertNotIn("engine_stderr", rows[0])
+        self.assertEqual(rows[1]["status"], "failed")
+        self.assertIsNone(rows[1]["log_path"])
+        self.assertFalse(logs_dir_exists)
+        self.assertEqual(str(rows[1]["engine_stdout"]).strip(), "z9")
+        self.assertIn("invalid move format", str(rows[1]["error"]))
+        self.assertIn("- position_log_mode: `none`", report)
+
+    def test_summary_counts_mixed_ok_fail_rows(self) -> None:
+        positions_text = """\
+        # name: ok
+        OK
+
+        # name: bad-token
+        BADTOKEN
+
+        # name: exited
+        EXIT7
+
+        # name: timed-out
+        SLOW
+        """
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            engine = write_stdin_router_engine(temp_path)
+            config = make_config(
+                temp_path,
+                engine_command=[sys.executable, str(engine)],
+                extra_args=[
+                    "--input-format",
+                    "raw",
+                    "--timeout-ms",
+                    "100",
+                    "--position-log-mode",
+                    "none",
+                    "--allow-failures",
+                ],
+                positions_text=positions_text,
+            )
+
+            exit_code = workflow.run_workflow(config)
+            rows = read_rows(config.labels_path)
+            report = config.report_path.read_text(encoding="utf-8")
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual([row["status"] for row in rows], ["ok", "failed", "failed", "failed"])
+        self.assertEqual([row["timed_out"] for row in rows], [False, False, False, True])
+        self.assertIn("- total_input_positions: `4`", report)
+        self.assertIn("- requested: `4`", report)
+        self.assertIn("- ok: `1`", report)
+        self.assertIn("- failed: `3`", report)
+        self.assertIn("- timed_out: `1`", report)
+        self.assertIn("- invalid_move_token: `1`", report)
+        self.assertIn("- illegal_move: `0`", report)
+        self.assertIn("- legal_validation_failed: `0`", report)
 
     def test_invalid_move_token_is_recorded_as_failure(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
