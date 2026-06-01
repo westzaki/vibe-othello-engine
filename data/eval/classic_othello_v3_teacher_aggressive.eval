@@ -1,13 +1,15 @@
 # schema_version: eval.v1
 # status: experimental
 # created_at: 2026-05-31
-# based_on: data/eval/classic_othello_v2_teacher_safe.eval
+# based_on: historical scalar candidates recorded in source_report
 # source_report: docs/experiments/evaluation/2026-05-31-teacher-aggressive-v3.md
 # not_default: true
 # not_promoted: true
+# role: retained_scalar_comparison_anchor
+# do_not_use_as_research_baseline: true
 # purpose: Aggressive teacher top-1 agreement scalar evaluator candidate.
 # validation: See docs/experiments/evaluation/2026-05-31-teacher-aggressive-v3.md.
-# caveat: Experimental config only; not the default evaluator and not a C++ preset.
+# caveat: Retained only as a scalar comparison anchor; not the default evaluator and not a C++ preset.
 name=classic_othello_v3_teacher_aggressive
 
 opening.disc_difference=3

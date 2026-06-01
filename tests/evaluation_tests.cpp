@@ -91,12 +91,6 @@ void write_text_file(const std::filesystem::path& path, std::string_view text) {
     return paths;
 }
 
-template <typename Table>
-[[nodiscard]] std::size_t nonzero_count(const Table& table) {
-    return static_cast<std::size_t>(
-        std::ranges::count_if(table, [](std::int16_t value) { return value != 0; }));
-}
-
 [[nodiscard]] Board corner_occupancy_board() {
     return Board{
         .black = Board::initial().black | othello::test::bit("a1"),
@@ -278,18 +272,14 @@ TEST_CASE("Sample eval configs round-trip to expected evaluator configs", "[eval
     CHECK(phase_aware.config ==
           othello::evaluation_config_for_preset(othello::EvaluationPreset::PhaseAwareV1));
 
-    const othello::tools::EvaluationConfigLoadResult soft =
+    const othello::tools::EvaluationConfigLoadResult scalar_anchor =
         othello::tools::load_evaluation_config_file(
-            sample_eval_config_path("default_edge_pattern_8_soft.eval"));
-    REQUIRE(soft.ok());
-    REQUIRE(soft.name.has_value());
-    CHECK(*soft.name == "default_edge_pattern_8_soft");
-
-    othello::EvaluationConfig expected_soft = othello::default_evaluation_config();
-    expected_soft.opening.edge_8_pattern = 1;
-    expected_soft.midgame.edge_8_pattern = 3;
-    expected_soft.late.edge_8_pattern = 5;
-    CHECK(soft.config == expected_soft);
+            sample_eval_config_path("classic_othello_v3_teacher_aggressive.eval"));
+    REQUIRE(scalar_anchor.ok());
+    REQUIRE(scalar_anchor.name.has_value());
+    CHECK(*scalar_anchor.name == "classic_othello_v3_teacher_aggressive");
+    CHECK(scalar_anchor.config != othello::default_evaluation_config());
+    CHECK_FALSE(scalar_anchor.config.pattern_tables.enabled);
 
     const othello::tools::EvaluationConfigLoadResult pattern =
         othello::tools::load_evaluation_config_file(
@@ -306,57 +296,32 @@ TEST_CASE("Sample eval configs round-trip to expected evaluator configs", "[eval
                                 [](std::int16_t value) { return value != 0; }) == 64);
     CHECK(std::ranges::count_if(pattern.config.pattern_tables.edge_8,
                                 [](std::int16_t value) { return value != 0; }) == 64);
+}
 
-    const othello::tools::EvaluationConfigLoadResult pattern_v1 =
-        othello::tools::load_evaluation_config_file(
-            sample_eval_config_path("pattern_teacher_v1.eval"));
-    REQUIRE(pattern_v1.ok());
-    REQUIRE(pattern_v1.name.has_value());
-    CHECK(*pattern_v1.name == "pattern_teacher_v1");
-    CHECK(pattern_v1.pattern_table_path == "patterns/pattern_teacher_v1.tsv");
-    CHECK(pattern_v1.config.pattern_tables.enabled);
-    CHECK(pattern_v1.config.opening.pattern_table == 6);
-    CHECK(pattern_v1.config.midgame.pattern_table == 6);
-    CHECK(pattern_v1.config.late.pattern_table == 6);
-    CHECK(std::ranges::count_if(pattern_v1.config.pattern_tables.corner_2x3,
-                                [](std::int16_t value) { return value != 0; }) == 80);
-    CHECK(std::ranges::count_if(pattern_v1.config.pattern_tables.edge_8,
-                                [](std::int16_t value) { return value != 0; }) == 76);
+TEST_CASE("Rejected eval experiments are pruned from the active eval surface",
+          "[evaluation]") {
+    constexpr std::array<std::string_view, 14> pruned_artifacts{{
+        "classic_othello_v1.eval",
+        "classic_othello_v2_teacher_safe.eval",
+        "classic_othello_v3_late_exact.eval",
+        "classic_othello_v3_teacher_rank.eval",
+        "classic_pattern_v0.eval",
+        "default_edge_pattern_8_soft.eval",
+        "experimental_edge8_soft_frontier_stability.eval",
+        "pattern_teacher_v1.eval",
+        "pattern_teacher_v1_phase.eval",
+        "pattern_teacher_v1_rank.eval",
+        "patterns/classic_pattern_v0.tsv",
+        "patterns/pattern_teacher_v1.tsv",
+        "patterns/pattern_teacher_v1_phase.tsv",
+        "patterns/pattern_teacher_v1_rank.tsv",
+    }};
 
-    const othello::tools::EvaluationConfigLoadResult pattern_v1_rank =
-        othello::tools::load_evaluation_config_file(
-            sample_eval_config_path("pattern_teacher_v1_rank.eval"));
-    REQUIRE(pattern_v1_rank.ok());
-    CHECK(std::ranges::count_if(pattern_v1_rank.config.pattern_tables.corner_2x3,
-                                [](std::int16_t value) { return value != 0; }) == 80);
-    CHECK(std::ranges::count_if(pattern_v1_rank.config.pattern_tables.edge_8,
-                                [](std::int16_t value) { return value != 0; }) == 80);
-
-    const othello::tools::EvaluationConfigLoadResult pattern_v1_phase =
-        othello::tools::load_evaluation_config_file(
-            sample_eval_config_path("pattern_teacher_v1_phase.eval"));
-    REQUIRE(pattern_v1_phase.ok());
-    CHECK(std::ranges::count_if(pattern_v1_phase.config.pattern_tables.corner_2x3,
-                                [](std::int16_t value) { return value != 0; }) == 8);
-    CHECK(std::ranges::count_if(pattern_v1_phase.config.pattern_tables.edge_8,
-                                [](std::int16_t value) { return value != 0; }) == 12);
-
-    const othello::tools::EvaluationConfigLoadResult classic_pattern =
-        othello::tools::load_evaluation_config_file(
-            sample_eval_config_path("classic_pattern_v0.eval"));
-    REQUIRE(classic_pattern.ok());
-    REQUIRE(classic_pattern.name.has_value());
-    CHECK(*classic_pattern.name == "classic_pattern_v0");
-    CHECK(classic_pattern.pattern_table_path == "patterns/classic_pattern_v0.tsv");
-    CHECK(classic_pattern.config.pattern_tables.enabled);
-    CHECK(classic_pattern.config.opening.pattern_table == 6);
-    CHECK(classic_pattern.config.midgame.pattern_table == 6);
-    CHECK(classic_pattern.config.late.pattern_table == 6);
-    CHECK(nonzero_count(classic_pattern.config.pattern_tables.corner_3x3) > 0);
-    CHECK(nonzero_count(classic_pattern.config.pattern_tables.edge_8) > 0);
-    CHECK(nonzero_count(classic_pattern.config.pattern_tables.edge_x_10) > 0);
-    CHECK(nonzero_count(classic_pattern.config.pattern_tables.diagonal_8) > 0);
-    CHECK(nonzero_count(classic_pattern.config.pattern_tables.inner_row_8) > 0);
+    for (std::string_view artifact : pruned_artifacts) {
+        const std::string artifact_name{artifact};
+        CAPTURE(artifact_name);
+        CHECK_FALSE(std::filesystem::exists(sample_eval_config_path(artifact_name)));
+    }
 }
 
 TEST_CASE("Committed eval config fixtures parse and preserve intended identities",
@@ -471,7 +436,7 @@ TEST_CASE("Tool evaluator selection resolves presets and config files", "[evalua
           othello::evaluation_config_for_preset(othello::EvaluationPreset::PhaseAwareV1));
 
     const std::string config_path =
-        sample_eval_config_path("default_edge_pattern_8_soft.eval").string();
+        sample_eval_config_path("pattern_teacher_v0.eval").string();
     const std::optional<othello::tools::EvaluatorSelection> config_selection =
         othello::tools::parse_evaluator_selection({.config_path = config_path}, error);
     REQUIRE(config_selection.has_value());
@@ -479,12 +444,10 @@ TEST_CASE("Tool evaluator selection resolves presets and config files", "[evalua
     CHECK(config_selection->config_path == config_path);
     CHECK(othello::tools::has_custom_eval_config(*config_selection));
     CHECK(config_selection->config_override.has_value());
-
-    othello::EvaluationConfig expected_soft = othello::default_evaluation_config();
-    expected_soft.opening.edge_8_pattern = 1;
-    expected_soft.midgame.edge_8_pattern = 3;
-    expected_soft.late.edge_8_pattern = 5;
-    CHECK(othello::tools::resolve_evaluator_selection(*config_selection) == expected_soft);
+    CHECK(config_selection->config_override->pattern_tables.enabled);
+    CHECK(config_selection->config_override->opening.pattern_table == 10);
+    CHECK(othello::tools::resolve_evaluator_selection(*config_selection) ==
+          *config_selection->config_override);
 }
 
 TEST_CASE("Tool evaluator selection rejects ambiguous or invalid input", "[evaluation]") {

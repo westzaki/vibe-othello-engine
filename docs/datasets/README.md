@@ -34,7 +34,7 @@ Use `dataset:relative/path` to read a file below the dataset root:
 python3 tools/scripts/pattern_teacher_v0_train.py \
   --dataset-root /path/to/vibe-othello-datasets \
   --teacher-labels dataset:teacher/ntest-depth26-2027/labels/merged.jsonl \
-  --eval-config data/eval/classic_othello_v3_teacher_aggressive.eval \
+  --eval-config data/eval/pattern_teacher_v0.eval \
   --out runs/pattern-training/table.tsv
 ```
 
@@ -44,7 +44,7 @@ Catalog references use the local TOML entry shape:
 python3 tools/scripts/pattern_teacher_v0_train.py \
   --teacher-labels dataset:teacher.ntest_depth26_2027:labels \
   --exact-labels dataset:teacher.ntest_depth26_2027:exact_overlap \
-  --eval-config data/eval/classic_othello_v3_teacher_aggressive.eval \
+  --eval-config data/eval/pattern_teacher_v0.eval \
   --out runs/pattern-training/table.tsv
 ```
 

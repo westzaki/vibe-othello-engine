@@ -134,13 +134,12 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
 
     const othello::SearchOptions eval_config_options = require_search_options(
         "search:depth=4,eval_config=" +
-        sample_eval_config_path("default_edge_pattern_8_soft.eval"));
-    othello::EvaluationConfig expected_soft = othello::default_evaluation_config();
-    expected_soft.opening.edge_8_pattern = 1;
-    expected_soft.midgame.edge_8_pattern = 3;
-    expected_soft.late.edge_8_pattern = 5;
+        sample_eval_config_path("pattern_teacher_v0.eval"));
     CHECK(eval_config_options.evaluation_config_override.has_value());
-    CHECK(othello::resolve_evaluation_config(eval_config_options) == expected_soft);
+    CHECK(eval_config_options.evaluation_config_override->pattern_tables.enabled);
+    CHECK(eval_config_options.evaluation_config_override->opening.pattern_table == 10);
+    CHECK(othello::resolve_evaluation_config(eval_config_options) ==
+          *eval_config_options.evaluation_config_override);
 }
 
 TEST_CASE("Search player specs reject invalid options", "[match-runner]") {
