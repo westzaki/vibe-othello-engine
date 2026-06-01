@@ -1,0 +1,55 @@
+# schema_version: eval.v1
+# status: experimental
+# created_at: 2026-06-01
+# based_on: data/eval/pattern_teacher_v0.eval
+# source_report: docs/experiments/evaluation/2026-06-01-pattern-reboot-v0.md
+# not_default: true
+# not_promoted: true
+# research_line: pattern_first
+# decision: clean_reboot_baseline
+# purpose: Pattern-only baseline with all scalar handcrafted feature weights set to zero.
+# caveat: Expected to be weaker initially; retained to make future pattern learning independent from scalar residual features.
+name=pattern_reboot_v0
+pattern_table=patterns/pattern_teacher_v0.tsv
+
+opening.disc_difference=0
+opening.mobility=0
+opening.potential_mobility=0
+opening.corner_occupancy=0
+opening.corner_access=0
+opening.x_square_danger=0
+opening.frontier=0
+opening.corner_local_2x3=0
+opening.corner_2x3_pattern=0
+opening.edge_stability_lite=0
+opening.edge_8_pattern=0
+opening.pattern_table=4
+
+midgame.disc_difference=0
+midgame.mobility=0
+midgame.potential_mobility=0
+midgame.corner_occupancy=0
+midgame.corner_access=0
+midgame.x_square_danger=0
+midgame.frontier=0
+midgame.corner_local_2x3=0
+midgame.corner_2x3_pattern=0
+midgame.edge_stability_lite=0
+midgame.edge_8_pattern=0
+midgame.pattern_table=4
+
+late.disc_difference=0
+late.mobility=0
+late.potential_mobility=0
+late.corner_occupancy=0
+late.corner_access=0
+late.x_square_danger=0
+late.frontier=0
+late.corner_local_2x3=0
+late.corner_2x3_pattern=0
+late.edge_stability_lite=0
+late.edge_8_pattern=0
+late.pattern_table=4
+
+opening_max_occupied=20
+midgame_max_occupied=44

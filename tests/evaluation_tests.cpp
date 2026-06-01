@@ -216,6 +216,20 @@ void check_breakdown_matches_basic(const Board& board, Side side) {
     return config;
 }
 
+void check_scalar_weights_zero(const othello::EvaluationFeatureWeights& weights) {
+    CHECK(weights.disc_difference == 0);
+    CHECK(weights.mobility == 0);
+    CHECK(weights.potential_mobility == 0);
+    CHECK(weights.corner_occupancy == 0);
+    CHECK(weights.corner_access == 0);
+    CHECK(weights.x_square_danger == 0);
+    CHECK(weights.frontier == 0);
+    CHECK(weights.corner_local_2x3 == 0);
+    CHECK(weights.corner_2x3_pattern == 0);
+    CHECK(weights.edge_stability_lite == 0);
+    CHECK(weights.edge_8_pattern == 0);
+}
+
 void check_non_terminal_breakdown_math(const Board& board, Side side) {
     REQUIRE_FALSE(othello::is_game_over(board));
 
@@ -295,6 +309,28 @@ TEST_CASE("Sample eval configs round-trip to expected evaluator configs", "[eval
     CHECK(std::ranges::count_if(pattern.config.pattern_tables.corner_2x3,
                                 [](std::int16_t value) { return value != 0; }) == 64);
     CHECK(std::ranges::count_if(pattern.config.pattern_tables.edge_8,
+                                [](std::int16_t value) { return value != 0; }) == 64);
+
+    const othello::tools::EvaluationConfigLoadResult reboot =
+        othello::tools::load_evaluation_config_file(
+            sample_eval_config_path("pattern_reboot_v0.eval"));
+    REQUIRE(reboot.ok());
+    REQUIRE(reboot.name.has_value());
+    CHECK(*reboot.name == "pattern_reboot_v0");
+    CHECK(reboot.pattern_table_path == "patterns/pattern_teacher_v0.tsv");
+    CHECK(reboot.config != othello::default_evaluation_config());
+    CHECK(reboot.config.pattern_tables.enabled);
+    check_scalar_weights_zero(reboot.config.opening);
+    check_scalar_weights_zero(reboot.config.midgame);
+    check_scalar_weights_zero(reboot.config.late);
+    CHECK(reboot.config.opening.pattern_table == 4);
+    CHECK(reboot.config.midgame.pattern_table == 4);
+    CHECK(reboot.config.late.pattern_table == 4);
+    CHECK(reboot.config.opening_max_occupied == 20);
+    CHECK(reboot.config.midgame_max_occupied == 44);
+    CHECK(std::ranges::count_if(reboot.config.pattern_tables.corner_2x3,
+                                [](std::int16_t value) { return value != 0; }) == 64);
+    CHECK(std::ranges::count_if(reboot.config.pattern_tables.edge_8,
                                 [](std::int16_t value) { return value != 0; }) == 64);
 }
 
