@@ -258,6 +258,31 @@ void check_breakdown_matches_basic(const Board& board, Side side) {
     return pattern_table_only_config(weight, std::make_shared<othello::PatternTableBundle>());
 }
 
+[[nodiscard]] othello::EvaluationConfig sparse_scalar_config() noexcept {
+    return othello::EvaluationConfig{
+        .opening = othello::EvaluationFeatureWeights{
+            .mobility = 7,
+            .corner_access = 11,
+        },
+        .midgame = othello::EvaluationFeatureWeights{
+            .mobility = 5,
+            .frontier = 3,
+        },
+        .late = othello::EvaluationFeatureWeights{
+            .disc_difference = 2,
+            .corner_occupancy = 4,
+        },
+    };
+}
+
+[[nodiscard]] Board terminal_black_win_board() noexcept {
+    return Board{
+        .black = ~Bitboard{0},
+        .white = 0,
+        .side_to_move = Side::Black,
+    };
+}
+
 [[nodiscard]] std::vector<int> corner_2x3_indexes_for_boards(
     const std::vector<Board>& boards, Side side) {
     constexpr std::array corners{
@@ -1284,11 +1309,7 @@ TEST_CASE("Corner ownership improves the owning side evaluation", "[evaluation]"
 }
 
 TEST_CASE("Evaluation breakdown total matches basic evaluator", "[evaluation]") {
-    const Board terminal{
-        .black = ~Bitboard{0},
-        .white = 0,
-        .side_to_move = Side::Black,
-    };
+    const Board terminal = terminal_black_win_board();
 
     for (const Board& board :
          {Board::initial(), midgame_board(), corner_occupancy_board(), corner_access_board(),
@@ -1298,12 +1319,85 @@ TEST_CASE("Evaluation breakdown total matches basic evaluator", "[evaluation]") 
     }
 }
 
-TEST_CASE("Default config matches compatibility evaluator", "[evaluation]") {
-    const Board terminal{
-        .black = ~Bitboard{0},
-        .white = 0,
-        .side_to_move = Side::Black,
+TEST_CASE("Score-only evaluator matches breakdown totals across configs and phases",
+          "[evaluation]") {
+    struct BoardFixture {
+        std::string_view name;
+        Board board;
+        othello::EvaluationPhase expected_phase;
+        bool terminal = false;
     };
+
+    const othello::tools::EvaluationConfigLoadResult pattern =
+        othello::tools::load_evaluation_config_file(
+            sample_eval_config_path("pattern_reboot_v0.eval"));
+    REQUIRE(pattern.ok());
+    REQUIRE(pattern.config.pattern_tables != nullptr);
+
+    const std::vector<std::pair<std::string, othello::EvaluationConfig>> configs{
+        {std::string{"default"}, othello::default_evaluation_config()},
+        {std::string{"sparse_scalar"}, sparse_scalar_config()},
+        {std::string{"pattern_reboot_v0"}, pattern.config},
+    };
+    const std::array boards{
+        BoardFixture{.name = "opening",
+                     .board = Board::initial(),
+                     .expected_phase = othello::EvaluationPhase::Opening},
+        BoardFixture{.name = "midgame",
+                     .board = phase_midgame_board(),
+                     .expected_phase = othello::EvaluationPhase::Midgame},
+        BoardFixture{.name = "late",
+                     .board = phase_late_board(),
+                     .expected_phase = othello::EvaluationPhase::Late},
+        BoardFixture{.name = "terminal",
+                     .board = terminal_black_win_board(),
+                     .expected_phase = othello::EvaluationPhase::Late,
+                     .terminal = true},
+    };
+
+    for (const auto& [config_name, config] : configs) {
+        for (const BoardFixture& fixture : boards) {
+            for (const Side side : {Side::Black, Side::White}) {
+                CAPTURE(config_name);
+                CAPTURE(std::string{fixture.name});
+                CAPTURE(side == Side::Black ? "black" : "white");
+
+                const othello::EvaluationBreakdown breakdown =
+                    othello::evaluate_basic_breakdown(fixture.board, side, config);
+                CHECK(breakdown.phase == fixture.expected_phase);
+                CHECK(breakdown.terminal == fixture.terminal);
+                CHECK(othello::evaluate_with_config(fixture.board, side, config) ==
+                      breakdown.total);
+            }
+        }
+    }
+}
+
+TEST_CASE("Zero-weighted pattern tables are not required for score evaluation",
+          "[evaluation]") {
+    othello::EvaluationConfig config{
+        .opening = othello::EvaluationFeatureWeights{.mobility = 3},
+        .midgame = othello::EvaluationFeatureWeights{.frontier = 5},
+        .late = othello::EvaluationFeatureWeights{.disc_difference = 7},
+    };
+    config.pattern_tables.reset();
+    config.opening_pattern_tables.reset();
+    config.midgame_pattern_tables.reset();
+    config.late_pattern_tables.reset();
+
+    for (const Board& board : {Board::initial(), phase_midgame_board(), phase_late_board()}) {
+        for (const Side side : {Side::Black, Side::White}) {
+            const othello::EvaluationBreakdown breakdown =
+                othello::evaluate_basic_breakdown(board, side, config);
+            REQUIRE(breakdown.pattern_table_weight == 0);
+            CHECK(breakdown.pattern_table_score == 0);
+            CHECK(othello::evaluate_with_config(board, side, config) == breakdown.total);
+        }
+    }
+}
+
+TEST_CASE("Default config matches compatibility evaluator", "[evaluation]") {
+    const Board terminal = terminal_black_win_board();
 
     for (const Board& board :
          {Board::initial(), midgame_board(), corner_occupancy_board(), corner_access_board(),

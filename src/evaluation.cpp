@@ -56,6 +56,65 @@ pattern_tables_for_phase(const EvaluationConfig& config, EvaluationPhase phase) 
     return config.pattern_tables.get();
 }
 
+[[nodiscard]] int evaluate_score_only(const Board& board, Side side,
+                                      const EvaluationConfig& config) noexcept {
+    const int occupied_count = std::popcount(board.occupied());
+    const EvaluationPhase phase = phase_for_occupied_count(occupied_count, config);
+    const EvaluationFeatureWeights& weights = weights_for_phase(config, phase);
+
+    if (is_game_over(board)) {
+        return score(board, side) * terminal_score_weight;
+    }
+
+    int total = 0;
+    if (weights.disc_difference != 0) {
+        total += evaluate_disc_difference(board, side) * weights.disc_difference;
+    }
+    if (weights.mobility != 0) {
+        total += evaluate_mobility(board, side) * weights.mobility;
+    }
+    if (weights.corner_occupancy != 0) {
+        total += evaluation_detail::corner_occupancy_score(board, side) *
+                 weights.corner_occupancy;
+    }
+    if (weights.potential_mobility != 0) {
+        total += evaluation_detail::potential_mobility_score(board, side) *
+                 weights.potential_mobility;
+    }
+    if (weights.corner_access != 0) {
+        total += evaluation_detail::corner_access_score(board, side) * weights.corner_access;
+    }
+    if (weights.x_square_danger != 0) {
+        total += evaluation_detail::x_square_danger_score(board, side) *
+                 weights.x_square_danger;
+    }
+    if (weights.frontier != 0) {
+        total += evaluation_detail::frontier_score(board, side) * weights.frontier;
+    }
+    if (weights.corner_local_2x3 != 0) {
+        total += evaluation_detail::corner_local_2x3_score(board, side) *
+                 weights.corner_local_2x3;
+    }
+    if (weights.corner_2x3_pattern != 0) {
+        total += corner_2x3_pattern_score(board, side) * weights.corner_2x3_pattern;
+    }
+    if (weights.edge_stability_lite != 0) {
+        total += evaluation_detail::edge_stability_lite_score(board, side) *
+                 weights.edge_stability_lite;
+    }
+    if (weights.edge_8_pattern != 0) {
+        total += edge_8_pattern_score(board, side) * weights.edge_8_pattern;
+    }
+    if (weights.pattern_table != 0) {
+        const PatternTableBundle* pattern_tables = pattern_tables_for_phase(config, phase);
+        if (pattern_tables != nullptr) {
+            total += evaluation_pattern_table_score(board, side, *pattern_tables) *
+                     weights.pattern_table;
+        }
+    }
+    return total;
+}
+
 } // namespace
 
 EvaluationBreakdown evaluate_basic_breakdown(const Board& board, Side side,
@@ -166,7 +225,7 @@ EvaluationBreakdown evaluate_basic_breakdown(const Board& board, Side side) noex
 }
 
 int evaluate_with_config(const Board& board, Side side, const EvaluationConfig& config) noexcept {
-    return evaluate_basic_breakdown(board, side, config).total;
+    return evaluate_score_only(board, side, config);
 }
 
 int evaluate_basic(const Board& board, Side side) noexcept {
