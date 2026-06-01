@@ -6,8 +6,6 @@
 #include <array>
 #include <cstdint>
 #include <memory>
-#include <optional>
-#include <string_view>
 
 namespace othello {
 
@@ -15,35 +13,6 @@ enum class EvaluationPhase {
     Opening,
     Midgame,
     Late,
-};
-
-// Public preset names are compatibility surface, not a queue of current
-// experiments. Keep existing values and names readable for older tools,
-// wrappers, and benchmark records. Prefer .eval config files for new evaluator
-// experiments; add enum entries only for stable, long-lived built-ins.
-enum class EvaluationPreset {
-    // Stable public built-ins.
-    Default,
-    PhaseAwareV1,
-
-    // Legacy experimental aliases retained for compatibility. Do not copy this
-    // pattern for new experiments; use .eval configs selected with --eval-config.
-    MobilityPlusSmoke,
-    FrontierOpen2Mid2LatePlus1,
-    ClassicCornerLiteV1,
-    ClassicEdgeLiteV1,
-    ClassicFeaturesLiteV1,
-    ClassicFeaturesLiteAggressive,
-    FrontierClassicFeaturesLiteV1,
-    CornerPattern2x3V1,
-    CornerPattern2x3Aggressive,
-    FrontierCornerPattern2x3V1,
-    FrontierCornerPatternEdgeLiteV1,
-    EdgePattern8V1,
-    EdgePattern8Aggressive,
-    DefaultEdgePattern8V1,
-    DefaultEdgePattern8NoEdgeLite,
-    DefaultEdgePattern8Aggressive,
 };
 
 enum class Corner2x3PatternCorner {
@@ -206,11 +175,6 @@ struct EvaluationConfig {
 [[nodiscard]] inline EvaluationConfig default_evaluation_config() noexcept {
     return EvaluationConfig{};
 }
-
-[[nodiscard]] EvaluationConfig evaluation_config_for_preset(EvaluationPreset preset) noexcept;
-[[nodiscard]] std::optional<EvaluationPreset>
-evaluation_preset_from_name(std::string_view name) noexcept;
-[[nodiscard]] std::string_view evaluation_preset_name(EvaluationPreset preset) noexcept;
 
 // Component view of the current basic evaluator. This is intended for developer
 // tooling and tests; fields may evolve as the evaluator itself evolves. The

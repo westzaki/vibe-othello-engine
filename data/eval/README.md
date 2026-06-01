@@ -5,8 +5,7 @@ the latest `main`. These files are selected explicitly with `--eval-config PATH`
 or `eval_config=PATH`; they do not change the built-in engine default.
 When no `--eval-config` is specified, tools use the built-in default evaluator.
 Use `.eval` configs for new evaluation experiments. The public `--eval-preset`
-tool option has been removed; internal C++ preset symbols may remain temporarily
-until the follow-up cleanup.
+tool option and C++ preset compatibility API have been removed.
 
 ## Roles
 
@@ -23,8 +22,8 @@ base/head validation.
 ### Pattern Research Baseline
 
 `pattern_teacher_v0.eval` is the retained experimental pattern baseline for the
-pattern-first research restart. It is not the engine default, not a C++
-`EvaluationPreset`, and not a strength claim. It is kept because it is a compact
+pattern-first research restart. It is not the engine default and not a strength
+claim. It is kept because it is a compact
 pattern-table baseline with durable experiment evidence.
 
 `pattern_reboot_v0.eval` is the clean pattern-only reboot baseline. It reuses
@@ -43,11 +42,11 @@ foundations.
 scalar comparison anchor for pattern research. It is not a preferred candidate
 and should not be used as a new scalar-tweaking baseline.
 
-### Compatibility Fixture
+### Retained Previous Default Snapshot
 
-`phase_aware_v1.eval` is retained as a compatibility snapshot for the public
-`phase_aware_v1` preset. Public C++ presets are compatibility surface; do not
-remove or rename them in cleanup PRs.
+`phase_aware_v1.eval` is retained as a reproducible snapshot of the previous
+phase-aware evaluator. It is selected explicitly with `--eval-config`; there is
+no C++ preset alias for it.
 
 ## Rejected or Superseded Configs
 
@@ -123,9 +122,8 @@ Parser smoke fixtures for `mode=pattern_only` belong under test fixtures rather
 than this active config directory. A pattern-only config without any learned
 table path is not a playable experiment or strength candidate.
 
-New evaluation experiments should be represented as `.eval` files rather than
-new C++ `EvaluationPreset` entries unless the behavior is intended to become a
-stable public compatibility surface.
+New evaluation experiments should be represented as `.eval` files. Do not add
+new C++ evaluator preset entries.
 
 Pattern table storage is separate from scalar evaluator configuration. Sparse
 TSV files remain the source and review format, but loading expands them into a

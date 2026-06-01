@@ -25,6 +25,22 @@ namespace {
     };
 }
 
+[[nodiscard]] othello::EvaluationConfig corner_pattern_only_config(int weight) noexcept {
+    return othello::EvaluationConfig{
+        .opening = othello::EvaluationFeatureWeights{.corner_2x3_pattern = weight},
+        .midgame = othello::EvaluationFeatureWeights{.corner_2x3_pattern = weight},
+        .late = othello::EvaluationFeatureWeights{.corner_2x3_pattern = weight},
+    };
+}
+
+[[nodiscard]] othello::EvaluationConfig edge_pattern_only_config(int weight) noexcept {
+    return othello::EvaluationConfig{
+        .opening = othello::EvaluationFeatureWeights{.edge_8_pattern = weight},
+        .midgame = othello::EvaluationFeatureWeights{.edge_8_pattern = weight},
+        .late = othello::EvaluationFeatureWeights{.edge_8_pattern = weight},
+    };
+}
+
 [[nodiscard]] Board exact_analysis_board() {
     return othello::test::board_from_text(R"(BBBBBBBB
 BBBBBBBB
@@ -152,8 +168,7 @@ TEST_CASE("Position analysis print includes corner pattern breakdown fields", "[
         .use_pvs = true,
         .root_candidates = true,
     };
-    options.evaluator.config_override =
-        othello::evaluation_config_for_preset(othello::EvaluationPreset::CornerPattern2x3V1);
+    options.evaluator.config_override = corner_pattern_only_config(4);
     const othello::SearchResult result = othello::tools::analyze::run_search(board, options);
 
     std::ostringstream captured;
@@ -177,8 +192,7 @@ TEST_CASE("Position analysis print includes edge 8 pattern breakdown fields", "[
         .exact_endgame_empty_threshold = 0,
         .use_pvs = true,
     };
-    options.evaluator.config_override =
-        othello::evaluation_config_for_preset(othello::EvaluationPreset::EdgePattern8V1);
+    options.evaluator.config_override = edge_pattern_only_config(4);
     const othello::SearchResult result = othello::tools::analyze::run_search(board, options);
 
     std::ostringstream captured;

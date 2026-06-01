@@ -114,7 +114,6 @@ struct SearchOptions {
     bool use_aspiration_window = false;
     int aspiration_window = 50;
     int aspiration_max_researches = 4;
-    EvaluationPreset evaluation_preset = EvaluationPreset::Default;
     std::optional<EvaluationConfig> evaluation_config_override = std::nullopt;
 };
 

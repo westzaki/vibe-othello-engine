@@ -24,7 +24,7 @@ EvaluationConfig resolve_evaluation_config(const SearchOptions& options) noexcep
     if (options.evaluation_config_override.has_value()) {
         return *options.evaluation_config_override;
     }
-    return evaluation_config_for_preset(options.evaluation_preset);
+    return default_evaluation_config();
 }
 
 namespace {
