@@ -1074,7 +1074,7 @@ def render_report(config: WorkflowConfig, metadata: Metadata, summary: RunSummar
             "- Raw subprocess logs are local artifacts and should not be committed.",
             "- Keep raw workflow output under `runs/` for normal use.",
             "- This workflow does not promote any evaluator default.",
-            "- Next action: use labels for move-rank or mistake-mining after PR1 classic_othello_v1 lands.",
+            "- Next action: use labels for move-rank analysis, mistake mining, or pattern training.",
         ]
     )
     return "\n".join(lines) + "\n"
