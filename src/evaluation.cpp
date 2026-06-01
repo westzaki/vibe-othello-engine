@@ -34,6 +34,28 @@ weights_for_phase(const EvaluationConfig& config, EvaluationPhase phase) noexcep
     return config.opening;
 }
 
+[[nodiscard]] const PatternTableBundle*
+pattern_tables_for_phase(const EvaluationConfig& config, EvaluationPhase phase) noexcept {
+    switch (phase) {
+    case EvaluationPhase::Opening:
+        if (config.opening_pattern_tables != nullptr) {
+            return config.opening_pattern_tables.get();
+        }
+        break;
+    case EvaluationPhase::Midgame:
+        if (config.midgame_pattern_tables != nullptr) {
+            return config.midgame_pattern_tables.get();
+        }
+        break;
+    case EvaluationPhase::Late:
+        if (config.late_pattern_tables != nullptr) {
+            return config.late_pattern_tables.get();
+        }
+        break;
+    }
+    return config.pattern_tables.get();
+}
+
 } // namespace
 
 EvaluationBreakdown evaluate_basic_breakdown(const Board& board, Side side,
@@ -121,9 +143,11 @@ EvaluationBreakdown evaluate_basic_breakdown(const Board& board, Side side,
     breakdown.edge_8_pattern_score =
         breakdown.edge_8_pattern * breakdown.edge_8_pattern_weight;
 
-    if (breakdown.pattern_table_weight != 0 && config.pattern_tables != nullptr) {
+    const PatternTableBundle* pattern_tables =
+        breakdown.pattern_table_weight == 0 ? nullptr : pattern_tables_for_phase(config, phase);
+    if (pattern_tables != nullptr) {
         breakdown.pattern_table =
-            evaluation_pattern_table_score(board, side, *config.pattern_tables);
+            evaluation_pattern_table_score(board, side, *pattern_tables);
     }
     breakdown.pattern_table_score = breakdown.pattern_table * breakdown.pattern_table_weight;
 

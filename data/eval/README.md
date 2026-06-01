@@ -70,7 +70,12 @@ only, and it must not be described as active or preferred.
 - `name=...` is metadata only
 - numeric values are signed integers
 - unknown, duplicate, invalid, or missing required keys are errors
-- `pattern_table=...` paths are resolved relative to the `.eval` file
+- `pattern_table=...` paths are resolved relative to the `.eval` file and
+  remain the global compatibility mode for using one table in every phase
+- optional `pattern_table.opening=...`, `pattern_table.midgame=...`, and
+  `pattern_table.late=...` paths select phase-specific learned tables
+- when a phase-specific table is absent, that phase falls back to
+  `pattern_table=...` when present
 
 Active configs must be fully expanded. They should not rely on implicit default
 overlays or missing-key fallback behavior.
@@ -78,11 +83,14 @@ overlays or missing-key fallback behavior.
 Pattern table storage is separate from scalar evaluator configuration. Sparse
 TSV files remain the source and review format, but loading expands them into a
 shared dense `PatternTableBundle` for runtime lookup. Scalar-only configs keep
-the no-table case explicit and cheap.
+the no-table case explicit and cheap. Phase-specific keys use the same TSV
+format and the same dense runtime representation; numeric
+`opening.pattern_table`, `midgame.pattern_table`, and `late.pattern_table`
+weights still control each phase's contribution.
 
 Binary `.ptab` loading, manifests/checksums, compact runtime payloads, and
-phase-specific table bundles are future work. Do not add those concerns to
-`.eval` files until the corresponding runtime loader exists.
+compact runtime payloads are future work. Do not add those concerns to `.eval`
+files until the corresponding runtime loader exists.
 
 Raw experiment outputs belong under `runs/`. Raw teacher labels, exact labels,
 match JSONL, benchmark logs, local NTest paths, and local absolute paths should

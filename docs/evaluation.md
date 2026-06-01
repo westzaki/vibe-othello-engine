@@ -100,9 +100,12 @@ that broader vocabulary.
 
 Pattern table ownership is separate from scalar evaluator configuration. TSV
 tables are a source and review format; the evaluator should run against dense
-runtime table bundles. Future binary `.ptab` loading and phase-specific table
-bundles should build on that ownership boundary without changing exact or search
-semantics.
+runtime table bundles. `.eval` files may use `pattern_table=...` for the
+existing global table mode or explicit `pattern_table.opening=...`,
+`pattern_table.midgame=...`, and `pattern_table.late=...` keys for future
+phase-specific learned tables. Binary `.ptab` loading, manifests/checksums, and
+compact runtime payloads are future work. These representation changes should
+not alter exact or search semantics.
 
 A weight-set candidate changes multiple weights while keeping the evaluator
 structure.

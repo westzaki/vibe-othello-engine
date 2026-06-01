@@ -9,6 +9,7 @@
 #include <othello/othello.hpp>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -37,6 +38,30 @@ namespace {
 ........
 ........
 side=W)");
+}
+
+[[nodiscard]] Board phase_midgame_board() {
+    return othello::test::board_from_text(R"(.....W..
+...WWW..
+...WWW..
+..WWWWBB
+..WWWWBW
+..WWWWWW
+...WB...
+...W....
+side=B)");
+}
+
+[[nodiscard]] Board phase_late_board() {
+    return othello::test::board_from_text(R"(...B....
+WWBWWW.B
+WWWWWWWW
+WBWWWWW.
+WWWBBWBB
+WBBBWB.B
+WWBWBWBB
+WWWWWWWB
+side=B)");
 }
 
 [[nodiscard]] std::filesystem::path sample_eval_config_path(std::string_view file_name) {
@@ -68,13 +93,24 @@ void write_text_file(const std::filesystem::path& path, std::string_view text) {
     return path;
 }
 
-[[nodiscard]] std::string eval_config_with_pattern_table(std::string_view table_path) {
+[[nodiscard]] std::string eval_config_with_pattern_table_paths(
+    const std::vector<std::pair<std::string, std::string>>& table_paths) {
     std::string text = read_text_file(sample_eval_config_path("current_default.eval"));
     const std::string marker = "name=current_default\n";
     const std::size_t insert_at = text.find(marker);
     REQUIRE(insert_at != std::string::npos);
-    text.insert(insert_at + marker.size(), "pattern_table=" + std::string{table_path} + "\n");
+    std::string inserted_paths;
+    for (const auto& [key, value] : table_paths) {
+        inserted_paths += key + "=" + value + "\n";
+    }
+    text.insert(insert_at + marker.size(), inserted_paths);
+    text += "\nopening.pattern_table=1\nmidgame.pattern_table=1\nlate.pattern_table=1\n";
     return text;
+}
+
+[[nodiscard]] std::string eval_config_with_pattern_table(std::string_view table_path) {
+    return eval_config_with_pattern_table_paths(
+        {{std::string{"pattern_table"}, std::string{table_path}}});
 }
 
 [[nodiscard]] std::vector<std::filesystem::path> committed_eval_config_paths() {
@@ -222,6 +258,43 @@ void check_breakdown_matches_basic(const Board& board, Side side) {
     return pattern_table_only_config(weight, std::make_shared<othello::PatternTableBundle>());
 }
 
+[[nodiscard]] std::vector<int> corner_2x3_indexes_for_boards(
+    const std::vector<Board>& boards, Side side) {
+    constexpr std::array corners{
+        othello::Corner2x3PatternCorner::A1,
+        othello::Corner2x3PatternCorner::H1,
+        othello::Corner2x3PatternCorner::A8,
+        othello::Corner2x3PatternCorner::H8,
+    };
+    std::vector<int> indexes;
+    for (const Board& board : boards) {
+        for (const othello::Corner2x3PatternCorner corner : corners) {
+            const int index = othello::corner_2x3_pattern_index(board, side, corner);
+            if (std::ranges::find(indexes, index) == indexes.end()) {
+                indexes.push_back(index);
+            }
+        }
+    }
+    std::sort(indexes.begin(), indexes.end());
+    return indexes;
+}
+
+void write_corner_2x3_table(const std::filesystem::path& path,
+                            const std::vector<int>& indexes, int value) {
+    std::ostringstream text;
+    for (const int index : indexes) {
+        text << "corner_2x3\t" << index << '\t' << value << '\n';
+    }
+    write_text_file(path, text.str());
+}
+
+void write_phase_table_fixture(const std::filesystem::path& temp_dir,
+                               std::string_view name,
+                               const std::vector<int>& indexes, int value) {
+    const std::filesystem::path path = temp_dir / "patterns" / std::string{name};
+    write_corner_2x3_table(path, indexes, value);
+}
+
 void check_scalar_weights_zero(const othello::EvaluationFeatureWeights& weights) {
     CHECK(weights.disc_difference == 0);
     CHECK(weights.mobility == 0);
@@ -280,6 +353,9 @@ TEST_CASE("Sample eval configs round-trip to expected evaluator configs", "[eval
     CHECK(*current_default.name == "current_default");
     CHECK(current_default.config == othello::default_evaluation_config());
     CHECK(current_default.config.pattern_tables == nullptr);
+    CHECK(current_default.config.opening_pattern_tables == nullptr);
+    CHECK(current_default.config.midgame_pattern_tables == nullptr);
+    CHECK(current_default.config.late_pattern_tables == nullptr);
     CHECK(current_default.config.opening.pattern_table == 0);
     CHECK(current_default.config.midgame.pattern_table == 0);
     CHECK(current_default.config.late.pattern_table == 0);
@@ -308,7 +384,13 @@ TEST_CASE("Sample eval configs round-trip to expected evaluator configs", "[eval
     REQUIRE(pattern.name.has_value());
     CHECK(*pattern.name == "pattern_teacher_v0");
     CHECK(pattern.pattern_table_path == "patterns/pattern_teacher_v0.tsv");
+    CHECK_FALSE(pattern.opening_pattern_table_path.has_value());
+    CHECK_FALSE(pattern.midgame_pattern_table_path.has_value());
+    CHECK_FALSE(pattern.late_pattern_table_path.has_value());
     REQUIRE(pattern.config.pattern_tables != nullptr);
+    CHECK(pattern.config.opening_pattern_tables == nullptr);
+    CHECK(pattern.config.midgame_pattern_tables == nullptr);
+    CHECK(pattern.config.late_pattern_tables == nullptr);
     CHECK(pattern.config.opening.pattern_table == 10);
     CHECK(pattern.config.midgame.pattern_table == 10);
     CHECK(pattern.config.late.pattern_table == 10);
@@ -594,6 +676,195 @@ TEST_CASE("Eval config loader rejects missing and malformed pattern tables",
         othello::tools::load_evaluation_config_file(malformed_eval);
     CHECK_FALSE(malformed.ok());
     CHECK(malformed.error.find("expected '<family> <index> <value>'") != std::string::npos);
+
+    const std::filesystem::path missing_phase_eval = temp_dir / "missing_phase.eval";
+    write_text_file(missing_phase_eval,
+                    eval_config_with_pattern_table_paths(
+                        {{std::string{"pattern_table.opening"},
+                          std::string{"patterns/missing_phase.tsv"}}}));
+    const othello::tools::EvaluationConfigLoadResult missing_phase =
+        othello::tools::load_evaluation_config_file(missing_phase_eval);
+    CHECK_FALSE(missing_phase.ok());
+    CHECK(missing_phase.error.find("failed to open pattern table") != std::string::npos);
+
+    write_text_file(temp_dir / "patterns" / "malformed_phase.tsv", "corner_2x3\t1\n");
+    const std::filesystem::path malformed_phase_eval = temp_dir / "malformed_phase.eval";
+    write_text_file(malformed_phase_eval,
+                    eval_config_with_pattern_table_paths(
+                        {{std::string{"pattern_table.midgame"},
+                          std::string{"patterns/malformed_phase.tsv"}}}));
+    const othello::tools::EvaluationConfigLoadResult malformed_phase =
+        othello::tools::load_evaluation_config_file(malformed_phase_eval);
+    CHECK_FALSE(malformed_phase.ok());
+    CHECK(malformed_phase.error.find("expected '<family> <index> <value>'") !=
+          std::string::npos);
+
+    const std::filesystem::path duplicate_phase_key_eval = temp_dir / "duplicate_phase_key.eval";
+    write_text_file(duplicate_phase_key_eval,
+                    eval_config_with_pattern_table_paths(
+                        {{std::string{"pattern_table.opening"},
+                          std::string{"patterns/missing_a.tsv"}},
+                         {std::string{"pattern_table.opening"},
+                          std::string{"patterns/missing_b.tsv"}}}));
+    const othello::tools::EvaluationConfigLoadResult duplicate_phase_key =
+        othello::tools::load_evaluation_config_file(duplicate_phase_key_eval);
+    CHECK_FALSE(duplicate_phase_key.ok());
+    CHECK(duplicate_phase_key.error.find("duplicate key: pattern_table.opening") !=
+          std::string::npos);
+
+    write_text_file(temp_dir / "patterns" / "out_of_range_phase.tsv",
+                    "corner_2x3\t729\t1\n");
+    const std::filesystem::path out_of_range_phase_eval =
+        temp_dir / "out_of_range_phase.eval";
+    write_text_file(out_of_range_phase_eval,
+                    eval_config_with_pattern_table_paths(
+                        {{std::string{"pattern_table.late"},
+                          std::string{"patterns/out_of_range_phase.tsv"}}}));
+    const othello::tools::EvaluationConfigLoadResult out_of_range_phase =
+        othello::tools::load_evaluation_config_file(out_of_range_phase_eval);
+    CHECK_FALSE(out_of_range_phase.ok());
+    CHECK(out_of_range_phase.error.find("corner_2x3 index out of range") !=
+          std::string::npos);
+}
+
+TEST_CASE("Phase-specific pattern tables select the table for each phase",
+          "[evaluation]") {
+    const Board opening = extra_disc_board(othello::test::bit("a1"));
+    const Board midgame = phase_midgame_board();
+    const Board late = phase_late_board();
+    REQUIRE_FALSE(othello::is_game_over(opening));
+    REQUIRE_FALSE(othello::is_game_over(midgame));
+    REQUIRE_FALSE(othello::is_game_over(late));
+
+    const std::vector<Board> boards{opening, midgame, late};
+    const std::vector<int> indexes = corner_2x3_indexes_for_boards(boards, Side::Black);
+    const std::filesystem::path temp_dir = unique_temp_dir("phase-pattern-table-select");
+    write_phase_table_fixture(temp_dir, "opening.tsv", indexes, 3);
+    write_phase_table_fixture(temp_dir, "midgame.tsv", indexes, 5);
+    write_phase_table_fixture(temp_dir, "late.tsv", indexes, 7);
+
+    const std::filesystem::path eval_path = temp_dir / "phase.eval";
+    write_text_file(eval_path,
+                    eval_config_with_pattern_table_paths(
+                        {{std::string{"pattern_table.opening"},
+                          std::string{"patterns/opening.tsv"}},
+                         {std::string{"pattern_table.midgame"},
+                          std::string{"patterns/midgame.tsv"}},
+                         {std::string{"pattern_table.late"},
+                          std::string{"patterns/late.tsv"}}}));
+
+    const othello::tools::EvaluationConfigLoadResult loaded =
+        othello::tools::load_evaluation_config_file(eval_path);
+    REQUIRE(loaded.ok());
+    CHECK_FALSE(loaded.pattern_table_path.has_value());
+    CHECK(loaded.opening_pattern_table_path == "patterns/opening.tsv");
+    CHECK(loaded.midgame_pattern_table_path == "patterns/midgame.tsv");
+    CHECK(loaded.late_pattern_table_path == "patterns/late.tsv");
+    REQUIRE(loaded.config.pattern_tables == nullptr);
+    REQUIRE(loaded.config.opening_pattern_tables != nullptr);
+    REQUIRE(loaded.config.midgame_pattern_tables != nullptr);
+    REQUIRE(loaded.config.late_pattern_tables != nullptr);
+
+    const othello::EvaluationBreakdown opening_breakdown =
+        othello::evaluate_basic_breakdown(opening, Side::Black, loaded.config);
+    const othello::EvaluationBreakdown midgame_breakdown =
+        othello::evaluate_basic_breakdown(midgame, Side::Black, loaded.config);
+    const othello::EvaluationBreakdown late_breakdown =
+        othello::evaluate_basic_breakdown(late, Side::Black, loaded.config);
+
+    CHECK(opening_breakdown.phase == othello::EvaluationPhase::Opening);
+    CHECK(midgame_breakdown.phase == othello::EvaluationPhase::Midgame);
+    CHECK(late_breakdown.phase == othello::EvaluationPhase::Late);
+    CHECK(opening_breakdown.pattern_table == 12);
+    CHECK(midgame_breakdown.pattern_table == 20);
+    CHECK(late_breakdown.pattern_table == 28);
+}
+
+TEST_CASE("Phase-specific pattern tables fall back to the global table",
+          "[evaluation]") {
+    const Board opening = extra_disc_board(othello::test::bit("a1"));
+    const Board midgame = phase_midgame_board();
+    const Board late = phase_late_board();
+    const std::vector<Board> boards{opening, midgame, late};
+    const std::vector<int> indexes = corner_2x3_indexes_for_boards(boards, Side::Black);
+    const std::filesystem::path temp_dir = unique_temp_dir("phase-pattern-table-fallback");
+    write_phase_table_fixture(temp_dir, "global.tsv", indexes, 2);
+    write_phase_table_fixture(temp_dir, "opening.tsv", indexes, 3);
+
+    const std::filesystem::path global_eval_path = temp_dir / "global.eval";
+    write_text_file(global_eval_path,
+                    eval_config_with_pattern_table_paths(
+                        {{std::string{"pattern_table"},
+                          std::string{"patterns/global.tsv"}}}));
+    const othello::tools::EvaluationConfigLoadResult global =
+        othello::tools::load_evaluation_config_file(global_eval_path);
+    REQUIRE(global.ok());
+    CHECK(othello::evaluate_basic_breakdown(opening, Side::Black, global.config)
+              .pattern_table == 8);
+    CHECK(othello::evaluate_basic_breakdown(midgame, Side::Black, global.config)
+              .pattern_table == 8);
+    CHECK(othello::evaluate_basic_breakdown(late, Side::Black, global.config)
+              .pattern_table == 8);
+
+    const std::filesystem::path mixed_eval_path = temp_dir / "mixed.eval";
+    write_text_file(mixed_eval_path,
+                    eval_config_with_pattern_table_paths(
+                        {{std::string{"pattern_table"},
+                          std::string{"patterns/global.tsv"}},
+                         {std::string{"pattern_table.opening"},
+                          std::string{"patterns/opening.tsv"}}}));
+    const othello::tools::EvaluationConfigLoadResult mixed =
+        othello::tools::load_evaluation_config_file(mixed_eval_path);
+    REQUIRE(mixed.ok());
+    CHECK(othello::evaluate_basic_breakdown(opening, Side::Black, mixed.config)
+              .pattern_table == 12);
+    CHECK(othello::evaluate_basic_breakdown(midgame, Side::Black, mixed.config)
+              .pattern_table == 8);
+    CHECK(othello::evaluate_basic_breakdown(late, Side::Black, mixed.config)
+              .pattern_table == 8);
+
+    const std::filesystem::path opening_only_eval_path = temp_dir / "opening_only.eval";
+    write_text_file(opening_only_eval_path,
+                    eval_config_with_pattern_table_paths(
+                        {{std::string{"pattern_table.opening"},
+                          std::string{"patterns/opening.tsv"}}}));
+    const othello::tools::EvaluationConfigLoadResult opening_only =
+        othello::tools::load_evaluation_config_file(opening_only_eval_path);
+    REQUIRE(opening_only.ok());
+    CHECK(othello::evaluate_basic_breakdown(opening, Side::Black, opening_only.config)
+              .pattern_table == 12);
+    CHECK(othello::evaluate_basic_breakdown(midgame, Side::Black, opening_only.config)
+              .pattern_table == 0);
+    CHECK(othello::evaluate_basic_breakdown(late, Side::Black, opening_only.config)
+              .pattern_table == 0);
+}
+
+TEST_CASE("Phase-specific pattern table ownership is shared and equality is semantic",
+          "[evaluation]") {
+    const Board opening = extra_disc_board(othello::test::bit("a1"));
+    const std::vector<Board> boards{opening, phase_midgame_board(), phase_late_board()};
+    const std::vector<int> indexes = corner_2x3_indexes_for_boards(boards, Side::Black);
+    const std::filesystem::path temp_dir = unique_temp_dir("phase-pattern-table-ownership");
+    write_phase_table_fixture(temp_dir, "opening.tsv", indexes, 3);
+
+    const std::filesystem::path eval_path = temp_dir / "phase.eval";
+    write_text_file(eval_path,
+                    eval_config_with_pattern_table_paths(
+                        {{std::string{"pattern_table.opening"},
+                          std::string{"patterns/opening.tsv"}}}));
+    const othello::tools::EvaluationConfigLoadResult first =
+        othello::tools::load_evaluation_config_file(eval_path);
+    const othello::tools::EvaluationConfigLoadResult second =
+        othello::tools::load_evaluation_config_file(eval_path);
+    REQUIRE(first.ok());
+    REQUIRE(second.ok());
+    REQUIRE(first.config.opening_pattern_tables != nullptr);
+    REQUIRE(second.config.opening_pattern_tables != nullptr);
+
+    const othello::EvaluationConfig copied = first.config;
+    CHECK(copied.opening_pattern_tables == first.config.opening_pattern_tables);
+    CHECK(second.config.opening_pattern_tables != first.config.opening_pattern_tables);
+    CHECK(second.config == first.config);
 }
 
 TEST_CASE("Initial board evaluation is symmetric", "[evaluation]") {

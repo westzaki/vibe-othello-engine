@@ -165,6 +165,9 @@ struct EvaluationConfig {
     int opening_max_occupied = 20;
     int midgame_max_occupied = 44;
     std::shared_ptr<const PatternTableBundle> pattern_tables{};
+    std::shared_ptr<const PatternTableBundle> opening_pattern_tables{};
+    std::shared_ptr<const PatternTableBundle> midgame_pattern_tables{};
+    std::shared_ptr<const PatternTableBundle> late_pattern_tables{};
 
     [[nodiscard]] friend bool operator==(const EvaluationConfig& lhs,
                                          const EvaluationConfig& rhs) {
@@ -174,13 +177,24 @@ struct EvaluationConfig {
               lhs.midgame_max_occupied == rhs.midgame_max_occupied)) {
             return false;
         }
-        if (lhs.pattern_tables == rhs.pattern_tables) {
-            return true;
-        }
-        if (lhs.pattern_tables == nullptr || rhs.pattern_tables == nullptr) {
-            return false;
-        }
-        return *lhs.pattern_tables == *rhs.pattern_tables;
+        const auto same_pattern_table_bundle =
+            [](const std::shared_ptr<const PatternTableBundle>& lhs_tables,
+               const std::shared_ptr<const PatternTableBundle>& rhs_tables) {
+                if (lhs_tables == rhs_tables) {
+                    return true;
+                }
+                if (lhs_tables == nullptr || rhs_tables == nullptr) {
+                    return false;
+                }
+                return *lhs_tables == *rhs_tables;
+            };
+        return same_pattern_table_bundle(lhs.pattern_tables, rhs.pattern_tables) &&
+               same_pattern_table_bundle(lhs.opening_pattern_tables,
+                                         rhs.opening_pattern_tables) &&
+               same_pattern_table_bundle(lhs.midgame_pattern_tables,
+                                         rhs.midgame_pattern_tables) &&
+               same_pattern_table_bundle(lhs.late_pattern_tables,
+                                         rhs.late_pattern_tables);
     }
 };
 
