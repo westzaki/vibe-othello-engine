@@ -284,6 +284,38 @@ void check_breakdown_matches_basic(const Board& board, Side side) {
     };
 }
 
+[[nodiscard]] othello::EvaluationConfig all_feature_guard_config() {
+    auto tables = std::make_shared<othello::PatternTableBundle>();
+    std::ranges::fill(tables->corner_2x3, std::int16_t{1});
+    std::ranges::fill(tables->corner_3x3, std::int16_t{1});
+    std::ranges::fill(tables->edge_8, std::int16_t{1});
+    std::ranges::fill(tables->edge_x_10, std::int16_t{1});
+    std::ranges::fill(tables->diagonal_8, std::int16_t{1});
+    std::ranges::fill(tables->inner_row_8, std::int16_t{1});
+
+    const othello::EvaluationFeatureWeights weights{
+        .disc_difference = 1,
+        .mobility = 2,
+        .potential_mobility = 3,
+        .corner_occupancy = 4,
+        .corner_access = 5,
+        .x_square_danger = 6,
+        .frontier = 7,
+        .corner_local_2x3 = 8,
+        .corner_2x3_pattern = 9,
+        .edge_stability_lite = 10,
+        .edge_8_pattern = 11,
+        .pattern_table = 12,
+    };
+    othello::EvaluationConfig config{
+        .opening = weights,
+        .midgame = weights,
+        .late = weights,
+    };
+    config.pattern_tables = std::move(tables);
+    return config;
+}
+
 [[nodiscard]] Board terminal_black_win_board() noexcept {
     return Board{
         .black = ~Bitboard{0},
@@ -1564,6 +1596,7 @@ TEST_CASE("Score-only evaluator matches breakdown totals across configs and phas
     const std::vector<std::pair<std::string, othello::EvaluationConfig>> configs{
         {std::string{"default"}, othello::default_evaluation_config()},
         {std::string{"sparse_scalar"}, sparse_scalar_config()},
+        {std::string{"all_feature_guard"}, all_feature_guard_config()},
         {std::string{"pattern_reboot_v0"}, pattern.config},
     };
     const std::array boards{
