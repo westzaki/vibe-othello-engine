@@ -316,23 +316,18 @@ Examples:
 For exact-label or eval-vs-exact workflows, reuse the same committed positions
 with `--skip-sampling` and keep generated labels/reports under `runs/`.
 
-Evaluator candidate matrices can use the same search-bench position selector for
-search screening. Match steps in the matrix still use the configured opening
-suite, not the `evaluation` positions:
+Evaluator smoke evidence should use direct search-bench steps. For reusable PR
+evidence, `evidence.py --profile eval` runs one search-bench step per
+`--eval-configs` entry. This is smoke evidence only, not Elo or default
+promotion proof:
 
 ```sh
-python3 tools/scripts/eval_experiment_matrix.py \
+python3 tools/scripts/evidence.py \
+  --profile eval \
   --build-dir build \
-  --out runs/eval-matrix/evaluation-diagnostic \
-  --configs data/eval/pattern_reboot_v0.eval \
-  --positions evaluation \
-  --small-depths 4 \
-  --extended-depths 5 \
-  --small-games 2 \
-  --extended-games 2 \
-  --openings data/openings/smoke_openings.txt \
-  --seed 20260531 \
-  --exact-endgame-threshold 0
+  --out runs/evidence/eval-smoke \
+  --eval-configs data/eval/pattern_reboot_v0.eval \
+  --small-depths 5
 ```
 
 When no `--eval-config` is specified, tools use the built-in default evaluator.

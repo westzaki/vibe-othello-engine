@@ -167,6 +167,8 @@ class EvidenceTests(unittest.TestCase):
                 profile="eval",
                 dry_run=True,
                 extra_args=[
+                    "--source-dir",
+                    str(temp_path),
                     "--eval-configs",
                     f"{candidate},{second_candidate}",
                     "--small-depths",

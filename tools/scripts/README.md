@@ -32,7 +32,6 @@ script.
 | `dataset_paths.py` | current | Resolve `dataset:...` references and shared dataset roots. | Required by reusable teacher/exact dataset workflows. |
 | `eval_candidate_matrix.py` | current | Gather comparable `.eval` candidate smoke evidence from labels and search bench. | Current replacement for ad hoc candidate validation wrappers; also registered in CTest as a dry-run smoke. |
 | `eval_config_tuner.py` | legacy | Perturb fully expanded `.eval` scalar weights against exact-label JSONL. | Kept for debugging existing configs and because current diagnostics reuse its parser/metric helpers; not the default pattern-learning path. |
-| `eval_experiment_matrix.py` | deprecated | Run staged `.eval` config search and match matrices. | Obsolete local triage helper kept temporarily for a separate deletion PR. Prefer `eval_candidate_matrix.py`, `run_match_experiment.py`, or `evidence.py`; `evidence.py --profile eval` no longer depends on it. |
 | `evidence.py` | current | Collect reproducible build/test/benchmark/match evidence for PRs. | Shared evidence workflow for reviewers; wraps C++ tools without making strength claims. |
 | `exact_label_workflow.py` | current | Sample positions, dump exact labels, and optionally run eval-vs-exact analysis. | Current exact-label smoke helper for evaluation investigations. |
 | `external_teacher_label_workflow.py` | current | Generate teacher-label JSONL from external engines. | Current teacher-label entrypoint and a dependency of `teacher_dataset_build.py`. |
@@ -53,6 +52,7 @@ script.
 | --- | --- | --- | --- |
 | `eval_config_validate.py` | deprecated | Validate generated scalar `.eval` candidates on held-out exact-label JSONL. | Replaced for current work by `eval_candidate_matrix.py --labels ...` and PR evidence reports; remaining repository mentions are historical experiment commands. |
 | `eval_config_search_validate.py` | deprecated | Chain held-out scalar/config summaries into search-bench and match-smoke validation. | Replaced by `eval_candidate_matrix.py`, `run_match_experiment.py`, `base_head_match_matrix.py`, and `evidence.py`; remaining repository mentions are historical experiment commands. |
+| `eval_experiment_matrix.py` | deprecated | Run staged `.eval` config search and match matrices. | Replaced by `eval_candidate_matrix.py`, `run_match_experiment.py`, `base_head_match_matrix.py`, and `evidence.py`; `evidence.py --profile eval` no longer depends on it. |
 | `run_experiment_matrix.py` | deprecated | Run JSON-defined match-runner matrices from `tools/scripts/examples/search_ablation_smoke.json`. | Replaced by explicit `run_match_experiment.py`, `base_head_match_matrix.py`, and `evidence.py` workflows; it had no current docs outside this README and its dedicated test/example. |
 
 The deleted scripts' dedicated tests were removed with them. The committed
@@ -326,27 +326,6 @@ configs under `runs/eval-config-tuner/.../configs/`, runs
 objective based on sign agreement, wrong-direction count, and high-confidence
 wrong-direction count. Candidate configs are local experiment artifacts, not
 active configs.
-
-Run a staged `.eval` matrix only when an older workflow still needs this
-deprecated helper:
-
-```sh
-python3 tools/scripts/eval_experiment_matrix.py \
-  --configs data/eval/pattern_reboot_v0.eval \
-  --depths 4 \
-  --games 6 \
-  --openings data/openings/smoke_openings.txt \
-  --seed 20260530 \
-  --build-dir build \
-  --out runs/eval/eval-config-smoke \
-  --smoke-run
-```
-
-This compares each candidate config against the built-in default evaluator
-unless `--reference-config` is supplied. It is an obsolete local triage helper,
-not the main path for pattern-first learning and not strength evidence by
-itself. New experiments should use `.eval` configs with current
-candidate/evidence workflows.
 
 Extract first divergence positions from an existing swap-side base/head JSONL:
 
