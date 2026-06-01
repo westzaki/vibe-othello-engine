@@ -1,4 +1,5 @@
 #include "common/cli.hpp"
+#include "common/evaluator_cli.hpp"
 #include "common/evaluator_selection.hpp"
 #include "eval_vs_exact/eval_vs_exact.hpp"
 
@@ -22,7 +23,7 @@ namespace {
 struct Options {
     std::string labels_path;
     std::string output_path;
-    othello::tools::EvaluatorSelectionInput evaluator_input;
+    othello::tools::EvaluatorCliParseState evaluator_cli;
     std::size_t top = 10;
     int high_confidence_threshold = 250;
     bool phase_breakdown = false;
@@ -41,8 +42,7 @@ void print_usage(std::string_view program_name) {
               << "Options:\n"
               << "  --labels PATH         read exact_label.v1 JSONL labels\n"
               << "  --output PATH         write Markdown analyzer report\n"
-              << "  --eval-preset NAME    evaluate with a built-in compatibility/smoke preset\n"
-              << "  --eval-config PATH    evaluate with a .eval config (preferred for experiments)\n"
+              << othello::tools::evaluator_cli_help()
               << "  --top N               number of disagreement positions to show (default: 10)\n"
               << "  --high-confidence-threshold N\n"
               << "                        minimum abs(eval_score) for high-confidence cases"
@@ -56,6 +56,12 @@ void print_usage(std::string_view program_name) {
 
 [[nodiscard]] std::optional<Options> parse_options(std::span<char* const> args) {
     Options options;
+    constexpr othello::tools::EvaluatorCliParseOptions evaluator_cli_options{
+        .missing_eval_preset_message = "",
+        .missing_eval_config_message = "",
+        .reject_empty_eval_config = false,
+        .reject_duplicate_eval_config = false,
+    };
 
     for (std::size_t index = 1; index < args.size(); ++index) {
         const std::string_view option = args[index];
@@ -91,20 +97,18 @@ void print_usage(std::string_view program_name) {
             options.output_path = std::string{*value};
             continue;
         }
-        if (option == "--eval-preset") {
-            const auto value = othello::tools::next_argument(args, index, option);
-            if (!value.has_value()) {
-                return std::nullopt;
+        std::string evaluator_cli_error;
+        const othello::tools::EvaluatorCliParseResult evaluator_cli_result =
+            othello::tools::parse_evaluator_cli_option(args, index, options.evaluator_cli,
+                                                       evaluator_cli_error,
+                                                       evaluator_cli_options);
+        if (evaluator_cli_result == othello::tools::EvaluatorCliParseResult::Error) {
+            if (!evaluator_cli_error.empty()) {
+                std::cerr << evaluator_cli_error << '\n';
             }
-            options.evaluator_input.preset_name = std::string{*value};
-            continue;
+            return std::nullopt;
         }
-        if (option == "--eval-config") {
-            const auto value = othello::tools::next_argument(args, index, option);
-            if (!value.has_value()) {
-                return std::nullopt;
-            }
-            options.evaluator_input.config_path = std::string{*value};
+        if (evaluator_cli_result == othello::tools::EvaluatorCliParseResult::Parsed) {
             continue;
         }
         if (option == "--top") {
@@ -146,8 +150,8 @@ void print_usage(std::string_view program_name) {
         std::cerr << "--output is required\n";
         return std::nullopt;
     }
-    if (!options.evaluator_input.preset_name.has_value() &&
-        !options.evaluator_input.config_path.has_value()) {
+    if (!options.evaluator_cli.input.preset_name.has_value() &&
+        !options.evaluator_cli.input.config_path.has_value()) {
         std::cerr << "exactly one of --eval-preset or --eval-config is required\n";
         return std::nullopt;
     }
@@ -220,7 +224,7 @@ static int run(int argc, char** argv) {
 
     std::string error;
     const std::optional<othello::tools::EvaluatorSelection> evaluator =
-        othello::tools::parse_evaluator_selection(parsed->evaluator_input, error);
+        othello::tools::parse_evaluator_selection(parsed->evaluator_cli.input, error);
     if (!evaluator.has_value()) {
         std::cerr << error << '\n';
         return 1;

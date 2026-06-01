@@ -162,6 +162,11 @@ TEST_CASE("Search player specs reject invalid options", "[match-runner]") {
                     .has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,eval_config=missing.eval").has_value());
     CHECK_FALSE(runner::parse_player_spec(
+                    "search:depth=4,eval_config=" +
+                    sample_eval_config_path("current_default.eval") +
+                    ",eval_config=" + sample_eval_config_path("current_default.eval"))
+                    .has_value());
+    CHECK_FALSE(runner::parse_player_spec(
                     "search:depth=4,eval=default,eval_config=" +
                     sample_eval_config_path("current_default.eval"))
                     .has_value());
