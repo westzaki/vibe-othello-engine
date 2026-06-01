@@ -32,10 +32,6 @@ feature weights so future pattern learning can be interpreted independently
 from scalar residual tuning. It is expected to be weaker initially and must not
 be used as a strength candidate or default-promotion signal.
 
-`pattern_only_smoke.eval` is a compact parser smoke fixture for the
-`mode=pattern_only` format. It intentionally does not reference a learned table,
-so it is not a playable experiment or strength candidate.
-
 Pattern-first experiments may intentionally be weaker than the engine default
 while they build better table ownership, dataset, trainer, and validation
 foundations.
@@ -121,6 +117,10 @@ If the thresholds are omitted in `mode=pattern_only`, the loader keeps the
 built-in default phase thresholds. Non-pattern feature keys are still accepted
 for narrow ablations or transitional experiments, but pattern-only configs
 should normally omit them.
+
+Parser smoke fixtures for `mode=pattern_only` belong under test fixtures rather
+than this active config directory. A pattern-only config without any learned
+table path is not a playable experiment or strength candidate.
 
 New evaluation experiments should be represented as `.eval` files rather than
 new C++ `EvaluationPreset` entries unless the behavior is intended to become a
