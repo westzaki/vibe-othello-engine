@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from common import ScriptError, quote_command
+from dataset_paths import resolve_path_reference
 from external_engines.common import EngineMoveResult, ExternalEngineError
 from external_engines.ntest import NTestConfig, request_best_move as request_ntest_best_move
 from external_engines.one_shot import request_best_move as request_one_shot_best_move
@@ -164,6 +165,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--positions", required=True, help="input positions file")
     parser.add_argument(
+        "--dataset-root",
+        help="shared dataset root for dataset: references; overrides VIBE_OTHELLO_DATASET_ROOT",
+    )
+    parser.add_argument(
         "--out",
         default=None,
         help="workflow output directory (default: runs/teacher-labels/<timestamp>)",
@@ -239,7 +244,7 @@ def config_from_args(args: argparse.Namespace, invocation: list[str] | None = No
         engine_name = Path(args.engine_command[0]).name if args.engine_command else "unknown"
 
     return WorkflowConfig(
-        positions_path=Path(args.positions),
+        positions_path=resolve_path_reference(args.positions, explicit_root=args.dataset_root),
         out_dir=Path(args.out) if args.out else default_out_dir(),
         input_format=args.input_format,
         limit=args.limit,

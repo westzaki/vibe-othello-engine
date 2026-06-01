@@ -26,6 +26,19 @@ class PatternTeacherTrainTests(unittest.TestCase):
         with self.assertRaises(ScriptError):
             trainer.parse_split_ratios("60,40,0")
 
+    def test_parse_label_paths_supports_dataset_references(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "datasets"
+            root.mkdir()
+
+            paths = trainer.parse_label_paths(
+                "dataset:teacher/labels.jsonl, local.jsonl",
+                dataset_root=str(root),
+            )
+
+        self.assertEqual(paths[0], (root / "teacher" / "labels.jsonl").resolve(strict=False))
+        self.assertEqual(paths[1], Path("local.jsonl"))
+
     def test_split_name_for_row_is_deterministic(self) -> None:
         row = {
             "board_text": "........\n........\n........\n...WB...\n...BW...\n........\n........\n........\nside=B",

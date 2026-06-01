@@ -10,6 +10,7 @@ records.
 - [evaluation.md](evaluation.md): durable evaluation-improvement guidance
 - [exact-labels.md](exact-labels.md): exact-solver teacher label workflow
 - [benchmarks.md](benchmarks.md): benchmark and measurement entry point
+- [datasets/README.md](datasets/README.md): shared external dataset-root guidance
 
 Specialized measurement workflows, including base/head comparison, are linked
 from [benchmarks.md](benchmarks.md).

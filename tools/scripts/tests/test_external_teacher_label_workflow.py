@@ -290,6 +290,29 @@ class ExternalTeacherLabelWorkflowTests(unittest.TestCase):
 
         self.assertEqual(parsed.depth, 26)
 
+    def test_config_from_args_resolves_dataset_positions_reference(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "datasets"
+            root.mkdir()
+            positions = root / "positions" / "positions.txt"
+            positions.parent.mkdir()
+            positions.write_text(BOARD9_POSITION, encoding="utf-8")
+            parsed = workflow.parse_args(
+                [
+                    "--positions",
+                    "dataset:positions/positions.txt",
+                    "--dataset-root",
+                    str(root),
+                    "--engine-cmd",
+                    "--",
+                    "fake-engine",
+                ]
+            )
+
+            config = workflow.config_from_args(parsed)
+
+        self.assertEqual(config.positions_path, positions.resolve(strict=False))
+
     def test_command_boundary_passes_help_to_engine(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             temp_path = Path(temp)

@@ -35,9 +35,11 @@ Output records use schema `exact_label.v1` and include:
 - optional per-root-move exact scores with `--include-move-scores`
 - elapsed milliseconds and exact-solver node count for label generation
 
-Keep generated datasets under `runs/`; they should not be committed. Durable
-summaries may go under `docs/perf/baselines/` when they are small, clearly
-caveated, and useful as historical evidence.
+Keep one-off generated datasets under `runs/`; they should not be committed.
+Reusable teacher/exact artifacts should be copied to an external dataset root
+with a manifest, then referenced through `docs/datasets/README.md` conventions.
+Durable summaries may go under `docs/perf/baselines/` when they are small,
+clearly caveated, and useful as historical evidence.
 
 The committed `data/positions/evaluation/diagnostic_suite.txt` file is the
 source of truth for the `othello_search_bench --positions evaluation` diagnostic
@@ -117,11 +119,12 @@ representative Othello training distribution. Exact labels are final disc
 margins from the side-to-move perspective. Eval-vs-exact scores are heuristic
 units and must not be interpreted as disc margins.
 
-Keep raw workflow output under `runs/`; do not commit generated datasets.
-Durable summaries should include the command, source SHA, input labels,
-selected evaluator or config, and caveats. This workflow is an analysis and data
-generation aid only: it makes no strength claim and does not imply automatic
-default evaluator promotion.
+Keep raw workflow output under `runs/`; do not commit generated datasets. Move
+datasets that need to survive across worktrees to an external dataset root and
+record their manifest outside git. Durable summaries should include the command,
+source SHA, input labels, selected evaluator or config, and caveats. This
+workflow is an analysis and data generation aid only: it makes no strength
+claim and does not imply automatic default evaluator promotion.
 
 ## Eval-vs-Exact Analysis
 
