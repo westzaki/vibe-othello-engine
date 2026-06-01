@@ -839,6 +839,46 @@ TEST_CASE("Phase-specific pattern tables fall back to the global table",
               .pattern_table == 0);
 }
 
+TEST_CASE("Phase-specific zero sentinel pattern tables parse and contribute zero",
+          "[evaluation]") {
+    const std::filesystem::path temp_dir =
+        unique_temp_dir("phase-pattern-table-zero-sentinel");
+    constexpr std::string_view sentinel_table =
+        "# empty_phase_sentinel: true\n"
+        "# zero_effect: true\n"
+        "corner_2x3\t0\t0\n";
+    write_text_file(temp_dir / "tables" / "opening.tsv", sentinel_table);
+    write_text_file(temp_dir / "tables" / "midgame.tsv", sentinel_table);
+    write_text_file(temp_dir / "tables" / "late.tsv", sentinel_table);
+
+    const std::filesystem::path eval_path = temp_dir / "candidate.eval";
+    write_text_file(eval_path,
+                    eval_config_with_pattern_table_paths(
+                        {{std::string{"pattern_table.opening"},
+                          std::string{"tables/opening.tsv"}},
+                         {std::string{"pattern_table.midgame"},
+                          std::string{"tables/midgame.tsv"}},
+                         {std::string{"pattern_table.late"},
+                          std::string{"tables/late.tsv"}}}));
+
+    const othello::tools::EvaluationConfigLoadResult loaded =
+        othello::tools::load_evaluation_config_file(eval_path);
+    REQUIRE(loaded.ok());
+    REQUIRE(loaded.config.opening_pattern_tables != nullptr);
+    REQUIRE(loaded.config.midgame_pattern_tables != nullptr);
+    REQUIRE(loaded.config.late_pattern_tables != nullptr);
+
+    const Board opening = extra_disc_board(othello::test::bit("a1"));
+    const Board midgame = phase_midgame_board();
+    const Board late = phase_late_board();
+    CHECK(othello::evaluate_basic_breakdown(opening, Side::Black, loaded.config)
+              .pattern_table == 0);
+    CHECK(othello::evaluate_basic_breakdown(midgame, Side::Black, loaded.config)
+              .pattern_table == 0);
+    CHECK(othello::evaluate_basic_breakdown(late, Side::Black, loaded.config)
+              .pattern_table == 0);
+}
+
 TEST_CASE("Phase-specific pattern table ownership is shared and equality is semantic",
           "[evaluation]") {
     const Board opening = extra_disc_board(othello::test::bit("a1"));

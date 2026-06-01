@@ -119,6 +119,12 @@ def data_lines(path: Path) -> list[str]:
     ]
 
 
+def sentinel_line() -> str:
+    family = phase_trainer.SENTINEL_FAMILY
+    index, value = phase_trainer.SENTINEL_ENTRY
+    return f"{family}\t{index}\t{value}"
+
+
 def write_fake_analyze_position(path: Path) -> None:
     path.write_text(
         "#!/usr/bin/env python3\n"
@@ -263,7 +269,10 @@ class PhasePatternTableTrainTests(unittest.TestCase):
 
             self.assertTrue((config.out_dir / "summary.json").exists())
             phase_summary = (config.out_dir / "phase_summary.tsv").read_text(encoding="utf-8")
-            self.assertIn("phase\tteacher_rows\tupdates\tskipped\tcorner_3x3_entries", phase_summary)
+            self.assertIn(
+                "phase\tteacher_rows\tupdates\tskipped\tempty_phase_sentinel\tcorner_3x3_entries",
+                phase_summary,
+            )
             report = result.report_path.read_text(encoding="utf-8")
             self.assertIn("not a strength claim", report)
             self.assertIn("not a default-promotion recommendation", report)
@@ -312,8 +321,13 @@ class PhasePatternTableTrainTests(unittest.TestCase):
             self.assertEqual(phases["opening"]["skipped"], 2)
             self.assertEqual(phases["late"]["empty_min_skipped"], 1)
             self.assertGreater(len(data_lines(result.table_paths["midgame"])), 0)
-            self.assertEqual(data_lines(result.table_paths["opening"]), [])
-            self.assertEqual(data_lines(result.table_paths["late"]), [])
+            self.assertEqual(data_lines(result.table_paths["opening"]), [sentinel_line()])
+            self.assertEqual(data_lines(result.table_paths["late"]), [sentinel_line()])
+            opening_table = result.table_paths["opening"].read_text(encoding="utf-8")
+            self.assertIn("# empty_phase_sentinel: true", opening_table)
+            self.assertIn("# zero_effect: true", opening_table)
+            self.assertEqual(phases["opening"]["empty_phase_sentinel"], True)
+            self.assertEqual(phases["opening"]["sentinel"]["value"], 0)
 
     def test_empty_max_filter_is_counted(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -335,11 +349,13 @@ class PhasePatternTableTrainTests(unittest.TestCase):
             result = phase_trainer.train_phase_tables(config, analyzer=fake_analyzer)
             rows = result.summary["rows"]
             phases = result.summary["phases"]
+            opening_lines = data_lines(result.table_paths["opening"])
 
-        self.assertEqual(rows["empty_max_skipped"], 1)
-        self.assertEqual(rows["training_rows"], 1)
-        self.assertEqual(phases["opening"]["empty_max_skipped"], 1)
-        self.assertEqual(phases["midgame"]["updates"], 1)
+            self.assertEqual(rows["empty_max_skipped"], 1)
+            self.assertEqual(rows["training_rows"], 1)
+            self.assertEqual(phases["opening"]["empty_max_skipped"], 1)
+            self.assertEqual(phases["midgame"]["updates"], 1)
+            self.assertEqual(opening_lines, [sentinel_line()])
 
 
 if __name__ == "__main__":

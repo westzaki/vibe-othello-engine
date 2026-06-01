@@ -20,6 +20,8 @@ import pattern_teacher_v0_train as base_trainer
 PHASES = ("opening", "midgame", "late")
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_PHASE_CUTOFFS = (20, 44)
+SENTINEL_FAMILY = "corner_2x3"
+SENTINEL_ENTRY = (0, 0)
 
 
 @dataclass(frozen=True)
@@ -435,6 +437,7 @@ def render_phase_table(
     family_entries: dict[str, list[tuple[int, int]]],
     stats: dict[str, int],
     command: list[str],
+    empty_phase_sentinel: bool = False,
 ) -> str:
     lines = [
         "# schema_version: pattern_table.v1",
@@ -443,6 +446,13 @@ def render_phase_table(
         f"# phase: {phase}",
         f"# command: {quote_command(command)}",
     ]
+    if empty_phase_sentinel:
+        lines.extend(
+            (
+                "# empty_phase_sentinel: true",
+                "# zero_effect: true",
+            )
+        )
     for key in sorted(stats):
         lines.append(f"# {key}: {stats[key]}")
     lines.append("")
@@ -503,7 +513,7 @@ def write_phase_summary(
     entries_by_phase: dict[str, dict[str, list[tuple[int, int]]]],
     families: tuple[str, ...],
 ) -> None:
-    header = ["phase", "teacher_rows", "updates", "skipped"]
+    header = ["phase", "teacher_rows", "updates", "skipped", "empty_phase_sentinel"]
     header.extend(f"{family}_entries" for family in families)
     lines = ["\t".join(header)]
     for phase in PHASES:
@@ -512,6 +522,7 @@ def write_phase_summary(
             str(phase_stats[phase]["teacher_rows"]),
             str(phase_stats[phase]["updates"]),
             str(phase_stats[phase]["skipped"]),
+            "true" if phase_stats[phase]["empty_phase_sentinel"] else "false",
         ]
         row.extend(str(len(entries_by_phase[phase].get(family, []))) for family in families)
         lines.append("\t".join(row))
@@ -558,8 +569,9 @@ def write_report(
         f"- empty_min: `{config.empty_min}`",
         f"- empty_max: `{config.empty_max}`",
         "",
-        "Rows with no updates still leave their phase table valid but sparse. A phase with no "
-        "updates writes an empty valid TSV.",
+        "Rows with no updates still leave their phase table loadable. A phase with no "
+        "learned entries writes an explicit zero-effect sentinel entry "
+        f"(`{SENTINEL_FAMILY}\\t{SENTINEL_ENTRY[0]}\\t{SENTINEL_ENTRY[1]}`).",
         "",
         "## Counts",
         "",
@@ -691,6 +703,7 @@ def train_phase_tables(
     entries_by_phase: dict[str, dict[str, list[tuple[int, int]]]] = {
         phase: {} for phase in PHASES
     }
+    sentinel_by_phase: dict[str, bool] = {phase: False for phase in PHASES}
     for phase in PHASES:
         for family in config.families:
             entries = base_trainer.sparse_entries(
@@ -703,6 +716,13 @@ def train_phase_tables(
             )
             entries_by_phase[phase][family] = entries
             phase_stats[phase][f"{family}_entries"] = len(entries)
+        learned_entries = sum(len(entries) for entries in entries_by_phase[phase].values())
+        phase_stats[phase]["learned_entries"] = learned_entries
+        if learned_entries == 0:
+            entries_by_phase[phase][SENTINEL_FAMILY] = [SENTINEL_ENTRY]
+            sentinel_by_phase[phase] = True
+            phase_stats[phase]["empty_phase_sentinel"] = 1
+            phase_stats[phase]["zero_effect_sentinel_entries"] = 1
 
     table_dir = config.out_dir / "tables"
     table_dir.mkdir(parents=True, exist_ok=True)
@@ -718,6 +738,7 @@ def train_phase_tables(
                 family_entries=entries_by_phase[phase],
                 stats=_counter_dict(phase_stats[phase]),
                 command=command,
+                empty_phase_sentinel=sentinel_by_phase[phase],
             ),
             encoding="utf-8",
         )
@@ -766,6 +787,14 @@ def train_phase_tables(
                     family: len(entries_by_phase[phase].get(family, []))
                     for family in config.families
                 },
+                "empty_phase_sentinel": sentinel_by_phase[phase],
+                "sentinel": {
+                    "family": SENTINEL_FAMILY,
+                    "index": SENTINEL_ENTRY[0],
+                    "value": SENTINEL_ENTRY[1],
+                }
+                if sentinel_by_phase[phase]
+                else None,
             }
             for phase in PHASES
         },
