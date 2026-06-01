@@ -32,7 +32,7 @@ script.
 | `dataset_paths.py` | current | Resolve `dataset:...` references and shared dataset roots. | Required by reusable teacher/exact dataset workflows. |
 | `eval_candidate_matrix.py` | current | Gather comparable `.eval` candidate smoke evidence from labels and search bench. | Current replacement for ad hoc candidate validation wrappers; also registered in CTest as a dry-run smoke. |
 | `eval_config_tuner.py` | legacy | Perturb fully expanded `.eval` scalar weights against exact-label JSONL. | Kept for debugging existing configs and because current diagnostics reuse its parser/metric helpers; not the default pattern-learning path. |
-| `eval_experiment_matrix.py` | legacy | Run staged `.eval` config search and match matrices. | Kept because `evidence.py --profile eval` can still call it. Prefer `.eval` candidates and `eval_candidate_matrix.py` for new pattern work. |
+| `eval_experiment_matrix.py` | deprecated | Run staged `.eval` config search and match matrices. | Obsolete local triage helper kept temporarily because `evidence.py --profile eval` can still call it. Prefer `eval_candidate_matrix.py`, `run_match_experiment.py`, or `evidence.py`; delete once the evidence profile no longer needs it. |
 | `evidence.py` | current | Collect reproducible build/test/benchmark/match evidence for PRs. | Shared evidence workflow for reviewers; wraps C++ tools without making strength claims. |
 | `exact_label_workflow.py` | current | Sample positions, dump exact labels, and optionally run eval-vs-exact analysis. | Current exact-label smoke helper for evaluation investigations. |
 | `external_teacher_label_workflow.py` | current | Generate teacher-label JSONL from external engines. | Current teacher-label entrypoint and a dependency of `teacher_dataset_build.py`. |
@@ -327,8 +327,8 @@ objective based on sign agreement, wrong-direction count, and high-confidence
 wrong-direction count. Candidate configs are local experiment artifacts, not
 active configs.
 
-Run a staged `.eval` matrix when candidates need search and match smoke
-coverage:
+Run a staged `.eval` matrix only when an older workflow still needs this
+deprecated helper:
 
 ```sh
 python3 tools/scripts/eval_experiment_matrix.py \
@@ -343,10 +343,10 @@ python3 tools/scripts/eval_experiment_matrix.py \
 ```
 
 This compares each candidate config against the built-in default evaluator
-unless `--reference-config` is supplied. It is a local triage helper, not the
-main path for pattern-first learning and not strength evidence by itself. The
-public `--eval-preset` tool option has been removed; new experiments should use
-`.eval` configs and current candidate/evidence workflows.
+unless `--reference-config` is supplied. It is an obsolete local triage helper,
+not the main path for pattern-first learning and not strength evidence by
+itself. New experiments should use `.eval` configs with current
+candidate/evidence workflows.
 
 Extract first divergence positions from an existing swap-side base/head JSONL:
 

@@ -284,40 +284,6 @@ void check_breakdown_matches_basic(const Board& board, Side side) {
     };
 }
 
-[[nodiscard]] othello::EvaluationConfig phase_aware_v1_snapshot_config() noexcept {
-    return othello::EvaluationConfig{
-        .opening = othello::EvaluationFeatureWeights{
-            .disc_difference = 0,
-            .mobility = 8,
-            .potential_mobility = 4,
-            .corner_occupancy = 35,
-            .corner_access = 30,
-            .x_square_danger = 25,
-            .frontier = 3,
-        },
-        .midgame = othello::EvaluationFeatureWeights{
-            .disc_difference = 1,
-            .mobility = 10,
-            .potential_mobility = 5,
-            .corner_occupancy = 40,
-            .corner_access = 35,
-            .x_square_danger = 30,
-            .frontier = 4,
-        },
-        .late = othello::EvaluationFeatureWeights{
-            .disc_difference = 4,
-            .mobility = 6,
-            .potential_mobility = 2,
-            .corner_occupancy = 45,
-            .corner_access = 20,
-            .x_square_danger = 20,
-            .frontier = 2,
-        },
-        .opening_max_occupied = 20,
-        .midgame_max_occupied = 44,
-    };
-}
-
 [[nodiscard]] othello::EvaluationConfig pattern_table_only_config(
     int weight, const std::shared_ptr<othello::PatternTableBundle>& tables) {
     othello::EvaluationConfig config{
@@ -492,13 +458,6 @@ TEST_CASE("Sample eval configs round-trip to expected evaluator configs", "[eval
     CHECK(current_default.config.midgame.pattern_table == 0);
     CHECK(current_default.config.late.pattern_table == 0);
 
-    const othello::tools::EvaluationConfigLoadResult phase_aware =
-        othello::tools::load_evaluation_config_file(sample_eval_config_path("phase_aware_v1.eval"));
-    REQUIRE(phase_aware.ok());
-    REQUIRE(phase_aware.name.has_value());
-    CHECK(*phase_aware.name == "phase_aware_v1");
-    CHECK(phase_aware.config == phase_aware_v1_snapshot_config());
-
     const othello::tools::EvaluationConfigLoadResult scalar_anchor =
         othello::tools::load_evaluation_config_file(
             sample_eval_config_path("classic_othello_v3_teacher_aggressive.eval"));
@@ -589,7 +548,6 @@ TEST_CASE("Committed eval artifact surface contains only active fixtures",
         std::string_view{"current_default.eval"},
         std::string_view{"pattern_reboot_v0.eval"},
         std::string_view{"pattern_teacher_v0.eval"},
-        std::string_view{"phase_aware_v1.eval"},
     };
     constexpr std::array allowed_pattern_tables{
         std::string_view{"pattern_teacher_v0.tsv"},
@@ -607,8 +565,6 @@ TEST_CASE("Committed eval config fixtures parse and preserve intended identities
     REQUIRE_FALSE(paths.empty());
 
     const othello::EvaluationConfig default_config = othello::default_evaluation_config();
-    const othello::EvaluationConfig phase_aware_config =
-        phase_aware_v1_snapshot_config();
 
     for (const std::filesystem::path& path : paths) {
         CAPTURE(path.string());
@@ -623,10 +579,6 @@ TEST_CASE("Committed eval config fixtures parse and preserve intended identities
             CHECK(loaded.config == default_config);
         } else {
             CHECK(loaded.config != default_config);
-        }
-
-        if (file_name == "phase_aware_v1.eval") {
-            CHECK(loaded.config == phase_aware_config);
         }
     }
 }

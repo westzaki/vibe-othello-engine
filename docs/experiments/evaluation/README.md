@@ -5,6 +5,8 @@ Historical reports preserve commands, measurements, and negative results so
 future work does not repeat stale evaluator candidates. Current guidance lives
 in repository docs, source code, active `.eval` files, and the current task or
 PR context.
+Archived commands may use interfaces or helper workflows that no longer exist;
+preserve them as provenance, but do not copy them as current instructions.
 
 Use this index to decide how actionable a report is before following any
 experiment notes. In particular, do not resurrect a rejected or superseded

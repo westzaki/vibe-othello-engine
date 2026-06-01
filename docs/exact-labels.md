@@ -143,7 +143,7 @@ Example:
 
 When no `--eval-config` is specified, the built-in default evaluator is used.
 Evaluator experiments should pass exactly one `.eval` file with
-`--eval-config`; the public `--eval-preset` option has been removed:
+`--eval-config`:
 
 ```sh
 ./build/othello_eval_vs_exact \

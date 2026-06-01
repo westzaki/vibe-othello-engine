@@ -1,11 +1,11 @@
 # Evaluation Configs
 
-This directory contains the small set of `.eval` v1 files that should work on
-the latest `main`. These files are selected explicitly with `--eval-config PATH`
-or `eval_config=PATH`; they do not change the built-in engine default.
+This directory contains the small active set of `.eval` v1 files that should
+work on the latest `main`: the current default snapshot and retained research
+configs. These files are selected explicitly with `--eval-config PATH` or
+`eval_config=PATH`; they do not change the built-in engine default.
 When no `--eval-config` is specified, tools use the built-in default evaluator.
-Use `.eval` configs for new evaluation experiments. The public `--eval-preset`
-tool option and C++ preset compatibility API have been removed.
+Use `.eval` configs for new evaluation experiments.
 
 ## Roles
 
@@ -41,12 +41,6 @@ foundations.
 `classic_othello_v3_teacher_aggressive.eval` is retained temporarily as a
 scalar comparison anchor for pattern research. It is not a preferred candidate
 and should not be used as a new scalar-tweaking baseline.
-
-### Retained Previous Default Snapshot
-
-`phase_aware_v1.eval` is retained as a reproducible snapshot of the previous
-phase-aware evaluator. It is selected explicitly with `--eval-config`; there is
-no C++ preset alias for it.
 
 ## Rejected or Superseded Configs
 
@@ -97,9 +91,9 @@ config must not specify both the old key and its legacy alias for the same phase
 
 Plain `eval.v1` configs without `mode=pattern_only` are full snapshots. They
 must explicitly list every handcrafted feature weight and phase threshold. Use
-this form for compatibility snapshots such as `current_default.eval`, retained
-scalar anchors, or configs that need to describe the whole evaluator state
-without implicit feature-weight fallback.
+this form for `current_default.eval`, retained scalar anchors, or configs that
+need to describe the whole evaluator state without implicit feature-weight
+fallback.
 
 ### Pattern-Only Configs
 
@@ -122,8 +116,8 @@ Parser smoke fixtures for `mode=pattern_only` belong under test fixtures rather
 than this active config directory. A pattern-only config without any learned
 table path is not a playable experiment or strength candidate.
 
-New evaluation experiments should be represented as `.eval` files. Do not add
-new C++ evaluator preset entries.
+New evaluation experiments should be represented as `.eval` files selected with
+`--eval-config`.
 
 Pattern table storage is separate from scalar evaluator configuration. Sparse
 TSV files remain the source and review format, but loading expands them into a
