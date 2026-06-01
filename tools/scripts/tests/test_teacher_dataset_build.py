@@ -368,13 +368,59 @@ class TeacherDatasetBuildTests(unittest.TestCase):
         self.assertNotIn(raw_ntest_path, card)
         self.assertIn("<absolute-path:ntest>", card)
 
+    def test_custom_relative_out_updates_dataset_card_reuse_refs(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            dataset_root = temp_path / "datasets"
+            positions = write_positions(temp_path)
+            config = make_config(
+                temp_path,
+                dataset_root=dataset_root,
+                positions=positions,
+                extra_args=["--out", "experiments/tiny"],
+            )
+
+            self.assertEqual(builder.run_build(config), 0)
+            card = (config.out_dir / "dataset_card.md").read_text(encoding="utf-8")
+
+        self.assertIn(
+            "dataset:experiments/tiny/positions/shards/positions-0000.jsonl",
+            card,
+        )
+        self.assertIn(
+            "dataset:experiments/tiny/labels/none/shards/labels-0000.jsonl",
+            card,
+        )
+        self.assertIn(
+            "dataset:experiments/tiny/exact-overlap/labels.jsonl",
+            card,
+        )
+
+    def test_absolute_out_outside_dataset_root_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            positions = write_positions(temp_path)
+
+            with self.assertRaisesRegex(builder.ScriptError, "under dataset root"):
+                make_config(
+                    temp_path,
+                    dataset_root=temp_path / "datasets",
+                    positions=positions,
+                    extra_args=["--out", str(temp_path / "outside")],
+                )
+
     def test_default_output_is_under_dataset_root_not_source_data(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             temp_path = Path(temp)
             positions = write_positions(temp_path)
             config = make_config(temp_path, dataset_root=temp_path / "datasets", positions=positions)
+            self.assertEqual(builder.run_build(config), 0)
+            card = (config.out_dir / "dataset_card.md").read_text(encoding="utf-8")
 
         self.assertEqual(config.out_dir, (temp_path / "datasets" / "teacher" / "tiny").resolve(strict=False))
+        self.assertIn("dataset:teacher/tiny/positions/shards/positions-0000.jsonl", card)
+        self.assertIn("dataset:teacher/tiny/labels/none/shards/labels-0000.jsonl", card)
+        self.assertIn("dataset:teacher/tiny/exact-overlap/labels.jsonl", card)
         with self.assertRaises(ValueError):
             config.out_dir.relative_to(REPO_ROOT / "data")
 

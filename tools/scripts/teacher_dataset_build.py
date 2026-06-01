@@ -258,9 +258,22 @@ def _reject_source_controlled_output(path: Path) -> None:
     raise ScriptError("dataset output must not be under source-controlled data/")
 
 
+def _reject_outside_dataset_root(path: Path, root: Path) -> None:
+    resolved_path = path.resolve(strict=False)
+    resolved_root = root.resolve(strict=False)
+    try:
+        resolved_path.relative_to(resolved_root)
+    except ValueError as exc:
+        raise ScriptError(
+            f"dataset output must be under dataset root; got {resolved_path}; "
+            f"dataset root is {resolved_root}"
+        ) from exc
+
+
 def config_from_args(args: argparse.Namespace, invocation: list[str] | None = None) -> BuildConfig:
     dataset_root = resolve_dataset_root(args.dataset_root, require_exists=False)
     out_dir = _resolve_out_dir(dataset_root.path, args.dataset_id, args.out)
+    _reject_outside_dataset_root(out_dir, dataset_root.path)
     _reject_source_controlled_output(out_dir)
     return BuildConfig(
         dataset_id=args.dataset_id,
@@ -766,6 +779,24 @@ def sanitized_invocation(invocation: list[str]) -> str:
     return quote_command(redact_command(invocation)) if invocation else "unknown"
 
 
+def dataset_ref_prefix(config: BuildConfig) -> str:
+    try:
+        relative = config.out_dir.resolve(strict=False).relative_to(
+            config.dataset_root.path.resolve(strict=False)
+        )
+    except ValueError as exc:
+        raise ScriptError("dataset output must be under dataset root to write dataset: references") from exc
+    prefix = relative.as_posix()
+    return "" if prefix == "." else prefix
+
+
+def dataset_ref(prefix: str, suffix: str) -> str:
+    clean_suffix = suffix.strip("/")
+    if prefix:
+        return f"dataset:{prefix}/{clean_suffix}"
+    return f"dataset:{clean_suffix}"
+
+
 def write_commands(config: BuildConfig) -> None:
     lines = [
         "#!/usr/bin/env sh",
@@ -915,6 +946,7 @@ def write_dataset_card(config: BuildConfig, records: list[PositionRecord], summa
         config.out_dir / "exact-overlap" / "positions.txt",
         config.out_dir / "exact-overlap" / "labels.jsonl",
     )
+    reuse_prefix = dataset_ref_prefix(config)
     lines = [
         f"# Dataset Card: {config.dataset_id}",
         "",
@@ -984,9 +1016,9 @@ def write_dataset_card(config: BuildConfig, records: list[PositionRecord], summa
             "",
             "## Reuse",
             "",
-            f"- positions: `dataset:teacher/{config.dataset_id}/positions/shards/positions-0000.jsonl`",
-            f"- teacher labels: `dataset:teacher/{config.dataset_id}/labels/{_teacher_name(config)}/shards/labels-0000.jsonl`",
-            f"- exact overlap: `dataset:teacher/{config.dataset_id}/exact-overlap/labels.jsonl`",
+            f"- positions: `{dataset_ref(reuse_prefix, 'positions/shards/positions-0000.jsonl')}`",
+            f"- teacher labels: `{dataset_ref(reuse_prefix, f'labels/{_teacher_name(config)}/shards/labels-0000.jsonl')}`",
+            f"- exact overlap: `{dataset_ref(reuse_prefix, 'exact-overlap/labels.jsonl')}`",
             "",
             "## Known Caveats",
             "",
