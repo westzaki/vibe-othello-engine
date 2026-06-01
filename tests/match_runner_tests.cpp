@@ -119,12 +119,16 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
                            othello::EvaluationPreset::FrontierClassicFeaturesLiteV1);
     check_eval_preset_spec("search:depth=4,eval=corner_pattern_2x3_v1",
                            othello::EvaluationPreset::CornerPattern2x3V1);
+    check_eval_preset_spec("search:depth=4,eval=corner_pattern_2x3_aggressive",
+                           othello::EvaluationPreset::CornerPattern2x3Aggressive);
     check_eval_preset_spec("search:depth=4,eval=frontier_corner_pattern_2x3_v1",
                            othello::EvaluationPreset::FrontierCornerPattern2x3V1);
     check_eval_preset_spec("search:depth=4,eval=frontier_corner_pattern_edge_lite_v1",
                            othello::EvaluationPreset::FrontierCornerPatternEdgeLiteV1);
     check_eval_preset_spec("search:depth=4,eval=edge_pattern_8_v1",
                            othello::EvaluationPreset::EdgePattern8V1);
+    check_eval_preset_spec("search:depth=4,eval=edge_pattern_8_aggressive",
+                           othello::EvaluationPreset::EdgePattern8Aggressive);
     check_eval_preset_spec("search:depth=4,eval=default_edge_pattern_8_v1",
                            othello::EvaluationPreset::DefaultEdgePattern8V1);
     check_eval_preset_spec("search:depth=4,eval=default_edge_pattern_8_no_edge_lite",

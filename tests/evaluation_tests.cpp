@@ -476,6 +476,62 @@ TEST_CASE("Sample eval configs round-trip to expected evaluator configs", "[eval
     CHECK(pattern_only_smoke.config.midgame_max_occupied == 44);
 }
 
+TEST_CASE("Evaluation preset names remain compatibility aliases", "[evaluation]") {
+    using Preset = othello::EvaluationPreset;
+
+    constexpr std::array canonical_presets{
+        std::tuple{std::string_view{"default"}, Preset::Default},
+        std::tuple{std::string_view{"phase_aware_v1"}, Preset::PhaseAwareV1},
+        std::tuple{std::string_view{"mobility_plus_smoke"}, Preset::MobilityPlusSmoke},
+        std::tuple{std::string_view{"frontier_open2_mid2_late_plus1"},
+                   Preset::FrontierOpen2Mid2LatePlus1},
+        std::tuple{std::string_view{"classic_corner_lite_v1"},
+                   Preset::ClassicCornerLiteV1},
+        std::tuple{std::string_view{"classic_edge_lite_v1"},
+                   Preset::ClassicEdgeLiteV1},
+        std::tuple{std::string_view{"classic_features_lite_v1"},
+                   Preset::ClassicFeaturesLiteV1},
+        std::tuple{std::string_view{"classic_features_lite_aggressive"},
+                   Preset::ClassicFeaturesLiteAggressive},
+        std::tuple{std::string_view{"frontier_classic_features_lite_v1"},
+                   Preset::FrontierClassicFeaturesLiteV1},
+        std::tuple{std::string_view{"corner_pattern_2x3_v1"},
+                   Preset::CornerPattern2x3V1},
+        std::tuple{std::string_view{"corner_pattern_2x3_aggressive"},
+                   Preset::CornerPattern2x3Aggressive},
+        std::tuple{std::string_view{"frontier_corner_pattern_2x3_v1"},
+                   Preset::FrontierCornerPattern2x3V1},
+        std::tuple{std::string_view{"frontier_corner_pattern_edge_lite_v1"},
+                   Preset::FrontierCornerPatternEdgeLiteV1},
+        std::tuple{std::string_view{"edge_pattern_8_v1"}, Preset::EdgePattern8V1},
+        std::tuple{std::string_view{"edge_pattern_8_aggressive"},
+                   Preset::EdgePattern8Aggressive},
+        std::tuple{std::string_view{"default_edge_pattern_8_v1"},
+                   Preset::DefaultEdgePattern8V1},
+        std::tuple{std::string_view{"default_edge_pattern_8_no_edge_lite"},
+                   Preset::DefaultEdgePattern8NoEdgeLite},
+        std::tuple{std::string_view{"default_edge_pattern_8_aggressive"},
+                   Preset::DefaultEdgePattern8Aggressive},
+    };
+
+    for (const auto& [name, preset] : canonical_presets) {
+        const std::string name_text{name};
+        CAPTURE(name_text);
+        CHECK(std::string{othello::evaluation_preset_name(preset)} == name_text);
+
+        const std::optional<Preset> parsed = othello::evaluation_preset_from_name(name);
+        REQUIRE(parsed.has_value());
+        CHECK(*parsed == preset);
+    }
+
+    const std::optional<Preset> legacy_phase_aware =
+        othello::evaluation_preset_from_name("legacy_phase_aware_v1");
+    REQUIRE(legacy_phase_aware.has_value());
+    CHECK(*legacy_phase_aware == Preset::PhaseAwareV1);
+    CHECK(std::string{othello::evaluation_preset_name(*legacy_phase_aware)} ==
+          "phase_aware_v1");
+}
+
 TEST_CASE("Rejected eval experiments are pruned from the active eval surface",
           "[evaluation]") {
     constexpr std::array<std::string_view, 14> pruned_artifacts{{

@@ -27,8 +27,9 @@ void print_usage(std::string_view program) {
               << '\n'
               << "Options:\n"
               << "  --depth N          positive search depth (default: 4)\n"
-              << "  --eval-preset NAME builtin evaluator preset name\n"
-              << "  --eval-config PATH load evaluator weights from a .eval config file\n"
+              << "  --eval-preset NAME builtin compatibility/smoke evaluator preset name\n"
+              << "  --eval-config PATH load evaluator weights from a .eval config file "
+                 "(preferred for experiments)\n"
               << "  --exact-endgame-threshold N\n"
               << "                     solve root positions with at most N empties exactly; N <= 0 "
                  "disables (default: 12)\n"

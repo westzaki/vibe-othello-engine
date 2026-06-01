@@ -36,7 +36,8 @@ A candidate may change:
 - feature normalization
 - a pattern family
 - a weight set
-- a named evaluator preset
+- a `.eval` candidate config
+- a stable built-in preset, when the task is explicitly about the compatibility surface
 - the evaluator architecture
 
 The requirement is that the candidate tests one coherent idea and can be compared
@@ -47,8 +48,8 @@ as a unit.
 Do not restrict evaluation experiments to the current feature set.
 
 Existing handcrafted features are useful starting points, not boundaries. New
-features, feature groups, pattern evaluators, tuned weight sets, or named
-presets are allowed when they are testable.
+features, feature groups, pattern evaluators, tuned weight sets, or `.eval`
+candidate configs are allowed when they are testable.
 
 Prefer ideas that can plausibly improve Othello play, not only ideas that are
 easy to implement.
@@ -110,8 +111,9 @@ not alter exact or search semantics.
 A weight-set candidate changes multiple weights while keeping the evaluator
 structure.
 
-A preset candidate introduces a named evaluator preset that can be selected,
-compared, and rolled back.
+A config candidate introduces an explicit `.eval` file that can be selected with
+`--eval-config`, compared, and rolled back without growing the public C++ preset
+surface.
 
 Large candidates are allowed when they are named, measurable, and reversible.
 
@@ -122,15 +124,16 @@ that only changes weights should normally live as a config file and be selected
 with `--eval-config`; generated reports, temporary candidates, and raw evidence
 belong under `runs/` or in PR/task artifacts.
 
-Add a public C++ `EvaluationPreset` only for stable defaults, intentionally
-retained named baselines, or long-lived built-ins that external wrappers should
-be able to select without shipping a config file. Do not add one enum entry per
-experiment.
+Add a public C++ `EvaluationPreset` only for stable defaults or long-lived
+built-ins that external wrappers should be able to select without shipping a
+config file. Do not add one enum entry per experiment, and do not use the enum
+as an experiment history log.
 
 Existing public preset names are compatibility surface. Do not remove or rename
 them without a clear compatibility plan, even when a preset originated as an
 experiment. New CLI-visible names should remain stable once documented or used by
-fixtures.
+fixtures. For new research, prefer a named `.eval` file under `data/eval/` or a
+generated candidate under `runs/` instead.
 
 `data/eval/current_default.eval` is the committed config snapshot of
 `default_evaluation_config()`. Keep it synchronized in the same PR as any
@@ -369,7 +372,7 @@ Classify each candidate as one of:
 - reject
 - keep experimental
 - needs more data
-- promote as named preset
+- retain as `.eval` config
 - promote as default
 
 Mixed evidence should usually lead to "keep experimental" or "needs more data",
@@ -416,8 +419,9 @@ Keep a candidate experimental when evidence is mixed, it helps one phase but
 hurts another, it improves fixed positions but not matches, it improves matches
 but has unclear runtime cost, or it needs broader testing.
 
-Promote a candidate as a named preset when it is isolated, selectable, useful for
-further testing, but not ready to replace the default.
+Promote a candidate as a retained `.eval` config when it is isolated,
+selectable, useful for further testing, but not ready to replace the default.
+Reserve new named C++ presets for stable compatibility surfaces.
 
 Promote a candidate as default only when correctness checks pass, evidence is
 stronger than a smoke test, runtime cost is acceptable or justified, and the
@@ -467,15 +471,14 @@ Avoid these traps:
 
 Prefer mechanisms that make candidates easy to compare or roll back:
 
-- named presets
+- `.eval` config files selected with `--eval-config`
 - explicit options
-- small configuration files
 - isolated feature functions
 - evaluation breakdown fields
 - tests for sign conventions and invariants
 
-Do not over-engineer configuration before it is useful. A simple named preset is
-often enough for early experiments.
+Do not over-engineer configuration before it is useful. A small `.eval` config
+is usually enough for early experiments.
 
 When adding features, keep breakdowns and diagnostics useful enough to explain
 which feature or feature group changed the score.

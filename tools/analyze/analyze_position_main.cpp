@@ -44,9 +44,10 @@ void print_usage(std::string_view program_name) {
               << "                    solve root positions with at most N empties exactly; N <= 0 "
                  "disables\n"
               << "  --eval-preset NAME\n"
-              << "                    builtin evaluator preset name\n"
+              << "                    builtin compatibility/smoke evaluator preset name\n"
               << "  --eval-config PATH\n"
-              << "                    load evaluator weights from a .eval config file\n"
+              << "                    load evaluator weights from a .eval config file "
+                 "(preferred for experiments)\n"
               << "  --root-candidates  analyze each legal root move separately\n"
               << "  --help             show this help text\n";
 }
