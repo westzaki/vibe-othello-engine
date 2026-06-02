@@ -31,21 +31,25 @@ Then edit `[datasets].root`. The local config is ignored by git.
 Use `dataset:relative/path` to read a file below the dataset root:
 
 ```sh
-python3 tools/scripts/pattern_teacher_v0_train.py \
+python3 tools/scripts/regularized_pairwise_pattern_train.py \
   --dataset-root /path/to/vibe-othello-datasets \
   --teacher-labels dataset:teacher/ntest-depth26-2027/labels/ntest26/train.jsonl \
-  --eval-config data/eval/pattern_teacher_v0.eval \
-  --out runs/pattern-training/table.tsv
+  --eval-config data/eval/pattern_reboot_v0.eval \
+  --analyze-position build/othello_analyze_position \
+  --out-dir runs/pattern-training/pairwise-example \
+  --families broad_all
 ```
 
 Catalog references use the local TOML entry shape:
 
 ```sh
-python3 tools/scripts/pattern_teacher_v0_train.py \
+python3 tools/scripts/regularized_pairwise_pattern_train.py \
   --teacher-labels dataset:teacher.ntest_depth26_2027:train \
   --exact-labels dataset:teacher.ntest_depth26_2027:exact_teacher2000 \
-  --eval-config data/eval/pattern_teacher_v0.eval \
-  --out runs/pattern-training/table.tsv
+  --eval-config data/eval/pattern_reboot_v0.eval \
+  --analyze-position build/othello_analyze_position \
+  --out-dir runs/pattern-training/pairwise-example \
+  --families broad_all
 ```
 
 In the example above, `train` resolves to
@@ -92,8 +96,13 @@ of committed docs.
 
 ## Current Script Support
 
-- `tools/scripts/pattern_teacher_v0_train.py` supports `--dataset-root` for
-  `--teacher-labels` and `--exact-labels` entries that start with `dataset:`.
+- `tools/scripts/regularized_pairwise_pattern_train.py` is the canonical
+  current pattern trainer and supports `--dataset-root` for `--teacher-labels`
+  and `--exact-labels` entries that start with `dataset:`.
+- `tools/scripts/pattern_teacher_v0_train.py` still supports `--dataset-root`
+  for legacy/transitional training reproduction.
+- `tools/scripts/phase_pattern_table_train.py` still supports `--dataset-root`
+  for specialized phase-table workflow reproduction.
 - `tools/scripts/teacher_label_mistake_mining.py` supports `--dataset-root` for
   `--teacher-labels` and `--exact-labels` entries that start with `dataset:`.
 - `tools/scripts/external_teacher_label_workflow.py` supports `--dataset-root`
