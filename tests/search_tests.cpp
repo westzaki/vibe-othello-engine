@@ -1,8 +1,8 @@
+#include "common/stats.hpp"
 #include "test_helpers.hpp"
 
-#include "common/stats.hpp"
-
 #include <catch2/catch_test_macros.hpp>
+#include <cstdint>
 #include <othello/othello.hpp>
 
 using othello::Bitboard;
@@ -211,9 +211,8 @@ TEST_CASE("Search options custom evaluator override resolves over the default", 
 
     CHECK(othello::resolve_evaluation_config(options) == config);
     CHECK(result.score == othello::evaluate_with_config(*board, board->side_to_move, config));
-    CHECK(result.score != othello::evaluate_with_config(
-                              *board, board->side_to_move,
-                              othello::default_evaluation_config()));
+    CHECK(result.score != othello::evaluate_with_config(*board, board->side_to_move,
+                                                        othello::default_evaluation_config()));
 }
 
 TEST_CASE("Fixed-depth search treats negative depth as depth zero", "[search]") {
@@ -974,6 +973,72 @@ TEST_CASE("Search stats count dynamic move ordering work", "[search]") {
     CHECK(result.stats.dynamic_ordering_moves >= result.stats.dynamic_ordering_nodes * 5);
 }
 
+TEST_CASE("Fixed-depth search preserves representative midgame ordering snapshots", "[search]") {
+    struct Case {
+        Board board;
+        othello::Square best_move;
+        int score = 0;
+        std::uint64_t nodes = 0;
+        std::vector<othello::Square> principal_variation;
+    };
+
+    const std::vector<Case> cases{
+        Case{
+            .board = othello::test::board_from_text(R"(........
+.B......
+..B.B...
+...BB...
+.WWWWW..
+..B.....
+........
+........
+side=W)"),
+            .best_move = othello::test::square("d6"),
+            .score = 69,
+            .nodes = 2631,
+            .principal_variation = {othello::test::square("d6"), othello::test::square("a5"),
+                                    othello::test::square("b6"), othello::test::square("b5"),
+                                    othello::test::square("a4")},
+        },
+        Case{
+            .board = othello::test::board_from_text(R"(.....W..
+...WWW..
+...WWW..
+..WWWWBB
+..WWWWBW
+..WWWWWW
+...WB...
+...W....
+side=B)"),
+            .best_move = othello::test::square("e8"),
+            .score = 195,
+            .nodes = 4033,
+            .principal_variation = {othello::test::square("e8"), othello::test::square("d8"),
+                                    othello::test::square("g6"), othello::test::square("e1"),
+                                    othello::test::square("c2")},
+        },
+    };
+
+    const othello::SearchOptions options{
+        .max_depth = 5,
+        .use_transposition_table = false,
+        .exact_endgame_empty_threshold = 0,
+        .use_pvs = false,
+    };
+
+    for (const Case& test_case : cases) {
+        const othello::SearchResult result = othello::search(test_case.board, options);
+
+        REQUIRE(result.best_move.has_value());
+        CHECK(*result.best_move == test_case.best_move);
+        CHECK(result.score == test_case.score);
+        CHECK(result.nodes == test_case.nodes);
+        CHECK(result.principal_variation == test_case.principal_variation);
+        CHECK(result.stats.dynamic_ordering_nodes > 0);
+        CHECK(result.stats.dynamic_ordering_moves >= result.stats.dynamic_ordering_nodes * 5);
+    }
+}
+
 TEST_CASE("PVS off leaves PVS counters zero", "[search]") {
     const auto board = othello::apply_move(Board::initial(), othello::test::square("d3"));
     REQUIRE(board.has_value());
@@ -1149,10 +1214,8 @@ side=W)");
         .aspiration_window = 50,
     };
 
-    const othello::SearchResult full_window =
-        othello::search_iterative(board, full_window_options);
-    const othello::SearchResult aspirated =
-        othello::search_iterative(board, aspiration_options);
+    const othello::SearchResult full_window = othello::search_iterative(board, full_window_options);
+    const othello::SearchResult aspirated = othello::search_iterative(board, aspiration_options);
 
     CHECK(aspirated.best_move == full_window.best_move);
     CHECK(aspirated.score == full_window.score);
@@ -1184,8 +1247,7 @@ TEST_CASE("Aspiration preserves iterative TT and PVS result", "[search]") {
 
     const othello::SearchResult full_window =
         othello::search_iterative(*board, full_window_options);
-    const othello::SearchResult aspirated =
-        othello::search_iterative(*board, aspiration_options);
+    const othello::SearchResult aspirated = othello::search_iterative(*board, aspiration_options);
 
     CHECK(aspirated.best_move == full_window.best_move);
     CHECK(aspirated.score == full_window.score);
@@ -1229,8 +1291,7 @@ TEST_CASE("Narrow aspiration falls back without changing iterative result", "[se
     CHECK(narrow.stats.aspiration_searches > 0);
     CHECK(narrow.stats.aspiration_researches ==
           narrow.stats.aspiration_fail_lows + narrow.stats.aspiration_fail_highs);
-    CHECK(narrow.stats.aspiration_full_window_fallbacks <=
-          narrow.stats.aspiration_researches);
+    CHECK(narrow.stats.aspiration_full_window_fallbacks <= narrow.stats.aspiration_researches);
 }
 
 TEST_CASE("Fixed-depth search handles terminal boards", "[search]") {
