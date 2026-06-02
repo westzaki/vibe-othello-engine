@@ -118,9 +118,20 @@ Large candidates are allowed when they are named, measurable, and reversible.
 
 ## Evaluator Config Policy
 
-The engine has one built-in default evaluator, exposed by
-`default_evaluation_config()`. When no `--eval-config` is specified, tools use
-that built-in default.
+The engine has a file-free built-in fallback evaluator, exposed by
+`default_evaluation_config()`. This is safe for public C++ library and core use.
+It does not load `.eval` files or source-controlled learned tables.
+
+The repository also has a project default evaluator:
+`data/eval/current_default.eval`. Repository tools load this file when
+`--eval-config` is omitted. If the project default file cannot be found, tools
+fail clearly and ask the caller to run from the repository/build environment or
+pass `--eval-config PATH`.
+
+The built-in fallback and project default may intentionally differ. Changing
+`data/eval/current_default.eval` changes the project default only for callers
+that load the file; it does not automatically change
+`default_evaluation_config()`.
 
 Experimental evaluator candidates should live as explicit `.eval` files and be
 selected with `--eval-config`; generated reports, temporary candidates, and raw
@@ -129,18 +140,19 @@ evidence belong under `runs/` or in PR/task artifacts.
 Do not add evaluator experiments as named C++ API entries. Use a named `.eval`
 file under `data/eval/` or a generated candidate under `runs/` instead.
 
-`data/eval/current_default.eval` is the committed config snapshot of
-`default_evaluation_config()`. Keep it synchronized in the same PR as any
-intentional default evaluator change, and use stronger-than-smoke evidence
-before promoting a candidate to the default.
+Default promotion must update the project-default loading path and tests. If a
+promotion also changes the built-in fallback, update `default_evaluation_config()`
+and its tests in the same PR. Use stronger-than-smoke evidence before promoting
+a candidate to either default.
 
 ## Engine Default And Research Baseline
 
 The engine default and the active research baseline are different concepts.
 
-`current_default.eval` mirrors the built-in default evaluator. It is the
-compatibility and product-facing baseline. Do not change it as part of a
-research cleanup or pattern-learning setup PR.
+`current_default.eval` is the project default evaluator used by repository
+tools. It may differ from the C++ built-in fallback when the project default
+uses source-controlled learned tables. Do not change it as part of a research
+cleanup or pattern-learning setup PR.
 
 Pattern-first research should usually start from `pattern_teacher_v0.eval`, the
 clean pattern-only `pattern_reboot_v0.eval`, or another explicit
@@ -330,8 +342,9 @@ python3 tools/scripts/evidence.py \
   --small-depths 5
 ```
 
-When no `--eval-config` is specified, tools use the built-in default evaluator.
-Evaluator experiments should be represented as `.eval` configs and passed with
+When no `--eval-config` is specified, repository tools use
+`data/eval/current_default.eval` as the project default evaluator. Evaluator
+experiments should be represented as `.eval` configs and passed with
 `--eval-config`.
 
 Treat score, best move, PV, checksum, or node-count changes on this suite as

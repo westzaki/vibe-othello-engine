@@ -57,7 +57,15 @@ TEST_CASE("Search player specs require positive depth", "[match-runner]") {
 }
 
 TEST_CASE("Search player specs parse options", "[match-runner]") {
-    const othello::SearchOptions depth_only_options = require_search_options("search:depth=4");
+    const runner::PlayerSpec depth_only_spec =
+        require_player_spec(std::string_view{"search:depth=4"});
+    CHECK(othello::tools::uses_project_default_eval_config(
+        depth_only_spec.search_options.evaluator));
+    CHECK_FALSE(othello::tools::uses_built_in_fallback_eval_config(
+        depth_only_spec.search_options.evaluator));
+
+    const othello::SearchOptions depth_only_options =
+        runner::make_search_options(depth_only_spec);
     CHECK(depth_only_options.max_depth == 4);
     CHECK_FALSE(depth_only_options.use_transposition_table);
     CHECK_FALSE(depth_only_options.use_pvs);
@@ -88,7 +96,7 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
     CHECK(require_search_options("search:depth=4,tt_entries=262144").transposition_table_entries ==
           262144U);
     CHECK_FALSE(require_search_options("search:depth=4,tt_store_leaf=off").store_leaf_tt_entries);
-    CHECK_FALSE(depth_only_options.evaluation_config_override.has_value());
+    CHECK(depth_only_options.evaluation_config_override.has_value());
     CHECK(othello::resolve_evaluation_config(depth_only_options) ==
           othello::default_evaluation_config());
 

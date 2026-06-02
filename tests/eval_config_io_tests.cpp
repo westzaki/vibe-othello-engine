@@ -255,11 +255,27 @@ TEST_CASE("Tool evaluator selection resolves the default evaluator and config fi
     std::string error;
 
     const std::optional<othello::tools::EvaluatorSelection> default_selection =
-        othello::tools::parse_evaluator_selection({}, error);
+        othello::tools::parse_evaluator_selection(
+            {.project_default_config_path = sample_eval_config_path("current_default.eval")},
+            error);
     REQUIRE(default_selection.has_value());
-    CHECK_FALSE(default_selection->config_override.has_value());
+    CHECK(default_selection->config_path ==
+          sample_eval_config_path("current_default.eval").string());
+    CHECK(default_selection->config_override.has_value());
     CHECK_FALSE(othello::tools::has_custom_eval_config(*default_selection));
+    CHECK(othello::tools::uses_project_default_eval_config(*default_selection));
+    CHECK_FALSE(othello::tools::uses_built_in_fallback_eval_config(*default_selection));
     CHECK(othello::tools::resolve_evaluator_selection(*default_selection) ==
+          othello::default_evaluation_config());
+
+    const othello::tools::EvaluatorSelection built_in_fallback_selection;
+    CHECK_FALSE(built_in_fallback_selection.config_override.has_value());
+    CHECK_FALSE(othello::tools::has_custom_eval_config(built_in_fallback_selection));
+    CHECK_FALSE(othello::tools::uses_project_default_eval_config(
+        built_in_fallback_selection));
+    CHECK(othello::tools::uses_built_in_fallback_eval_config(
+        built_in_fallback_selection));
+    CHECK(othello::tools::resolve_evaluator_selection(built_in_fallback_selection) ==
           othello::default_evaluation_config());
 
     const std::string config_path =
@@ -269,6 +285,8 @@ TEST_CASE("Tool evaluator selection resolves the default evaluator and config fi
     REQUIRE(config_selection.has_value());
     CHECK(config_selection->config_path == config_path);
     CHECK(othello::tools::has_custom_eval_config(*config_selection));
+    CHECK_FALSE(othello::tools::uses_project_default_eval_config(*config_selection));
+    CHECK_FALSE(othello::tools::uses_built_in_fallback_eval_config(*config_selection));
     CHECK(config_selection->config_override.has_value());
     CHECK(config_selection->config_override->pattern_tables != nullptr);
     CHECK(config_selection->config_override->opening.pattern_table == 10);
@@ -289,6 +307,13 @@ TEST_CASE("Tool evaluator selection rejects invalid config input", "[evaluation]
             {.config_path = sample_eval_config_path("missing.eval").string()}, error);
     CHECK_FALSE(missing.has_value());
     CHECK(error.find("failed to open evaluation config") != std::string::npos);
+
+    const std::optional<othello::tools::EvaluatorSelection> missing_project_default =
+        othello::tools::parse_evaluator_selection(
+            {.project_default_config_path = sample_eval_config_path("missing.eval")},
+            error);
+    CHECK_FALSE(missing_project_default.has_value());
+    CHECK(error.find("invalid project default eval config") != std::string::npos);
 }
 
 TEST_CASE("Eval config parser rejects malformed v1 files", "[evaluation]") {

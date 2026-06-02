@@ -3,21 +3,42 @@
 This directory contains the small active set of `.eval` v1 files that should
 work on the latest `main`: the current default snapshot and pattern research
 baselines. These files are selected explicitly with `--eval-config PATH` or
-`eval_config=PATH`; they do not change the built-in engine default.
-When no `--eval-config` is specified, tools use the built-in default evaluator.
-Use `.eval` configs for new evaluation experiments.
+`eval_config=PATH`, and repo tools also load `current_default.eval` as the
+project default when `--eval-config` is omitted. Use `.eval` configs for new
+evaluation experiments.
 
 ## Roles
 
-### Engine Default
+### Built-In Fallback
 
-`current_default.eval` is the fully expanded snapshot of
-`default_evaluation_config()`. It must stay synchronized with the built-in
-default in the same PR as any intentional default evaluator change.
+`default_evaluation_config()` returns the file-free C++ built-in fallback. It
+is safe for public library and core use, and it does not load `.eval` files or
+source-controlled learned tables.
+
+The built-in fallback remains available to C++ callers and tests. It may
+intentionally differ from the project default evaluator when the project
+default uses source-controlled learned tables.
+
+### Project Default
+
+`current_default.eval` is the source-controlled project default evaluator.
+Repository tools load it when `--eval-config` is omitted. It may reference
+source-controlled learned tables through the `.eval` loader.
+
+Changing `current_default.eval` does not automatically change the C++ built-in
+fallback unless a caller loads the file. Default promotion must update this
+project-default file, the tests that define the expected default-selection
+policy, and any docs/evidence in the same PR.
 
 Default promotion is separate from research. It requires strong evidence from
 correctness checks, exact-label diagnostics, search benchmarks, and match or
 base/head validation.
+
+### Explicit Evaluator Preset
+
+Any active `.eval` file can also be selected explicitly with
+`--eval-config PATH` or `eval_config=PATH`. Explicit presets are useful for
+comparison, reproduction, and reversible evaluator candidates.
 
 ### Pattern Research Baseline
 
