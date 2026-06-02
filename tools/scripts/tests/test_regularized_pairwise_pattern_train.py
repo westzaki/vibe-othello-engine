@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import random
 import re
@@ -319,6 +320,21 @@ def make_config(
 
 
 class RegularizedPairwisePatternTrainTests(unittest.TestCase):
+    def test_eval_config_is_required(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+
+            with mock.patch("sys.stderr", io.StringIO()), self.assertRaises(SystemExit):
+                trainer.parse_args(
+                    [
+                        "--teacher-labels",
+                        str(labels),
+                        "--out-dir",
+                        str(temp_path / "runs" / "missing-eval-config"),
+                    ]
+                )
+
     def test_dataset_reference_escape_rejection_comes_from_shared_resolver(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "datasets"

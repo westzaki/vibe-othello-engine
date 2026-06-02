@@ -63,11 +63,12 @@ should be rebuilt with the current workflows above.
 ## Pattern-First Evaluation Workflow
 
 For new evaluation research, start with the current role definitions in
-`data/eval/README.md` before choosing a script. `current_default.eval` is the
-engine default and product-facing compatibility baseline, not the research
-baseline. `pattern_reboot_v0.eval`, when present, is the clean pattern-only
-research baseline even though it is expected to be weak initially. Historical
-pattern-teacher artifacts remain provenance, not active trainer entry points.
+`data/eval/README.md` before choosing a script and base evaluator.
+`current_default.eval` is the engine default and product-facing compatibility
+baseline. `pattern_reboot_v0.eval`, when present, is a historical clean
+pattern-only baseline that must be selected explicitly for pattern-only
+ablations and is expected to be weak initially. Historical pattern-teacher
+artifacts remain provenance, not active trainer entry points.
 
 The preferred next path is pattern learning foundation work, not another round
 of tiny scalar residual tuning. Use reusable teacher and exact artifacts through
@@ -125,6 +126,11 @@ deterministic validation summaries, and the shared analyzer cache/dedup/parallel
 workflow. Start from this trainer unless the task is explicitly reproducing an
 older artifact or isolating a phase-table migration detail.
 
+The canonical pairwise trainer requires `--eval-config`; choose the base
+evaluator intentionally for each run. Current-engine improvement workflows
+should usually pass `--eval-config data/eval/current_default.eval`. Do not rely
+on historical `pattern_reboot_v0.eval` defaults for new work.
+
 Pattern trainers that invoke `othello_analyze_position` share the same optional
 root-analysis cache flags: `--analysis-cache-dir`, `--analysis-cache-mode`, and
 `--analysis-jobs`. Cache entries include the board, depth, eval config hash,
@@ -140,7 +146,7 @@ pattern objective directly rather than tune scalar residual weights:
 python3 tools/scripts/regularized_pairwise_pattern_train.py \
   --teacher-labels dataset:teacher.ntest_depth26_2027:train \
   --exact-labels dataset:teacher.ntest_depth26_2027:exact_teacher2000,dataset:teacher.ntest_depth26_2027:exact_extra30 \
-  --eval-config data/eval/pattern_reboot_v0.eval \
+  --eval-config data/eval/current_default.eval \
   --analyze-position build/othello_analyze_position \
   --out-dir runs/pattern-training/pairwise-v1 \
   --families broad_all \

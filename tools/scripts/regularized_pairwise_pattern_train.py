@@ -54,7 +54,6 @@ from pattern_training.root_candidates import parse_analysis_stdout
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_EVAL_CONFIG = "data/eval/pattern_reboot_v0.eval"
 DEFAULT_ANALYSIS_DEPTH = 1
 PHASES = ("opening", "midgame", "late")
 DEFAULT_PHASE_CUTOFFS = (20, 44)
@@ -241,8 +240,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--exact-labels", help="optional comma-separated exact-label JSONL paths")
     parser.add_argument(
         "--eval-config",
-        default=DEFAULT_EVAL_CONFIG,
-        help=f"pattern-first base .eval config (default: {DEFAULT_EVAL_CONFIG})",
+        required=True,
+        help="required base .eval config selected intentionally for this training run",
     )
     parser.add_argument(
         "--analyze-position",

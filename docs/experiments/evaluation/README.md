@@ -13,11 +13,12 @@ experiment notes. In particular, do not resurrect a rejected or superseded
 candidate just because an old report describes next steps.
 
 For new pattern-training experiments, use
-`tools/scripts/regularized_pairwise_pattern_train.py` by default. Older reports
-that used `pattern_teacher_v0_train.py` or `phase_pattern_table_train.py`
-remain useful for provenance and dataset migration evidence, but those scripts
-have been removed from active tooling. Do not copy those historical command
-blocks into new work.
+`tools/scripts/regularized_pairwise_pattern_train.py` as the canonical entry
+point and pass `--eval-config` explicitly. Older reports that used
+`pattern_teacher_v0_train.py` or `phase_pattern_table_train.py` remain useful
+for provenance and dataset migration evidence, but those scripts have been
+removed from active tooling. Do not copy those historical command blocks into
+new work.
 
 | Report | Status/category | One-line purpose | Current actionability |
 | --- | --- | --- | --- |
