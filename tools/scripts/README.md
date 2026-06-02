@@ -143,6 +143,14 @@ phase-specific table loading support. It writes `tables/opening.tsv`,
 Generated TSVs and candidate `.eval` files are temporary experiment artifacts;
 do not commit them or treat their smoke validation as strength proof.
 
+Pattern trainers that invoke `othello_analyze_position` share the same optional
+root-analysis cache flags: `--analysis-cache-dir`, `--analysis-cache-mode`, and
+`--analysis-jobs`. Cache entries include the board, depth, eval config hash,
+and analyzer binary hash so repeated or duplicate rows can reuse deterministic
+root analysis without changing the table output format. Future analyzer
+protocol work can avoid subprocess startup overhead further by adding
+`othello_analyze_position --jsonl-in --jsonl-out`.
+
 Train regularized pairwise pattern tables when the goal is to improve the
 pattern objective directly rather than tune scalar residual weights:
 

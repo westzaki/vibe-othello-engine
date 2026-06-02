@@ -88,6 +88,31 @@ def fake_analyzer(
     )
 
 
+def cacheable_fake_analyzer(
+    config: phase_trainer.PhaseTrainConfig, board_text: str
+) -> base_trainer.AnalyzeResult:
+    del config, board_text
+    return base_trainer.AnalyzeResult(
+        candidates=(
+            base_trainer.Candidate(move="c4", score=30, child_board=COMPARED_CHILD),
+            base_trainer.Candidate(move="d3", score=10, child_board=TEACHER_CHILD),
+        ),
+        best_move="c4",
+        root_scores={"c4": 30, "d3": 10},
+        stdout=(
+            "root_candidates:\n"
+            "  - move: c4\n"
+            "    score: 30\n"
+            "    child_board:\n"
+            + "".join(f"      {line}\n" for line in COMPARED_CHILD.splitlines())
+            + "  - move: d3\n"
+            "    score: 10\n"
+            "    child_board:\n"
+            + "".join(f"      {line}\n" for line in TEACHER_CHILD.splitlines())
+        ),
+    )
+
+
 def write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -356,6 +381,42 @@ class PhasePatternTableTrainTests(unittest.TestCase):
             self.assertEqual(phases["opening"]["empty_max_skipped"], 1)
             self.assertEqual(phases["midgame"]["updates"], 1)
             self.assertEqual(opening_lines, [sentinel_line()])
+
+    def test_training_uses_shared_analysis_cache_between_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = temp_path / "labels.jsonl"
+            write_jsonl(labels, [teacher_row(OPENING_BOARD)])
+            cache_dir = temp_path / "analysis-cache"
+            config = make_config(
+                temp_path,
+                labels,
+                extra_args=[
+                    "--analysis-cache-dir",
+                    str(cache_dir),
+                    "--analysis-cache-mode",
+                    "read-write",
+                ],
+            )
+            config.analyze_position.write_text("fake analyzer\n", encoding="utf-8")
+            calls = 0
+
+            def counting_analyzer(
+                inner_config: phase_trainer.PhaseTrainConfig,
+                board_text: str,
+            ) -> base_trainer.AnalyzeResult:
+                nonlocal calls
+                calls += 1
+                return cacheable_fake_analyzer(inner_config, board_text)
+
+            first = phase_trainer.train_phase_tables(config, analyzer=counting_analyzer)
+            second = phase_trainer.train_phase_tables(config, analyzer=counting_analyzer)
+
+        self.assertEqual(calls, 1)
+        self.assertEqual(first.summary["rows"]["analysis_cache_misses"], 1)
+        self.assertEqual(first.summary["rows"]["analysis_cache_writes"], 1)
+        self.assertEqual(second.summary["rows"]["analysis_cache_hits"], 1)
+        self.assertEqual(second.summary["rows"]["analysis_cache_misses"], 0)
 
 
 if __name__ == "__main__":

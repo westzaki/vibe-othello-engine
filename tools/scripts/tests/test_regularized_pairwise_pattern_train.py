@@ -16,6 +16,7 @@ sys.path.insert(0, str(SCRIPT_DIR))
 
 import regularized_pairwise_pattern_train as trainer  # noqa: E402
 import pattern_teacher_v0_train as legacy_trainer  # noqa: E402
+from pattern_training import analyzer as shared_analyzer  # noqa: E402
 from common import ScriptError  # noqa: E402
 
 
@@ -405,7 +406,7 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
             temp_path = Path(temp)
             labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
             config = make_config(temp_path, labels)
-            completed = trainer.subprocess.CompletedProcess(
+            completed = shared_analyzer.subprocess.CompletedProcess(
                 args=trainer.analyze_command(config),
                 returncode=0,
                 stdout="best_move: d1\nroot_candidates:\n  - move: d1\n    score: 3\n",
@@ -413,10 +414,13 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
             )
 
             with mock.patch.object(
-                trainer.subprocess,
+                shared_analyzer.subprocess,
                 "run",
-                side_effect=[BlockingIOError(trainer.errno.EAGAIN, "Resource temporarily unavailable"), completed],
-            ), mock.patch.object(trainer.time, "sleep") as sleep:
+                side_effect=[
+                    BlockingIOError(shared_analyzer.errno.EAGAIN, "Resource temporarily unavailable"),
+                    completed,
+                ],
+            ), mock.patch.object(shared_analyzer.time, "sleep") as sleep:
                 result = trainer.run_analysis(config, TEACHER_BOARD)
 
         self.assertEqual(result.best_move, "d1")
