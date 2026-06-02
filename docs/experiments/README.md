@@ -19,6 +19,9 @@ Operational runbooks:
 - [`ntest_balanced300k_v0_validation_report.md`](ntest_balanced300k_v0_validation_report.md):
   exact-overlap validation results and high-depth follow-up plan for
   `ntest-balanced300k-v0`.
+- [`ntest_balanced300k_regularized_pairwise_full_v2_report.md`](ntest_balanced300k_regularized_pairwise_full_v2_report.md):
+  full regularized pairwise candidate training, validation, exact-overlap, and
+  deterministic match evidence for `ntest-balanced300k-v0`.
 
 Experiment notes must not override [`AGENTS.md`](../../AGENTS.md),
 [`roadmap.md`](../roadmap.md), [`capability-map.md`](../capability-map.md),
