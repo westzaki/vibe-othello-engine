@@ -94,6 +94,15 @@ target_include_directories(othello_position_sampler_core PRIVATE ${CMAKE_CURRENT
 othello_enable_sanitizers(othello_position_sampler_core)
 list(APPEND OTHELLO_CLANG_TIDY_TARGETS othello_position_sampler_core)
 
+add_library(othello_replay_core OBJECT
+    replay/replay.cpp
+)
+
+target_link_libraries(othello_replay_core PRIVATE othello)
+target_include_directories(othello_replay_core PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+othello_enable_sanitizers(othello_replay_core)
+list(APPEND OTHELLO_CLANG_TIDY_TARGETS othello_replay_core)
+
 othello_add_executable(othello_rule_core_bench
     benchmarks/rule_core_main.cpp
     benchmarks/reporters.cpp
@@ -145,6 +154,13 @@ othello_add_executable(othello_position_sampler
     $<TARGET_OBJECTS:othello_tools_common>
 )
 target_include_directories(othello_position_sampler PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+othello_add_executable(othello_replay_game
+    replay/replay_game_main.cpp
+    $<TARGET_OBJECTS:othello_replay_core>
+    $<TARGET_OBJECTS:othello_tools_common>
+)
+target_include_directories(othello_replay_game PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 othello_add_executable(othello_validate_move
     validate_move_main.cpp

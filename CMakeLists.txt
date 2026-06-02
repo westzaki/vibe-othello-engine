@@ -109,6 +109,7 @@ othello_add_executable(othello_tests
     tests/position_sampler_tests.cpp
     tests/reference_rules.cpp
     tests/reference_rules_tests.cpp
+    tests/replay_tests.cpp
     tests/rules_tests.cpp
     tests/search_tests.cpp
     tests/square_tests.cpp
@@ -119,6 +120,7 @@ othello_add_executable(othello_tests
     $<TARGET_OBJECTS:othello_nboard_protocol>
     $<TARGET_OBJECTS:othello_tools_positions>
     $<TARGET_OBJECTS:othello_position_sampler_core>
+    $<TARGET_OBJECTS:othello_replay_core>
     $<TARGET_OBJECTS:othello_tools_common>
 )
 
@@ -273,6 +275,12 @@ othello_add_help_contains_test(
     othello_position_sampler_help_includes_seed
     othello_position_sampler
     "--seed"
+)
+
+othello_add_help_contains_test(
+    othello_replay_game_help_includes_match_jsonl
+    othello_replay_game
+    "--match-jsonl"
 )
 
 othello_add_help_contains_test(

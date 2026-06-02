@@ -153,12 +153,19 @@ per-candidate node counts, TT stats, and PVS stats are diagnostic and may not
 exactly match the work trace of one normal shared-context root search.
 
 If the first root positions do not explain the regression, extract the first
-base/head divergence positions from the raw depth JSONL and analyze those boards:
+base/head divergence positions from the raw depth JSONL by replaying the match
+records with the C++ rule core:
 
 ```sh
-python3 tools/scripts/extract_divergence_positions.py \
-  --input runs/base-head/my-change/depth-8/match.jsonl
+./build/othello_replay_game \
+  --match-jsonl runs/base-head/my-change/depth-8/match.jsonl \
+  --format jsonl
 ```
+
+Use the emitted `board_text` values with `othello_analyze_position
+--root-candidates`. The legacy Python `extract_divergence_positions.py` script
+is kept only for transition and should not be used for new diagnostics because
+it duplicates Othello rule logic outside the engine.
 
 The matrix is deterministic for the selected openings and seed. It is still only
 a sample of positions. Avoid claiming Elo from it, and treat small game counts as
