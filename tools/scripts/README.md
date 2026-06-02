@@ -12,6 +12,9 @@ engine directly.
 
 - `current`: recommended for the current pattern-first workflow or shared PR
   evidence workflow.
+- `canonical`: the default current entry point for new work in its area.
+- `transitional`: still tested and acceptable for its narrow historical or
+  migration use case, but not the default for new experiments.
 - `legacy`: still useful for scalar/config diagnostics, compatibility checks,
   historical comparison, or focused debugging, but not the default path for new
   pattern-first work.
@@ -39,9 +42,9 @@ script.
 | `forced_move_nboard_wrapper.py` | legacy | Force one diagnostic NBoard move when a target board is reached. | Kept for tactical/debug investigations; not part of engine behavior or normal experiments. |
 | `match_summary.py` | current | Summarize C++ match-runner JSONL. | Shared by current evidence, match, and base/head workflows. |
 | `ntest_teacher_smoke.py` | current | Run a local NTest teacher-label smoke and estimate 300K run feasibility. | Operational preflight before overnight NTest teacher dataset generation; does not make strength claims. |
-| `pattern_teacher_v0_train.py` | current | Train sparse learned pattern tables and provide shared pattern extraction helpers. | Current pattern-table foundation and provenance path for `pattern_teacher_v0.tsv`; also used by phase/pairwise trainers and CTest. |
-| `phase_pattern_table_train.py` | current | Train separate opening/midgame/late sparse pattern tables and local candidate configs. | Recommended pattern-first trainer after reusable dataset setup. |
-| `regularized_pairwise_pattern_train.py` | current | Train phase-specific tables from teacher-vs-engine pairwise preferences. | Current pattern-first trainer foundation for broader regularized experiments. |
+| `pattern_teacher_v0_train.py` | transitional | Train sparse learned pattern tables and provide older shared pattern extraction helpers. | Kept for `pattern_teacher_v0.tsv` provenance, historical comparison, helper reuse, and CTest; not the default for new pattern experiments. |
+| `phase_pattern_table_train.py` | transitional | Train separate opening/midgame/late sparse pattern tables and local candidate configs. | Kept for phase-table workflow reproduction and focused migration checks; use the canonical regularized pairwise trainer for new broad pattern experiments. |
+| `regularized_pairwise_pattern_train.py` | current / canonical | Train phase-specific tables from teacher-vs-engine and exact-aware pairwise preferences. | Canonical current pattern trainer for new experiments; owns the shared analyzer cache/dedup/parallel workflow. |
 | `run_external_engine_once.py` | current | Probe one external-engine request through the canonical adapter CLI. | Current process/timeout/protocol smoke path for adapters. |
 | `run_match_experiment.py` | current | Thin subprocess wrapper around `othello_match_runner` plus optional summary. | Current simple match-smoke wrapper used by recent pattern reports. |
 | `teacher_dataset_build.py` | current | Build reusable position shards, manifests, splits, teacher labels, and exact overlap labels under a dataset root. | Recommended durable dataset-builder entrypoint for pattern-first work. |
@@ -119,29 +122,12 @@ optional phases. The script is orchestration only: it uses existing C++ tools
 for rule validation and exact labels, and it does not require external engines
 in CI.
 
-Train phase-specific broad pattern tables from reusable teacher labels:
-
-```sh
-python3 tools/scripts/phase_pattern_table_train.py \
-  --dataset-root "$VIBE_OTHELLO_DATASET_ROOT" \
-  --teacher-labels dataset:teacher/ntest-depth26-2027/labels/ntest26/train.jsonl \
-  --exact-labels dataset:teacher/ntest-depth26-2027/exact-overlap/teacher2000_max12_labels.jsonl \
-  --eval-config data/eval/pattern_reboot_v0.eval \
-  --analyze-position build/othello_analyze_position \
-  --out-dir runs/pattern-training/phase-broad-v0 \
-  --table-name phase_broad_v0 \
-  --families broad_all \
-  --update-mode rank \
-  --split train \
-  --depth 1
-```
-
-This is the next pattern-first learning path after the dataset builder and
-phase-specific table loading support. It writes `tables/opening.tsv`,
-`tables/midgame.tsv`, `tables/late.tsv`, `candidate.eval`, `report.md`,
-`summary.json`, and `phase_summary.tsv` under the requested `runs/` directory.
-Generated TSVs and candidate `.eval` files are temporary experiment artifacts;
-do not commit them or treat their smoke validation as strength proof.
+For new pattern experiments, use `regularized_pairwise_pattern_train.py` by
+default. It is the canonical current trainer because it supports broad
+phase-specific pattern tables, regularization, exact-aware pair generation,
+deterministic validation summaries, and the shared analyzer cache/dedup/parallel
+workflow. Start from this trainer unless the task is explicitly reproducing an
+older artifact or isolating a phase-table migration detail.
 
 Pattern trainers that invoke `othello_analyze_position` share the same optional
 root-analysis cache flags: `--analysis-cache-dir`, `--analysis-cache-mode`, and
@@ -210,6 +196,21 @@ accuracy is a diagnostic only; it is not evidence of playing strength. Candidate
 TSVs and `.eval` files remain generated artifacts under `runs/`, and follow-up
 evidence should be recorded in a separate experiment report such as
 `docs(eval): report pairwise pattern v1`.
+
+Older trainer workflows remain available but are no longer equally current:
+
+- Use `pattern_teacher_v0_train.py` only to reproduce the retained
+  `pattern_teacher_v0` provenance path, run compatibility tests around legacy
+  sparse table helpers, or compare against historical residual-count behavior.
+- Use `phase_pattern_table_train.py` only for focused phase-table workflow
+  reproduction or migration checks where its simpler rank update is the thing
+  under inspection.
+- Do not start new broad pattern-learning work from either older trainer unless
+  the task explicitly asks for that historical behavior.
+
+Future cleanup should first move any remaining shared pattern extraction helpers
+out of the old trainer modules and into reusable modules. Only after that should
+the old trainer entry points be considered for deletion.
 
 ## Current Evidence Workflows
 
