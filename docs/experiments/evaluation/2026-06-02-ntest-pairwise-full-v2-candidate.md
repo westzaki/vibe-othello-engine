@@ -49,6 +49,47 @@ Search overhead in the broader search matrix:
 - nodes: +34.73%
 - elapsed: +16.70%
 
+## Post-Merge Source Preset Validation
+
+Post-merge validation was run on git SHA
+`33198ac63173d3f1021e3ce65ac61b649935006e` after the preset became
+source-controlled.
+
+Verdict: `READY_FOR_DEFAULT_PROMOTION_PR`
+
+Confirmed:
+
+- `data/eval/ntest_pairwise_full_v2.eval` loads successfully.
+- The opening, midgame, and late learned table paths resolve.
+- `data/eval/current_default.eval` still matches `default_evaluation_config()`.
+- The built-in default evaluator remains unchanged.
+- The preset is still explicit opt-in via `--eval-config`.
+
+Source preset versus original runs candidate:
+
+| depth | compared fields | result |
+| ---: | --- | --- |
+| 5 | best move, score, result checksum, work checksum, nodes, PV | exact match |
+| 6 | best move, score, result checksum, work checksum, nodes, PV | exact match |
+| 7 | best move, score, result checksum, work checksum, nodes, PV | exact match |
+| 8 | best move, score, result checksum, work checksum, nodes, PV | exact match |
+
+Focused exact-overlap validation reproduced the original evidence:
+
+| config | sign agreements | wrong direction | high-confidence wrong | exact-best top group | exact-best rank sum |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| current_default | 7596 / 10000 | 2045 | 213 | 5166 | 19602 |
+| source preset | 7641 / 10000 | 2006 | 168 | 5121 | 19790 |
+
+Focused match smoke:
+
+| depth | games | candidate wins | current_default wins | draws | errors | avg disc diff | median diff |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 6 | 200 | 110 | 87 | 3 | 0 | -0.01 | +4 |
+
+The source preset remains suitable for a separate reversible default-promotion
+PR, but this note still does not promote the default evaluator by itself.
+
 ## Known Risks
 
 - Exact-best top-group and exact-best rank-sum metrics regress slightly.
