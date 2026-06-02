@@ -1,8 +1,8 @@
 # Evaluation Configs
 
-This directory contains the small active set of `.eval` v1 files that should
-work on the latest `main`: the project default, retained comparison presets,
-and pattern research baselines. These files are selected explicitly with
+This directory contains the small source-controlled set of `.eval` v1 files
+that should work on the latest `main`: the project default, retained comparison
+presets, and historical pattern baselines. These files are selected explicitly with
 `--eval-config PATH` or `eval_config=PATH`, and repo tools also load
 `current_default.eval` as the project default when `--eval-config` is omitted.
 Use `.eval` configs for new evaluation experiments.
@@ -46,17 +46,17 @@ comparison, reproduction, and reversible evaluator candidates.
 
 ### Pattern Research Baseline
 
-The historical pattern-teacher config is retained for the pattern-first
-research restart. It is not the engine default, not a strength claim, and no
-active parser or match-runner smoke test depends on it. It is kept for
-provenance while later cleanup clears remaining config and documentation
-dependencies.
+The historical pattern-teacher configs are retained for provenance from the
+pattern-first research restart. They are not the engine default, not strength
+claims, and no active parser, evaluation, or match-runner smoke test depends on
+them. They are kept while a later cleanup decides whether historical docs can
+remain as docs-only provenance.
 
-`pattern_reboot_v0.eval` is the clean pattern-only reboot baseline. It reuses
-the retained `pattern_teacher_v0` table, but zeros all scalar handcrafted
-feature weights so future pattern learning can be interpreted independently
-from scalar residual tuning. It is expected to be weaker initially and must not
-be used as a strength candidate or default-promotion signal.
+`pattern_reboot_v0.eval` is the historical clean pattern-only reboot baseline.
+It reuses the retained `pattern_teacher_v0` table, but zeros all scalar
+handcrafted feature weights. It is expected to be weak and must not be used as
+a strength candidate, default-promotion signal, or default starting point for
+new work.
 
 Pattern-first experiments may intentionally be weaker than the engine default
 while they build better table ownership, dataset, trainer, and validation
@@ -111,9 +111,9 @@ source preset for the project default.
 | `patterns/ntest_pairwise_full_v2_opening.tsv` | current default snapshot table; required runtime/test fixture | Referenced by `current_default.eval`, `ntest_pairwise_full_v2.eval`, eval config tests, and full-v2 experiment docs. | Keep. Required for the current project default and source preset. |
 | `patterns/ntest_pairwise_full_v2_midgame.tsv` | current default snapshot table; required runtime/test fixture | Referenced by `current_default.eval`, `ntest_pairwise_full_v2.eval`, eval config tests, and full-v2 experiment docs. | Keep. Required for the current project default and source preset. |
 | `patterns/ntest_pairwise_full_v2_late.tsv` | current default snapshot table; required runtime/test fixture | Referenced by `current_default.eval`, `ntest_pairwise_full_v2.eval`, eval config tests, and full-v2 experiment docs. | Keep. Required for the current project default and source preset. |
-| `pattern_reboot_v0.eval` | historical pattern-only baseline; required test fixture; future prune candidate | Loaded by eval config tests and evaluation tests; referenced by explicit pattern-only workflow docs and multiple experiment reports. Historical reports may mention removed transitional trainers that used it. The canonical pairwise trainer now requires an explicit `--eval-config` and no longer defaults to this file. | Keep for now as an explicit pattern-only comparison fixture. Future prune requires updating the remaining eval/evaluation tests and active docs to fixtures or newer explicit comparison configs. |
-| `pattern_teacher_v0.eval` | historical baseline; future prune candidate | Referenced by `pattern_reboot_v0.eval` metadata, this audit, and historical/provenance docs and reports. Active parser and match-runner smoke tests use focused fixtures under `tests/fixtures/eval`. | Future prune candidate, not safe to delete yet. Delete only after active configs no longer cite it and the project accepts docs-only provenance for old reports. |
-| `patterns/pattern_teacher_v0.tsv` | historical baseline table; future prune candidate | Referenced by `pattern_teacher_v0.eval`, `pattern_reboot_v0.eval`, this audit, retained artifact metadata, and historical/provenance reports. Active parser and pattern-table smoke tests use focused fixtures under `tests/fixtures/eval`. | Future prune candidate tied to `pattern_reboot_v0.eval` and `pattern_teacher_v0.eval`. Delete only after active configs no longer load it; keep historical reports as docs-only provenance. |
+| `pattern_reboot_v0.eval` | historical pattern-only baseline; future prune candidate | References `patterns/pattern_teacher_v0.tsv`; referenced by this audit, retained artifact metadata, and historical/provenance reports. Active parser, evaluation, and match-runner smoke tests use focused fixtures under `tests/fixtures/eval` or `current_default.eval`. | Future prune candidate, not safe to delete yet. Delete only after the project accepts docs-only provenance for old reports and removes this retained config together with its table dependency. |
+| `pattern_teacher_v0.eval` | historical baseline; future prune candidate | Referenced by `pattern_reboot_v0.eval` metadata, this audit, and historical/provenance docs and reports. Active parser, evaluation, and match-runner smoke tests use focused fixtures under `tests/fixtures/eval` or `current_default.eval`. | Future prune candidate, not safe to delete yet. Delete only after retained configs no longer cite it and the project accepts docs-only provenance for old reports. |
+| `patterns/pattern_teacher_v0.tsv` | historical baseline table; future prune candidate | Referenced by `pattern_teacher_v0.eval`, `pattern_reboot_v0.eval`, this audit, retained artifact metadata, and historical/provenance reports. Active parser, evaluation, and pattern-table smoke tests use focused fixtures under `tests/fixtures/eval`. | Future prune candidate tied to `pattern_reboot_v0.eval` and `pattern_teacher_v0.eval`. Delete only after retained configs no longer load it; keep historical reports as docs-only provenance. |
 
 ### Future Prune Plan
 
@@ -122,9 +122,9 @@ so this PR deletes nothing.
 
 | Prune candidate | Current references to clear first | Tests to update | Replacement artifact or command | Delete or keep only docs/report |
 | --- | --- | --- | --- | --- |
-| `pattern_teacher_v0.eval` | `pattern_reboot_v0.eval` metadata, this audit, and historical/provenance reports. | Active eval parser and match-runner smoke tests already use focused fixtures under `tests/fixtures/eval`. | Current project default or future canonical trainer base for workflows; fixture configs for parser smoke coverage. | Delete from `data/eval` when no active config cites it and historical references can remain docs-only provenance. |
-| `patterns/pattern_teacher_v0.tsv` | `pattern_teacher_v0.eval`, `pattern_reboot_v0.eval`, retained artifact metadata, this audit, and historical/provenance reports. | Active parser and pattern-table smoke tests already use focused fixtures under `tests/fixtures/eval`. | A future canonical table baseline if one becomes active; fixture TSVs for parser smoke coverage. | Delete after `pattern_reboot_v0.eval` and `pattern_teacher_v0.eval` no longer load it; keep historical reports as docs-only provenance. |
-| `pattern_reboot_v0.eval` | Explicit pattern-only docs and comparison reports, eval/evaluation tests, retained artifact metadata, and this audit. | Update eval config tests and evaluation tests to fixtures or a newer explicit comparison config if the project no longer needs this pattern-only baseline. | `current_default.eval` for current-engine training workflows; fixture configs for parser smoke coverage; a future explicit pattern-only baseline only if pattern-only ablations still need one. | Delete after no active config, test, or current workflow doc loads it; keep historical reports as docs-only provenance. |
+| `pattern_teacher_v0.eval` | `pattern_reboot_v0.eval` metadata, this audit, and historical/provenance reports. | Active eval parser, evaluation, and match-runner smoke tests already use focused fixtures under `tests/fixtures/eval` or `current_default.eval`. | Current project default for current workflows; fixture configs for parser smoke coverage. | Delete from `data/eval` when no retained config cites it and historical references can remain docs-only provenance. |
+| `patterns/pattern_teacher_v0.tsv` | `pattern_teacher_v0.eval`, `pattern_reboot_v0.eval`, retained artifact metadata, this audit, and historical/provenance reports. | Active parser, evaluation, and pattern-table smoke tests already use focused fixtures under `tests/fixtures/eval`. | Fixture TSVs for parser smoke coverage; a future canonical table baseline only if one becomes active. | Delete after `pattern_reboot_v0.eval` and `pattern_teacher_v0.eval` no longer load it; keep historical reports as docs-only provenance. |
+| `pattern_reboot_v0.eval` | Retained artifact metadata, this audit, and historical/provenance reports. It still loads `patterns/pattern_teacher_v0.tsv`. | Active parser, evaluation, and match-runner smoke tests already use focused fixtures under `tests/fixtures/eval` or `current_default.eval`. | `current_default.eval` for current-engine workflows; fixture configs for smoke coverage. | Delete after no active config or current workflow doc loads it; keep historical reports as docs-only provenance. |
 | `current_default_legacy_scalar_2026_06_02.eval` | Eval config tests and revert-plan docs. | Keep one test proving built-in fallback remains file-free; it can compare against `default_evaluation_config()` directly or a generated scalar snapshot. | `default_evaluation_config()` plus the current revert plan; regenerate a scalar `.eval` only if a revert PR needs it. | Keep short-term as revert preset; later delete from active configs if the project accepts docs-only revert instructions. |
 
 ## Rejected or Superseded Configs

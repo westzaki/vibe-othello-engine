@@ -164,12 +164,14 @@ phase-specific pattern tables. The old scalar project default is preserved as
 `data/eval/current_default_legacy_scalar_2026_06_02.eval` for comparison and
 revert, and it matches the C++ built-in fallback.
 
-Pattern-first research should usually start from the canonical pairwise trainer,
-the clean pattern-only `pattern_reboot_v0.eval`, or another explicit
-pattern-only/pattern-first config rather than another scalar residual weight
-tweak. Historical pattern-teacher reports remain useful provenance, but their
-old entry points are no longer the starting point for new work. Temporary
-strength regression is acceptable when the experiment is building pattern-table
+Pattern-first research should usually start from the canonical pairwise trainer
+with an explicitly selected base evaluator such as `current_default.eval`, or
+from a new focused pattern-only/pattern-first config when the experiment needs
+one. `pattern_reboot_v0.eval` is retained as historical provenance for old
+pattern-only evidence, not as the default starting point for new work.
+Historical pattern-teacher reports remain useful provenance, but their old
+entry points are no longer the starting point for new work. Temporary strength
+regression is acceptable when the experiment is building pattern-table
 ownership, dataset, trainer objective, regularization, or validation
 foundations.
 
@@ -356,7 +358,7 @@ python3 tools/scripts/evidence.py \
   --profile eval \
   --build-dir build \
   --out runs/evidence/eval-smoke \
-  --eval-configs data/eval/pattern_reboot_v0.eval \
+  --eval-configs data/eval/current_default.eval \
   --small-depths 5
 ```
 

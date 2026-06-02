@@ -248,17 +248,17 @@ TEST_CASE("Score-only evaluator matches breakdown totals across configs and phas
         bool terminal = false;
     };
 
-    const othello::tools::EvaluationConfigLoadResult pattern =
+    const othello::tools::EvaluationConfigLoadResult pattern_only =
         othello::tools::load_evaluation_config_file(
-            sample_eval_config_path("pattern_reboot_v0.eval"));
-    REQUIRE(pattern.ok());
-    REQUIRE(pattern.config.pattern_tables != nullptr);
+            test_eval_config_fixture_path("minimal_pattern_only_eval.eval"));
+    REQUIRE(pattern_only.ok());
+    REQUIRE(pattern_only.config.pattern_tables != nullptr);
 
     const std::vector<std::pair<std::string, othello::EvaluationConfig>> configs{
         {std::string{"default"}, othello::default_evaluation_config()},
         {std::string{"sparse_scalar"}, sparse_scalar_config()},
         {std::string{"all_feature_guard"}, all_feature_guard_config()},
-        {std::string{"pattern_reboot_v0"}, pattern.config},
+        {std::string{"minimal_pattern_only_fixture"}, pattern_only.config},
     };
     const std::array boards{
         BoardFixture{.name = "opening",
