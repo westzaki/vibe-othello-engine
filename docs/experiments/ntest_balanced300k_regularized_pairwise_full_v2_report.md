@@ -20,6 +20,7 @@ logs remain under `runs/` and must not be committed.
 | candidate artifact | `runs/pattern-training/ntest-balanced300k-v0/regularized_pairwise_full_v2/candidate.eval` |
 | model shape | `current_default + learned pattern-table delta` |
 | learned tables | `opening.tsv`, `midgame.tsv`, `late.tsv` |
+| broader match validation git sha | `887d61bc6d082cf2d516573eee14fbbe90e2e841` |
 
 The candidate eval keeps the current default base terms and adds
 phase-specific learned pattern tables with `pattern_table` phase weights set to
@@ -145,7 +146,7 @@ promotion from this evidence alone, even though exact sign safety improved.
 
 ## Search Smoke
 
-The existing evaluation candidate matrix ran search-bench smoke at depths 5, 6,
+The initial evaluation candidate matrix ran search-bench smoke at depths 5, 6,
 and 7.
 
 | config | status | nodes | elapsed ms | result |
@@ -157,6 +158,34 @@ Checksum changes are expected for a behavior-changing evaluation candidate and
 are not regressions by themselves. No search-bench crashes or timeouts were
 observed in this smoke matrix.
 
+## Broader Search and Exact Follow-up
+
+A follow-up evaluation candidate matrix was run at search depths 5, 6, 7, and 8
+with exact-overlap move-rank analysis.
+
+| config | eval status | search status | nodes | elapsed ms | exact root searches |
+| --- | --- | --- | ---: | ---: | ---: |
+| `current_default` | passed | passed | 48569 | 27.46 | 0 |
+| candidate | passed | passed | 65437 | 32.05 | 0 |
+
+Candidate search overhead versus `current_default`:
+
+| metric | delta |
+| --- | ---: |
+| nodes | +16868 (+34.73%) |
+| elapsed ms | +4.59 (+16.70%) |
+
+Broader exact-overlap metrics:
+
+| config | sign agreements | wrong direction | high-confidence wrong | exact-best top group | exact-best rank sum |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `current_default` | 7596 / 10000 | 2045 | 213 | 5166 | 19602 |
+| candidate | 7641 / 10000 | 2006 | 168 | 5121 | 19790 |
+
+The follow-up confirms the earlier pattern: exact sign safety improves, while
+exact-best top-group and rank metrics regress slightly. No search crash,
+timeout, or illegal result was observed.
+
 ## Deterministic Match Evidence
 
 Candidate was matched against `current_default` with fixed openings, side swap,
@@ -166,27 +195,45 @@ and seed `20260602`.
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | depth 4 | 820 | 456 | 353 | 11 | 0 | +3.02 | +4.00 |
 | depth 5 | 410 | 222 | 177 | 11 | 0 | +2.29 | +2.00 |
+| depth 6 | 400 | 221 | 174 | 5 | 0 | +0.16 | +4.00 |
+| depth 7 | 200 | 106 | 89 | 5 | 0 | +1.89 | +6.00 |
 
-This is stronger evidence than teacher agreement alone: the candidate wins both
-deterministic match runs without illegal moves or error games. It is still not
-an Elo estimate or a default-promotion result.
+This is stronger evidence than teacher agreement alone: the candidate wins
+these deterministic match runs without illegal moves or error games. It is
+still not an Elo estimate or a default-promotion result.
+
+## Broader Deterministic Match Follow-up
+
+Because the depth 6 average disc margin was thin in the first broader check, two
+additional deterministic match runs were collected with the same seed, opening
+suite, side-swap policy, candidate, and baseline.
+
+| run | games | candidate wins | current_default wins | draws | errors | avg disc diff | median diff | candidate avg ms | current_default avg ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| depth 6 | 1000 | 544 | 443 | 13 | 0 | +0.06 | +4.00 | 103.67 | 83.24 |
+| depth 7 | 800 | 432 | 346 | 22 | 0 | +2.46 | +6.00 | 436.28 | 342.70 |
+
+The depth 6 result remains favorable by wins but nearly even by average disc
+margin. The depth 7 result is favorable by wins and average disc margin. This
+supports continuing toward promotion-oriented review, while keeping the
+exact-best rank regression and search overhead visible.
 
 ## Verdict
 
-`PROMISING_FOR_MATCH_EVAL`
+`PROMISING_FOR_PROMOTION_PR_PREP`
 
 The candidate looks stable and favorable against `current_default` in these
-deterministic match runs. It also wins full teacher validation and improves
-exact sign safety. The exact-best rank regression remains the main known risk,
-so the next step should be broader deterministic match/search evaluation rather
-than more trainer changes or default promotion.
+deterministic match runs, including the deeper depth 7 follow-up. It also wins
+full teacher validation and improves exact sign safety. The exact-best rank
+regression and search overhead remain known risks, so a future promotion PR
+should carry this evidence explicitly and should still be reviewed separately
+from this documentation note.
 
 ## Recommended Next Steps
 
-1. Run a broader deterministic match matrix with more openings and at least one
-   deeper search setting.
-2. Inspect exact-best rank regressions in the exact-overlap report before
-   changing the trainer again.
-3. If broader match results remain favorable, prepare a separate promotion PR
-   with explicit match/search evidence.
-4. Do not promote evaluator defaults from this report alone.
+1. Prepare a separate promotion-oriented PR only if the project is ready to
+   evaluate this candidate as a reversible evaluator preset/default change.
+2. Include the depth 6 and depth 7 deterministic match evidence, exact-overlap
+   sign/rank metrics, and search overhead in that PR.
+3. Inspect exact-best rank regressions before further trainer changes.
+4. Do not treat this report alone as automatic evaluator-default promotion.
