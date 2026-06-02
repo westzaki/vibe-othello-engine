@@ -42,8 +42,8 @@ script.
 | `legacy_othello_rules.py` | deprecated | Transitional Python board replay helpers for old diagnostics. | Kept only while the deprecated divergence extractor remains available for historical reproduction. |
 | `match_summary.py` | current | Summarize C++ match-runner JSONL. | Shared by current evidence, match, and base/head workflows. |
 | `ntest_teacher_smoke.py` | current | Run a local NTest teacher-label smoke and estimate 300K run feasibility. | Operational preflight before overnight NTest teacher dataset generation; does not make strength claims. |
-| `pattern_teacher_v0_train.py` | transitional | Train sparse learned pattern tables and provide older shared pattern extraction helpers. | Kept for `pattern_teacher_v0.tsv` provenance, historical comparison, helper reuse, and CTest; not the default for new pattern experiments. |
-| `phase_pattern_table_train.py` | transitional | Train separate opening/midgame/late sparse pattern tables and local candidate configs. | Kept for phase-table workflow reproduction and focused migration checks; use the canonical regularized pairwise trainer for new broad pattern experiments. |
+| `pattern_teacher_v0_train.py` | transitional | Train sparse learned pattern tables and keep compatibility imports for older helper names. | Kept for `pattern_teacher_v0.tsv` provenance, historical comparison, and CTest; shared helpers now live under `pattern_training/`. |
+| `phase_pattern_table_train.py` | transitional | Train separate opening/midgame/late sparse pattern tables and local candidate configs. | Kept for phase-table workflow reproduction and focused migration checks; imports shared helpers from `pattern_training/` instead of using the old trainer as a helper bag. |
 | `regularized_pairwise_pattern_train.py` | current / canonical | Train phase-specific tables from teacher-vs-engine and exact-aware pairwise preferences. | Canonical current pattern trainer for new experiments; owns the shared analyzer cache/dedup/parallel workflow. |
 | `run_external_engine_once.py` | current | Probe one external-engine request through the canonical adapter CLI. | Current process/timeout/protocol smoke path for adapters. |
 | `run_match_experiment.py` | current | Thin subprocess wrapper around `othello_match_runner` plus optional summary. | Current simple match-smoke wrapper used by recent pattern reports. |
@@ -208,8 +208,8 @@ Older trainer workflows remain available but are no longer equally current:
 - Do not start new broad pattern-learning work from either older trainer unless
   the task explicitly asks for that historical behavior.
 
-Future cleanup should first move any remaining shared pattern extraction helpers
-out of the old trainer modules and into reusable modules. Only after that should
+Future cleanup should first move any remaining compatibility-only imports or
+script-specific behavior out of old trainer entry points. Only after that should
 the old trainer entry points be considered for deletion.
 
 ## Current Evidence Workflows

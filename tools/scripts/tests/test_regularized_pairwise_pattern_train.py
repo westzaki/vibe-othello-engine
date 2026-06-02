@@ -15,9 +15,10 @@ SCRIPT_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPT_DIR))
 
 import regularized_pairwise_pattern_train as trainer  # noqa: E402
-import pattern_teacher_v0_train as legacy_trainer  # noqa: E402
 from pattern_training import analyzer as shared_analyzer  # noqa: E402
 from common import ScriptError  # noqa: E402
+from pattern_specs import PATTERN_SPECS, pattern_index  # noqa: E402
+from pattern_training.preference_features import parse_board  # noqa: E402
 
 
 TEACHER_BOARD = (
@@ -342,16 +343,14 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
     def test_pattern_indexes_match_existing_trainer_convention(self) -> None:
         side = "B"
         rows = trainer.board9_rows_to_square_index_rows(trainer.parse_board(TEACHER_BOARD)[0])
-        legacy_rows = legacy_trainer.board9_rows_to_square_index_rows(
-            legacy_trainer.parse_board(TEACHER_BOARD)[0]
-        )
+        shared_rows = trainer.board9_rows_to_square_index_rows(parse_board(TEACHER_BOARD)[0])
 
         for family in trainer.FAMILY_ORDER:
-            self.assertEqual(trainer.PATTERN_SPECS[family], legacy_trainer.PATTERN_SPECS[family])
+            self.assertEqual(trainer.PATTERN_SPECS[family], PATTERN_SPECS[family])
             for spec in trainer.PATTERN_SPECS[family]:
                 self.assertEqual(
                     trainer.pattern_index(rows, side, spec),
-                    legacy_trainer.pattern_index(legacy_rows, side, spec),
+                    pattern_index(shared_rows, side, spec),
                 )
 
     def test_pattern_counts_convert_board9_display_to_square_index_order(self) -> None:

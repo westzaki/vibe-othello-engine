@@ -11,8 +11,9 @@ REPO_ROOT = SCRIPT_DIR.parents[1]
 sys.path.insert(0, str(SCRIPT_DIR))
 
 import phase_pattern_table_train as phase_trainer  # noqa: E402
-import pattern_teacher_v0_train as base_trainer  # noqa: E402
 from common import ScriptError  # noqa: E402
+from pattern_training.pattern_tables import parse_families  # noqa: E402
+from pattern_training.root_candidates import RootAnalysis, RootCandidate  # noqa: E402
 
 
 OPENING_BOARD = (
@@ -78,24 +79,24 @@ COMPARED_CHILD = (
 
 def fake_analyzer(
     config: phase_trainer.PhaseTrainConfig, board_text: str
-) -> base_trainer.AnalyzeResult:
+) -> RootAnalysis:
     del config, board_text
-    return base_trainer.AnalyzeResult(
+    return RootAnalysis(
         candidates=(
-            base_trainer.Candidate(move="c4", score=30, child_board=COMPARED_CHILD),
-            base_trainer.Candidate(move="d3", score=10, child_board=TEACHER_CHILD),
+            RootCandidate(move="c4", score=30, child_board=COMPARED_CHILD),
+            RootCandidate(move="d3", score=10, child_board=TEACHER_CHILD),
         )
     )
 
 
 def cacheable_fake_analyzer(
     config: phase_trainer.PhaseTrainConfig, board_text: str
-) -> base_trainer.AnalyzeResult:
+) -> RootAnalysis:
     del config, board_text
-    return base_trainer.AnalyzeResult(
+    return RootAnalysis(
         candidates=(
-            base_trainer.Candidate(move="c4", score=30, child_board=COMPARED_CHILD),
-            base_trainer.Candidate(move="d3", score=10, child_board=TEACHER_CHILD),
+            RootCandidate(move="c4", score=30, child_board=COMPARED_CHILD),
+            RootCandidate(move="d3", score=10, child_board=TEACHER_CHILD),
         ),
         best_move="c4",
         root_scores={"c4": 30, "d3": 10},
@@ -219,7 +220,7 @@ class PhasePatternTableTrainTests(unittest.TestCase):
         self.assertEqual(phase_trainer.phase_for_board(MIDGAME_BOARD, cutoffs), "midgame")
         self.assertEqual(phase_trainer.phase_for_board(LATE_BOARD, cutoffs), "late")
         self.assertEqual(
-            base_trainer.parse_families("broad_all"),
+            parse_families("broad_all"),
             ("corner_3x3", "edge_8", "edge_x_10", "diagonal_8", "inner_row_8"),
         )
 
@@ -404,7 +405,7 @@ class PhasePatternTableTrainTests(unittest.TestCase):
             def counting_analyzer(
                 inner_config: phase_trainer.PhaseTrainConfig,
                 board_text: str,
-            ) -> base_trainer.AnalyzeResult:
+            ) -> RootAnalysis:
                 nonlocal calls
                 calls += 1
                 return cacheable_fake_analyzer(inner_config, board_text)
