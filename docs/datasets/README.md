@@ -34,7 +34,7 @@ Use `dataset:relative/path` to read a file below the dataset root:
 python3 tools/scripts/regularized_pairwise_pattern_train.py \
   --dataset-root /path/to/vibe-othello-datasets \
   --teacher-labels dataset:teacher/ntest-depth26-2027/labels/ntest26/train.jsonl \
-  --eval-config data/eval/pattern_reboot_v0.eval \
+  --eval-config data/eval/current_default.eval \
   --analyze-position build/othello_analyze_position \
   --out-dir runs/pattern-training/pairwise-example \
   --families broad_all
@@ -46,7 +46,7 @@ Catalog references use the local TOML entry shape:
 python3 tools/scripts/regularized_pairwise_pattern_train.py \
   --teacher-labels dataset:teacher.ntest_depth26_2027:train \
   --exact-labels dataset:teacher.ntest_depth26_2027:exact_teacher2000 \
-  --eval-config data/eval/pattern_reboot_v0.eval \
+  --eval-config data/eval/current_default.eval \
   --analyze-position build/othello_analyze_position \
   --out-dir runs/pattern-training/pairwise-example \
   --families broad_all
@@ -97,8 +97,9 @@ of committed docs.
 ## Current Script Support
 
 - `tools/scripts/regularized_pairwise_pattern_train.py` is the canonical
-  current pattern trainer and supports `--dataset-root` for `--teacher-labels`
-  and `--exact-labels` entries that start with `dataset:`.
+  current pattern trainer, requires explicit `--eval-config`, and supports
+  `--dataset-root` for `--teacher-labels` and `--exact-labels` entries that
+  start with `dataset:`.
 - `tools/scripts/teacher_label_mistake_mining.py` supports `--dataset-root` for
   `--teacher-labels` and `--exact-labels` entries that start with `dataset:`.
 - `tools/scripts/external_teacher_label_workflow.py` supports `--dataset-root`
