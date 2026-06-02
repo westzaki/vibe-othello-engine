@@ -67,10 +67,10 @@ class TeacherLabelMistakeMiningTests(unittest.TestCase):
         self.assertEqual(bucket, "teacher_exact_disagreement")
 
     def test_parse_target_requires_label_and_path(self) -> None:
-        target = mining.parse_target("pattern=data/eval/pattern_teacher_v0.eval")
+        target = mining.parse_target("pattern=tests/fixtures/eval/minimal_pattern_eval.eval")
 
         self.assertEqual(target.label, "pattern")
-        self.assertEqual(target.path, Path("data/eval/pattern_teacher_v0.eval"))
+        self.assertEqual(target.path, Path("tests/fixtures/eval/minimal_pattern_eval.eval"))
         with self.assertRaises(argparse.ArgumentTypeError):
             mining.parse_target("missing")
 
@@ -87,7 +87,7 @@ class TeacherLabelMistakeMiningTests(unittest.TestCase):
                     "--dataset-root",
                     str(root),
                     "--config",
-                    "pattern=data/eval/pattern_teacher_v0.eval",
+                    "pattern=tests/fixtures/eval/minimal_pattern_eval.eval",
                     "--out",
                     "runs/mistakes",
                 ]

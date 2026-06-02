@@ -1,0 +1,6 @@
+# schema_version: pattern_table.v1
+# name: minimal_pattern_table_fixture
+# purpose: test fixture only; not a learned artifact or strength claim
+corner_2x3	1	6
+edge_8	2	-3
+corner_3x3	4	2

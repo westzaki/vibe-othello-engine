@@ -34,6 +34,12 @@ side=B)");
     return (std::filesystem::path{OTHELLO_SOURCE_DIR} / "data" / "eval" / file_name).string();
 }
 
+[[nodiscard]] std::string test_eval_config_fixture_path(std::string_view file_name) {
+    return (std::filesystem::path{OTHELLO_SOURCE_DIR} / "tests" / "fixtures" / "eval" /
+            file_name)
+        .string();
+}
+
 [[nodiscard]] runner::PlayerSpec require_player_spec(const std::string& spec_text) {
     const std::optional<runner::PlayerSpec> spec = runner::parse_player_spec(spec_text);
     REQUIRE(spec.has_value());
@@ -104,10 +110,11 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
           *depth_only_options.evaluation_config_override);
 
     const othello::SearchOptions eval_config_options = require_search_options(
-        "search:depth=4,eval_config=" + sample_eval_config_path("pattern_teacher_v0.eval"));
+        "search:depth=4,eval_config=" +
+        test_eval_config_fixture_path("minimal_pattern_eval.eval"));
     CHECK(eval_config_options.evaluation_config_override.has_value());
     CHECK(eval_config_options.evaluation_config_override->pattern_tables != nullptr);
-    CHECK(eval_config_options.evaluation_config_override->opening.pattern_table == 10);
+    CHECK(eval_config_options.evaluation_config_override->opening.pattern_table == 2);
     CHECK(othello::resolve_evaluation_config(eval_config_options) ==
           *eval_config_options.evaluation_config_override);
 }

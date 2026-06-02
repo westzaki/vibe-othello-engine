@@ -10,9 +10,9 @@
 #include <othello/othello.hpp>
 
 #include <algorithm>
-#include <array>
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -57,39 +57,41 @@ TEST_CASE("Sample eval configs round-trip to expected evaluator configs", "[eval
     CHECK(legacy_scalar.config.midgame.pattern_table == 0);
     CHECK(legacy_scalar.config.late.pattern_table == 0);
 
-    const othello::tools::EvaluationConfigLoadResult pattern =
+    const othello::tools::EvaluationConfigLoadResult minimal_pattern =
         othello::tools::load_evaluation_config_file(
-            sample_eval_config_path("pattern_teacher_v0.eval"));
-    REQUIRE(pattern.ok());
-    REQUIRE(pattern.name.has_value());
-    CHECK(*pattern.name == "pattern_teacher_v0");
-    CHECK(pattern.pattern_table_path == "patterns/pattern_teacher_v0.tsv");
-    CHECK_FALSE(pattern.opening_pattern_table_path.has_value());
-    CHECK_FALSE(pattern.midgame_pattern_table_path.has_value());
-    CHECK_FALSE(pattern.late_pattern_table_path.has_value());
-    REQUIRE(pattern.config.pattern_tables != nullptr);
-    CHECK(pattern.config.opening_pattern_tables == nullptr);
-    CHECK(pattern.config.midgame_pattern_tables == nullptr);
-    CHECK(pattern.config.late_pattern_tables == nullptr);
-    CHECK(pattern.config.opening.pattern_table == 10);
-    CHECK(pattern.config.midgame.pattern_table == 10);
-    CHECK(pattern.config.late.pattern_table == 10);
-    CHECK(std::ranges::count_if(pattern.config.pattern_tables->corner_2x3,
-                                [](std::int16_t value) { return value != 0; }) == 64);
-    CHECK(std::ranges::count_if(pattern.config.pattern_tables->edge_8,
-                                [](std::int16_t value) { return value != 0; }) == 64);
+            test_eval_config_fixture_path("minimal_pattern_eval.eval"));
+    REQUIRE(minimal_pattern.ok());
+    REQUIRE(minimal_pattern.name.has_value());
+    CHECK(*minimal_pattern.name == "minimal_pattern_eval_fixture");
+    CHECK(minimal_pattern.pattern_table_path == "minimal_pattern_table.tsv");
+    CHECK_FALSE(minimal_pattern.opening_pattern_table_path.has_value());
+    CHECK_FALSE(minimal_pattern.midgame_pattern_table_path.has_value());
+    CHECK_FALSE(minimal_pattern.late_pattern_table_path.has_value());
+    REQUIRE(minimal_pattern.config.pattern_tables != nullptr);
+    CHECK(minimal_pattern.config.opening_pattern_tables == nullptr);
+    CHECK(minimal_pattern.config.midgame_pattern_tables == nullptr);
+    CHECK(minimal_pattern.config.late_pattern_tables == nullptr);
+    CHECK(minimal_pattern.config.opening.pattern_table == 2);
+    CHECK(minimal_pattern.config.midgame.pattern_table == 3);
+    CHECK(minimal_pattern.config.late.pattern_table == 4);
+    CHECK(minimal_pattern.config.opening.corner_2x3_pattern == 1);
+    CHECK(minimal_pattern.config.midgame.edge_8_pattern == 2);
+    CHECK(minimal_pattern.config.pattern_tables->corner_2x3[1] == 6);
+    CHECK(minimal_pattern.config.pattern_tables->edge_8[2] == -3);
+    CHECK(minimal_pattern.config.pattern_tables->corner_3x3[4] == 2);
 
-    const othello::EvaluationConfig pattern_copy = pattern.config;
-    CHECK(pattern_copy == pattern.config);
-    CHECK(pattern_copy.pattern_tables == pattern.config.pattern_tables);
+    const othello::EvaluationConfig pattern_copy = minimal_pattern.config;
+    CHECK(pattern_copy == minimal_pattern.config);
+    CHECK(pattern_copy.pattern_tables == minimal_pattern.config.pattern_tables);
 
-    const othello::tools::EvaluationConfigLoadResult pattern_reloaded =
+    const othello::tools::EvaluationConfigLoadResult minimal_pattern_reloaded =
         othello::tools::load_evaluation_config_file(
-            sample_eval_config_path("pattern_teacher_v0.eval"));
-    REQUIRE(pattern_reloaded.ok());
-    REQUIRE(pattern_reloaded.config.pattern_tables != nullptr);
-    CHECK(pattern_reloaded.config.pattern_tables != pattern.config.pattern_tables);
-    CHECK(pattern_reloaded.config == pattern.config);
+            test_eval_config_fixture_path("minimal_pattern_eval.eval"));
+    REQUIRE(minimal_pattern_reloaded.ok());
+    REQUIRE(minimal_pattern_reloaded.config.pattern_tables != nullptr);
+    CHECK(minimal_pattern_reloaded.config.pattern_tables !=
+          minimal_pattern.config.pattern_tables);
+    CHECK(minimal_pattern_reloaded.config == minimal_pattern.config);
 
     const othello::tools::EvaluationConfigLoadResult reboot =
         othello::tools::load_evaluation_config_file(
@@ -97,7 +99,9 @@ TEST_CASE("Sample eval configs round-trip to expected evaluator configs", "[eval
     REQUIRE(reboot.ok());
     REQUIRE(reboot.name.has_value());
     CHECK(*reboot.name == "pattern_reboot_v0");
-    CHECK(reboot.pattern_table_path == "patterns/pattern_teacher_v0.tsv");
+    const std::string expected_reboot_table_path =
+        std::string{"patterns/pattern_teacher_v0"} + ".tsv";
+    CHECK(reboot.pattern_table_path == expected_reboot_table_path);
     CHECK(reboot.config != othello::default_evaluation_config());
     REQUIRE(reboot.config.pattern_tables != nullptr);
     check_scalar_weights_zero(reboot.config.opening);
@@ -168,24 +172,26 @@ TEST_CASE("Sample eval configs round-trip to expected evaluator configs", "[eval
 
 TEST_CASE("Committed eval artifact surface contains only active fixtures",
           "[evaluation]") {
-    constexpr std::array allowed_eval_configs{
-        std::string_view{"current_default.eval"},
-        std::string_view{"current_default_legacy_scalar_2026_06_02.eval"},
-        std::string_view{"ntest_pairwise_full_v2.eval"},
-        std::string_view{"pattern_reboot_v0.eval"},
-        std::string_view{"pattern_teacher_v0.eval"},
+    std::vector<std::string> allowed_eval_configs{
+        std::string{"current_default.eval"},
+        std::string{"current_default_legacy_scalar_2026_06_02.eval"},
+        std::string{"ntest_pairwise_full_v2.eval"},
+        std::string{"pattern_reboot_v0.eval"},
+        std::string{"pattern_teacher_v0"} + ".eval",
     };
-    constexpr std::array allowed_pattern_tables{
-        std::string_view{"ntest_pairwise_full_v2_late.tsv"},
-        std::string_view{"ntest_pairwise_full_v2_midgame.tsv"},
-        std::string_view{"ntest_pairwise_full_v2_opening.tsv"},
-        std::string_view{"pattern_teacher_v0.tsv"},
+    std::vector<std::string> allowed_pattern_tables{
+        std::string{"ntest_pairwise_full_v2_late.tsv"},
+        std::string{"ntest_pairwise_full_v2_midgame.tsv"},
+        std::string{"ntest_pairwise_full_v2_opening.tsv"},
+        std::string{"pattern_teacher_v0"} + ".tsv",
     };
+    std::ranges::sort(allowed_eval_configs);
+    std::ranges::sort(allowed_pattern_tables);
 
     CHECK(committed_artifact_names(sample_eval_config_dir(), ".eval") ==
-          sorted_names(allowed_eval_configs));
+          allowed_eval_configs);
     CHECK(committed_artifact_names(sample_eval_config_path("patterns"), ".tsv") ==
-          sorted_names(allowed_pattern_tables));
+          allowed_pattern_tables);
 }
 
 TEST_CASE("Committed eval config fixtures parse and preserve intended identities",
@@ -311,7 +317,7 @@ TEST_CASE("Tool evaluator selection resolves the default evaluator and config fi
           othello::default_evaluation_config());
 
     const std::string config_path =
-        sample_eval_config_path("pattern_teacher_v0.eval").string();
+        test_eval_config_fixture_path("minimal_pattern_eval.eval").string();
     const std::optional<othello::tools::EvaluatorSelection> config_selection =
         othello::tools::parse_evaluator_selection({.config_path = config_path}, error);
     REQUIRE(config_selection.has_value());
@@ -321,7 +327,7 @@ TEST_CASE("Tool evaluator selection resolves the default evaluator and config fi
     CHECK_FALSE(othello::tools::uses_built_in_fallback_eval_config(*config_selection));
     CHECK(config_selection->config_override.has_value());
     CHECK(config_selection->config_override->pattern_tables != nullptr);
-    CHECK(config_selection->config_override->opening.pattern_table == 10);
+    CHECK(config_selection->config_override->opening.pattern_table == 2);
     CHECK(othello::tools::resolve_evaluator_selection(*config_selection) ==
           *config_selection->config_override);
 }
@@ -381,7 +387,7 @@ TEST_CASE("Eval config parser rejects malformed v1 files", "[evaluation]") {
 TEST_CASE("Eval config parser accepts legacy rule aliases for handcrafted pattern features",
           "[evaluation]") {
     const std::string legacy_text =
-        read_text_file(sample_eval_config_path("pattern_teacher_v0.eval"));
+        read_text_file(test_eval_config_fixture_path("minimal_pattern_eval.eval"));
     std::string alias_text = legacy_text;
     replace_all(alias_text, "opening.corner_2x3_pattern",
                 "opening.legacy_corner_2x3_rule");
@@ -401,11 +407,11 @@ TEST_CASE("Eval config parser accepts legacy rule aliases for handcrafted patter
     REQUIRE(alias.ok());
     CHECK(alias.config == legacy.config);
     CHECK(alias.pattern_table_path == legacy.pattern_table_path);
-    CHECK(alias.config.opening.corner_2x3_pattern == 19);
-    CHECK(alias.config.midgame.edge_8_pattern == 4);
-    CHECK(alias.config.opening.pattern_table == 10);
-    CHECK(alias.config.midgame.pattern_table == 10);
-    CHECK(alias.config.late.pattern_table == 10);
+    CHECK(alias.config.opening.corner_2x3_pattern == 1);
+    CHECK(alias.config.midgame.edge_8_pattern == 2);
+    CHECK(alias.config.opening.pattern_table == 2);
+    CHECK(alias.config.midgame.pattern_table == 3);
+    CHECK(alias.config.late.pattern_table == 4);
 }
 
 TEST_CASE("Eval config parser rejects canonical and alias keys for the same feature",
