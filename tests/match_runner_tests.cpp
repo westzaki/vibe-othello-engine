@@ -97,8 +97,11 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
           262144U);
     CHECK_FALSE(require_search_options("search:depth=4,tt_store_leaf=off").store_leaf_tt_entries);
     CHECK(depth_only_options.evaluation_config_override.has_value());
+    CHECK(depth_only_options.evaluation_config_override->opening_pattern_tables != nullptr);
+    CHECK(depth_only_options.evaluation_config_override->midgame_pattern_tables != nullptr);
+    CHECK(depth_only_options.evaluation_config_override->late_pattern_tables != nullptr);
     CHECK(othello::resolve_evaluation_config(depth_only_options) ==
-          othello::default_evaluation_config());
+          *depth_only_options.evaluation_config_override);
 
     const othello::SearchOptions eval_config_options = require_search_options(
         "search:depth=4,eval_config=" + sample_eval_config_path("pattern_teacher_v0.eval"));

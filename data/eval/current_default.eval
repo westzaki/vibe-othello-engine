@@ -1,13 +1,23 @@
 # schema_version: eval.v1
 # status: active
 # role: project_default
-# created_at: 2026-05-31
-# based_on: default_evaluation_config()
-# purpose: Current source-controlled project default evaluator.
-# note: At this revision it is a fully expanded snapshot of the built-in default evaluator.
-# validation: Currently matches default_evaluation_config() in evaluation tests.
-# caveat: This project default may intentionally differ from the C++ built-in fallback after an explicit default-promotion PR.
+# created_at: 2026-06-02
+# based_on: data/eval/current_default_legacy_scalar_2026_06_02.eval
+# promoted_from: data/eval/ntest_pairwise_full_v2.eval
+# promotion_report: docs/experiments/ntest_balanced300k_regularized_pairwise_full_v2_report.md
+# model_shape: legacy scalar project default + learned phase-specific pattern-table delta
+# known_risk: exact-best rank regression
+# known_risk: search overhead
+# built_in_fallback_unchanged: true
+# no_formal_elo_claim: true
+# ntest_teacher_agreement_is_not_exact_truth: true
 name=current_default
+pattern_table.opening=patterns/ntest_pairwise_full_v2_opening.tsv
+pattern_table.midgame=patterns/ntest_pairwise_full_v2_midgame.tsv
+pattern_table.late=patterns/ntest_pairwise_full_v2_late.tsv
+opening.pattern_table=1
+midgame.pattern_table=1
+late.pattern_table=1
 
 opening.disc_difference=0
 opening.mobility=8
@@ -17,9 +27,9 @@ opening.corner_access=30
 opening.x_square_danger=25
 opening.frontier=5
 opening.corner_local_2x3=0
-opening.corner_2x3_pattern=4
+opening.legacy_corner_2x3_rule=4
 opening.edge_stability_lite=2
-opening.edge_8_pattern=2
+opening.legacy_edge_8_rule=2
 
 midgame.disc_difference=1
 midgame.mobility=10
@@ -29,9 +39,9 @@ midgame.corner_access=35
 midgame.x_square_danger=30
 midgame.frontier=6
 midgame.corner_local_2x3=0
-midgame.corner_2x3_pattern=6
+midgame.legacy_corner_2x3_rule=6
 midgame.edge_stability_lite=4
-midgame.edge_8_pattern=4
+midgame.legacy_edge_8_rule=4
 
 late.disc_difference=4
 late.mobility=6
@@ -41,9 +51,9 @@ late.corner_access=20
 late.x_square_danger=20
 late.frontier=3
 late.corner_local_2x3=0
-late.corner_2x3_pattern=4
+late.legacy_corner_2x3_rule=4
 late.edge_stability_lite=8
-late.edge_8_pattern=6
+late.legacy_edge_8_rule=6
 
 opening_max_occupied=20
 midgame_max_occupied=44

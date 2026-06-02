@@ -112,8 +112,9 @@ inline void write_text_file(const std::filesystem::path& path, std::string_view 
 
 [[nodiscard]] inline std::string eval_config_with_pattern_table_paths(
     const std::vector<std::pair<std::string, std::string>>& table_paths) {
-    std::string text = read_text_file(sample_eval_config_path("current_default.eval"));
-    const std::string marker = "name=current_default\n";
+    std::string text =
+        read_text_file(sample_eval_config_path("current_default_legacy_scalar_2026_06_02.eval"));
+    const std::string marker = "name=current_default_legacy_scalar_2026_06_02\n";
     const std::size_t insert_at = text.find(marker);
     REQUIRE(insert_at != std::string::npos);
     std::string inserted_paths;

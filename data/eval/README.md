@@ -1,11 +1,11 @@
 # Evaluation Configs
 
 This directory contains the small active set of `.eval` v1 files that should
-work on the latest `main`: the current default snapshot and pattern research
-baselines. These files are selected explicitly with `--eval-config PATH` or
-`eval_config=PATH`, and repo tools also load `current_default.eval` as the
-project default when `--eval-config` is omitted. Use `.eval` configs for new
-evaluation experiments.
+work on the latest `main`: the project default, retained comparison presets,
+and pattern research baselines. These files are selected explicitly with
+`--eval-config PATH` or `eval_config=PATH`, and repo tools also load
+`current_default.eval` as the project default when `--eval-config` is omitted.
+Use `.eval` configs for new evaluation experiments.
 
 ## Roles
 
@@ -24,6 +24,10 @@ default uses source-controlled learned tables.
 `current_default.eval` is the source-controlled project default evaluator.
 Repository tools load it when `--eval-config` is omitted. It may reference
 source-controlled learned tables through the `.eval` loader.
+
+The current project default is promoted from `ntest_pairwise_full_v2.eval`. It
+keeps the lightweight scalar fallback unchanged in C++ and adds phase-specific
+learned pattern-table deltas when repo tools load `current_default.eval`.
 
 Changing `current_default.eval` does not automatically change the C++ built-in
 fallback unless a caller loads the file. Default promotion must update this
@@ -57,20 +61,32 @@ Pattern-first experiments may intentionally be weaker than the engine default
 while they build better table ownership, dataset, trainer, and validation
 foundations.
 
-### Promotion Candidate
+### Promoted NTest Pairwise Default
 
-`ntest_pairwise_full_v2.eval` is a reviewable NTest 300K regularized pairwise
-candidate. It keeps the `current_default` scalar evaluator snapshot and adds
-phase-specific learned pattern-table deltas. It is not selected unless a tool is
-explicitly run with `--eval-config data/eval/ntest_pairwise_full_v2.eval`, and it
-does not change the built-in default evaluator.
+`ntest_pairwise_full_v2.eval` is the explicit source preset for the promoted
+project default. It was trained from the NTest 300K regularized pairwise loop,
+keeps the legacy scalar evaluator snapshot, and adds phase-specific learned
+pattern-table deltas. `current_default.eval` now resolves to an equivalent
+evaluation config for repo tools that omit `--eval-config`.
 
 The validation report is
 [`docs/experiments/ntest_balanced300k_regularized_pairwise_full_v2_report.md`](../../docs/experiments/ntest_balanced300k_regularized_pairwise_full_v2_report.md).
-The candidate is favorable in the recorded deterministic matches and improves
-exact sign metrics, but exact-best rank metrics regress slightly and search
-overhead increases. Any default promotion must be a separate explicit decision
-that carries those risks.
+The promoted config is favorable in the recorded deterministic matches and
+improves exact sign metrics, but exact-best rank metrics regress slightly and
+search overhead increases. Specifically, exact-best top group regresses from
+5166 to 5121, exact-best rank sum regresses from 19602 to 19790, and recorded
+search overhead increases by nodes +34.73% and elapsed +16.70%.
+
+This promotion is not a formal Elo claim, and NTest teacher agreement is not
+exact truth.
+
+### Legacy Scalar Project Default
+
+`current_default_legacy_scalar_2026_06_02.eval` preserves the old scalar
+project default for comparison and revert. It matches the C++ built-in fallback
+and does not load learned pattern tables. To revert the project default, copy
+the legacy scalar preset contents back into `current_default.eval`, update docs
+and tests, and rerun eval config plus search smoke checks.
 
 ## Rejected or Superseded Configs
 
