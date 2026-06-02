@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import collections
 import json
-import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,6 +14,19 @@ from typing import Callable
 from common import ScriptError, parse_csv_values, quote_command
 from dataset_paths import is_dataset_reference, resolve_dataset_root
 import pattern_teacher_v0_train as base_trainer
+from pattern_training.analysis_cache import (
+    AnalysisCacheConfig,
+    AnalysisRequest,
+    AnalysisRunnerConfig,
+    analysis_cache_key,
+    analyze_requests,
+    sha256_file,
+)
+from pattern_training.analyzer import AnalyzerConfig
+from pattern_training.analyzer import analyze_command as shared_analyze_command
+from pattern_training.analyzer import run_analysis as shared_run_analysis
+from pattern_training.board9 import board_hash
+from pattern_training.root_candidates import RootAnalysis
 
 
 PHASES = ("opening", "midgame", "late")
@@ -36,6 +48,8 @@ class PhaseTrainConfig:
     exact_label_paths: tuple[Path, ...]
     eval_config: Path
     analyze_position: Path
+    analysis_cache: AnalysisCacheConfig
+    analysis_jobs: int
     out_dir: Path
     table_name: str
     families: tuple[str, ...]
@@ -90,6 +104,22 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="pattern-only baseline .eval config used for analysis and candidate rendering",
     )
     parser.add_argument("--analyze-position", default="build/othello_analyze_position")
+    parser.add_argument(
+        "--analysis-cache-dir",
+        help="optional directory for root-analysis cache JSONL artifacts",
+    )
+    parser.add_argument(
+        "--analysis-cache-mode",
+        choices=("off", "read-write", "read-only", "refresh"),
+        default="off",
+        help="root-analysis cache mode (default: off)",
+    )
+    parser.add_argument(
+        "--analysis-jobs",
+        type=int,
+        default=1,
+        help="maximum concurrent root-analysis subprocesses (default: 1)",
+    )
     parser.add_argument("--out-dir", required=True, help="output directory, normally under runs/")
     parser.add_argument("--table-name", default="phase_broad_v0")
     parser.add_argument(
@@ -254,6 +284,17 @@ def _validate_pattern_only_eval_config(eval_config: Path) -> None:
         )
 
 
+def _analysis_cache_config_from_args(args: argparse.Namespace) -> AnalysisCacheConfig:
+    cache_dir = Path(args.analysis_cache_dir) if args.analysis_cache_dir else None
+    if args.analysis_cache_mode != "off" and cache_dir is None:
+        raise ScriptError("--analysis-cache-dir is required unless --analysis-cache-mode=off")
+    if args.analysis_cache_mode == "off" and cache_dir is not None:
+        raise ScriptError("--analysis-cache-mode must not be off when --analysis-cache-dir is provided")
+    if args.analysis_jobs < 1:
+        raise ScriptError("--analysis-jobs must be positive")
+    return AnalysisCacheConfig(directory=cache_dir, mode=args.analysis_cache_mode)
+
+
 def config_from_args(
     args: argparse.Namespace, invocation: list[str] | None = None
 ) -> PhaseTrainConfig:
@@ -275,6 +316,8 @@ def config_from_args(
         ),
         eval_config=eval_config,
         analyze_position=Path(args.analyze_position),
+        analysis_cache=_analysis_cache_config_from_args(args),
+        analysis_jobs=args.analysis_jobs,
         out_dir=resolve_out_dir(args.out_dir),
         table_name=args.table_name,
         families=families,
@@ -302,34 +345,45 @@ def config_from_args(
 
 
 def analyze_command(config: PhaseTrainConfig) -> list[str]:
-    return [
-        str(config.analyze_position),
-        "--stdin",
-        "--depth",
-        str(config.depth),
-        "--exact-endgame-threshold",
-        "0",
-        "--eval-config",
-        str(config.eval_config),
-        "--root-candidates",
-    ]
+    return shared_analyze_command(
+        AnalyzerConfig(
+            analyze_position=config.analyze_position,
+            eval_config=config.eval_config,
+            depth=config.depth,
+        )
+    )
 
 
 def run_analysis(config: PhaseTrainConfig, board_text: str) -> base_trainer.AnalyzeResult:
-    command = analyze_command(config)
-    completed = subprocess.run(
-        command,
-        input=board_text,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if completed.returncode != 0:
-        raise ScriptError(
-            f"analysis failed: {quote_command(command)}\n{completed.stderr}",
-            exit_code=1,
+    return base_trainer.analyze_result_from_root(
+        shared_run_analysis(
+            AnalyzerConfig(
+                analyze_position=config.analyze_position,
+                eval_config=config.eval_config,
+                depth=config.depth,
+            ),
+            board_text,
         )
-    return base_trainer.parse_analysis_stdout(completed.stdout)
+    )
+
+
+def _root_from_analysis(analysis: base_trainer.AnalyzeResult) -> RootAnalysis:
+    root_scores = dict(analysis.root_scores)
+    if not root_scores:
+        root_scores = {
+            candidate.move: candidate.score
+            for candidate in analysis.candidates
+            if candidate.score is not None
+        }
+    best_move = analysis.best_move
+    if best_move is None and root_scores:
+        best_move = sorted(root_scores.items(), key=lambda item: (-item[1], item[0]))[0][0]
+    return RootAnalysis(
+        best_move=best_move,
+        root_scores=root_scores,
+        candidates=analysis.candidates,
+        stdout=analysis.stdout,
+    )
 
 
 def pair_limit_for_family(config: PhaseTrainConfig, family: str) -> int:
@@ -635,6 +689,13 @@ def train_phase_tables(
     }
     row_stats = collections.Counter[str]()
     row_stats["accepted_teacher_rows"] = len(rows)
+    row_stats["analysis_cache_hits"] = 0
+    row_stats["analysis_cache_misses"] = 0
+    row_stats["analysis_cache_writes"] = 0
+    row_stats["analysis_jobs"] = config.analysis_jobs
+    eval_config_hash = sha256_file(config.eval_config)
+    prepared: list[tuple[int, str, str, str]] = []
+    analysis_requests: list[AnalysisRequest] = []
 
     for row in rows:
         board_value = row.get("board_text")
@@ -676,7 +737,38 @@ def train_phase_tables(
 
         row_stats["training_rows"] += 1
         phase_stats[phase]["teacher_rows"] += 1
-        analysis = analyzer(config, board_text)
+        source_index = len(prepared)
+        prepared.append((source_index, phase, board_text, teacher_move))
+        analysis_requests.append(
+            AnalysisRequest(
+                source_index=source_index,
+                board_text=board_text,
+                cache_key=analysis_cache_key(
+                    board_hash=board_hash(board_text),
+                    eval_config_hash=eval_config_hash,
+                    analysis_depth=config.depth,
+                ),
+                position_id=str(row.get("position_id") or source_index),
+            )
+        )
+
+    analysis_by_source = analyze_requests(
+        config=AnalysisRunnerConfig(
+            analysis_cache=config.analysis_cache,
+            analysis_jobs=config.analysis_jobs,
+            analyze_position=config.analyze_position,
+            eval_config=config.eval_config,
+            analysis_depth=config.depth,
+            require_stdout_cache=True,
+        ),
+        requests=analysis_requests,
+        analyzer=lambda board_text: _root_from_analysis(analyzer(config, board_text)),
+        stats=row_stats,
+        eval_config_hash=eval_config_hash,
+    )
+
+    for source_index, phase, board_text, teacher_move in prepared:
+        analysis = base_trainer.analyze_result_from_root(analysis_by_source[source_index])
         candidates = [candidate for candidate in analysis.candidates if candidate.child_board]
         if not candidates:
             row_stats["positions_without_candidates"] += 1

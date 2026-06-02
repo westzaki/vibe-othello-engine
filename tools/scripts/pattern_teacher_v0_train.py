@@ -7,9 +7,8 @@ import argparse
 import collections
 import hashlib
 import json
-import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +21,23 @@ from pattern_specs import (
     board9_rows_to_square_index_rows,
     pattern_index,
 )
+from pattern_training.analysis_cache import (
+    AnalysisCacheConfig,
+    AnalysisRequest,
+    AnalysisRunnerConfig,
+    analysis_cache_key,
+    analyze_requests,
+    sha256_file,
+)
+from pattern_training.analyzer import AnalyzerConfig
+from pattern_training.analyzer import analyze_command as shared_analyze_command
+from pattern_training.analyzer import run_analysis as shared_run_analysis
+from pattern_training.board9 import board_hash
+from pattern_training.root_candidates import (
+    RootAnalysis,
+    RootCandidate,
+    parse_analysis_stdout as parse_root_analysis_stdout,
+)
 
 FAMILY_ALIASES: dict[str, tuple[str, ...]] = {
     **COMMON_FAMILY_ALIASES,
@@ -30,16 +46,15 @@ FAMILY_ALIASES: dict[str, tuple[str, ...]] = {
 }
 
 
-@dataclass(frozen=True)
-class Candidate:
-    move: str
-    score: int | None
-    child_board: str | None
+Candidate = RootCandidate
 
 
 @dataclass(frozen=True)
 class AnalyzeResult:
     candidates: tuple[Candidate, ...]
+    best_move: str | None = None
+    root_scores: dict[str, int] = field(default_factory=dict)
+    stdout: str = ""
 
 
 @dataclass(frozen=True)
@@ -71,6 +86,22 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--eval-config", required=True, help="residual baseline .eval config")
     parser.add_argument("--analyze-position", default="build/othello_analyze_position")
+    parser.add_argument(
+        "--analysis-cache-dir",
+        help="optional directory for root-analysis cache JSONL artifacts",
+    )
+    parser.add_argument(
+        "--analysis-cache-mode",
+        choices=("off", "read-write", "read-only", "refresh"),
+        default="off",
+        help="root-analysis cache mode (default: off)",
+    )
+    parser.add_argument(
+        "--analysis-jobs",
+        type=int,
+        default=1,
+        help="maximum concurrent root-analysis subprocesses (default: 1)",
+    )
     parser.add_argument("--out", required=True, help="output pattern table TSV")
     parser.add_argument("--table-name", default="pattern_teacher_v0")
     parser.add_argument("--exact-labels", help="optional comma-separated exact labels for filtering")
@@ -258,72 +289,61 @@ def accepted_teacher_rows(paths: list[Path], limit: int | None) -> list[dict[str
 
 
 def analyze_command(args: argparse.Namespace) -> list[str]:
-    return [
-        args.analyze_position,
-        "--stdin",
-        "--depth",
-        str(args.depth),
-        "--exact-endgame-threshold",
-        "0",
-        "--eval-config",
-        args.eval_config,
-        "--root-candidates",
-    ]
+    return shared_analyze_command(
+        AnalyzerConfig(
+            analyze_position=Path(args.analyze_position),
+            eval_config=Path(args.eval_config),
+            depth=args.depth,
+        )
+    )
+
+
+def analyze_result_from_root(root: RootAnalysis) -> AnalyzeResult:
+    return AnalyzeResult(
+        candidates=root.candidates,
+        best_move=root.best_move,
+        root_scores=root.root_scores,
+        stdout=root.stdout,
+    )
 
 
 def parse_analysis_stdout(text: str) -> AnalyzeResult:
-    candidates: list[Candidate] = []
-    current_move: str | None = None
-    current_score: int | None = None
-    child_lines: list[str] | None = None
-
-    def finish_candidate() -> None:
-        nonlocal current_move, current_score, child_lines
-        if current_move is not None:
-            child_board = "\n".join(child_lines) if child_lines else None
-            candidates.append(Candidate(move=current_move, score=current_score, child_board=child_board))
-        current_move = None
-        current_score = None
-        child_lines = None
-
-    for raw_line in text.splitlines():
-        if raw_line.startswith("  - move:"):
-            finish_candidate()
-            current_move = normalize_move(raw_line.split(":", 1)[1]) or "pass"
-            continue
-        if current_move is None:
-            continue
-        if raw_line == "    child_board:":
-            child_lines = []
-            continue
-        if child_lines is not None and len(child_lines) < 9 and raw_line.startswith("      "):
-            child_lines.append(raw_line[6:])
-            continue
-        if raw_line.startswith("    score:"):
-            try:
-                current_score = int(raw_line.split(":", 1)[1].strip())
-            except ValueError:
-                current_score = None
-    finish_candidate()
-
-    return AnalyzeResult(candidates=tuple(candidates))
+    return analyze_result_from_root(parse_root_analysis_stdout(text))
 
 
 def run_analysis(args: argparse.Namespace, board_text: str) -> AnalyzeResult:
-    command = analyze_command(args)
-    completed = subprocess.run(
-        command,
-        input=board_text,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if completed.returncode != 0:
-        raise ScriptError(
-            f"analysis failed: {quote_command(command)}\n{completed.stderr}",
-            exit_code=1,
+    return analyze_result_from_root(
+        shared_run_analysis(
+            AnalyzerConfig(
+                analyze_position=Path(args.analyze_position),
+                eval_config=Path(args.eval_config),
+                depth=args.depth,
+            ),
+            board_text,
         )
-    return parse_analysis_stdout(completed.stdout)
+    )
+
+
+def _analysis_cache_config_from_args(args: argparse.Namespace) -> AnalysisCacheConfig:
+    cache_dir = Path(args.analysis_cache_dir) if args.analysis_cache_dir else None
+    if args.analysis_cache_mode != "off" and cache_dir is None:
+        raise ScriptError("--analysis-cache-dir is required unless --analysis-cache-mode=off")
+    if args.analysis_cache_mode == "off" and cache_dir is not None:
+        raise ScriptError("--analysis-cache-mode must not be off when --analysis-cache-dir is provided")
+    if args.analysis_jobs < 1:
+        raise ScriptError("--analysis-jobs must be positive")
+    return AnalysisCacheConfig(directory=cache_dir, mode=args.analysis_cache_mode)
+
+
+def _analysis_runner_config_from_args(args: argparse.Namespace) -> AnalysisRunnerConfig:
+    return AnalysisRunnerConfig(
+        analysis_cache=_analysis_cache_config_from_args(args),
+        analysis_jobs=args.analysis_jobs,
+        analyze_position=Path(args.analyze_position),
+        eval_config=Path(args.eval_config),
+        analysis_depth=args.depth,
+        require_stdout_cache=True,
+    )
 
 
 def parse_board(board_text: str) -> tuple[list[str], str]:
@@ -466,6 +486,7 @@ def main(argv: list[str] | None = None) -> int:
     families = parse_families(args.families)
     if args.empty_min is not None and args.empty_max is not None and args.empty_min > args.empty_max:
         raise ScriptError("--empty-min cannot be greater than --empty-max")
+    analysis_runner_config = _analysis_runner_config_from_args(args)
     rows = accepted_teacher_rows(teacher_paths, args.limit)
     if not rows:
         raise ScriptError("no accepted teacher rows")
@@ -487,6 +508,13 @@ def main(argv: list[str] | None = None) -> int:
     stats["accepted_teacher_rows"] = len(rows)
     stats["split_seed"] = args.split_seed
     stats["family_count"] = len(families)
+    stats["analysis_cache_hits"] = 0
+    stats["analysis_cache_misses"] = 0
+    stats["analysis_cache_writes"] = 0
+    stats["analysis_jobs"] = args.analysis_jobs
+    eval_config_hash = sha256_file(Path(args.eval_config))
+    prepared: list[tuple[int, dict[str, object], str, str]] = []
+    analysis_requests: list[AnalysisRequest] = []
     for row in rows:
         stats["teacher_rows"] += 1
         board_text = str(row["board_text"])
@@ -504,8 +532,39 @@ def main(argv: list[str] | None = None) -> int:
         if best_exact is not None and teacher_move not in best_exact:
             stats["teacher_exact_disagreements_skipped"] += 1
             continue
+        source_index = len(prepared)
+        prepared.append((source_index, row, board_text, teacher_move))
+        analysis_requests.append(
+            AnalysisRequest(
+                source_index=source_index,
+                board_text=board_text,
+                cache_key=analysis_cache_key(
+                    board_hash=board_hash(board_text),
+                    eval_config_hash=eval_config_hash,
+                    analysis_depth=args.depth,
+                ),
+                position_id=str(row.get("position_id") or source_index),
+            )
+        )
 
-        analysis = run_analysis(args, board_text)
+    analysis_by_source = analyze_requests(
+        config=analysis_runner_config,
+        requests=analysis_requests,
+        analyzer=lambda board_text: shared_run_analysis(
+            AnalyzerConfig(
+                analyze_position=Path(args.analyze_position),
+                eval_config=Path(args.eval_config),
+                depth=args.depth,
+            ),
+            board_text,
+        ),
+        stats=stats,
+        eval_config_hash=eval_config_hash,
+    )
+
+    for source_index, row, board_text, teacher_move in prepared:
+        del row
+        analysis = analyze_result_from_root(analysis_by_source[source_index])
         candidates = [candidate for candidate in analysis.candidates if candidate.child_board]
         if not candidates:
             stats["positions_without_candidates"] += 1

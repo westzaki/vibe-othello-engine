@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import collections
+import json
 import sys
 import tempfile
 import unittest
@@ -22,6 +23,42 @@ PATTERN_FIXTURE_INSTANCES = {
     "diagonal_8": ("A1H8", "H1A8"),
     "inner_row_8": ("Top", "Bottom", "Left", "Right"),
 }
+
+OPENING_BOARD = (
+    "........\n"
+    "........\n"
+    "........\n"
+    "...WB...\n"
+    "...BW...\n"
+    "........\n"
+    "........\n"
+    "........\n"
+    "side=B"
+)
+
+TEACHER_CHILD = (
+    "BBB.....\n"
+    "BB....B.\n"
+    "..B.....\n"
+    "........\n"
+    "........\n"
+    "........\n"
+    "........\n"
+    "........\n"
+    "side=B"
+)
+
+COMPARED_CHILD = (
+    "WWW.....\n"
+    "WW....W.\n"
+    "..W.....\n"
+    "........\n"
+    "........\n"
+    "........\n"
+    "........\n"
+    "........\n"
+    "side=B"
+)
 
 
 def load_pattern_index_fixtures() -> list[dict[str, object]]:
@@ -73,6 +110,48 @@ def load_pattern_index_fixtures() -> list[dict[str, object]]:
     if current is not None:
         fixtures.append(current)
     return fixtures
+
+
+def write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+
+
+def teacher_row(position_id: str) -> dict[str, object]:
+    return {
+        "status": "ok",
+        "legal_move_valid": True,
+        "move_token_valid": True,
+        "move": "d3",
+        "board_text": OPENING_BOARD,
+        "position_split": "train",
+        "position_id": position_id,
+    }
+
+
+def write_fake_analyze_position(path: Path, count_path: Path) -> None:
+    path.write_text(
+        "#!/usr/bin/env python3\n"
+        "from pathlib import Path\n"
+        "import sys\n"
+        "sys.stdin.read()\n"
+        f"count_path = Path({str(count_path)!r})\n"
+        "count_path.write_text(count_path.read_text(encoding='utf-8') + 'x\\n', encoding='utf-8')\n"
+        "print('root_candidates:')\n"
+        "print('  - move: c4')\n"
+        "print('    score: 30')\n"
+        "print('    child_board:')\n"
+        + "".join(f"print('      {line}')\n" for line in COMPARED_CHILD.splitlines())
+        + "print('  - move: d3')\n"
+        "print('    score: 10')\n"
+        "print('    child_board:')\n"
+        + "".join(f"print('      {line}')\n" for line in TEACHER_CHILD.splitlines()),
+        encoding="utf-8",
+    )
+    path.chmod(0o755)
 
 
 class PatternTeacherTrainTests(unittest.TestCase):
@@ -292,6 +371,49 @@ class PatternTeacherTrainTests(unittest.TestCase):
             "inner_row_8\t16\t3\n"
             "inner_row_8\t32\t-3\n",
         )
+
+    def test_main_uses_shared_analysis_cache_and_deduplicates_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = temp_path / "labels.jsonl"
+            write_jsonl(labels, [teacher_row("first"), teacher_row("second")])
+            eval_config = temp_path / "eval.conf"
+            eval_config.write_text("name=fake\nmidgame.mobility=1\n", encoding="utf-8")
+            count_path = temp_path / "analyzer.count"
+            count_path.write_text("", encoding="utf-8")
+            fake_analyzer = temp_path / "fake_analyze_position"
+            write_fake_analyze_position(fake_analyzer, count_path)
+            cache_dir = temp_path / "analysis-cache"
+
+            argv = [
+                "--teacher-labels",
+                str(labels),
+                "--eval-config",
+                str(eval_config),
+                "--analyze-position",
+                str(fake_analyzer),
+                "--analysis-cache-dir",
+                str(cache_dir),
+                "--analysis-cache-mode",
+                "read-write",
+                "--analysis-jobs",
+                "2",
+                "--out",
+                str(temp_path / "table.tsv"),
+                "--families",
+                "corner_only",
+                "--min-abs-diff",
+                "1",
+                "--scale",
+                "1",
+            ]
+
+            trainer.main(argv)
+            trainer.main(argv)
+
+            self.assertEqual(count_path.read_text(encoding="utf-8").splitlines(), ["x"])
+            cache_rows = (cache_dir / "root_analysis.jsonl").read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(cache_rows), 1)
 
 
 if __name__ == "__main__":

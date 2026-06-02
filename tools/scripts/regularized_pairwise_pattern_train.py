@@ -10,17 +10,13 @@ from __future__ import annotations
 
 import argparse
 import collections
-import concurrent.futures
 import csv
 import datetime as dt
-import errno
 import hashlib
 import json
 import math
 import random
-import subprocess
 import sys
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -39,12 +35,27 @@ from pattern_specs import (
     board9_rows_to_square_index_rows,
     pattern_index,
 )
+from pattern_training.analysis_cache import (
+    AnalysisCacheConfig,
+    AnalysisRequest,
+    AnalysisRunnerConfig,
+    analysis_cache_key,
+    collect_git_sha,
+    sha256_file,
+    sha256_text,
+    write_analysis_cache_row as shared_write_analysis_cache_row,
+)
+from pattern_training.analysis_cache import analyze_requests as shared_analyze_requests
+from pattern_training.analyzer import AnalyzerConfig
+from pattern_training.analyzer import analyze_command as shared_analyze_command
+from pattern_training.analyzer import run_analysis as shared_run_analysis
+from pattern_training.root_candidates import RootAnalysis as AnalyzeResult
+from pattern_training.root_candidates import parse_analysis_stdout
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_EVAL_CONFIG = "data/eval/pattern_reboot_v0.eval"
 DEFAULT_ANALYSIS_DEPTH = 1
-ROOT_ANALYSIS_CACHE_SCHEMA = "root_analysis_cache.v1"
 PHASES = ("opening", "midgame", "late")
 DEFAULT_PHASE_CUTOFFS = (20, 44)
 SENTINEL_FAMILY = "corner_2x3"
@@ -58,9 +69,6 @@ PAIR_MODES = (
     "exact-aware",
 )
 PAIR_WEIGHTINGS = ("uniform", "rank-margin", "score-margin", "exact-boost")
-ANALYSIS_SPAWN_RETRIES = 5
-ANALYSIS_SPAWN_BACKOFF_SECONDS = 0.25
-
 FAMILY_ALIASES: dict[str, tuple[str, ...]] = {
     **COMMON_FAMILY_ALIASES,
     "all": FAMILY_ORDER,
@@ -84,26 +92,6 @@ class LabelSource:
 class PhaseCutoffs:
     opening_max_occupied: int
     midgame_max_occupied: int
-
-
-@dataclass(frozen=True)
-class AnalyzeResult:
-    best_move: str | None
-    root_scores: dict[str, int]
-
-
-@dataclass(frozen=True)
-class AnalysisCacheConfig:
-    directory: Path | None
-    mode: str
-
-
-@dataclass(frozen=True)
-class AnalysisRequest:
-    source_index: int
-    source: LabelSource
-    board_text: str
-    cache_key: str
 
 
 @dataclass(frozen=True)
@@ -523,126 +511,6 @@ def config_from_args(
     )
 
 
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    try:
-        with path.open("rb") as input_file:
-            for chunk in iter(lambda: input_file.read(65536), b""):
-                digest.update(chunk)
-    except OSError as exc:
-        raise ScriptError(f"failed to read file for SHA256: {path}: {exc}") from exc
-    return digest.hexdigest()
-
-
-def sha256_text(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
-
-
-def analysis_cache_key(*, board_hash: str, eval_config_hash: str, analysis_depth: int) -> str:
-    material = {
-        "schema": ROOT_ANALYSIS_CACHE_SCHEMA,
-        "board_hash": board_hash,
-        "eval_config_hash": eval_config_hash,
-        "analysis_depth": analysis_depth,
-    }
-    return sha256_text(json.dumps(material, sort_keys=True, separators=(",", ":")))
-
-
-def analysis_cache_path(cache_dir: Path) -> Path:
-    return cache_dir / "root_analysis.jsonl"
-
-
-def analyze_position_hash(path: Path) -> str | None:
-    try:
-        if path.is_file():
-            return sha256_file(path)
-    except ScriptError:
-        return None
-    return None
-
-
-def valid_cached_analysis_row(
-    row: Any,
-    *,
-    key: str,
-    board_hash: str,
-    eval_config_hash: str,
-    expected_analyze_position_hash: str | None,
-    analysis_depth: int,
-) -> AnalyzeResult | None:
-    if expected_analyze_position_hash is None:
-        return None
-    if not isinstance(row, dict):
-        return None
-    if row.get("schema") != ROOT_ANALYSIS_CACHE_SCHEMA:
-        return None
-    if row.get("key") != key:
-        return None
-    if row.get("board_hash") != board_hash:
-        return None
-    if row.get("eval_config_hash") != eval_config_hash:
-        return None
-    if row.get("analyze_position_hash") != expected_analyze_position_hash:
-        return None
-    if row.get("analysis_depth") != analysis_depth:
-        return None
-    if row.get("status") != "ok" or row.get("exit_status") not in (None, 0):
-        return None
-    raw_scores = row.get("root_scores")
-    if not isinstance(raw_scores, dict) or not raw_scores:
-        return None
-    root_scores: dict[str, int] = {}
-    for move, score in raw_scores.items():
-        normalized = normalize_move(move)
-        if normalized is None or not isinstance(score, int):
-            return None
-        root_scores[normalized] = score
-    best_move = normalize_move(row.get("best_move"))
-    return AnalyzeResult(best_move=best_move, root_scores=root_scores)
-
-
-def load_analysis_cache(
-    *,
-    cache_dir: Path,
-    expected: dict[str, tuple[str, str]],
-    eval_config_hash: str,
-    expected_analyze_position_hash: str | None,
-    analysis_depth: int,
-) -> dict[str, AnalyzeResult]:
-    path = analysis_cache_path(cache_dir)
-    if not path.exists():
-        return {}
-    loaded: dict[str, AnalyzeResult] = {}
-    try:
-        with path.open("r", encoding="utf-8") as input_file:
-            for line in input_file:
-                if not line.strip():
-                    continue
-                try:
-                    row = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                key = row.get("key") if isinstance(row, dict) else None
-                if not isinstance(key, str) or key not in expected:
-                    continue
-                board_hash, expected_eval_hash = expected[key]
-                if expected_eval_hash != eval_config_hash:
-                    continue
-                result = valid_cached_analysis_row(
-                    row,
-                    key=key,
-                    board_hash=board_hash,
-                    eval_config_hash=eval_config_hash,
-                    expected_analyze_position_hash=expected_analyze_position_hash,
-                    analysis_depth=analysis_depth,
-                )
-                if result is not None:
-                    loaded[key] = result
-    except OSError as exc:
-        raise ScriptError(f"failed to read analysis cache {path}: {exc}") from exc
-    return loaded
-
-
 def write_analysis_cache_row(
     *,
     cache_dir: Path,
@@ -653,33 +521,21 @@ def write_analysis_cache_row(
     analyzer_hash: str | None,
     git_sha: str,
 ) -> None:
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    board_hash = sha256_text(board_key(request.board_text))
-    row = {
-        "schema": ROOT_ANALYSIS_CACHE_SCHEMA,
-        "key": request.cache_key,
-        "position_id": position_id_for_source(request.source),
-        "board_hash": board_hash,
-        "board_text_hash": board_hash,
-        "eval_config": str(config.eval_config),
-        "eval_config_hash": eval_config_hash,
-        "analyze_position": str(config.analyze_position),
-        "analyze_position_hash": analyzer_hash,
-        "analysis_depth": DEFAULT_ANALYSIS_DEPTH,
-        "best_move": result.best_move,
-        "root_scores": result.root_scores,
-        "status": "ok",
-        "exit_status": 0,
-        "git_sha": git_sha,
-        "generated_at": dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-    }
-    path = analysis_cache_path(cache_dir)
-    try:
-        with path.open("a", encoding="utf-8") as output_file:
-            output_file.write(json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n")
-            output_file.flush()
-    except OSError as exc:
-        raise ScriptError(f"failed to write analysis cache {path}: {exc}") from exc
+    shared_write_analysis_cache_row(
+        cache_dir=cache_dir,
+        config=AnalysisRunnerConfig(
+            analysis_cache=config.analysis_cache,
+            analysis_jobs=config.analysis_jobs,
+            analyze_position=config.analyze_position,
+            eval_config=config.eval_config,
+            analysis_depth=DEFAULT_ANALYSIS_DEPTH,
+        ),
+        request=request,
+        result=result,
+        eval_config_hash=eval_config_hash,
+        analyzer_hash=analyzer_hash,
+        git_sha=git_sha,
+    )
 
 
 def analyze_requests(
@@ -690,132 +546,19 @@ def analyze_requests(
     stats: collections.Counter[str],
     eval_config_hash: str,
 ) -> dict[int, AnalyzeResult]:
-    start = time.perf_counter()
-    try:
-        return _analyze_requests(
-            config=config,
-            requests=requests,
-            analyzer=analyzer,
-            stats=stats,
-            eval_config_hash=eval_config_hash,
-            analyzer_hash=analyze_position_hash(config.analyze_position),
-        )
-    finally:
-        stats["analysis_elapsed_seconds"] = round(time.perf_counter() - start, 6)
-
-
-def _analyze_requests(
-    *,
-    config: TrainerConfig,
-    requests: list[AnalysisRequest],
-    analyzer: Analyzer,
-    stats: collections.Counter[str],
-    eval_config_hash: str,
-    analyzer_hash: str | None,
-) -> dict[int, AnalyzeResult]:
-    if not requests:
-        return {}
-    cache_dir = config.analysis_cache.directory
-    cache_mode = config.analysis_cache.mode
-    cached_by_key: dict[str, AnalyzeResult] = {}
-    if cache_dir is not None and cache_mode in {"read-write", "read-only"}:
-        expected = {
-            request.cache_key: (sha256_text(board_key(request.board_text)), eval_config_hash)
-            for request in requests
-        }
-        cached_by_key = load_analysis_cache(
-            cache_dir=cache_dir,
-            expected=expected,
-            eval_config_hash=eval_config_hash,
-            expected_analyze_position_hash=analyzer_hash,
+    return shared_analyze_requests(
+        config=AnalysisRunnerConfig(
+            analysis_cache=config.analysis_cache,
+            analysis_jobs=config.analysis_jobs,
+            analyze_position=config.analyze_position,
+            eval_config=config.eval_config,
             analysis_depth=DEFAULT_ANALYSIS_DEPTH,
-        )
-
-    results_by_source: dict[int, AnalyzeResult] = {}
-    missing: list[AnalysisRequest] = []
-    for request in requests:
-        cached = None if cache_mode == "refresh" else cached_by_key.get(request.cache_key)
-        if cached is None:
-            missing.append(request)
-            continue
-        stats["analysis_cache_hits"] += 1
-        results_by_source[request.source_index] = cached
-
-    stats["analysis_cache_misses"] += len(missing)
-    if missing and cache_mode == "read-only":
-        first = missing[0]
-        raise ScriptError(
-            "analysis cache missing required root analysis for "
-            f"{position_id_for_source(first.source)} key={first.cache_key}"
-        )
-    if not missing:
-        return results_by_source
-
-    should_write = cache_dir is not None and cache_mode in {"read-write", "refresh"}
-    if cache_dir is not None and cache_mode == "refresh":
-        path = analysis_cache_path(cache_dir)
-        if path.exists():
-            try:
-                path.unlink()
-            except OSError as exc:
-                raise ScriptError(f"failed to refresh analysis cache {path}: {exc}") from exc
-    git_sha = collect_git_sha() if should_write else "unknown"
-    missing_by_key: dict[str, AnalysisRequest] = {}
-    source_indices_by_key: dict[str, list[int]] = collections.defaultdict(list)
-    for request in missing:
-        missing_by_key.setdefault(request.cache_key, request)
-        source_indices_by_key[request.cache_key].append(request.source_index)
-    unique_missing = list(missing_by_key.values())
-
-    def run_and_store(request: AnalysisRequest) -> tuple[AnalysisRequest, AnalyzeResult]:
-        return request, analyzer(config, request.board_text)
-
-    def record_result(request: AnalysisRequest, result: AnalyzeResult) -> None:
-        for source_index in source_indices_by_key[request.cache_key]:
-            results_by_source[source_index] = result
-        if should_write and cache_dir is not None:
-            write_analysis_cache_row(
-                cache_dir=cache_dir,
-                config=config,
-                request=request,
-                result=result,
-                eval_config_hash=eval_config_hash,
-                analyzer_hash=analyzer_hash,
-                git_sha=git_sha,
-            )
-            stats["analysis_cache_writes"] += 1
-
-    if config.analysis_jobs == 1 or len(unique_missing) == 1:
-        for request in unique_missing:
-            _, result = run_and_store(request)
-            record_result(request, result)
-        return results_by_source
-
-    max_pending = max(config.analysis_jobs * 2, config.analysis_jobs)
-    pending_iter = iter(unique_missing)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=config.analysis_jobs) as executor:
-        futures: dict[concurrent.futures.Future[tuple[AnalysisRequest, AnalyzeResult]], AnalysisRequest] = {}
-
-        def submit_until_full() -> None:
-            while len(futures) < max_pending:
-                try:
-                    request = next(pending_iter)
-                except StopIteration:
-                    return
-                futures[executor.submit(run_and_store, request)] = request
-
-        submit_until_full()
-        while futures:
-            done, _ = concurrent.futures.wait(
-                futures,
-                return_when=concurrent.futures.FIRST_COMPLETED,
-            )
-            for future in done:
-                request = futures.pop(future)
-                _, result = future.result()
-                record_result(request, result)
-            submit_until_full()
-    return results_by_source
+        ),
+        requests=requests,
+        analyzer=lambda board_text: analyzer(config, board_text),
+        stats=stats,
+        eval_config_hash=eval_config_hash,
+    )
 
 
 def read_jsonl_sources(paths: tuple[Path, ...]) -> list[LabelSource]:
@@ -1163,89 +906,25 @@ def limit_pairs_for_position(
     return ordered[:max_pairs_per_position], len(pairs) - max_pairs_per_position
 
 
-def parse_int_value(value: str) -> int | None:
-    try:
-        return int(value)
-    except ValueError:
-        return None
-
-
-def parse_analysis_stdout(text: str) -> AnalyzeResult:
-    best_move: str | None = None
-    root_scores: dict[str, int] = {}
-    current_candidate: str | None = None
-    in_root_candidates = False
-    for raw_line in text.splitlines():
-        line = raw_line.rstrip()
-        stripped = line.strip()
-        if not stripped:
-            continue
-        if stripped == "root_candidates:":
-            in_root_candidates = True
-            current_candidate = None
-            continue
-        if not line.startswith(" "):
-            key, separator, value = stripped.partition(":")
-            if separator and key == "best_move":
-                best_move = normalize_move(value)
-            if stripped.endswith(":") and stripped != "root_candidates:":
-                in_root_candidates = False
-                current_candidate = None
-            continue
-        if not in_root_candidates:
-            continue
-        if line.startswith("  - move:"):
-            current_candidate = normalize_move(stripped.split(":", 1)[1]) or "pass"
-        elif current_candidate is not None and line.startswith("    score:"):
-            score = parse_int_value(stripped.split(":", 1)[1].strip())
-            if score is not None:
-                root_scores[current_candidate] = score
-    if best_move is None and root_scores:
-        best_move = sorted(root_scores.items(), key=lambda item: (-item[1], item[0]))[0][0]
-    return AnalyzeResult(best_move=best_move, root_scores=root_scores)
-
-
 def analyze_command(config: TrainerConfig) -> list[str]:
-    return [
-        str(config.analyze_position),
-        "--stdin",
-        "--depth",
-        str(DEFAULT_ANALYSIS_DEPTH),
-        "--exact-endgame-threshold",
-        "0",
-        "--eval-config",
-        str(config.eval_config),
-        "--root-candidates",
-    ]
+    return shared_analyze_command(
+        AnalyzerConfig(
+            analyze_position=config.analyze_position,
+            eval_config=config.eval_config,
+            depth=DEFAULT_ANALYSIS_DEPTH,
+        )
+    )
 
 
 def run_analysis(config: TrainerConfig, board_text: str) -> AnalyzeResult:
-    command = analyze_command(config)
-    completed: subprocess.CompletedProcess[str] | None = None
-    for attempt in range(ANALYSIS_SPAWN_RETRIES + 1):
-        try:
-            completed = subprocess.run(
-                command,
-                input=board_text,
-                check=False,
-                capture_output=True,
-                text=True,
-            )
-            break
-        except OSError as exc:
-            if exc.errno != errno.EAGAIN or attempt >= ANALYSIS_SPAWN_RETRIES:
-                raise ScriptError(
-                    f"analysis spawn failed: {quote_command(command)}\n{exc}",
-                    exit_code=1,
-                ) from exc
-            time.sleep(ANALYSIS_SPAWN_BACKOFF_SECONDS * (attempt + 1))
-    assert completed is not None
-    if completed.returncode != 0:
-        raise ScriptError(
-            f"analysis failed: {quote_command(command)}\n{completed.stderr}",
-            exit_code=1,
-        )
-    return parse_analysis_stdout(completed.stdout)
+    return shared_run_analysis(
+        AnalyzerConfig(
+            analyze_position=config.analyze_position,
+            eval_config=config.eval_config,
+            depth=DEFAULT_ANALYSIS_DEPTH,
+        ),
+        board_text,
+    )
 
 
 def precomputed_engine_move(record: dict[str, Any], legal_moves: set[str]) -> str | None:
@@ -1541,6 +1220,7 @@ def collect_pairs(
                     source=source,
                     board_text=board_text,
                     cache_key=cache_key,
+                    position_id=position_id_for_source(source),
                 )
             )
         entries.append(
@@ -2082,16 +1762,6 @@ def write_validation_tsv(path: Path, records: list[ValidationRecord]) -> None:
                     "loss": "" if record.loss is None else format_weight(record.loss),
                 }
             )
-
-
-def collect_git_sha() -> str:
-    completed = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    return completed.stdout.strip() if completed.returncode == 0 else "unknown"
 
 
 def summarize_weights(config: TrainerConfig, weights: WeightsByPhase) -> dict[str, Any]:
