@@ -66,9 +66,9 @@ For new evaluation research, start with the current role definitions in
 `data/eval/README.md` before choosing a script and base evaluator.
 `current_default.eval` is the engine default and product-facing compatibility
 baseline. `pattern_reboot_v0.eval`, when present, is a historical clean
-pattern-only baseline that must be selected explicitly for pattern-only
-ablations and is expected to be weak initially. Historical pattern-teacher
-artifacts remain provenance, not active trainer entry points.
+pattern-only baseline for reproducing old evidence and is expected to be weak
+initially. Historical pattern-teacher artifacts remain provenance, not active
+trainer entry points or defaults for new work.
 
 The preferred next path is pattern learning foundation work, not another round
 of tiny scalar residual tuning. Use reusable teacher and exact artifacts through

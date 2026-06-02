@@ -6,6 +6,8 @@ evaluators.
 
 - `minimal_pattern_eval.eval` exercises `.eval` parsing, pattern-table loading,
   and relative `pattern_table` path resolution from a focused fixture config.
+- `minimal_pattern_only_eval.eval` exercises `mode=pattern_only` with a
+  relative learned table path while keeping all scalar feature weights omitted.
 - `minimal_pattern_table.tsv` exercises sparse pattern-table parsing with a few
   deterministic non-zero entries.
 

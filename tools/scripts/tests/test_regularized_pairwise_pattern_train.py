@@ -59,7 +59,7 @@ def write_jsonl(path: Path, rows: list[dict[str, object]]) -> Path:
 def write_eval_config(path: Path) -> Path:
     path.write_text(
         "# schema_version: eval.v1\n"
-        "name=pattern_reboot_fixture\n"
+        "name=pattern_fixture\n"
         "pattern_table=patterns/base.tsv\n"
         "opening.pattern_table=4\n"
         "midgame.pattern_table=4\n"
@@ -281,7 +281,7 @@ def make_config(
     exact_labels: Path | None = None,
     extra_args: list[str] | None = None,
 ) -> trainer.TrainerConfig:
-    eval_config = write_eval_config(temp_path / "pattern_reboot_v0.eval")
+    eval_config = write_eval_config(temp_path / "base.eval")
     args = [
         "--teacher-labels",
         str(labels),

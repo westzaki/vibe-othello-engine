@@ -1,0 +1,17 @@
+# schema_version: eval.v1
+# status: fixture
+# purpose: test fixture only
+# not_default: true
+# not_promoted: true
+# caveat: Not a strength claim, runtime preset, or default evaluator.
+schema_version=eval.v1
+mode=pattern_only
+name=minimal_pattern_only_eval_fixture
+pattern_table=minimal_pattern_table.tsv
+
+opening.pattern_table=2
+midgame.pattern_table=3
+late.pattern_table=4
+
+opening_max_occupied=20
+midgame_max_occupied=44

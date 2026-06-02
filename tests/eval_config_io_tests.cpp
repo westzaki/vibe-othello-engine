@@ -93,29 +93,26 @@ TEST_CASE("Sample eval configs round-trip to expected evaluator configs", "[eval
           minimal_pattern.config.pattern_tables);
     CHECK(minimal_pattern_reloaded.config == minimal_pattern.config);
 
-    const othello::tools::EvaluationConfigLoadResult reboot =
+    const othello::tools::EvaluationConfigLoadResult minimal_pattern_only =
         othello::tools::load_evaluation_config_file(
-            sample_eval_config_path("pattern_reboot_v0.eval"));
-    REQUIRE(reboot.ok());
-    REQUIRE(reboot.name.has_value());
-    CHECK(*reboot.name == "pattern_reboot_v0");
-    const std::string expected_reboot_table_path =
-        std::string{"patterns/pattern_teacher_v0"} + ".tsv";
-    CHECK(reboot.pattern_table_path == expected_reboot_table_path);
-    CHECK(reboot.config != othello::default_evaluation_config());
-    REQUIRE(reboot.config.pattern_tables != nullptr);
-    check_scalar_weights_zero(reboot.config.opening);
-    check_scalar_weights_zero(reboot.config.midgame);
-    check_scalar_weights_zero(reboot.config.late);
-    CHECK(reboot.config.opening.pattern_table == 4);
-    CHECK(reboot.config.midgame.pattern_table == 4);
-    CHECK(reboot.config.late.pattern_table == 4);
-    CHECK(reboot.config.opening_max_occupied == 20);
-    CHECK(reboot.config.midgame_max_occupied == 44);
-    CHECK(std::ranges::count_if(reboot.config.pattern_tables->corner_2x3,
-                                [](std::int16_t value) { return value != 0; }) == 64);
-    CHECK(std::ranges::count_if(reboot.config.pattern_tables->edge_8,
-                                [](std::int16_t value) { return value != 0; }) == 64);
+            test_eval_config_fixture_path("minimal_pattern_only_eval.eval"));
+    REQUIRE(minimal_pattern_only.ok());
+    REQUIRE(minimal_pattern_only.name.has_value());
+    CHECK(*minimal_pattern_only.name == "minimal_pattern_only_eval_fixture");
+    CHECK(minimal_pattern_only.pattern_table_path == "minimal_pattern_table.tsv");
+    CHECK(minimal_pattern_only.config != othello::default_evaluation_config());
+    REQUIRE(minimal_pattern_only.config.pattern_tables != nullptr);
+    check_scalar_weights_zero(minimal_pattern_only.config.opening);
+    check_scalar_weights_zero(minimal_pattern_only.config.midgame);
+    check_scalar_weights_zero(minimal_pattern_only.config.late);
+    CHECK(minimal_pattern_only.config.opening.pattern_table == 2);
+    CHECK(minimal_pattern_only.config.midgame.pattern_table == 3);
+    CHECK(minimal_pattern_only.config.late.pattern_table == 4);
+    CHECK(minimal_pattern_only.config.opening_max_occupied == 20);
+    CHECK(minimal_pattern_only.config.midgame_max_occupied == 44);
+    CHECK(minimal_pattern_only.config.pattern_tables->corner_2x3[1] == 6);
+    CHECK(minimal_pattern_only.config.pattern_tables->edge_8[2] == -3);
+    CHECK(minimal_pattern_only.config.pattern_tables->corner_3x3[4] == 2);
 
     const othello::tools::EvaluationConfigLoadResult ntest_pairwise =
         othello::tools::load_evaluation_config_file(
@@ -170,7 +167,7 @@ TEST_CASE("Sample eval configs round-trip to expected evaluator configs", "[eval
     CHECK(pattern_only_smoke.config.midgame_max_occupied == 44);
 }
 
-TEST_CASE("Committed eval artifact surface contains only active fixtures",
+TEST_CASE("Committed eval artifact surface contains only active and retained historical fixtures",
           "[evaluation]") {
     std::vector<std::string> allowed_eval_configs{
         std::string{"current_default.eval"},
@@ -194,10 +191,13 @@ TEST_CASE("Committed eval artifact surface contains only active fixtures",
           allowed_pattern_tables);
 }
 
-TEST_CASE("Committed eval config fixtures parse and preserve intended identities",
+TEST_CASE("Active committed eval config fixtures parse and preserve intended identities",
           "[evaluation]") {
-    const std::vector<std::filesystem::path> paths = committed_eval_config_paths();
-    REQUIRE_FALSE(paths.empty());
+    const std::vector<std::filesystem::path> paths{
+        sample_eval_config_path("current_default.eval"),
+        sample_eval_config_path("current_default_legacy_scalar_2026_06_02.eval"),
+        sample_eval_config_path("ntest_pairwise_full_v2.eval"),
+    };
 
     const othello::EvaluationConfig default_config = othello::default_evaluation_config();
 
