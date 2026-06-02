@@ -43,6 +43,12 @@ struct NodeResult {
     return next;
 }
 
+[[nodiscard]] inline Board board_after_pass(const Board& board) noexcept {
+    Board next = board;
+    next.side_to_move = opponent(board.side_to_move);
+    return next;
+}
+
 [[nodiscard]] inline bool is_better_best_move(int candidate_score, Square candidate,
                                               const std::optional<int>& best_score,
                                               const std::optional<Square>& best_move) noexcept {
@@ -108,7 +114,7 @@ principal_variation_from_vector(const std::vector<Square>& principal_variation) 
 }
 
 [[nodiscard]] inline NodeResult node_result_from_transposition_entry(int score,
-                                                                    int best_move_index) noexcept {
+                                                                     int best_move_index) noexcept {
     const std::optional<Square> best_move = square_from_transposition_index(best_move_index);
     NodeResult result{
         .best_move = best_move,

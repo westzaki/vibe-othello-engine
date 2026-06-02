@@ -14,13 +14,14 @@
 namespace othello {
 namespace {
 
-using endgame_detail::ExactEndgameContext;
 using endgame_detail::EndgameMoveOrderingPolicy;
-using hash_detail::hash_after_pass;
+using endgame_detail::ExactEndgameContext;
 using endgame_detail::last_n_specialized_empties;
 using endgame_detail::ordered_legal_move_indexes;
 using endgame_detail::OrderedMoveIndexes;
 using endgame_detail::solve_last_n_dispatch;
+using hash_detail::hash_after_pass;
+using search_detail::board_after_pass;
 using search_detail::empty_count;
 using search_detail::is_better_best_move;
 using search_detail::NodeResult;
@@ -109,17 +110,10 @@ empty_region_parity_ordering_policy(int root_empties, int empties,
         return *cached.cutoff;
     }
 
-    if (is_game_over(board)) {
-        const NodeResult result{.score = score(board, board.side_to_move)};
-        context.transpositions.store(hash, empties, result.score, original_alpha, beta,
-                                     result.best_move, context.stats);
-        return result;
-    }
-
     const Bitboard moves = legal_moves(board);
     if (moves == 0) {
-        const std::optional<Board> next = pass_turn(board);
-        if (!next.has_value()) {
+        const Board next = board_after_pass(board);
+        if (legal_moves(next) == 0) {
             const NodeResult result{.score = score(board, board.side_to_move)};
             context.transpositions.store(hash, empties, result.score, original_alpha, beta,
                                          result.best_move, context.stats);
@@ -131,13 +125,13 @@ empty_region_parity_ordering_policy(int root_empties, int empties,
         // fake pass move or changing best_move=nullopt semantics.
         const ZobristHash next_hash = hash_after_pass(hash, board);
 #ifndef NDEBUG
-        assert(next_hash == zobrist_hash(*next));
+        assert(next_hash == zobrist_hash(next));
 #endif
         constexpr EndgameSearchPolicy search_policy = default_endgame_search_policy;
         const bool use_after_pass_root_pvs =
-            is_root && empty_count(*next) >= search_policy.root_pvs_min_empties;
+            is_root && empty_count(next) >= search_policy.root_pvs_min_empties;
         const NodeResult child =
-            solve_node(*next, next_hash, -beta, -alpha, context, use_after_pass_root_pvs);
+            solve_node(next, next_hash, -beta, -alpha, context, use_after_pass_root_pvs);
         const NodeResult result{
             .score = -child.score,
             .principal_variation = child.principal_variation,
@@ -151,14 +145,12 @@ empty_region_parity_ordering_policy(int root_empties, int empties,
     std::optional<Square> best_move;
     PrincipalVariation best_principal_variation;
 
-    const OrderedMoveIndexes ordered_moves =
-        ordered_legal_move_indexes(board, hash, moves, cached.best_move_hint, context.stats,
-                                   empty_region_parity_ordering_policy(context.root_empties,
-                                                                       empties,
-                                                                       default_endgame_search_policy));
+    const OrderedMoveIndexes ordered_moves = ordered_legal_move_indexes(
+        board, hash, moves, cached.best_move_hint, context.stats,
+        empty_region_parity_ordering_policy(context.root_empties, empties,
+                                            default_endgame_search_policy));
     const bool use_root_pvs =
-        is_root && should_use_root_pvs(empties, ordered_moves.size,
-                                       default_endgame_search_policy);
+        is_root && should_use_root_pvs(empties, ordered_moves.size, default_endgame_search_policy);
     for (std::size_t move = 0; move < ordered_moves.size; ++move) {
         const OrderedMoveIndexes::Move& ordered_move = ordered_moves.moves[move];
         const std::optional<Square> square = Square::from_index(ordered_move.index);

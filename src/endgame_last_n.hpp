@@ -12,6 +12,7 @@
 namespace othello::endgame_detail {
 
 using search_detail::board_after_move;
+using search_detail::board_after_pass;
 using search_detail::empty_count;
 using search_detail::is_better_best_move;
 using search_detail::NodeResult;
@@ -54,18 +55,18 @@ constexpr int last_n_specialized_empties = 3;
                                                   ExactEndgameContext& context) noexcept {
     ++context.stats.nodes;
     const int empties = empty_count(board);
-    if (empties == 0 || is_game_over(board)) {
+    if (empties == 0) {
         return NodeResult{.score = score(board, board.side_to_move)};
     }
 
     const Bitboard moves = legal_moves(board);
     if (moves == 0) {
-        const std::optional<Board> next = pass_turn(board);
-        if (!next.has_value()) {
+        const Board next = board_after_pass(board);
+        if (legal_moves(next) == 0) {
             return NodeResult{.score = score(board, board.side_to_move)};
         }
 
-        const NodeResult child = solve_last_n_dispatch(*next, -beta, -alpha, context, empties);
+        const NodeResult child = solve_last_n_dispatch(next, -beta, -alpha, context, empties);
         return NodeResult{
             .score = -child.score,
             .principal_variation = child.principal_variation,
