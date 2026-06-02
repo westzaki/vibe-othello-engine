@@ -7,6 +7,7 @@ add_library(othello_tools_common OBJECT
     common/formatting.cpp
     common/jsonl.cpp
     common/output_format.cpp
+    common/pattern_table_io.cpp
     common/stats.cpp
 )
 

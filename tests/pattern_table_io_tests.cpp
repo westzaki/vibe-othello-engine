@@ -263,6 +263,29 @@ TEST_CASE("Phase-specific pattern tables fall back to the global table",
               .pattern_table == 0);
 }
 
+TEST_CASE("Pattern table loader cache reuses normalized paths within one config",
+          "[evaluation]") {
+    const std::filesystem::path temp_dir = unique_temp_dir("pattern-table-cache");
+    write_text_file(temp_dir / "patterns" / "shared.tsv", "corner_2x3\t1\t6\n");
+
+    const std::filesystem::path eval_path = temp_dir / "cache.eval";
+    write_text_file(eval_path,
+                    eval_config_with_pattern_table_paths(
+                        {{std::string{"pattern_table"},
+                          std::string{"patterns/shared.tsv"}},
+                         {std::string{"pattern_table.opening"},
+                          std::string{"patterns/../patterns/shared.tsv"}}}));
+
+    const othello::tools::EvaluationConfigLoadResult loaded =
+        othello::tools::load_evaluation_config_file(eval_path);
+
+    REQUIRE(loaded.ok());
+    REQUIRE(loaded.config.pattern_tables != nullptr);
+    REQUIRE(loaded.config.opening_pattern_tables != nullptr);
+    CHECK(loaded.config.pattern_tables == loaded.config.opening_pattern_tables);
+    CHECK(loaded.config.pattern_tables->corner_2x3[1] == 6);
+}
+
 TEST_CASE("Phase-specific zero sentinel pattern tables parse and contribute zero",
           "[evaluation]") {
     const std::filesystem::path temp_dir =
