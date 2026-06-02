@@ -28,6 +28,18 @@ TEACHER_BOARD = (
     "side=B"
 )
 
+INITIAL_BOARD = (
+    "........\n"
+    "........\n"
+    "........\n"
+    "...WB...\n"
+    "...BW...\n"
+    "........\n"
+    "........\n"
+    "........\n"
+    "side=B"
+)
+
 
 def write_jsonl(path: Path, rows: list[dict[str, object]]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -116,6 +128,61 @@ def wide_fake_analyzer(
         best_move="a2",
         root_scores={"a2": 60, "d1": 50, "b1": 40, "h1": 30},
     )
+
+
+def boundary_board(target_occupied: int) -> tuple[str, list[str]]:
+    board = INITIAL_BOARD
+    passes = 0
+    for _ in range(200):
+        if trainer.occupied_count(board) == target_occupied:
+            legal_moves = sorted(move for move in trainer.legal_moves_for_board(board) if move != "pass")
+            if len(legal_moves) < 2:
+                raise AssertionError(f"expected at least two legal moves at occupied={target_occupied}")
+            return board, legal_moves
+
+        legal_moves = sorted(move for move in trainer.legal_moves_for_board(board) if move != "pass")
+        if legal_moves:
+            board = trainer.apply_move_to_board(board, legal_moves[0])
+            passes = 0
+        else:
+            board = trainer.apply_move_to_board(board, "pass")
+            passes += 1
+            if passes > 1:
+                raise AssertionError(f"game ended before occupied={target_occupied}")
+
+    raise AssertionError(f"failed to reach occupied={target_occupied}")
+
+
+def analyzer_with_ranked_above(
+    teacher_move: str,
+    other_move: str,
+) -> trainer.AnalyzeResult:
+    return trainer.AnalyzeResult(
+        best_move=other_move,
+        root_scores={teacher_move: 10, other_move: 20},
+    )
+
+
+def boundary_pair_moves(
+    config: trainer.TrainerConfig,
+    board: str,
+    moves: list[str],
+) -> tuple[str, str]:
+    for teacher_move in moves:
+        teacher_child = trainer.apply_move_to_board(board, teacher_move)
+        for other_move in moves:
+            if other_move == teacher_move:
+                continue
+            other_child = trainer.apply_move_to_board(board, other_move)
+            features = trainer.preference_features(
+                root_board_text=board,
+                teacher_child_board=teacher_child,
+                engine_child_board=other_child,
+                families=config.families,
+            )
+            if features:
+                return teacher_move, other_move
+    raise AssertionError("expected at least one boundary move pair with non-empty features")
 
 
 def make_config(
@@ -566,6 +633,71 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
 
         self.assertEqual(result.summary["rows"]["preference_pairs"], 1)
         self.assertEqual(result.summary["rows"]["validation_rows"], 1)
+
+    def test_boundary_opening_root_pair_uses_midgame_child_phase(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            board, moves = boundary_board(20)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row(board=board, move=moves[0])])
+            config = make_config(temp_path, labels)
+            teacher_move, other_move = boundary_pair_moves(config, board, moves)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row(board=board, move=teacher_move)])
+
+            pairs, records, stats = trainer.collect_pairs(
+                config,
+                analyzer=lambda _config, _board: analyzer_with_ranked_above(teacher_move, other_move),
+            )
+
+        self.assertEqual(trainer.phase_for_board(board, config.phase_cutoffs), "opening")
+        self.assertEqual(len(pairs), 1)
+        self.assertEqual(pairs[0].phase, "midgame")
+        self.assertEqual(stats["opening_pairs"], 0)
+        self.assertEqual(stats["midgame_pairs"], 1)
+        self.assertTrue(any(record.status == "paired" and record.phase == "midgame" for record in records))
+
+    def test_boundary_midgame_root_pair_uses_late_child_phase(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            board, moves = boundary_board(44)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row(board=board, move=moves[0])])
+            config = make_config(temp_path, labels)
+            teacher_move, other_move = boundary_pair_moves(config, board, moves)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row(board=board, move=teacher_move)])
+
+            pairs, records, stats = trainer.collect_pairs(
+                config,
+                analyzer=lambda _config, _board: analyzer_with_ranked_above(teacher_move, other_move),
+            )
+
+        self.assertEqual(trainer.phase_for_board(board, config.phase_cutoffs), "midgame")
+        self.assertEqual(len(pairs), 1)
+        self.assertEqual(pairs[0].phase, "late")
+        self.assertEqual(stats["midgame_pairs"], 0)
+        self.assertEqual(stats["late_pairs"], 1)
+        self.assertTrue(any(record.status == "paired" and record.phase == "late" for record in records))
+
+    def test_boundary_pair_updates_child_phase_table_not_root_phase_table(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            board, moves = boundary_board(20)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row(board=board, move=moves[0])])
+            config = make_config(
+                temp_path,
+                labels,
+                extra_args=["--epochs", "1", "--l2", "0"],
+            )
+            teacher_move, other_move = boundary_pair_moves(config, board, moves)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row(board=board, move=teacher_move)])
+
+            result = trainer.train_pairwise_tables(
+                config,
+                analyzer=lambda _config, _board: analyzer_with_ranked_above(teacher_move, other_move),
+            )
+
+        self.assertEqual(result.summary["rows"]["opening_pairs"], 0)
+        self.assertEqual(result.summary["rows"]["midgame_pairs"], 1)
+        self.assertEqual(result.summary["training"]["weights"]["opening"]["entries"], 0)
+        self.assertGreater(result.summary["training"]["weights"]["midgame"]["entries"], 0)
 
     def test_output_dir_must_be_under_runs_and_not_data_eval(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
