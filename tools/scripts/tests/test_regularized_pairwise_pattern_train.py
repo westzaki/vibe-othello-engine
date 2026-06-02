@@ -7,6 +7,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 from dataclasses import replace
 from pathlib import Path
 
@@ -396,6 +397,29 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
 
         self.assertTrue(features)
         self.assertIn("opening", trainer.PHASES)
+
+    def test_run_analysis_retries_transient_spawn_resource_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            config = make_config(temp_path, labels)
+            completed = trainer.subprocess.CompletedProcess(
+                args=trainer.analyze_command(config),
+                returncode=0,
+                stdout="best_move: d1\nroot_candidates:\n  - move: d1\n    score: 3\n",
+                stderr="",
+            )
+
+            with mock.patch.object(
+                trainer.subprocess,
+                "run",
+                side_effect=[BlockingIOError(trainer.errno.EAGAIN, "Resource temporarily unavailable"), completed],
+            ), mock.patch.object(trainer.time, "sleep") as sleep:
+                result = trainer.run_analysis(config, TEACHER_BOARD)
+
+        self.assertEqual(result.best_move, "d1")
+        self.assertEqual(result.root_scores, {"d1": 3})
+        sleep.assert_called_once()
 
     def test_preference_features_match_negated_child_side_search_score_delta(self) -> None:
         teacher_child = trainer.apply_move_to_board(TEACHER_BOARD, "d1")
