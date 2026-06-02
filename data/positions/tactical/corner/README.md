@@ -66,16 +66,12 @@ narrow, and the wrapper adds process overhead.
   --root-candidates
 ```
 
-## Forced-Move Diagnostics
+## Current Diagnostics
 
-The forced-move wrapper is diagnostic-only and must not become engine behavior:
-
-```bash
-python3 tools/scripts/forced_move_nboard_wrapper.py \
-  --target-board-file data/positions/tactical/corner/pr115_immediate_corner.txt \
-  --force-move a1 \
-  -- ./build/othello_nboard_engine
-```
+Use `othello_analyze_position --root-candidates` for focused root-move
+inspection, and use `othello_match_runner` or the base/head workflow for
+match-level comparisons. The forced-intervention results above are historical
+causal diagnostics only; they are not a current workflow.
 
 Use sibling and negative-control outcomes when judging future changes. A change
 that only rescues `a1` on this exact board may still be too narrow.

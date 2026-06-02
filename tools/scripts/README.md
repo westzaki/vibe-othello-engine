@@ -36,7 +36,6 @@ script.
 | `exact_label_workflow.py` | current | Sample positions, dump exact labels, and optionally run eval-vs-exact analysis. | Current exact-label smoke helper for evaluation investigations. |
 | `external_teacher_label_workflow.py` | current | Generate teacher-label JSONL from external engines. | Current teacher-label entrypoint and a dependency of `teacher_dataset_build.py`. |
 | `extract_divergence_positions.py` | legacy | Extract first divergence boards from swap-side match JSONL. | Kept for focused regression diagnosis and historical baseline reproduction. |
-| `forced_move_nboard_wrapper.py` | legacy | Force one diagnostic NBoard move when a target board is reached. | Kept for tactical/debug investigations; not part of engine behavior or normal experiments. |
 | `match_summary.py` | current | Summarize C++ match-runner JSONL. | Shared by current evidence, match, and base/head workflows. |
 | `ntest_teacher_smoke.py` | current | Run a local NTest teacher-label smoke and estimate 300K run feasibility. | Operational preflight before overnight NTest teacher dataset generation; does not make strength claims. |
 | `pattern_teacher_v0_train.py` | current | Train sparse learned pattern tables and provide shared pattern extraction helpers. | Current pattern-table foundation and provenance path for `pattern_teacher_v0.tsv`; also used by phase/pairwise trainers and CTest. |
@@ -323,19 +322,23 @@ python3 tools/scripts/extract_divergence_positions.py \
 Use those boards with `othello_analyze_position --root-candidates` when a matrix
 regresses but the starting root positions do not explain the difference.
 
-Force one diagnostic move when a target board is reached by an NBoard engine:
+Inspect root move alternatives for a focused board with the current analyzer:
 
 ```sh
-python3 tools/scripts/forced_move_nboard_wrapper.py \
-  --target-board-file tools/scripts/fixtures/pr115_divergence_board.txt \
-  --force-move a1 \
-  -- ./build/othello_nboard_engine
+./build/othello_analyze_position \
+  --board-file data/positions/evaluation/corner_access_a1.txt \
+  --depth 8 \
+  --mode iterative \
+  --tt on \
+  --pvs on \
+  --aspiration on \
+  --exact-endgame-threshold 0 \
+  --root-candidates
 ```
 
-This wrapper is diagnostic-only. It proxies the NBoard line protocol to a child
-engine, tracks the current board by replaying `set game` commands, and returns
-the forced move only when the tracked board exactly matches the target and the
-move is legal. Otherwise it forwards commands unchanged.
+Use `othello_match_runner` or `base_head_match_matrix.py` for match-level
+comparisons. Do not reintroduce protocol wrappers for one-off forced moves unless
+there is a new current workflow that cannot be covered by the C++ tools.
 
 ## External Engine Helpers
 
