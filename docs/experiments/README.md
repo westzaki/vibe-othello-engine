@@ -16,6 +16,9 @@ Operational runbooks:
   NTest 300K teacher dataset workflow.
 - [`ntest_balanced300k_v0_report.md`](ntest_balanced300k_v0_report.md):
   completion report for the first reusable local NTest 300K teacher dataset.
+- [`ntest_balanced300k_v0_validation_report.md`](ntest_balanced300k_v0_validation_report.md):
+  exact-overlap validation results and high-depth follow-up plan for
+  `ntest-balanced300k-v0`.
 
 Experiment notes must not override [`AGENTS.md`](../../AGENTS.md),
 [`roadmap.md`](../roadmap.md), [`capability-map.md`](../capability-map.md),
