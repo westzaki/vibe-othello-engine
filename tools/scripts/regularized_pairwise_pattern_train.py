@@ -46,7 +46,13 @@ DEFAULT_PHASE_CUTOFFS = (20, 44)
 SENTINEL_FAMILY = "corner_2x3"
 SENTINEL_ENTRY = (0, 0)
 INT16_LIMIT = 32767
-PAIR_MODES = ("best-vs-engine", "best-vs-all", "rank-weighted", "exact-aware")
+PAIR_MODES = (
+    "best-vs-engine",
+    "best-vs-all",
+    "rank-weighted",
+    "teacher-vs-ranked-above",
+    "exact-aware",
+)
 PAIR_WEIGHTINGS = ("uniform", "rank-margin", "score-margin", "exact-boost")
 
 FAMILY_ALIASES: dict[str, tuple[str, ...]] = {
@@ -102,6 +108,8 @@ class TrainerConfig:
     max_abs_weight: float
     output_scale: float
     max_abs_output_weight: int
+    candidate_pattern_table_weight: int
+    include_base_margin: bool
     seed: int
     phase_cutoffs: PhaseCutoffs
     dataset_root: dict[str, str] | None
@@ -241,7 +249,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "preference-pair generation mode: best-vs-engine preserves the original "
             "teacher-vs-engine behavior; best-vs-all compares the teacher move with "
             "all candidate moves; rank-weighted uses lower-ranked root candidates; "
-            "exact-aware prefers exact-best moves when exact labels are available"
+            "teacher-vs-ranked-above compares the teacher move only with root "
+            "candidates scored above it by the base evaluator; exact-aware prefers "
+            "exact-best moves when exact labels are available"
         ),
     )
     parser.add_argument(
@@ -289,6 +299,23 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=parse_positive_int,
         default=INT16_LIMIT,
         help=f"integer TSV clamp after output scaling (default: {INT16_LIMIT})",
+    )
+    parser.add_argument(
+        "--candidate-pattern-table-weight",
+        type=parse_positive_int,
+        default=1,
+        help=(
+            "phase pattern_table weight inserted into candidate eval when the base "
+            ".eval has no phase-specific pattern_table weights"
+        ),
+    )
+    parser.add_argument(
+        "--no-base-margin",
+        action="store_true",
+        help=(
+            "optimize learned delta margins only; by default the pairwise objective "
+            "optimizes base evaluator score margin plus learned pattern delta"
+        ),
     )
     parser.add_argument("--seed", type=parse_non_negative_int, default=20260601)
     return parser.parse_args(argv)
@@ -425,6 +452,8 @@ def config_from_args(
         max_abs_weight=args.max_abs_weight,
         output_scale=args.output_scale,
         max_abs_output_weight=args.max_abs_output_weight,
+        candidate_pattern_table_weight=args.candidate_pattern_table_weight,
+        include_base_margin=not args.no_base_margin,
         seed=args.seed,
         phase_cutoffs=phase_cutoffs_from_eval_config(eval_config),
         dataset_root=dataset_root,
@@ -684,10 +713,14 @@ def apply_move_to_board(board_text: str, move: str) -> str:
 
 def pattern_counts(board_text: str, root_side: str, families: tuple[str, ...]) -> collections.Counter[FeatureKey]:
     rows, _ = parse_board(board_text)
+    # board9 text is displayed from rank 8 down to rank 1, while pattern specs
+    # use square-index order with a1..h1 first. Match the C++ evaluator's
+    # square-index convention before calculating pattern indexes.
+    square_index_rows = list(reversed(rows))
     counts: collections.Counter[FeatureKey] = collections.Counter()
     for family in families:
         for spec in PATTERN_SPECS[family]:
-            counts[(family, pattern_index(rows, root_side, spec))] += 1
+            counts[(family, pattern_index(square_index_rows, root_side, spec))] += 1
     return counts
 
 
@@ -699,11 +732,15 @@ def preference_features(
     families: tuple[str, ...],
 ) -> dict[FeatureKey, int]:
     _, root_side = parse_board(root_board_text)
-    teacher_counts = pattern_counts(teacher_child_board, root_side, families)
-    engine_counts = pattern_counts(engine_child_board, root_side, families)
+    child_side = opponent(root_side)
+    # Root move scores are the negated child-position search scores. For a
+    # preferred root move, increasing its root score therefore means decreasing
+    # the child-side evaluation relative to the compared child.
+    teacher_counts = pattern_counts(teacher_child_board, child_side, families)
+    engine_counts = pattern_counts(engine_child_board, child_side, families)
     delta: dict[FeatureKey, int] = {}
     for key in set(teacher_counts) | set(engine_counts):
-        value = teacher_counts[key] - engine_counts[key]
+        value = engine_counts[key] - teacher_counts[key]
         if value:
             delta[key] = value
     return delta
@@ -1032,6 +1069,17 @@ def generate_position_pairs(
                 candidate_rank = ranks.get(candidate)
                 if candidate_rank is not None and candidate_rank > teacher_rank:
                     add_pair(teacher_move, candidate, "teacher")
+    elif config.pair_mode == "teacher-vs-ranked-above":
+        teacher_score = root_scores.get(teacher_move)
+        if teacher_score is None:
+            stats["rank_scores_missing_skipped"] += 1
+        else:
+            for candidate in candidates:
+                if candidate == teacher_move:
+                    continue
+                candidate_score = root_scores.get(candidate)
+                if candidate_score is not None and candidate_score > teacher_score:
+                    add_pair(teacher_move, candidate, "teacher")
     elif config.pair_mode == "exact-aware":
         exact_preferred = tuple(move for move in exact_best if move in legal_moves)
         if exact_preferred:
@@ -1253,6 +1301,19 @@ def pair_margin(weights: WeightsByPhase, pair: PreferencePair) -> float:
     return sum(phase_weights.get(key, 0.0) * value for key, value in pair.features.items())
 
 
+def base_score_margin(pair: PreferencePair) -> float:
+    if pair.preferred_score is None or pair.other_score is None:
+        return 0.0
+    return float(pair.preferred_score - pair.other_score)
+
+
+def model_margin(config: TrainerConfig, weights: WeightsByPhase, pair: PreferencePair) -> float:
+    margin = pair_margin(weights, pair)
+    if config.include_base_margin:
+        margin += base_score_margin(pair)
+    return margin
+
+
 def pair_loss(loss_name: str, margin: float) -> float:
     if loss_name == "hinge":
         return max(0.0, 1.0 - margin)
@@ -1296,7 +1357,7 @@ def train_weights(config: TrainerConfig, pairs: list[PreferencePair]) -> tuple[W
                 learning_rate=config.learning_rate,
                 l2=config.l2,
             )
-            margin = pair_margin(weights, pair)
+            margin = model_margin(config, weights, pair)
             if config.loss == "hinge":
                 factor = 1.0 if margin < 1.0 else 0.0
             else:
@@ -1336,7 +1397,7 @@ def evaluate_pairs(
     margins = []
     total_weight = 0.0
     for pair in pairs:
-        margin = pair_margin(weights, pair)
+        margin = model_margin(config, weights, pair)
         margins.append(margin)
         loss = pair_loss(config.loss, margin)
         losses.append(loss)
@@ -1419,13 +1480,31 @@ def render_phase_table(
 
 def render_candidate_eval(config: TrainerConfig) -> str:
     base_text = read_eval_config_text(config.eval_config)
+    base_entries = eval_config_entries(base_text)
+    missing_phase_weights = [
+        phase for phase in PHASES if f"{phase}.pattern_table" not in base_entries
+    ]
     lines = [
         "# generated_by: tools/scripts/regularized_pairwise_pattern_train.py",
         "# no_strength_claim: true",
         "# not_default_promotion: true",
         "# trainer_foundation: true",
+        f"# model_margin: {'base_plus_delta' if config.include_base_margin else 'delta_only'}",
+        f"# candidate_pattern_table_weight: {config.candidate_pattern_table_weight}",
     ]
     inserted_tables = False
+
+    def append_table_bindings() -> None:
+        lines.extend(
+            (
+                "pattern_table.opening=tables/opening.tsv",
+                "pattern_table.midgame=tables/midgame.tsv",
+                "pattern_table.late=tables/late.tsv",
+            )
+        )
+        for phase in missing_phase_weights:
+            lines.append(f"{phase}.pattern_table={config.candidate_pattern_table_weight}")
+
     for raw_line in base_text.splitlines():
         parsed = _line_key_value(raw_line)
         if parsed is not None:
@@ -1434,25 +1513,13 @@ def render_candidate_eval(config: TrainerConfig) -> str:
                 continue
             if key == "name":
                 lines.append("name=regularized_pairwise_pattern_candidate")
-                lines.extend(
-                    (
-                        "pattern_table.opening=tables/opening.tsv",
-                        "pattern_table.midgame=tables/midgame.tsv",
-                        "pattern_table.late=tables/late.tsv",
-                    )
-                )
+                append_table_bindings()
                 inserted_tables = True
                 continue
         lines.append(raw_line)
     if not inserted_tables:
-        lines.extend(
-            (
-                "name=regularized_pairwise_pattern_candidate",
-                "pattern_table.opening=tables/opening.tsv",
-                "pattern_table.midgame=tables/midgame.tsv",
-                "pattern_table.late=tables/late.tsv",
-            )
-        )
+        lines.append("name=regularized_pairwise_pattern_candidate")
+        append_table_bindings()
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -1474,7 +1541,7 @@ def validation_rows_with_margins(
         if pair is None:
             updated.append(record)
             continue
-        margin = pair_margin(weights, pair)
+        margin = model_margin(config, weights, pair)
         updated.append(
             ValidationRecord(
                 position_id=record.position_id,
@@ -1592,6 +1659,7 @@ def render_report(
     validation_path: Path,
 ) -> str:
     rows = summary["rows"]
+    initial_metrics = summary["training"]["initial_metrics"]
     final_metrics = summary["training"]["final_metrics"]
     lines = [
         "# Regularized Pairwise Pattern Trainer Report",
@@ -1629,6 +1697,8 @@ def render_report(
         f"- max_abs_weight: `{config.max_abs_weight}`",
         f"- output_scale: `{config.output_scale}`",
         f"- max_abs_output_weight: `{config.max_abs_output_weight}`",
+        f"- candidate_pattern_table_weight: `{config.candidate_pattern_table_weight}`",
+        f"- model_margin: `{'base_plus_delta' if config.include_base_margin else 'delta_only'}`",
         f"- seed: `{config.seed}`",
         f"- phase_cutoffs: opening <= `{config.phase_cutoffs.opening_max_occupied}`, "
         f"midgame <= `{config.phase_cutoffs.midgame_max_occupied}`, else late",
@@ -1641,14 +1711,19 @@ def render_report(
     lines.extend(
         [
             "",
-            "## Final Metrics",
+            "## Pair Metrics",
             "",
             f"- pairs: `{final_metrics['pairs']}`",
-            f"- weighted_loss: `{final_metrics['weighted_loss']:.6f}`",
-            f"- unweighted_loss: `{final_metrics['unweighted_loss']:.6f}`",
-            f"- accuracy: `{final_metrics['accuracy']:.6f}`",
-            f"- weighted_accuracy: `{final_metrics['weighted_accuracy']:.6f}`",
-            f"- avg_margin: `{final_metrics['avg_margin']:.6f}`",
+            f"- initial_weighted_loss: `{initial_metrics['weighted_loss']:.6f}`",
+            f"- final_weighted_loss: `{final_metrics['weighted_loss']:.6f}`",
+            f"- initial_unweighted_loss: `{initial_metrics['unweighted_loss']:.6f}`",
+            f"- final_unweighted_loss: `{final_metrics['unweighted_loss']:.6f}`",
+            f"- initial_accuracy: `{initial_metrics['accuracy']:.6f}`",
+            f"- final_accuracy: `{final_metrics['accuracy']:.6f}`",
+            f"- initial_weighted_accuracy: `{initial_metrics['weighted_accuracy']:.6f}`",
+            f"- final_weighted_accuracy: `{final_metrics['weighted_accuracy']:.6f}`",
+            f"- initial_avg_margin: `{initial_metrics['avg_margin']:.6f}`",
+            f"- final_avg_margin: `{final_metrics['avg_margin']:.6f}`",
             f"- total_pair_weight: `{final_metrics['total_pair_weight']:.6f}`",
             "",
             "## Outputs",
@@ -1685,6 +1760,8 @@ def train_pairwise_tables(
     table_dir.mkdir(parents=True, exist_ok=True)
 
     pairs, validation_records, row_stats = collect_pairs(config, analyzer=analyzer)
+    initial_weights: WeightsByPhase = {phase: {} for phase in PHASES}
+    initial_metrics = evaluate_pairs(config, initial_weights, pairs)
     weights, history = train_weights(config, pairs)
     validation_records = validation_rows_with_margins(config, weights, pairs, validation_records)
     final_metrics = evaluate_pairs(config, weights, pairs)
@@ -1746,6 +1823,8 @@ def train_pairwise_tables(
         "max_abs_weight": config.max_abs_weight,
         "output_scale": config.output_scale,
         "max_abs_output_weight": config.max_abs_output_weight,
+        "candidate_pattern_table_weight": config.candidate_pattern_table_weight,
+        "include_base_margin": config.include_base_margin,
         "seed": config.seed,
         "phase_cutoffs": {
             "opening_max_occupied": config.phase_cutoffs.opening_max_occupied,
@@ -1753,6 +1832,7 @@ def train_pairwise_tables(
         },
         "rows": row_stats,
         "training": {
+            "initial_metrics": initial_metrics,
             "history": history,
             "final_metrics": final_metrics,
             "weights": weight_summary,
