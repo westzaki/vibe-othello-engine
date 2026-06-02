@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cassert>
 #include <cstddef>
 #include <othello/endgame.hpp>
@@ -168,27 +169,27 @@ ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
     OrderedMoveIndexes candidates;
     const auto move_count = static_cast<std::size_t>(std::popcount(moves));
 
-    for (int index = Square::min_index; index <= Square::max_index; ++index) {
-        const Bitboard move_bit = Bitboard{1} << index;
-        if ((moves & move_bit) != 0) {
-            const std::optional<Square> square = Square::from_index(index);
-            if (!square.has_value()) {
-                continue;
-            }
+    while (moves != 0) {
+        const int index = std::countr_zero(moves);
+        moves &= moves - 1;
 
-            const Bitboard flips = flips_for_move(board, *square);
-            if (flips == 0) {
-                continue;
-            }
-
-            candidates.moves[candidates.size] = OrderedMoveIndexes::Move{
-                .index = index,
-                .flips = flips,
-                .order_score = move_order_score(board, *square, flips, move_count, depth,
-                                                dynamic_move_ordering, params),
-            };
-            ++candidates.size;
+        const std::optional<Square> square = Square::from_index(index);
+        if (!square.has_value()) {
+            continue;
         }
+
+        const Bitboard flips = flips_for_move(board, *square);
+        if (flips == 0) {
+            continue;
+        }
+
+        candidates.moves[candidates.size] = OrderedMoveIndexes::Move{
+            .index = index,
+            .flips = flips,
+            .order_score = move_order_score(board, *square, flips, move_count, depth,
+                                            dynamic_move_ordering, params),
+        };
+        ++candidates.size;
     }
 
     std::ranges::sort(candidates.moves.begin(), candidates.moves.begin() + candidates.size,
@@ -548,8 +549,8 @@ ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
 
 } // namespace
 
-ExactEndgameRootDecision
-decide_exact_endgame_root(const Board& board, const SearchOptions& options) noexcept {
+ExactEndgameRootDecision decide_exact_endgame_root(const Board& board,
+                                                   const SearchOptions& options) noexcept {
     Board opponent_board = board;
     opponent_board.side_to_move = opponent(board.side_to_move);
 
@@ -585,8 +586,7 @@ decide_exact_endgame_root(const Board& board, const SearchOptions& options) noex
         return decision;
     }
 
-    const bool root_pass =
-        decision.legal_moves_current == 0 && pass_turn(board).has_value();
+    const bool root_pass = decision.legal_moves_current == 0 && pass_turn(board).has_value();
     if (root_pass) {
         decision.skip_reason = ExactEndgameRootSkipReason::AdaptiveRootPass;
         return decision;
