@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import random
 import re
 import sys
 import tempfile
@@ -163,6 +164,88 @@ def analyzer_with_ranked_above(
         best_move=other_move,
         root_scores={teacher_move: 10, other_move: 20},
     )
+
+
+def eager_train_weights(
+    config: trainer.TrainerConfig,
+    pairs: list[trainer.PreferencePair],
+) -> tuple[trainer.WeightsByPhase, list[dict[str, object]]]:
+    weights: trainer.WeightsByPhase = {phase: {} for phase in trainer.PHASES}
+    history: list[dict[str, object]] = []
+    if not pairs:
+        for epoch in range(1, config.epochs + 1):
+            history.append({"epoch": epoch, **trainer.evaluate_pairs(config, weights, pairs)})
+        return weights, history
+
+    rng = random.Random(config.seed)
+    for epoch in range(1, config.epochs + 1):
+        shuffled = list(pairs)
+        rng.shuffle(shuffled)
+        for pair in shuffled:
+            phase_weights = weights[pair.phase]
+            trainer.shrink_phase_weights(
+                phase_weights,
+                learning_rate=config.learning_rate,
+                l2=config.l2,
+            )
+            margin = trainer.model_margin(config, weights, pair)
+            if config.loss == "hinge":
+                factor = 1.0 if margin < 1.0 else 0.0
+            else:
+                factor = trainer.stable_sigmoid_negative_margin(margin)
+            if factor == 0.0:
+                continue
+            for key, value in pair.features.items():
+                current = phase_weights.get(key, 0.0)
+                updated = current + config.learning_rate * pair.pair_weight * factor * value
+                phase_weights[key] = trainer.clamp_weight(updated, config.max_abs_weight)
+        history.append({"epoch": epoch, **trainer.evaluate_pairs(config, weights, pairs)})
+    return weights, history
+
+
+def assert_weights_close(
+    testcase: unittest.TestCase,
+    actual: trainer.WeightsByPhase,
+    expected: trainer.WeightsByPhase,
+    *,
+    places: int = 12,
+) -> None:
+    for phase in trainer.PHASES:
+        actual_weights = actual.get(phase, {})
+        expected_weights = expected.get(phase, {})
+        testcase.assertEqual(set(actual_weights), set(expected_weights))
+        for key in actual_weights:
+            testcase.assertAlmostEqual(actual_weights[key], expected_weights[key], places=places)
+
+
+def assert_history_close(
+    testcase: unittest.TestCase,
+    actual: list[dict[str, object]],
+    expected: list[dict[str, object]],
+    *,
+    places: int = 12,
+) -> None:
+    testcase.assertEqual(len(actual), len(expected))
+    for actual_epoch, expected_epoch in zip(actual, expected, strict=True):
+        testcase.assertEqual(set(actual_epoch), set(expected_epoch))
+        for key, actual_value in actual_epoch.items():
+            expected_value = expected_epoch[key]
+            if isinstance(actual_value, float):
+                testcase.assertIsInstance(expected_value, float)
+                testcase.assertAlmostEqual(actual_value, expected_value, places=places)
+            else:
+                testcase.assertEqual(actual_value, expected_value)
+
+
+def pair_list_for_training_comparison(
+    config: trainer.TrainerConfig,
+) -> list[trainer.PreferencePair]:
+    pairs, _, _ = trainer.collect_pairs(config, analyzer=wide_fake_analyzer)
+    repeated: list[trainer.PreferencePair] = []
+    for index in range(4):
+        for pair in pairs:
+            repeated.append(replace(pair, pair_weight=1.0 + index * 0.25))
+    return repeated
 
 
 def boundary_pair_moves(
@@ -693,6 +776,205 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
 
         key = next(iter(light.features))
         self.assertGreater(abs(heavy_weights[light.phase][key]), abs(light_weights[light.phase][key]))
+
+    def test_lazy_l2_matches_eager_exactly_when_l2_is_zero(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            config = make_config(
+                temp_path,
+                labels,
+                extra_args=[
+                    "--pair-mode",
+                    "best-vs-all",
+                    "--epochs",
+                    "3",
+                    "--l2",
+                    "0",
+                ],
+            )
+            pairs = pair_list_for_training_comparison(config)
+
+            lazy_weights, lazy_history = trainer.train_weights(config, pairs)
+            eager_weights, eager_history = eager_train_weights(config, pairs)
+
+        self.assertEqual(lazy_weights, eager_weights)
+        self.assertEqual(lazy_history, eager_history)
+
+    def test_lazy_l2_matches_eager_logistic_with_regularization(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            config = make_config(
+                temp_path,
+                labels,
+                extra_args=[
+                    "--pair-mode",
+                    "best-vs-all",
+                    "--loss",
+                    "logistic",
+                    "--epochs",
+                    "4",
+                    "--learning-rate",
+                    "0.07",
+                    "--l2",
+                    "0.03",
+                ],
+            )
+            pairs = pair_list_for_training_comparison(config)
+
+            lazy_weights, lazy_history = trainer.train_weights(config, pairs)
+            eager_weights, eager_history = eager_train_weights(config, pairs)
+
+        assert_weights_close(self, lazy_weights, eager_weights)
+        assert_history_close(self, lazy_history, eager_history)
+
+    def test_lazy_l2_matches_eager_hinge_with_regularization(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            config = make_config(
+                temp_path,
+                labels,
+                extra_args=[
+                    "--pair-mode",
+                    "best-vs-all",
+                    "--loss",
+                    "hinge",
+                    "--epochs",
+                    "4",
+                    "--learning-rate",
+                    "0.07",
+                    "--l2",
+                    "0.03",
+                ],
+            )
+            pairs = pair_list_for_training_comparison(config)
+
+            lazy_weights, lazy_history = trainer.train_weights(config, pairs)
+            eager_weights, eager_history = eager_train_weights(config, pairs)
+
+        assert_weights_close(self, lazy_weights, eager_weights)
+        assert_history_close(self, lazy_history, eager_history)
+
+    def test_lazy_l2_clamping_matches_eager_behavior(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            config = make_config(
+                temp_path,
+                labels,
+                extra_args=[
+                    "--pair-mode",
+                    "best-vs-all",
+                    "--epochs",
+                    "3",
+                    "--learning-rate",
+                    "0.5",
+                    "--l2",
+                    "0.02",
+                    "--max-abs-weight",
+                    "0.01",
+                ],
+            )
+            pairs = pair_list_for_training_comparison(config)
+
+            lazy_weights, lazy_history = trainer.train_weights(config, pairs)
+            eager_weights, eager_history = eager_train_weights(config, pairs)
+
+        assert_weights_close(self, lazy_weights, eager_weights)
+        assert_history_close(self, lazy_history, eager_history)
+        self.assertTrue(
+            any(
+                abs(value) >= config.max_abs_weight
+                for phase_weights in lazy_weights.values()
+                for value in phase_weights.values()
+            )
+        )
+
+    def test_lazy_l2_output_tables_and_report_metrics_match_eager_helper(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            lazy_config = make_config(
+                temp_path,
+                labels,
+                extra_args=[
+                    "--out-dir",
+                    str(temp_path / "runs" / "lazy"),
+                    "--pair-mode",
+                    "best-vs-all",
+                    "--epochs",
+                    "3",
+                    "--learning-rate",
+                    "0.07",
+                    "--l2",
+                    "0.03",
+                    "--output-scale",
+                    "8",
+                ],
+            )
+            eager_config = make_config(
+                temp_path,
+                labels,
+                extra_args=[
+                    "--out-dir",
+                    str(temp_path / "runs" / "eager"),
+                    "--pair-mode",
+                    "best-vs-all",
+                    "--epochs",
+                    "3",
+                    "--learning-rate",
+                    "0.07",
+                    "--l2",
+                    "0.03",
+                    "--output-scale",
+                    "8",
+                ],
+            )
+            original_train_weights = trainer.train_weights
+            try:
+                lazy_result = trainer.train_pairwise_tables(lazy_config, analyzer=wide_fake_analyzer)
+                trainer.train_weights = eager_train_weights  # type: ignore[assignment]
+                eager_result = trainer.train_pairwise_tables(eager_config, analyzer=wide_fake_analyzer)
+                lazy_tables = {
+                    phase: lazy_result.table_paths[phase].read_text(encoding="utf-8")
+                    for phase in trainer.PHASES
+                }
+                eager_tables = {
+                    phase: eager_result.table_paths[phase].read_text(encoding="utf-8")
+                    for phase in trainer.PHASES
+                }
+                lazy_report = lazy_result.report_path.read_text(encoding="utf-8")
+            finally:
+                trainer.train_weights = original_train_weights  # type: ignore[assignment]
+
+        for phase in trainer.PHASES:
+            self.assertEqual(lazy_tables[phase], eager_tables[phase])
+        self.assertEqual(
+            lazy_result.summary["training"]["initial_metrics"],
+            eager_result.summary["training"]["initial_metrics"],
+        )
+        assert_history_close(
+            self,
+            lazy_result.summary["training"]["history"],
+            eager_result.summary["training"]["history"],
+        )
+        self.assertEqual(
+            set(lazy_result.summary["training"]["final_metrics"]),
+            {
+                "pairs",
+                "loss",
+                "weighted_loss",
+                "unweighted_loss",
+                "accuracy",
+                "weighted_accuracy",
+                "avg_margin",
+                "total_pair_weight",
+                "avg_pair_weight",
+            },
+        )
+        self.assertIn("## Pair Metrics", lazy_report)
 
     def test_model_margin_includes_base_score_margin_by_default(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
