@@ -5,17 +5,11 @@ from __future__ import annotations
 
 import argparse
 import collections
-import hashlib
-import json
 import sys
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
-from common import ScriptError, parse_csv_values, quote_command
-from dataset_paths import resolve_path_references
+from common import ScriptError
 from pattern_specs import (
-    COMMON_FAMILY_ALIASES,
     FAMILY_ORDER,
     PATTERN_SPECS,
     board9_rows_to_square_index_rows,
@@ -32,47 +26,44 @@ from pattern_training.analysis_cache import (
 from pattern_training.analyzer import AnalyzerConfig
 from pattern_training.analyzer import analyze_command as shared_analyze_command
 from pattern_training.analyzer import run_analysis as shared_run_analysis
-from pattern_training.board9 import board_hash
+from pattern_training.dataset import (
+    accepted_teacher_rows,
+    empty_count,
+    load_exact_best,
+    normalize_move,
+    parse_label_paths,
+    read_jsonl,
+)
+from pattern_training.pattern_tables import (
+    LEGACY_FAMILY_ALIASES as FAMILY_ALIASES,
+    clamp,
+    parse_families,
+    render_table,
+    sparse_entries,
+    swapped_index,
+)
+from pattern_training.preference_features import (
+    apply_preference_update,
+    parse_board,
+    pattern_indexes,
+    pattern_indexes_by_family,
+)
+from pattern_training.root_candidates import RootAnalysis
+from pattern_training.board9 import board_hash, board_key
 from pattern_training.root_candidates import (
-    RootAnalysis,
     RootCandidate,
     parse_analysis_stdout as parse_root_analysis_stdout,
 )
-
-FAMILY_ALIASES: dict[str, tuple[str, ...]] = {
-    **COMMON_FAMILY_ALIASES,
-    "corner_only": ("corner_3x3",),
-    "edge_context_only": ("edge_x_10",),
-}
+from pattern_training.splits import (
+    SplitRatios,
+    parse_split_ratios,
+    split_name_for_row,
+    write_split_files,
+)
 
 
 Candidate = RootCandidate
-
-
-@dataclass(frozen=True)
-class AnalyzeResult:
-    candidates: tuple[Candidate, ...]
-    best_move: str | None = None
-    root_scores: dict[str, int] = field(default_factory=dict)
-    stdout: str = ""
-
-
-@dataclass(frozen=True)
-class SplitRatios:
-    train: int
-    validation: int
-    holdout: int
-
-    @property
-    def total(self) -> int:
-        return self.train + self.validation + self.holdout
-
-
-def normalize_move(value: Any) -> str | None:
-    if value is None:
-        return None
-    text = str(value).strip().lower()
-    return text or None
+AnalyzeResult = RootAnalysis
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -148,63 +139,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def parse_label_paths(value: str, *, dataset_root: str | None = None) -> list[Path]:
-    return resolve_path_references(
-        parse_csv_values(value, error_label="label path list"),
-        explicit_root=dataset_root,
-    )
-
-
-def read_jsonl(path: Path) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    with path.open("r", encoding="utf-8") as input_file:
-        for line_number, line in enumerate(input_file, start=1):
-            line = line.strip()
-            if not line:
-                continue
-            record = json.loads(line)
-            if not isinstance(record, dict):
-                raise ScriptError(f"{path}:{line_number}: expected JSON object")
-            rows.append(record)
-    return rows
-
-
-def board_key(board_text: str) -> str:
-    return "\n".join(line.rstrip() for line in board_text.strip().splitlines())
-
-
-def parse_split_ratios(text: str) -> SplitRatios:
-    parts = text.split(",")
-    if len(parts) != 3:
-        raise ScriptError("--split-ratios must be TRAIN,VALIDATION,HOLDOUT")
-    try:
-        train, validation, holdout = (int(part) for part in parts)
-    except ValueError as exc:
-        raise ScriptError("--split-ratios must contain integers") from exc
-    if train < 0 or validation < 0 or holdout < 0:
-        raise ScriptError("--split-ratios cannot contain negative values")
-    if train == 0 or validation == 0 or holdout == 0:
-        raise ScriptError("--split-ratios must keep all three splits non-empty")
-    return SplitRatios(train=train, validation=validation, holdout=holdout)
-
-
-def parse_families(text: str) -> tuple[str, ...]:
-    families: list[str] = []
-    for raw_part in text.split(","):
-        part = raw_part.strip()
-        if not part:
-            continue
-        expanded = FAMILY_ALIASES.get(part, (part,))
-        for family in expanded:
-            if family not in PATTERN_SPECS:
-                raise ScriptError(f"unknown pattern family: {family}")
-            if family not in families:
-                families.append(family)
-    if not families:
-        raise ScriptError("--families selected no pattern families")
-    return tuple(families)
-
-
 def pair_limit_for_family(args: argparse.Namespace, family: str) -> int:
     if family == "corner_2x3":
         return args.corner_pairs
@@ -219,73 +153,6 @@ def pair_limit_for_family(args: argparse.Namespace, family: str) -> int:
     if family == "inner_row_8":
         return args.inner_row_pairs
     raise ScriptError(f"unknown pattern family: {family}")
-
-
-def split_name_for_row(row: dict[str, Any], ratios: SplitRatios, seed: int) -> str:
-    board = row.get("board_text")
-    if not isinstance(board, str):
-        board = str(row.get("board") or "")
-    move = normalize_move(row.get("move")) or ""
-    material = f"{seed}\n{board_key(board)}\n{move}".encode("utf-8")
-    bucket = int.from_bytes(hashlib.sha256(material).digest()[:8], "big") % ratios.total
-    if bucket < ratios.train:
-        return "train"
-    if bucket < ratios.train + ratios.validation:
-        return "validation"
-    return "holdout"
-
-
-def write_split_files(rows: list[dict[str, Any]], out_dir: Path, ratios: SplitRatios, seed: int) -> None:
-    out_dir.mkdir(parents=True, exist_ok=True)
-    split_rows: dict[str, list[dict[str, Any]]] = {
-        "train": [],
-        "validation": [],
-        "holdout": [],
-    }
-    for row in rows:
-        split_rows[split_name_for_row(row, ratios, seed)].append(row)
-    for split_name, records in split_rows.items():
-        path = out_dir / f"teacher_{split_name}.jsonl"
-        with path.open("w", encoding="utf-8") as output:
-            for record in records:
-                output.write(json.dumps(record, sort_keys=True) + "\n")
-
-
-def empty_count(board_text: str) -> int:
-    rows, _ = parse_board(board_text)
-    return sum(row.count(".") for row in rows)
-
-
-def load_exact_best(paths: list[Path]) -> dict[str, set[str]]:
-    exact: dict[str, set[str]] = {}
-    for path in paths:
-        for record in read_jsonl(path):
-            board = record.get("board")
-            if not isinstance(board, str):
-                continue
-            best = record.get("best_moves")
-            if isinstance(best, list):
-                exact[board_key(board)] = {str(move).lower() for move in best}
-            else:
-                move = normalize_move(record.get("best_move"))
-                exact[board_key(board)] = {move} if move else set()
-    return exact
-
-
-def accepted_teacher_rows(paths: list[Path], limit: int | None) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    for path in paths:
-        for record in read_jsonl(path):
-            if (
-                record.get("status") == "ok"
-                and record.get("legal_move_valid") is True
-                and record.get("move_token_valid") is True
-                and normalize_move(record.get("move")) is not None
-            ):
-                rows.append(record)
-                if limit is not None and len(rows) >= limit:
-                    return rows
-    return rows
 
 
 def analyze_command(args: argparse.Namespace) -> list[str]:
@@ -344,134 +211,6 @@ def _analysis_runner_config_from_args(args: argparse.Namespace) -> AnalysisRunne
         analysis_depth=args.depth,
         require_stdout_cache=True,
     )
-
-
-def parse_board(board_text: str) -> tuple[list[str], str]:
-    lines = [line.strip() for line in board_text.strip().splitlines() if line.strip()]
-    if len(lines) != 9:
-        raise ScriptError("expected board9 text with 8 rows plus side")
-    side_line = lines[8]
-    if not side_line.startswith("side=") or len(side_line) != 6:
-        raise ScriptError("expected board9 side line")
-    return lines[:8], side_line[-1]
-
-
-def pattern_indexes(board_text: str, side: str, specs: tuple[tuple[int, ...], ...]) -> list[int]:
-    rows, _ = parse_board(board_text)
-    square_index_rows = board9_rows_to_square_index_rows(rows)
-    return [pattern_index(square_index_rows, side, spec) for spec in specs]
-
-
-def pattern_indexes_by_family(board_text: str, side: str, families: tuple[str, ...]) -> dict[str, list[int]]:
-    return {
-        family: pattern_indexes(board_text, side, PATTERN_SPECS[family])
-        for family in families
-    }
-
-
-def apply_preference_update(
-    *,
-    board_text: str,
-    teacher_child_board: str,
-    compared_child_board: str,
-    family_counts: dict[str, collections.Counter[int]],
-    families: tuple[str, ...],
-) -> None:
-    _, side = parse_board(board_text)
-    teacher_indexes = pattern_indexes_by_family(teacher_child_board, side, families)
-    compared_indexes = pattern_indexes_by_family(compared_child_board, side, families)
-    for family in families:
-        family_counts[family].update(teacher_indexes[family])
-        family_counts[family].subtract(compared_indexes[family])
-
-
-def swapped_index(index: int, cells: int) -> int:
-    swapped = 0
-    place = 1
-    for _ in range(cells):
-        state = index % 3
-        index //= 3
-        if state == 1:
-            state = 2
-        elif state == 2:
-            state = 1
-        swapped += state * place
-        place *= 3
-    return swapped
-
-
-def clamp(value: int, maximum: int) -> int:
-    return max(-maximum, min(maximum, value))
-
-
-def sparse_entries(
-    counts: collections.Counter[int],
-    *,
-    cells: int,
-    limit_pairs: int,
-    min_abs_diff: int,
-    scale: int,
-    max_abs_weight: int,
-) -> list[tuple[int, int]]:
-    pairs: list[tuple[int, int, int]] = []
-    visited: set[int] = set()
-    for index in set(counts):
-        if index in visited or index == 0:
-            continue
-        partner = swapped_index(index, cells)
-        visited.add(index)
-        visited.add(partner)
-        if index > partner:
-            continue
-        diff = counts[index] - counts[partner]
-        if abs(diff) < min_abs_diff:
-            continue
-        weight = clamp(round(diff / scale), max_abs_weight)
-        if weight != 0:
-            pairs.append((abs(diff), index, weight))
-
-    pairs.sort(reverse=True)
-    entries: list[tuple[int, int]] = []
-    for _, index, weight in pairs[:limit_pairs]:
-        partner = swapped_index(index, cells)
-        entries.append((index, weight))
-        if partner != index:
-            entries.append((partner, -weight))
-    return sorted(entries)
-
-
-def render_table(
-    *,
-    name: str = "pattern_teacher_v0",
-    corner_entries: list[tuple[int, int]] | None = None,
-    edge_entries: list[tuple[int, int]] | None = None,
-    family_entries: dict[str, list[tuple[int, int]]] | None = None,
-    stats: dict[str, int],
-    command: list[str],
-) -> str:
-    entries_by_family: dict[str, list[tuple[int, int]]] = {}
-    if family_entries is not None:
-        entries_by_family.update(family_entries)
-    if corner_entries is not None:
-        entries_by_family["corner_2x3"] = corner_entries
-    if edge_entries is not None:
-        entries_by_family["edge_8"] = edge_entries
-
-    lines = [
-        "# schema_version: pattern_table.v1",
-        f"# name: {name}",
-        "# generated_by: tools/scripts/pattern_teacher_v0_train.py",
-        f"# command: {quote_command(command)}",
-    ]
-    for key in sorted(stats):
-        lines.append(f"# {key}: {stats[key]}")
-    lines.append("")
-    for family in FAMILY_ORDER:
-        lines.extend(
-            f"{family}\t{index}\t{value}"
-            for index, value in entries_by_family.get(family, [])
-        )
-    return "\n".join(lines) + "\n"
 
 
 def main(argv: list[str] | None = None) -> int:

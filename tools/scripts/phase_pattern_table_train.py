@@ -13,7 +13,7 @@ from typing import Callable
 
 from common import ScriptError, parse_csv_values, quote_command
 from dataset_paths import is_dataset_reference, resolve_dataset_root
-import pattern_teacher_v0_train as base_trainer
+from pattern_specs import FAMILY_ORDER, PATTERN_SPECS
 from pattern_training.analysis_cache import (
     AnalysisCacheConfig,
     AnalysisRequest,
@@ -25,8 +25,18 @@ from pattern_training.analysis_cache import (
 from pattern_training.analyzer import AnalyzerConfig
 from pattern_training.analyzer import analyze_command as shared_analyze_command
 from pattern_training.analyzer import run_analysis as shared_run_analysis
-from pattern_training.board9 import board_hash
-from pattern_training.root_candidates import RootAnalysis
+from pattern_training.board9 import board_hash, board_key
+from pattern_training.dataset import (
+    accepted_teacher_rows,
+    empty_count,
+    load_exact_best,
+    normalize_move,
+    parse_label_paths,
+)
+from pattern_training.pattern_tables import LEGACY_FAMILY_ALIASES, parse_families, sparse_entries
+from pattern_training.preference_features import apply_preference_update, parse_board
+from pattern_training.root_candidates import RootAnalysis, RootCandidate
+from pattern_training.splits import SplitRatios, parse_split_ratios, split_name_for_row
 
 
 PHASES = ("opening", "midgame", "late")
@@ -34,6 +44,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_PHASE_CUTOFFS = (20, 44)
 SENTINEL_FAMILY = "corner_2x3"
 SENTINEL_ENTRY = (0, 0)
+Candidate = RootCandidate
+AnalyzeResult = RootAnalysis
 
 
 @dataclass(frozen=True)
@@ -55,7 +67,7 @@ class PhaseTrainConfig:
     families: tuple[str, ...]
     update_mode: str
     split: str
-    split_ratios: base_trainer.SplitRatios
+    split_ratios: SplitRatios
     split_seed: int
     limit: int | None
     empty_min: int | None
@@ -83,7 +95,7 @@ class PhaseTrainResult:
     report_path: Path
 
 
-Analyzer = Callable[[PhaseTrainConfig, str], base_trainer.AnalyzeResult]
+Analyzer = Callable[[PhaseTrainConfig, str], AnalyzeResult]
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -127,8 +139,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="broad_all",
         help=(
             "comma-separated pattern families or aliases. Families: "
-            f"{','.join(base_trainer.FAMILY_ORDER)}. Aliases: "
-            f"{','.join(sorted(base_trainer.FAMILY_ALIASES))}"
+            f"{','.join(FAMILY_ORDER)}. Aliases: "
+            f"{','.join(sorted(LEGACY_FAMILY_ALIASES))}"
         ),
     )
     parser.add_argument(
@@ -218,18 +230,18 @@ def phase_for_occupied(occupied_count: int, cutoffs: PhaseCutoffs) -> str:
 
 
 def phase_for_board(board_text: str, cutoffs: PhaseCutoffs) -> str:
-    rows, _ = base_trainer.parse_board(board_text)
+    rows, _ = parse_board(board_text)
     occupied = sum(1 for row in rows for cell in row if cell in {"B", "W"})
     return phase_for_occupied(occupied, cutoffs)
 
 
 def split_for_teacher_row(
-    row: dict[str, object], ratios: base_trainer.SplitRatios, seed: int
+    row: dict[str, object], ratios: SplitRatios, seed: int
 ) -> str:
     explicit = row.get("position_split")
     if explicit in {"train", "validation", "holdout"}:
         return str(explicit)
-    return base_trainer.split_name_for_row(row, ratios, seed)
+    return split_name_for_row(row, ratios, seed)
 
 
 def _raw_label_values(args: argparse.Namespace) -> list[str]:
@@ -298,8 +310,8 @@ def _analysis_cache_config_from_args(args: argparse.Namespace) -> AnalysisCacheC
 def config_from_args(
     args: argparse.Namespace, invocation: list[str] | None = None
 ) -> PhaseTrainConfig:
-    split_ratios = base_trainer.parse_split_ratios(args.split_ratios)
-    families = base_trainer.parse_families(args.families)
+    split_ratios = parse_split_ratios(args.split_ratios)
+    families = parse_families(args.families)
     if args.empty_min is not None and args.empty_max is not None and args.empty_min > args.empty_max:
         raise ScriptError("--empty-min cannot be greater than --empty-max")
     eval_config = Path(args.eval_config)
@@ -307,10 +319,10 @@ def config_from_args(
 
     return PhaseTrainConfig(
         teacher_label_paths=tuple(
-            base_trainer.parse_label_paths(args.teacher_labels, dataset_root=args.dataset_root)
+            parse_label_paths(args.teacher_labels, dataset_root=args.dataset_root)
         ),
         exact_label_paths=tuple(
-            base_trainer.parse_label_paths(args.exact_labels, dataset_root=args.dataset_root)
+            parse_label_paths(args.exact_labels, dataset_root=args.dataset_root)
             if args.exact_labels
             else ()
         ),
@@ -354,20 +366,18 @@ def analyze_command(config: PhaseTrainConfig) -> list[str]:
     )
 
 
-def run_analysis(config: PhaseTrainConfig, board_text: str) -> base_trainer.AnalyzeResult:
-    return base_trainer.analyze_result_from_root(
-        shared_run_analysis(
-            AnalyzerConfig(
-                analyze_position=config.analyze_position,
-                eval_config=config.eval_config,
-                depth=config.depth,
-            ),
-            board_text,
-        )
+def run_analysis(config: PhaseTrainConfig, board_text: str) -> AnalyzeResult:
+    return shared_run_analysis(
+        AnalyzerConfig(
+            analyze_position=config.analyze_position,
+            eval_config=config.eval_config,
+            depth=config.depth,
+        ),
+        board_text,
     )
 
 
-def _root_from_analysis(analysis: base_trainer.AnalyzeResult) -> RootAnalysis:
+def _root_from_analysis(analysis: AnalyzeResult) -> RootAnalysis:
     root_scores = dict(analysis.root_scores)
     if not root_scores:
         root_scores = {
@@ -406,13 +416,13 @@ def _apply_update(
     *,
     config: PhaseTrainConfig,
     board_text: str,
-    teacher: base_trainer.Candidate,
-    compared: base_trainer.Candidate,
+    teacher: Candidate,
+    compared: Candidate,
     family_counts: dict[str, collections.Counter[int]],
 ) -> None:
     if teacher.child_board is None or compared.child_board is None:
         return
-    base_trainer.apply_preference_update(
+    apply_preference_update(
         board_text=board_text,
         teacher_child_board=teacher.child_board,
         compared_child_board=compared.child_board,
@@ -426,7 +436,7 @@ def _update_phase_counts(
     config: PhaseTrainConfig,
     board_text: str,
     teacher_move: str,
-    candidates: list[base_trainer.Candidate],
+    candidates: list[Candidate],
     family_counts: dict[str, collections.Counter[int]],
     phase_stats: collections.Counter[str],
 ) -> bool:
@@ -510,7 +520,7 @@ def render_phase_table(
     for key in sorted(stats):
         lines.append(f"# {key}: {stats[key]}")
     lines.append("")
-    for family in base_trainer.FAMILY_ORDER:
+    for family in FAMILY_ORDER:
         lines.extend(
             f"{family}\t{index}\t{value}"
             for index, value in family_entries.get(family, [])
@@ -671,11 +681,11 @@ def write_report(
 def train_phase_tables(
     config: PhaseTrainConfig, analyzer: Analyzer = run_analysis
 ) -> PhaseTrainResult:
-    rows = base_trainer.accepted_teacher_rows(list(config.teacher_label_paths), config.limit)
+    rows = accepted_teacher_rows(list(config.teacher_label_paths), config.limit)
     if not rows:
         raise ScriptError("no accepted teacher rows")
     exact_best = (
-        base_trainer.load_exact_best(list(config.exact_label_paths))
+        load_exact_best(list(config.exact_label_paths))
         if config.exact_label_paths
         else {}
     )
@@ -711,7 +721,7 @@ def train_phase_tables(
             phase_stats[phase]["split_skipped"] += 1
             continue
 
-        empties = base_trainer.empty_count(board_text)
+        empties = empty_count(board_text)
         if config.empty_min is not None and empties < config.empty_min:
             row_stats["empty_min_skipped"] += 1
             phase_stats[phase]["skipped"] += 1
@@ -723,12 +733,12 @@ def train_phase_tables(
             phase_stats[phase]["empty_max_skipped"] += 1
             continue
 
-        teacher_move = base_trainer.normalize_move(row.get("move"))
+        teacher_move = normalize_move(row.get("move"))
         if teacher_move is None:
             row_stats["missing_teacher_move_skipped"] += 1
             phase_stats[phase]["skipped"] += 1
             continue
-        best_exact = exact_best.get(base_trainer.board_key(board_text))
+        best_exact = exact_best.get(board_key(board_text))
         if best_exact is not None and teacher_move not in best_exact:
             row_stats["teacher_exact_disagreements_skipped"] += 1
             phase_stats[phase]["skipped"] += 1
@@ -768,7 +778,7 @@ def train_phase_tables(
     )
 
     for source_index, phase, board_text, teacher_move in prepared:
-        analysis = base_trainer.analyze_result_from_root(analysis_by_source[source_index])
+        analysis = _root_from_analysis(analysis_by_source[source_index])
         candidates = [candidate for candidate in analysis.candidates if candidate.child_board]
         if not candidates:
             row_stats["positions_without_candidates"] += 1
@@ -798,9 +808,9 @@ def train_phase_tables(
     sentinel_by_phase: dict[str, bool] = {phase: False for phase in PHASES}
     for phase in PHASES:
         for family in config.families:
-            entries = base_trainer.sparse_entries(
+            entries = sparse_entries(
                 family_counts_by_phase[phase][family],
-                cells=len(base_trainer.PATTERN_SPECS[family][0]),
+                cells=len(PATTERN_SPECS[family][0]),
                 limit_pairs=pair_limit_for_family(config, family),
                 min_abs_diff=config.min_abs_diff,
                 scale=config.scale,

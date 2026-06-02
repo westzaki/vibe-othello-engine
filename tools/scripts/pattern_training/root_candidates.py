@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 
@@ -13,8 +13,8 @@ class RootCandidate:
 
 @dataclass(frozen=True)
 class RootAnalysis:
-    best_move: str | None
-    root_scores: dict[str, int]
+    best_move: str | None = None
+    root_scores: dict[str, int] = field(default_factory=dict)
     candidates: tuple[RootCandidate, ...] = ()
     stdout: str = ""
 
@@ -100,4 +100,3 @@ def parse_analysis_stdout(text: str) -> RootAnalysis:
         candidates=tuple(candidates),
         stdout=text,
     )
-

@@ -516,6 +516,14 @@ if(Python3_Interpreter_FOUND)
     )
 
     add_test(
+        NAME pattern_training_helpers_py
+        COMMAND "${Python3_EXECUTABLE}"
+            -m unittest
+            tools/scripts/tests/test_pattern_training_helpers.py
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+
+    add_test(
         NAME eval_candidate_matrix_dry_run
         COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/tools/scripts/eval_candidate_matrix.py"
