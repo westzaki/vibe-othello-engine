@@ -955,7 +955,6 @@ def make_preference_pair(
     config: TrainerConfig,
     source: LabelSource,
     split: str,
-    phase: str,
     board_text: str,
     teacher_move: str,
     engine_move: str,
@@ -977,6 +976,7 @@ def make_preference_pair(
         other_child = apply_move_to_board(board_text, other_move)
     except ScriptError:
         return None
+    phase = phase_for_board(preferred_child, config.phase_cutoffs)
     features = preference_features(
         root_board_text=board_text,
         teacher_child_board=preferred_child,
@@ -1018,7 +1018,6 @@ def generate_position_pairs(
     config: TrainerConfig,
     source: LabelSource,
     split: str,
-    phase: str,
     board_text: str,
     teacher_move: str,
     engine_move: str,
@@ -1036,7 +1035,6 @@ def generate_position_pairs(
             config=config,
             source=source,
             split=split,
-            phase=phase,
             board_text=board_text,
             teacher_move=teacher_move,
             engine_move=engine_move,
@@ -1205,7 +1203,6 @@ def collect_pairs(
             config=config,
             source=source,
             split=split,
-            phase=phase,
             board_text=board_text,
             teacher_move=teacher_move,
             engine_move=engine_move,
@@ -1232,9 +1229,9 @@ def collect_pairs(
         pairs.extend(position_pairs)
         stats["paired_positions"] += 1
         stats["preference_pairs"] += len(position_pairs)
-        stats[f"{phase}_pairs"] += len(position_pairs)
         stats["max_pairs_in_position"] = max(stats["max_pairs_in_position"], len(position_pairs))
         for pair in position_pairs:
+            stats[f"{pair.phase}_pairs"] += 1
             stats[f"{pair.pair_kind}_pairs"] += 1
             if pair.pair_kind == "exact":
                 stats["exact_aware_pairs"] += 1
@@ -1242,7 +1239,7 @@ def collect_pairs(
                 make_validation_record(
                     source=source,
                     split=split,
-                    phase=phase,
+                    phase=pair.phase,
                     status="paired",
                     teacher_move=teacher_move,
                     engine_move=engine_move,
