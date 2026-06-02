@@ -7,7 +7,8 @@ std::string_view evaluator_cli_usage() noexcept {
 }
 
 std::string_view evaluator_cli_help() noexcept {
-    return "  --eval-config PATH load evaluator weights from a .eval config file\n";
+    return "  --eval-config PATH load evaluator weights from a .eval config file "
+           "(default: data/eval/current_default.eval)\n";
 }
 
 EvaluatorCliParseResult parse_evaluator_cli_option(

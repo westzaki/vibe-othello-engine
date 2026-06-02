@@ -1,10 +1,12 @@
 # schema_version: eval.v1
 # status: active
+# role: project_default
 # created_at: 2026-05-31
 # based_on: default_evaluation_config()
-# purpose: Fully expanded snapshot of the built-in default evaluator.
-# validation: Must match default_evaluation_config() in evaluation tests.
-# caveat: Update this file in the same PR as default_evaluation_config() changes.
+# purpose: Current source-controlled project default evaluator.
+# note: At this revision it is a fully expanded snapshot of the built-in default evaluator.
+# validation: Currently matches default_evaluation_config() in evaluation tests.
+# caveat: This project default may intentionally differ from the C++ built-in fallback after an explicit default-promotion PR.
 name=current_default
 
 opening.disc_difference=0
