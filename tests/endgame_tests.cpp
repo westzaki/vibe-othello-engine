@@ -59,6 +59,14 @@ void check_exact_regression_case(const ExactRegressionCase& test_case) {
     }
 }
 
+void check_same_exact_result(const othello::ExactEndgameResult& actual,
+                             const othello::ExactEndgameResult& expected) {
+    CHECK(actual.best_move == expected.best_move);
+    CHECK(actual.disc_margin == expected.disc_margin);
+    CHECK(actual.empties == expected.empties);
+    CHECK(actual.principal_variation == expected.principal_variation);
+}
+
 } // namespace
 
 TEST_CASE("Exact endgame solver returns terminal margin immediately", "[endgame]") {
@@ -258,14 +266,12 @@ side=B)");
 
     const othello::ExactEndgameResult default_size = othello::solve_exact_endgame(board);
     const othello::ExactEndgameResult larger_size = othello::solve_exact_endgame(
-        board,
-        othello::ExactEndgameOptions{.transposition_table_entries = std::size_t{1} << 16});
+        board, othello::ExactEndgameOptions{.transposition_table_entries = std::size_t{1} << 16});
     const othello::ExactEndgameResult disabled_tt = othello::solve_exact_endgame(
         board, othello::ExactEndgameOptions{.transposition_table_entries = 0});
     const othello::ExactEndgameResult oversized_size = othello::solve_exact_endgame(
-        board,
-        othello::ExactEndgameOptions{
-            .transposition_table_entries = std::numeric_limits<std::size_t>::max()});
+        board, othello::ExactEndgameOptions{.transposition_table_entries =
+                                                std::numeric_limits<std::size_t>::max()});
 
     CHECK(larger_size.best_move == default_size.best_move);
     CHECK(larger_size.disc_margin == default_size.disc_margin);
@@ -285,19 +291,74 @@ side=B)");
     CHECK(oversized_size.stats.tt_stores > 0);
 }
 
+TEST_CASE("Exact endgame preserves legal, pass, and terminal outcomes with TT off", "[endgame]") {
+    const Board current_side_has_moves = othello::test::board_from_text(R"(...B....
+WWBWWW.B
+WWWWWWWW
+WBWWWWW.
+WWWBBWBB
+WBBBWB.B
+WWBWBWBB
+WWWWWWWB
+side=B)");
+    REQUIRE(othello::legal_moves(current_side_has_moves) != 0);
+
+    const Board root_pass = othello::test::board_from_text(R"(........
+BBBBBBBW
+BBWWBBB.
+BBBBBBBB
+.BBBBWBB
+..BBBWBB
+..BBBWWW
+..BBBBBW
+side=B)");
+    REQUIRE(othello::legal_moves(root_pass) == 0);
+    REQUIRE(othello::pass_turn(root_pass).has_value());
+
+    const Board terminal_with_empty_squares = othello::test::board_from_text(R"(BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBB....
+side=W)");
+    REQUIRE(othello::legal_moves(terminal_with_empty_squares) == 0);
+    REQUIRE_FALSE(othello::pass_turn(terminal_with_empty_squares).has_value());
+    REQUIRE(othello::is_game_over(terminal_with_empty_squares));
+
+    for (const Board& board : {current_side_has_moves, root_pass, terminal_with_empty_squares}) {
+        const othello::ExactEndgameResult default_tt = othello::solve_exact_endgame(board);
+        const othello::ExactEndgameResult disabled_tt = othello::solve_exact_endgame(
+            board, othello::ExactEndgameOptions{.transposition_table_entries = 0});
+
+        check_same_exact_result(disabled_tt, default_tt);
+        CHECK(default_tt.stats.nodes == default_tt.nodes);
+        CHECK(disabled_tt.stats.nodes == disabled_tt.nodes);
+        CHECK(disabled_tt.stats.tt_lookups == 0);
+        CHECK(disabled_tt.stats.tt_stores == 0);
+    }
+
+    const othello::ExactEndgameResult terminal =
+        othello::solve_exact_endgame(terminal_with_empty_squares);
+    CHECK_FALSE(terminal.best_move.has_value());
+    CHECK(terminal.principal_variation.empty());
+    CHECK(terminal.empties == 4);
+    CHECK(terminal.disc_margin ==
+          othello::score(terminal_with_empty_squares, terminal_with_empty_squares.side_to_move));
+}
+
 TEST_CASE("Endgame empty-region parity ordering scores candidate regions", "[endgame]") {
     using othello::endgame_detail::default_move_ordering_params;
     using othello::endgame_detail::empty_region_parity_order_score;
-    using othello::endgame_detail::empty_region_sizes;
     using othello::endgame_detail::empty_region_size_containing;
+    using othello::endgame_detail::empty_region_sizes;
 
     // a1-b1 is even, d1-e1-f1 is odd, and h1 is a singleton.
-    constexpr othello::Bitboard empty = (othello::Bitboard{1} << 0) |
-                                        (othello::Bitboard{1} << 1) |
-                                        (othello::Bitboard{1} << 3) |
-                                        (othello::Bitboard{1} << 4) |
-                                        (othello::Bitboard{1} << 5) |
-                                        (othello::Bitboard{1} << 7);
+    constexpr othello::Bitboard empty = (othello::Bitboard{1} << 0) | (othello::Bitboard{1} << 1) |
+                                        (othello::Bitboard{1} << 3) | (othello::Bitboard{1} << 4) |
+                                        (othello::Bitboard{1} << 5) | (othello::Bitboard{1} << 7);
     const auto region_sizes = empty_region_sizes(empty);
 
     CHECK(empty_region_size_containing(empty, 0) == 2);
