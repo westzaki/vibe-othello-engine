@@ -1,0 +1,61 @@
+# schema_version: eval.v1
+# status: promotion_candidate
+# created_at: 2026-06-02
+# based_on: data/eval/current_default.eval
+# source_dataset: ntest-balanced300k-v0
+# source_teacher: ntest12-local
+# source_trainer: tools/scripts/regularized_pairwise_pattern_train.py
+# source_run: runs/pattern-training/ntest-balanced300k-v0/regularized_pairwise_full_v2/
+# source_report: docs/experiments/ntest_balanced300k_regularized_pairwise_full_v2_report.md
+# source_git_sha: 9ae3553e9454e69e5fdb6b4197edddae20dd4d11
+# validation_git_sha: 887d61bc6d082cf2d516573eee14fbbe90e2e841
+# model_shape: current_default + learned phase-specific pattern-table delta
+# no_strength_claim: true
+# not_default_promotion: true
+# caveat: Exact-best rank metrics regress slightly and search overhead increases.
+name=ntest_pairwise_full_v2
+pattern_table.opening=patterns/ntest_pairwise_full_v2_opening.tsv
+pattern_table.midgame=patterns/ntest_pairwise_full_v2_midgame.tsv
+pattern_table.late=patterns/ntest_pairwise_full_v2_late.tsv
+opening.pattern_table=1
+midgame.pattern_table=1
+late.pattern_table=1
+
+opening.disc_difference=0
+opening.mobility=8
+opening.potential_mobility=4
+opening.corner_occupancy=35
+opening.corner_access=30
+opening.x_square_danger=25
+opening.frontier=5
+opening.corner_local_2x3=0
+opening.legacy_corner_2x3_rule=4
+opening.edge_stability_lite=2
+opening.legacy_edge_8_rule=2
+
+midgame.disc_difference=1
+midgame.mobility=10
+midgame.potential_mobility=5
+midgame.corner_occupancy=40
+midgame.corner_access=35
+midgame.x_square_danger=30
+midgame.frontier=6
+midgame.corner_local_2x3=0
+midgame.legacy_corner_2x3_rule=6
+midgame.edge_stability_lite=4
+midgame.legacy_edge_8_rule=4
+
+late.disc_difference=4
+late.mobility=6
+late.potential_mobility=2
+late.corner_occupancy=45
+late.corner_access=20
+late.x_square_danger=20
+late.frontier=3
+late.corner_local_2x3=0
+late.legacy_corner_2x3_rule=4
+late.edge_stability_lite=8
+late.legacy_edge_8_rule=6
+
+opening_max_occupied=20
+midgame_max_occupied=44

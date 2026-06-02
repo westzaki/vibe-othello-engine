@@ -92,6 +92,40 @@ TEST_CASE("Sample eval configs round-trip to expected evaluator configs", "[eval
     CHECK(std::ranges::count_if(reboot.config.pattern_tables->edge_8,
                                 [](std::int16_t value) { return value != 0; }) == 64);
 
+    const othello::tools::EvaluationConfigLoadResult ntest_pairwise =
+        othello::tools::load_evaluation_config_file(
+            sample_eval_config_path("ntest_pairwise_full_v2.eval"));
+    REQUIRE(ntest_pairwise.ok());
+    REQUIRE(ntest_pairwise.name.has_value());
+    CHECK(*ntest_pairwise.name == "ntest_pairwise_full_v2");
+    CHECK_FALSE(ntest_pairwise.pattern_table_path.has_value());
+    CHECK(ntest_pairwise.opening_pattern_table_path ==
+          "patterns/ntest_pairwise_full_v2_opening.tsv");
+    CHECK(ntest_pairwise.midgame_pattern_table_path ==
+          "patterns/ntest_pairwise_full_v2_midgame.tsv");
+    CHECK(ntest_pairwise.late_pattern_table_path ==
+          "patterns/ntest_pairwise_full_v2_late.tsv");
+    CHECK(ntest_pairwise.config != othello::default_evaluation_config());
+    CHECK(ntest_pairwise.config.pattern_tables == nullptr);
+    REQUIRE(ntest_pairwise.config.opening_pattern_tables != nullptr);
+    REQUIRE(ntest_pairwise.config.midgame_pattern_tables != nullptr);
+    REQUIRE(ntest_pairwise.config.late_pattern_tables != nullptr);
+    CHECK(ntest_pairwise.config.opening.pattern_table == 1);
+    CHECK(ntest_pairwise.config.midgame.pattern_table == 1);
+    CHECK(ntest_pairwise.config.late.pattern_table == 1);
+    CHECK(ntest_pairwise.config.opening.mobility ==
+          othello::default_evaluation_config().opening.mobility);
+    CHECK(ntest_pairwise.config.midgame.mobility ==
+          othello::default_evaluation_config().midgame.mobility);
+    CHECK(ntest_pairwise.config.late.mobility ==
+          othello::default_evaluation_config().late.mobility);
+    CHECK(std::ranges::any_of(ntest_pairwise.config.opening_pattern_tables->corner_3x3,
+                              [](std::int16_t value) { return value != 0; }));
+    CHECK(std::ranges::any_of(ntest_pairwise.config.midgame_pattern_tables->corner_3x3,
+                              [](std::int16_t value) { return value != 0; }));
+    CHECK(std::ranges::any_of(ntest_pairwise.config.late_pattern_tables->corner_3x3,
+                              [](std::int16_t value) { return value != 0; }));
+
     const othello::tools::EvaluationConfigLoadResult pattern_only_smoke =
         othello::tools::load_evaluation_config_file(
             test_eval_config_fixture_path("pattern_only_smoke.eval"));
@@ -114,10 +148,14 @@ TEST_CASE("Committed eval artifact surface contains only active fixtures",
           "[evaluation]") {
     constexpr std::array allowed_eval_configs{
         std::string_view{"current_default.eval"},
+        std::string_view{"ntest_pairwise_full_v2.eval"},
         std::string_view{"pattern_reboot_v0.eval"},
         std::string_view{"pattern_teacher_v0.eval"},
     };
     constexpr std::array allowed_pattern_tables{
+        std::string_view{"ntest_pairwise_full_v2_late.tsv"},
+        std::string_view{"ntest_pairwise_full_v2_midgame.tsv"},
+        std::string_view{"ntest_pairwise_full_v2_opening.tsv"},
         std::string_view{"pattern_teacher_v0.tsv"},
     };
 
