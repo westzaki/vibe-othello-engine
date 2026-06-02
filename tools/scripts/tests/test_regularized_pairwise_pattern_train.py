@@ -53,6 +53,20 @@ def write_eval_config(path: Path) -> Path:
     return path
 
 
+def write_current_default_like_eval_config(path: Path) -> Path:
+    path.write_text(
+        "# schema_version: eval.v1\n"
+        "name=current_default_fixture\n"
+        "opening.mobility=8\n"
+        "midgame.mobility=10\n"
+        "late.mobility=6\n"
+        "opening_max_occupied=20\n"
+        "midgame_max_occupied=44\n",
+        encoding="utf-8",
+    )
+    return path
+
+
 def teacher_row(
     *,
     board: str = TEACHER_BOARD,
@@ -184,6 +198,24 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
                     legacy_trainer.pattern_index(legacy_rows, legacy_side, spec),
                 )
 
+    def test_pattern_counts_convert_board9_display_to_square_index_order(self) -> None:
+        square_index_rows = [
+            "BWB.WB.W",
+            "WB..BW.B",
+            "..W.B...",
+            "...BW...",
+            "...WB...",
+            "...B.W..",
+            "B.W..WB.",
+            "W.BW.BWB",
+        ]
+        board9 = "\n".join(reversed(square_index_rows)) + "\nside=B"
+
+        counts = trainer.pattern_counts(board9, "B", ("corner_2x3", "edge_8"))
+
+        self.assertEqual(counts[("corner_2x3", 151)], 1)
+        self.assertEqual(counts[("edge_8", 4795)], 1)
+
     def test_apply_move_uses_board9_row_orientation(self) -> None:
         expected = (
             ".BBBBBB.\n"
@@ -212,6 +244,28 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
 
         self.assertTrue(features)
         self.assertIn("opening", trainer.PHASES)
+
+    def test_preference_features_match_negated_child_side_search_score_delta(self) -> None:
+        teacher_child = trainer.apply_move_to_board(TEACHER_BOARD, "d1")
+        engine_child = trainer.apply_move_to_board(TEACHER_BOARD, "b1")
+        _, root_side = trainer.parse_board(TEACHER_BOARD)
+        child_side = trainer.opponent(root_side)
+
+        features = trainer.preference_features(
+            root_board_text=TEACHER_BOARD,
+            teacher_child_board=teacher_child,
+            engine_child_board=engine_child,
+            families=("edge_8",),
+        )
+        teacher_counts = trainer.pattern_counts(teacher_child, child_side, ("edge_8",))
+        engine_counts = trainer.pattern_counts(engine_child, child_side, ("edge_8",))
+        expected = {
+            key: engine_counts[key] - teacher_counts[key]
+            for key in set(teacher_counts) | set(engine_counts)
+            if engine_counts[key] - teacher_counts[key]
+        }
+
+        self.assertEqual(features, expected)
 
     def test_best_vs_engine_pair_generation_preserves_original_behavior(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -264,6 +318,29 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
         self.assertTrue(all(pair.rank_margin and pair.rank_margin > 0 for pair in pairs))
         self.assertTrue(all(pair.pair_weight > 1.0 for pair in pairs))
         self.assertEqual(stats["teacher_pairs"], 2)
+
+    def test_teacher_vs_ranked_above_uses_candidates_scored_above_teacher(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            config = make_config(
+                temp_path,
+                labels,
+                extra_args=[
+                    "--pair-mode",
+                    "teacher-vs-ranked-above",
+                    "--pair-weighting",
+                    "score-margin",
+                ],
+            )
+
+            pairs, _, stats = trainer.collect_pairs(config, analyzer=wide_fake_analyzer)
+
+        self.assertEqual({pair.other_move for pair in pairs}, {"a2"})
+        self.assertTrue(all(pair.preferred_move == "d1" for pair in pairs))
+        self.assertTrue(all(pair.other_score and pair.preferred_score for pair in pairs))
+        self.assertTrue(all(pair.other_score > pair.preferred_score for pair in pairs))
+        self.assertEqual(stats["teacher_pairs"], 1)
 
     def test_exact_aware_pair_generation_prefers_exact_best_moves(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -330,6 +407,35 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
         key = next(iter(light.features))
         self.assertGreater(abs(heavy_weights[light.phase][key]), abs(light_weights[light.phase][key]))
 
+    def test_model_margin_includes_base_score_margin_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            config = make_config(temp_path, labels, extra_args=["--pair-mode", "best-vs-all"])
+            pairs, _, _ = trainer.collect_pairs(config, analyzer=wide_fake_analyzer)
+
+        pair = next(pair for pair in pairs if pair.other_move == "a2")
+        empty_weights = {phase: {} for phase in trainer.PHASES}
+
+        self.assertEqual(trainer.pair_margin(empty_weights, pair), 0.0)
+        self.assertEqual(trainer.model_margin(config, empty_weights, pair), -10.0)
+
+    def test_no_base_margin_preserves_delta_only_objective(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            config = make_config(
+                temp_path,
+                labels,
+                extra_args=["--pair-mode", "best-vs-all", "--no-base-margin"],
+            )
+            pairs, _, _ = trainer.collect_pairs(config, analyzer=wide_fake_analyzer)
+
+        pair = next(pair for pair in pairs if pair.other_move == "a2")
+        empty_weights = {phase: {} for phase in trainer.PHASES}
+
+        self.assertEqual(trainer.model_margin(config, empty_weights, pair), 0.0)
+
     def test_same_seed_is_deterministic_for_generated_tables(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             temp_path = Path(temp)
@@ -385,6 +491,31 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
             )
             self.assertTrue(result.summary["no_strength_claim"])
             self.assertFalse(result.summary["default_promotion"])
+
+    def test_candidate_eval_inserts_missing_phase_pattern_weights_for_scalar_base(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            eval_config = write_current_default_like_eval_config(temp_path / "current_default.eval")
+            args = [
+                "--teacher-labels",
+                str(labels),
+                "--eval-config",
+                str(eval_config),
+                "--out-dir",
+                str(temp_path / "runs" / "candidate"),
+                "--candidate-pattern-table-weight",
+                "3",
+            ]
+            config = trainer.config_from_args(trainer.parse_args(args))
+
+            candidate = trainer.render_candidate_eval(config)
+
+        self.assertIn("opening.mobility=8", candidate)
+        self.assertIn("pattern_table.opening=tables/opening.tsv", candidate)
+        self.assertIn("opening.pattern_table=3", candidate)
+        self.assertIn("midgame.pattern_table=3", candidate)
+        self.assertIn("late.pattern_table=3", candidate)
 
     def test_table_data_lines_are_integer_values(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
