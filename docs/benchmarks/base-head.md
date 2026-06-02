@@ -163,9 +163,7 @@ records with the C++ rule core:
 ```
 
 Use the emitted `board_text` values with `othello_analyze_position
---root-candidates`. The legacy Python `extract_divergence_positions.py` script
-is kept only for transition and should not be used for new diagnostics because
-it duplicates Othello rule logic outside the engine.
+--root-candidates`.
 
 The matrix is deterministic for the selected openings and seed. It is still only
 a sample of positions. Avoid claiming Elo from it, and treat small game counts as

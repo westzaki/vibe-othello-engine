@@ -38,8 +38,6 @@ script.
 | `evidence.py` | current | Collect reproducible build/test/benchmark/match evidence for PRs. | Shared evidence workflow for reviewers; wraps C++ tools without making strength claims. |
 | `exact_label_workflow.py` | current | Sample positions, dump exact labels, and optionally run eval-vs-exact analysis. | Current exact-label smoke helper for evaluation investigations. |
 | `external_teacher_label_workflow.py` | current | Generate teacher-label JSONL from external engines. | Current teacher-label entrypoint and a dependency of `teacher_dataset_build.py`. |
-| `extract_divergence_positions.py` | deprecated | Extract first divergence boards from swap-side match JSONL with Python rule replay. | Replaced by `othello_replay_game`; kept only for historical baseline reproduction during transition. |
-| `legacy_othello_rules.py` | deprecated | Transitional Python board replay helpers for old diagnostics. | Kept only while the deprecated divergence extractor remains available for historical reproduction. |
 | `match_summary.py` | current | Summarize C++ match-runner JSONL. | Shared by current evidence, match, and base/head workflows. |
 | `ntest_teacher_smoke.py` | current | Run a local NTest teacher-label smoke and estimate 300K run feasibility. | Operational preflight before overnight NTest teacher dataset generation; does not make strength claims. |
 | `pattern_teacher_v0_train.py` | transitional | Train sparse learned pattern tables and keep compatibility imports for older helper names. | Kept for `pattern_teacher_v0.tsv` provenance, historical comparison, and CTest; shared helpers now live under `pattern_training/`. |
@@ -312,7 +310,7 @@ python3 tools/scripts/match_summary.py \
   --by-opening
 ```
 
-## Legacy Diagnostics
+## Divergence Diagnostics
 
 Extract first divergence positions from an existing swap-side base/head JSONL
 with the current C++ replay workflow:
@@ -326,17 +324,6 @@ with the current C++ replay workflow:
 Use the emitted `board_text` values with `othello_analyze_position
 --root-candidates` when a matrix regresses but the starting root positions do not
 explain the difference.
-
-`extract_divergence_positions.py` is deprecated. It is kept temporarily for
-transition only; new diagnostics should use `othello_replay_game` so board
-replay, legal moves, pass handling, and move application stay in the C++ rule
-core. Future cleanup should remove shared diagnostic helpers from legacy trainer
-or script modules before deleting old workflows.
-
-```sh
-python3 tools/scripts/extract_divergence_positions.py \
-  --input runs/base-head/my-change/depth-8/match.jsonl
-```
 
 Inspect root move alternatives for a focused board with the current analyzer:
 
