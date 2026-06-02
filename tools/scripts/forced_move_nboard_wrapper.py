@@ -11,7 +11,7 @@ import threading
 from pathlib import Path
 
 from common import ScriptError
-from extract_divergence_positions import (
+from legacy_othello_rules import (
     BoardState,
     apply_move,
     format_board,

@@ -51,6 +51,10 @@ python3 tools/scripts/extract_divergence_positions.py \
   --format markdown
 ```
 
+This is the historical command used when the snapshot was collected. Current
+divergence diagnostics should use `./build/othello_replay_game --match-jsonl`
+so replay uses the C++ rule core.
+
 The selected divergence board was analyzed with:
 
 ```sh

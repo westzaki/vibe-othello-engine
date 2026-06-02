@@ -9,7 +9,7 @@ sys.path.insert(0, str(SCRIPT_DIR))
 
 import forced_move_nboard_wrapper as wrapper  # noqa: E402
 from common import ScriptError  # noqa: E402
-from extract_divergence_positions import format_board, parse_board  # noqa: E402
+from legacy_othello_rules import format_board, parse_board  # noqa: E402
 
 
 PR115_BOARD = "\n".join(
