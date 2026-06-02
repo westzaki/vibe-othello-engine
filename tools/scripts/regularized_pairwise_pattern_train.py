@@ -12,12 +12,14 @@ import argparse
 import collections
 import csv
 import datetime as dt
+import errno
 import hashlib
 import json
 import math
 import random
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -54,6 +56,8 @@ PAIR_MODES = (
     "exact-aware",
 )
 PAIR_WEIGHTINGS = ("uniform", "rank-margin", "score-margin", "exact-boost")
+ANALYSIS_SPAWN_RETRIES = 5
+ANALYSIS_SPAWN_BACKOFF_SECONDS = 0.25
 
 FAMILY_ALIASES: dict[str, tuple[str, ...]] = {
     **COMMON_FAMILY_ALIASES,
@@ -878,13 +882,25 @@ def analyze_command(config: TrainerConfig) -> list[str]:
 
 def run_analysis(config: TrainerConfig, board_text: str) -> AnalyzeResult:
     command = analyze_command(config)
-    completed = subprocess.run(
-        command,
-        input=board_text,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    completed: subprocess.CompletedProcess[str] | None = None
+    for attempt in range(ANALYSIS_SPAWN_RETRIES + 1):
+        try:
+            completed = subprocess.run(
+                command,
+                input=board_text,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            break
+        except OSError as exc:
+            if exc.errno != errno.EAGAIN or attempt >= ANALYSIS_SPAWN_RETRIES:
+                raise ScriptError(
+                    f"analysis spawn failed: {quote_command(command)}\n{exc}",
+                    exit_code=1,
+                ) from exc
+            time.sleep(ANALYSIS_SPAWN_BACKOFF_SECONDS * (attempt + 1))
+    assert completed is not None
     if completed.returncode != 0:
         raise ScriptError(
             f"analysis failed: {quote_command(command)}\n{completed.stderr}",
