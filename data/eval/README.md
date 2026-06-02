@@ -36,6 +36,21 @@ Pattern-first experiments may intentionally be weaker than the engine default
 while they build better table ownership, dataset, trainer, and validation
 foundations.
 
+### Promotion Candidate
+
+`ntest_pairwise_full_v2.eval` is a reviewable NTest 300K regularized pairwise
+candidate. It keeps the `current_default` scalar evaluator snapshot and adds
+phase-specific learned pattern-table deltas. It is not selected unless a tool is
+explicitly run with `--eval-config data/eval/ntest_pairwise_full_v2.eval`, and it
+does not change the built-in default evaluator.
+
+The validation report is
+[`docs/experiments/ntest_balanced300k_regularized_pairwise_full_v2_report.md`](../../docs/experiments/ntest_balanced300k_regularized_pairwise_full_v2_report.md).
+The candidate is favorable in the recorded deterministic matches and improves
+exact sign metrics, but exact-best rank metrics regress slightly and search
+overhead increases. Any default promotion must be a separate explicit decision
+that carries those risks.
+
 ## Rejected or Superseded Configs
 
 Rejected and superseded configs should normally be removed from `data/eval`
