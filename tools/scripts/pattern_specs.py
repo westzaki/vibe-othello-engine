@@ -8,6 +8,7 @@ from collections.abc import Sequence
 
 PatternSpec = tuple[int, ...]
 PatternFamilySpecs = tuple[PatternSpec, ...]
+PatternRows = Sequence[Sequence[str]]
 
 CORNER_2X3_SPECS: PatternFamilySpecs = (
     (0, 1, 2, 8, 9, 10),
@@ -59,11 +60,40 @@ COMMON_FAMILY_ALIASES: dict[str, tuple[str, ...]] = {
 }
 
 
-def board_cell(rows: Sequence[Sequence[str]], square_index: int) -> str:
+def board9_rows_to_square_index_rows(rows: PatternRows) -> tuple[Sequence[str], ...]:
+    """Convert board9 display rows to C++ square-index rows.
+
+    Board9 text is written rank 8 down to rank 1 for human display. Pattern
+    specs and the C++ evaluator use square indexes in a1..h1, then a2..h2,
+    through a8..h8 order, so row 0 must be rank 1 before pattern indexing.
+    """
+
+    if len(rows) != 8:
+        raise ValueError("expected exactly 8 board rows")
+    return tuple(reversed(rows))
+
+
+def parse_board9_square_index_rows(text: str) -> tuple[Sequence[str], ...]:
+    """Parse board9 text and return rows in C++ square-index order.
+
+    The input board rows are display order, rank 8 down to rank 1, followed by
+    a side line. The returned rows are rank 1 up to rank 8 for pattern specs.
+    """
+
+    lines = [line.strip() for line in text.strip().splitlines() if line.strip()]
+    if len(lines) != 9:
+        raise ValueError("expected board9 text with 8 rows plus side")
+    side_line = lines[8]
+    if not side_line.startswith("side=") or len(side_line) != 6:
+        raise ValueError("expected board9 side line")
+    return board9_rows_to_square_index_rows(lines[:8])
+
+
+def board_cell(rows: PatternRows, square_index: int) -> str:
     return rows[square_index // 8][square_index % 8]
 
 
-def pattern_index(rows: Sequence[Sequence[str]], side: str, spec: PatternSpec) -> int:
+def pattern_index(rows: PatternRows, side: str, spec: PatternSpec) -> int:
     opponent = "W" if side == "B" else "B"
     index = 0
     place = 1
