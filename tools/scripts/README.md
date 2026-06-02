@@ -52,7 +52,7 @@ script.
 | `eval_config_search_validate.py` | deprecated | Chain held-out scalar/config summaries into search-bench and match-smoke validation. | Replaced by `eval_candidate_matrix.py`, `run_match_experiment.py`, `base_head_match_matrix.py`, and `evidence.py`; remaining repository mentions are historical experiment commands. |
 | `eval_config_tuner.py` | deprecated | Perturb fully expanded `.eval` scalar weights against exact-label JSONL. | Replaced for current work by `exact_label_workflow.py`, `eval_candidate_matrix.py`, and `evidence.py`; remaining repository mentions are historical experiment commands. |
 | `eval_experiment_matrix.py` | deprecated | Run staged `.eval` config search and match matrices. | Replaced by `eval_candidate_matrix.py`, `run_match_experiment.py`, `base_head_match_matrix.py`, and `evidence.py`; `evidence.py --profile eval` no longer depends on it. |
-| `pattern_teacher_v0_train.py` | deprecated | Train sparse learned pattern tables and provide temporary compatibility imports for older helper names. | Replaced by `regularized_pairwise_pattern_train.py` for new pattern work; shared dataset/split/pattern-table/preference helpers are tested directly under `pattern_training/`. Historical reports and `pattern_teacher_v0.tsv` metadata keep provenance only. |
+| `pattern_teacher_v0_train.py` | deprecated | Train sparse learned pattern tables and provide temporary compatibility imports for older helper names. | Replaced by `regularized_pairwise_pattern_train.py` for new pattern work; shared dataset/split/pattern-table/preference helpers are tested directly under `pattern_training/`. Historical reports keep provenance only. |
 | `phase_pattern_table_train.py` | deprecated | Train separate opening/midgame/late sparse pattern tables and local candidate configs. | Replaced by the canonical regularized pairwise trainer for active work; helper behavior is covered directly under `pattern_training/`. Historical phase-table reports remain provenance only. |
 | `run_experiment_matrix.py` | deprecated | Run JSON-defined match-runner matrices from `tools/scripts/examples/search_ablation_smoke.json`. | Replaced by explicit `run_match_experiment.py`, `base_head_match_matrix.py`, and `evidence.py` workflows; it had no current docs outside this README and its dedicated test/example. |
 
@@ -65,10 +65,9 @@ should be rebuilt with the current workflows above.
 For new evaluation research, start with the current role definitions in
 `data/eval/README.md` before choosing a script and base evaluator.
 `current_default.eval` is the engine default and product-facing compatibility
-baseline. `pattern_reboot_v0.eval`, when present, is a historical clean
-pattern-only baseline for reproducing old evidence and is expected to be weak
-initially. Historical pattern-teacher artifacts remain provenance, not active
-trainer entry points or defaults for new work.
+baseline. Historical pattern-teacher configs and tables were pruned from
+`data/eval`; old reports may still mention them as provenance, but they are not
+active trainer entry points, loadable presets, or defaults for new work.
 
 The preferred next path is pattern learning foundation work, not another round
 of tiny scalar residual tuning. Use reusable teacher and exact artifacts through
@@ -129,7 +128,7 @@ older artifact or isolating a phase-table migration detail.
 The canonical pairwise trainer requires `--eval-config`; choose the base
 evaluator intentionally for each run. Current-engine improvement workflows
 should usually pass `--eval-config data/eval/current_default.eval`. Do not rely
-on historical `pattern_reboot_v0.eval` defaults for new work.
+on historical pattern-teacher config defaults for new work.
 
 Pattern trainers that invoke `othello_analyze_position` share the same optional
 root-analysis cache flags: `--analysis-cache-dir`, `--analysis-cache-mode`, and

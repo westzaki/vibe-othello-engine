@@ -5,6 +5,12 @@ Status: experimental report, not current guidance.
 This report records a first minimal pattern-evaluation experiment. It is not a
 default-promotion proposal, not a C++ `EvaluationPreset`, not an Elo claim, not
 proof of strength, and it does not change exact solver or search semantics.
+The `data/eval/pattern_teacher_v0.eval` and
+`data/eval/patterns/pattern_teacher_v0.tsv` artifacts referenced below have
+been removed from active source-controlled eval configs; the commands and paths
+are retained as historical provenance only. Current work should use
+`current_default.eval`, `ntest_pairwise_full_v2.eval`, or an explicit new
+config.
 
 ## Metadata
 

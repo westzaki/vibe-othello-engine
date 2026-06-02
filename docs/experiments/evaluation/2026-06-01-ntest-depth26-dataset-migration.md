@@ -137,6 +137,12 @@ The plain relative `dataset:` references above work with either
 
 Example phase-aware training input shape:
 
+Note: this command is historical provenance from the migration report. The
+referenced `data/eval/pattern_reboot_v0.eval` artifact has been removed from
+active source-controlled eval configs; current work should use
+`current_default.eval`, `ntest_pairwise_full_v2.eval`, or an explicit new
+config.
+
 ```sh
 python3 tools/scripts/phase_pattern_table_train.py \
   --teacher-labels dataset:teacher.ntest_depth26_2027:train \

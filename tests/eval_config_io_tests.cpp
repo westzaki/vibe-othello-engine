@@ -167,20 +167,17 @@ TEST_CASE("Sample eval configs round-trip to expected evaluator configs", "[eval
     CHECK(pattern_only_smoke.config.midgame_max_occupied == 44);
 }
 
-TEST_CASE("Committed eval artifact surface contains only active and retained historical fixtures",
+TEST_CASE("Committed eval artifact surface contains only active fixtures",
           "[evaluation]") {
     std::vector<std::string> allowed_eval_configs{
         std::string{"current_default.eval"},
         std::string{"current_default_legacy_scalar_2026_06_02.eval"},
         std::string{"ntest_pairwise_full_v2.eval"},
-        std::string{"pattern_reboot_v0.eval"},
-        std::string{"pattern_teacher_v0"} + ".eval",
     };
     std::vector<std::string> allowed_pattern_tables{
         std::string{"ntest_pairwise_full_v2_late.tsv"},
         std::string{"ntest_pairwise_full_v2_midgame.tsv"},
         std::string{"ntest_pairwise_full_v2_opening.tsv"},
-        std::string{"pattern_teacher_v0"} + ".tsv",
     };
     std::ranges::sort(allowed_eval_configs);
     std::ranges::sort(allowed_pattern_tables);

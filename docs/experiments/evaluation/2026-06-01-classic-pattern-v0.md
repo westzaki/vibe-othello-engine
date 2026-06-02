@@ -5,10 +5,14 @@ Status: experimental report, negative result, not current guidance.
 This report records a broad classic sparse-pattern baseline after
 `pattern_teacher_v0` and `pattern_teacher_v1`. It is useful as broad
 pattern-family plumbing and indexer/loader validation, but it is rejected as a
-stronger evaluator candidate. `pattern_teacher_v0` remains the preferred
-experimental pattern baseline for comparisons. This is not a default-promotion
-proposal, not a C++ `EvaluationPreset`, not an Elo claim, not proof of strength,
-and it does not change exact solver or search semantics.
+stronger evaluator candidate. `pattern_teacher_v0` is now a pruned historical
+baseline, not a current comparison preset. This is not a default-promotion
+proposal, not a C++ `EvaluationPreset`, not an Elo claim, not proof of
+strength, and it does not change exact solver or search semantics.
+Historical `data/eval/pattern_teacher_v0.eval` paths referenced below have
+been removed from active source-controlled eval configs; the command blocks and
+tables are retained as provenance only. Current work should use `current_default.eval`,
+`ntest_pairwise_full_v2.eval`, or an explicit new config.
 
 ## Decision
 
@@ -18,7 +22,8 @@ preferred evaluator candidate and should not be used for strength claims.
 
 The 2027 usable-row NTest run showed train improvement, but the broader sparse
 residual-count table did not generalize on validation or holdout. On holdout,
-`pattern_teacher_v0` remained the stronger experimental pattern baseline.
+`pattern_teacher_v0` was the stronger historical comparison baseline in this
+recorded run.
 
 ## Metadata
 
@@ -339,8 +344,8 @@ relative to the baseline and all compared pattern configs in this run.
 `classic_pattern_v0` is useful as broad sparse-pattern plumbing and
 indexer/loader validation, but it is rejected as a stronger evaluator
 candidate. It should not be promoted, should not become a preferred candidate,
-and should not be used for strength claims. `pattern_teacher_v0` remains the
-preferred experimental pattern baseline for comparisons based on the holdout
+and should not be used for strength claims. `pattern_teacher_v0` was the
+stronger historical pattern baseline in this report based on the holdout
 metrics.
 
 The result suggests that simply adding broader families with sparse residual
