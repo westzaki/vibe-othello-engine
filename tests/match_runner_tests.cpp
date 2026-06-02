@@ -2,8 +2,8 @@
 #include "../tools/match_runner/engine_config.hpp"
 #include "test_helpers.hpp"
 
-#include <catch2/catch_test_macros.hpp>
 #include <bit>
+#include <catch2/catch_test_macros.hpp>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -61,6 +61,7 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
     CHECK(depth_only_options.max_depth == 4);
     CHECK_FALSE(depth_only_options.use_transposition_table);
     CHECK_FALSE(depth_only_options.use_pvs);
+    CHECK(depth_only_options.store_leaf_tt_entries);
     CHECK(depth_only_options.exact_endgame_empty_threshold == 12);
     CHECK(depth_only_options.transposition_table_entries == (1U << 18));
 
@@ -84,15 +85,15 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
     CHECK(adaptive_exact_options.exact_endgame_empty_threshold == 16);
     CHECK(adaptive_exact_options.exact_endgame_root_policy ==
           othello::ExactEndgameRootPolicy::Adaptive16);
-    CHECK(require_search_options("search:depth=4,tt_entries=262144")
-              .transposition_table_entries == 262144U);
+    CHECK(require_search_options("search:depth=4,tt_entries=262144").transposition_table_entries ==
+          262144U);
+    CHECK_FALSE(require_search_options("search:depth=4,tt_store_leaf=off").store_leaf_tt_entries);
     CHECK_FALSE(depth_only_options.evaluation_config_override.has_value());
     CHECK(othello::resolve_evaluation_config(depth_only_options) ==
           othello::default_evaluation_config());
 
     const othello::SearchOptions eval_config_options = require_search_options(
-        "search:depth=4,eval_config=" +
-        sample_eval_config_path("pattern_teacher_v0.eval"));
+        "search:depth=4,eval_config=" + sample_eval_config_path("pattern_teacher_v0.eval"));
     CHECK(eval_config_options.evaluation_config_override.has_value());
     CHECK(eval_config_options.evaluation_config_override->pattern_tables != nullptr);
     CHECK(eval_config_options.evaluation_config_override->opening.pattern_table == 10);
@@ -104,20 +105,22 @@ TEST_CASE("Search player specs reject invalid options", "[match-runner]") {
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,tt=maybe").has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,unknown=1").has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,tt=on,tt=off").has_value());
+    CHECK_FALSE(
+        runner::parse_player_spec("search:depth=4,tt_store_leaf=on,tt_store_leaf=off").has_value());
+    CHECK_FALSE(runner::parse_player_spec("search:depth=4,tt_store_leaf=maybe").has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,pvs=on,pvs=off").has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,exact=1,exact=off").has_value());
-    CHECK_FALSE(runner::parse_player_spec("search:depth=4,tt_entries=1,tt_entries=2")
-                    .has_value());
+    CHECK_FALSE(runner::parse_player_spec("search:depth=4,tt_entries=1,tt_entries=2").has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,exact=-1").has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,exact=adaptive17").has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,tt_entries=-1").has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,eval=default").has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,eval_config=missing.eval").has_value());
-    CHECK_FALSE(runner::parse_player_spec(
-                    "search:depth=4,eval_config=" +
-                    sample_eval_config_path("current_default.eval") +
-                    ",eval_config=" + sample_eval_config_path("current_default.eval"))
-                    .has_value());
+    CHECK_FALSE(
+        runner::parse_player_spec(
+            "search:depth=4,eval_config=" + sample_eval_config_path("current_default.eval") +
+            ",eval_config=" + sample_eval_config_path("current_default.eval"))
+            .has_value());
 }
 
 TEST_CASE("External NBoard player specs parse engine names", "[match-runner]") {
@@ -144,8 +147,7 @@ TEST_CASE("External engine config parser accepts line-based configs", "[match-ru
     CHECK(result.config.command[0] == "../build-head/othello_nboard_engine");
 }
 
-TEST_CASE("External engine config parser handles comments, empty cwd, and args",
-          "[match-runner]") {
+TEST_CASE("External engine config parser handles comments, empty cwd, and args", "[match-runner]") {
     const runner::EngineConfigParseResult comment = runner::parse_engine_config_line("# comment");
     const runner::EngineConfigParseResult blank = runner::parse_engine_config_line("   ");
     const runner::EngineConfigParseResult with_args =

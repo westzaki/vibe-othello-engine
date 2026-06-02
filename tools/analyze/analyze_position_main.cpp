@@ -22,7 +22,7 @@ using AnalysisOptions = othello::tools::analyze::AnalysisOptions;
 void print_usage(std::string_view program_name) {
     std::cout << "usage: " << program_name
               << " (--board-file PATH | --stdin) [--depth N] [--mode fixed|iterative]"
-                 " [--tt on|off] [--tt-entries N] [--pvs on|off]"
+                 " [--tt on|off] [--tt-entries N] [--tt-store-leaf on|off] [--pvs on|off]"
                  " [--aspiration on|off] [--aspiration-window N]"
                  " [--aspiration-max-researches N] [--exact-endgame-threshold N]"
                  " "
@@ -35,13 +35,16 @@ void print_usage(std::string_view program_name) {
               << "  --mode MODE        fixed or iterative (default: fixed)\n"
               << "  --tt on|off        enable or disable transposition table (default: on)\n"
               << "  --tt-entries N     requested transposition table entry count\n"
+              << "  --tt-store-leaf on|off\n"
+              << "                    store depth-0 midgame heuristic leaves in TT (default: on)\n"
               << "  --pvs on|off       enable or disable PVS (default: off)\n"
               << "  --aspiration on|off\n"
               << "                    enable iterative-search aspiration windows (default: off)\n"
               << "  --aspiration-window N\n"
               << "                    positive initial aspiration half-window\n"
               << "  --aspiration-max-researches N\n"
-              << "                    non-negative aspiration widening retries before full-window fallback\n"
+              << "                    non-negative aspiration widening retries before full-window "
+                 "fallback\n"
               << "  --exact-endgame-threshold N\n"
               << "                    solve root positions with at most N empties exactly; N <= 0 "
                  "disables\n"
@@ -115,6 +118,15 @@ void print_usage(std::string_view program_name) {
                 return std::nullopt;
             }
             options.transposition_table_entries = *entries;
+        } else if (arg == "--tt-store-leaf") {
+            const auto value = othello::tools::next_argument(args, index, arg);
+            const auto store_leaf =
+                value.has_value() ? othello::tools::parse_on_off(*value) : std::nullopt;
+            if (!store_leaf.has_value()) {
+                std::cerr << "invalid --tt-store-leaf value\n";
+                return std::nullopt;
+            }
+            options.store_leaf_tt_entries = *store_leaf;
         } else if (arg == "--pvs") {
             const auto value = othello::tools::next_argument(args, index, arg);
             const auto pvs =
@@ -163,7 +175,7 @@ void print_usage(std::string_view program_name) {
         } else if (arg == "--eval-config") {
             std::string evaluator_cli_error;
             if (othello::tools::parse_evaluator_cli_option(args, index, evaluator_cli,
-                                                            evaluator_cli_error) ==
+                                                           evaluator_cli_error) ==
                 othello::tools::EvaluatorCliParseResult::Error) {
                 std::cerr << evaluator_cli_error << '\n';
                 return std::nullopt;

@@ -244,6 +244,10 @@ entries. The engine may round this to a small bucketed power-of-two capacity, so
 use the same setting when comparing TT hit, collision, overwrite, and rejected
 store rates across runs.
 
+`--tt-store-leaf on|off` controls whether depth-0 midgame heuristic search
+leaves are stored in that table. Keep it stable within one comparison, and do
+not treat it as an exact endgame TT setting.
+
 ## Comparing Iterative Aspiration Windows
 
 Aspiration windows are opt-in and apply only to `search_iterative()`. They use
@@ -507,12 +511,13 @@ python3 tools/scripts/match_summary.py \
 ```
 
 Supported search player options are `tt=on|off`, `pvs=on|off`,
-`exact=off|N|adaptive16`, and `tt_entries=N`. The plain `search:depth=N` form
-keeps the same defaults as the existing fixed-depth search path. `exact=N` uses
-the fixed root threshold, while `exact=adaptive16` is an experimental opt-in
-profile that solves roots up to 14 empties and conservatively gates 15/16-empty
-roots. `tt_entries=N` only sets the transposition-table capacity; include
-`tt=on` when the match should use the table.
+`exact=off|N|adaptive16`, `tt_entries=N`, and `tt_store_leaf=on|off`. The plain
+`search:depth=N` form keeps the same defaults as the existing fixed-depth search
+path. `exact=N` uses the fixed root threshold, while `exact=adaptive16` is an
+experimental opt-in profile that solves roots up to 14 empties and
+conservatively gates 15/16-empty roots. `tt_entries=N` only sets the
+transposition-table capacity; include `tt=on` when the match should use the
+table.
 
 For match-level adaptive16 smoke tests, keep the comparison deterministic and
 swap sides across the same openings:

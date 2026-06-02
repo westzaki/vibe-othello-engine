@@ -41,6 +41,7 @@ void write_exact_root_trace_stats(std::ostream& output, const ExactRootTraceStat
     output << "\"tt_lower_hits\":" << stats.tt_lower_hits << ',';
     output << "\"tt_upper_hits\":" << stats.tt_upper_hits << ',';
     output << "\"tt_stores\":" << stats.tt_stores << ',';
+    output << "\"tt_leaf_stores\":" << stats.tt_leaf_stores << ',';
     output << "\"tt_overwrites\":" << stats.tt_overwrites << ',';
     output << "\"tt_collisions\":" << stats.tt_collisions << ',';
     output << "\"tt_rejected_stores\":" << stats.tt_rejected_stores << ',';
@@ -167,8 +168,7 @@ bool write_jsonl_file(const std::filesystem::path& output_path,
         std::error_code error;
         std::filesystem::create_directories(output_path.parent_path(), error);
         if (error) {
-            std::cerr << "failed to create output directory: " << output_path.parent_path()
-                      << '\n';
+            std::cerr << "failed to create output directory: " << output_path.parent_path() << '\n';
             return false;
         }
     }

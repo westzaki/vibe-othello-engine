@@ -84,13 +84,15 @@ constexpr MoveOrderingParams default_move_ordering_params{};
 struct SearchContext {
     explicit SearchContext(const SearchOptions& options, bool enable_dynamic_move_ordering) noexcept
         : transpositions{options}, dynamic_move_ordering{enable_dynamic_move_ordering},
-          use_pvs{options.use_pvs}, evaluation_config{resolve_evaluation_config(options)} {}
+          use_pvs{options.use_pvs}, store_leaf_tt_entries{options.store_leaf_tt_entries},
+          evaluation_config{resolve_evaluation_config(options)} {}
 
     SearchStats stats;
     TranspositionTable transpositions;
     MoveOrderingParams move_ordering_params = default_move_ordering_params;
     bool dynamic_move_ordering = false;
     bool use_pvs = false;
+    bool store_leaf_tt_entries = true;
     EvaluationConfig evaluation_config = default_evaluation_config();
 };
 
@@ -112,6 +114,18 @@ constexpr ExactRootPolicyParams adaptive16_exact_root_policy_params{};
 [[nodiscard]] int evaluate_for_search(const Board& board, SearchContext& context) noexcept {
     ++context.stats.eval_calls;
     return evaluate_with_config(board, board.side_to_move, context.evaluation_config);
+}
+
+void store_leaf_transposition(SearchContext& context, ZobristHash hash, int depth, int score,
+                              int original_alpha, int beta,
+                              const std::optional<Square>& best_move) noexcept {
+    if (!context.store_leaf_tt_entries) {
+        return;
+    }
+    if (context.transpositions.store(hash, depth, score, original_alpha, beta, best_move,
+                                     context.stats)) {
+        ++context.stats.tt_leaf_stores;
+    }
 }
 
 [[nodiscard]] bool should_solve_exact_endgame_at_root(const Board& board,
@@ -289,8 +303,8 @@ ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
 
     if (depth <= 0) {
         const NodeResult result{.score = evaluate_for_search(board, context)};
-        context.transpositions.store(hash, depth, result.score, original_alpha, beta,
-                                     result.best_move, context.stats);
+        store_leaf_transposition(context, hash, depth, result.score, original_alpha, beta,
+                                 result.best_move);
         return result;
     }
 

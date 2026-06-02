@@ -34,16 +34,19 @@ using Clock = std::chrono::steady_clock;
 }
 
 [[nodiscard]] SearchOptions make_search_options(const AnalysisOptions& options) noexcept {
-    return apply_evaluator_selection(SearchOptions{
-        .max_depth = options.depth,
-        .use_transposition_table = options.use_transposition_table,
-        .transposition_table_entries = options.transposition_table_entries,
-        .exact_endgame_empty_threshold = options.exact_endgame_empty_threshold,
-        .use_pvs = options.use_pvs,
-        .use_aspiration_window = options.use_aspiration_window,
-        .aspiration_window = options.aspiration_window,
-        .aspiration_max_researches = options.aspiration_max_researches,
-    }, options.evaluator);
+    return apply_evaluator_selection(
+        SearchOptions{
+            .max_depth = options.depth,
+            .use_transposition_table = options.use_transposition_table,
+            .transposition_table_entries = options.transposition_table_entries,
+            .store_leaf_tt_entries = options.store_leaf_tt_entries,
+            .exact_endgame_empty_threshold = options.exact_endgame_empty_threshold,
+            .use_pvs = options.use_pvs,
+            .use_aspiration_window = options.use_aspiration_window,
+            .aspiration_window = options.aspiration_window,
+            .aspiration_max_researches = options.aspiration_max_researches,
+        },
+        options.evaluator);
 }
 
 [[nodiscard]] SearchResult run_search_with_depth(const Board& board, const AnalysisOptions& options,
@@ -59,65 +62,51 @@ using Clock = std::chrono::steady_clock;
 }
 
 void print_evaluation_breakdown(const EvaluationBreakdown& evaluation, std::string_view indent) {
-    std::cout << indent << "phase: " << phase_name(evaluation.phase) << '\n'
-              << indent << "occupied_count: " << evaluation.occupied_count << '\n'
-              << indent << "empty_count: " << evaluation.empty_count << '\n'
-              << indent << "terminal: " << (evaluation.terminal ? "yes" : "no") << '\n'
-              << indent << "disc_difference: " << evaluation.disc_difference << '\n'
-              << indent << "disc_difference_weight: " << evaluation.disc_difference_weight << '\n'
-              << indent << "disc_difference_score: " << evaluation.disc_difference_score << '\n'
-              << indent << "mobility: " << evaluation.mobility << '\n'
-              << indent << "mobility_weight: " << evaluation.mobility_weight << '\n'
-              << indent << "mobility_score: " << evaluation.mobility_score << '\n'
-              << indent << "corner_occupancy: " << evaluation.corner_occupancy << '\n'
-              << indent << "corner_occupancy_weight: " << evaluation.corner_occupancy_weight
-              << '\n'
-              << indent << "corner_occupancy_score: " << evaluation.corner_occupancy_score
-              << '\n'
-              << indent << "potential_mobility: " << evaluation.potential_mobility << '\n'
-              << indent << "potential_mobility_weight: "
-              << evaluation.potential_mobility_weight << '\n'
-              << indent << "potential_mobility_score: " << evaluation.potential_mobility_score
-              << '\n'
-              << indent << "corner_access: " << evaluation.corner_access << '\n'
-              << indent << "corner_access_weight: " << evaluation.corner_access_weight << '\n'
-              << indent << "corner_access_score: " << evaluation.corner_access_score << '\n'
-              << indent << "x_square_danger: " << evaluation.x_square_danger << '\n'
-              << indent << "x_square_danger_weight: " << evaluation.x_square_danger_weight
-              << '\n'
-              << indent << "x_square_danger_score: " << evaluation.x_square_danger_score
-              << '\n'
-              << indent << "frontier: " << evaluation.frontier << '\n'
-              << indent << "frontier_weight: " << evaluation.frontier_weight << '\n'
-              << indent << "frontier_score: " << evaluation.frontier_score << '\n'
-              << indent << "corner_local_2x3: " << evaluation.corner_local_2x3 << '\n'
-              << indent << "corner_local_2x3_weight: "
-              << evaluation.corner_local_2x3_weight << '\n'
-              << indent << "corner_local_2x3_score: " << evaluation.corner_local_2x3_score
-              << '\n'
-              << indent << "corner_2x3_pattern: " << evaluation.corner_2x3_pattern << '\n'
-              << indent << "corner_2x3_pattern_weight: "
-              << evaluation.corner_2x3_pattern_weight << '\n'
-              << indent << "corner_2x3_pattern_score: "
-              << evaluation.corner_2x3_pattern_score << '\n'
-              << indent << "edge_stability_lite: " << evaluation.edge_stability_lite << '\n'
-              << indent << "edge_stability_lite_weight: "
-              << evaluation.edge_stability_lite_weight << '\n'
-              << indent << "edge_stability_lite_score: " << evaluation.edge_stability_lite_score
-              << '\n'
-              << indent << "edge_8_pattern: " << evaluation.edge_8_pattern << '\n'
-              << indent << "edge_8_pattern_weight: " << evaluation.edge_8_pattern_weight << '\n'
-              << indent << "edge_8_pattern_score: " << evaluation.edge_8_pattern_score
-              << '\n'
-              << indent << "pattern_table: " << evaluation.pattern_table << '\n'
-              << indent << "pattern_table_weight: " << evaluation.pattern_table_weight << '\n'
-              << indent << "pattern_table_score: " << evaluation.pattern_table_score
-              << '\n'
-              << indent << "terminal_disc_difference: " << evaluation.terminal_disc_difference
-              << '\n'
-              << indent << "terminal_score_weight: " << evaluation.terminal_score_weight << '\n'
-              << indent << "terminal_score: " << evaluation.terminal_score << '\n'
-              << indent << "total: " << evaluation.total << '\n';
+    std::cout
+        << indent << "phase: " << phase_name(evaluation.phase) << '\n'
+        << indent << "occupied_count: " << evaluation.occupied_count << '\n'
+        << indent << "empty_count: " << evaluation.empty_count << '\n'
+        << indent << "terminal: " << (evaluation.terminal ? "yes" : "no") << '\n'
+        << indent << "disc_difference: " << evaluation.disc_difference << '\n'
+        << indent << "disc_difference_weight: " << evaluation.disc_difference_weight << '\n'
+        << indent << "disc_difference_score: " << evaluation.disc_difference_score << '\n'
+        << indent << "mobility: " << evaluation.mobility << '\n'
+        << indent << "mobility_weight: " << evaluation.mobility_weight << '\n'
+        << indent << "mobility_score: " << evaluation.mobility_score << '\n'
+        << indent << "corner_occupancy: " << evaluation.corner_occupancy << '\n'
+        << indent << "corner_occupancy_weight: " << evaluation.corner_occupancy_weight << '\n'
+        << indent << "corner_occupancy_score: " << evaluation.corner_occupancy_score << '\n'
+        << indent << "potential_mobility: " << evaluation.potential_mobility << '\n'
+        << indent << "potential_mobility_weight: " << evaluation.potential_mobility_weight << '\n'
+        << indent << "potential_mobility_score: " << evaluation.potential_mobility_score << '\n'
+        << indent << "corner_access: " << evaluation.corner_access << '\n'
+        << indent << "corner_access_weight: " << evaluation.corner_access_weight << '\n'
+        << indent << "corner_access_score: " << evaluation.corner_access_score << '\n'
+        << indent << "x_square_danger: " << evaluation.x_square_danger << '\n'
+        << indent << "x_square_danger_weight: " << evaluation.x_square_danger_weight << '\n'
+        << indent << "x_square_danger_score: " << evaluation.x_square_danger_score << '\n'
+        << indent << "frontier: " << evaluation.frontier << '\n'
+        << indent << "frontier_weight: " << evaluation.frontier_weight << '\n'
+        << indent << "frontier_score: " << evaluation.frontier_score << '\n'
+        << indent << "corner_local_2x3: " << evaluation.corner_local_2x3 << '\n'
+        << indent << "corner_local_2x3_weight: " << evaluation.corner_local_2x3_weight << '\n'
+        << indent << "corner_local_2x3_score: " << evaluation.corner_local_2x3_score << '\n'
+        << indent << "corner_2x3_pattern: " << evaluation.corner_2x3_pattern << '\n'
+        << indent << "corner_2x3_pattern_weight: " << evaluation.corner_2x3_pattern_weight << '\n'
+        << indent << "corner_2x3_pattern_score: " << evaluation.corner_2x3_pattern_score << '\n'
+        << indent << "edge_stability_lite: " << evaluation.edge_stability_lite << '\n'
+        << indent << "edge_stability_lite_weight: " << evaluation.edge_stability_lite_weight << '\n'
+        << indent << "edge_stability_lite_score: " << evaluation.edge_stability_lite_score << '\n'
+        << indent << "edge_8_pattern: " << evaluation.edge_8_pattern << '\n'
+        << indent << "edge_8_pattern_weight: " << evaluation.edge_8_pattern_weight << '\n'
+        << indent << "edge_8_pattern_score: " << evaluation.edge_8_pattern_score << '\n'
+        << indent << "pattern_table: " << evaluation.pattern_table << '\n'
+        << indent << "pattern_table_weight: " << evaluation.pattern_table_weight << '\n'
+        << indent << "pattern_table_score: " << evaluation.pattern_table_score << '\n'
+        << indent << "terminal_disc_difference: " << evaluation.terminal_disc_difference << '\n'
+        << indent << "terminal_score_weight: " << evaluation.terminal_score_weight << '\n'
+        << indent << "terminal_score: " << evaluation.terminal_score << '\n'
+        << indent << "total: " << evaluation.total << '\n';
 }
 
 [[nodiscard]] double tt_hit_percentage(const SearchStats& stats) noexcept {
@@ -139,8 +128,8 @@ void print_candidate_stats(const SearchStats& stats, std::string_view indent) {
               << indent << "aspiration_researches: " << stats.aspiration_researches << '\n'
               << indent << "aspiration_fail_lows: " << stats.aspiration_fail_lows << '\n'
               << indent << "aspiration_fail_highs: " << stats.aspiration_fail_highs << '\n'
-              << indent << "aspiration_fallbacks: "
-              << stats.aspiration_full_window_fallbacks << '\n';
+              << indent << "aspiration_fallbacks: " << stats.aspiration_full_window_fallbacks
+              << '\n';
 }
 
 void print_indented_board(const Board& board, std::string_view indent) {
@@ -158,8 +147,9 @@ void print_indented_board(const Board& board, std::string_view indent) {
     return candidate.move->index();
 }
 
-[[nodiscard]] std::vector<Square> candidate_principal_variation(
-    std::optional<Square> move, const std::vector<Square>& child_principal_variation) {
+[[nodiscard]] std::vector<Square>
+candidate_principal_variation(std::optional<Square> move,
+                              const std::vector<Square>& child_principal_variation) {
     std::vector<Square> principal_variation;
     if (move.has_value()) {
         principal_variation.push_back(*move);
@@ -284,6 +274,7 @@ void print_report(const Board& board, const AnalysisOptions& options, const Sear
               << "depth: " << options.depth << '\n'
               << "tt: " << (options.use_transposition_table ? "on" : "off") << '\n'
               << "tt_entries: " << options.transposition_table_entries << '\n'
+              << "tt_store_leaf: " << (options.store_leaf_tt_entries ? "on" : "off") << '\n'
               << "pvs: " << (options.use_pvs ? "on" : "off") << '\n'
               << "aspiration: " << (options.use_aspiration_window ? "on" : "off") << '\n'
               << "aspiration_window: " << options.aspiration_window << '\n'
@@ -293,8 +284,7 @@ void print_report(const Board& board, const AnalysisOptions& options, const Sear
               << (options.evaluator.config_path.has_value() ? *options.evaluator.config_path
                                                             : "built-in default")
               << '\n'
-              << "elapsed_ms: " << std::fixed << std::setprecision(3)
-              << elapsed_ms(elapsed) << '\n'
+              << "elapsed_ms: " << std::fixed << std::setprecision(3) << elapsed_ms(elapsed) << '\n'
               << "best_move: " << format_square(result.best_move) << '\n'
               << "score: " << result.score << '\n'
               << "score_kind: " << search_score_kind_name(result.score_kind) << '\n'
@@ -305,8 +295,7 @@ void print_report(const Board& board, const AnalysisOptions& options, const Sear
     } else {
         std::cout << "none\n";
     }
-    std::cout
-              << "nodes: " << result.nodes << '\n'
+    std::cout << "nodes: " << result.nodes << '\n'
               << "principal_variation: " << format_principal_variation(result.principal_variation)
               << '\n'
               << "game_over: " << (game_over ? "yes" : "no") << '\n'
@@ -329,18 +318,16 @@ void print_report(const Board& board, const AnalysisOptions& options, const Sear
     }
 
     for (const RootCandidateAnalysis& candidate : candidates) {
-        std::cout << "  - move: "
-                  << (candidate.pass ? "pass" : format_square(candidate.move)) << '\n'
+        std::cout << "  - move: " << (candidate.pass ? "pass" : format_square(candidate.move))
+                  << '\n'
                   << "    child_board:\n";
         print_indented_board(candidate.child_board, "      ");
-        std::cout
-                  << "    child_side_to_move: " << side_name(candidate.child_board.side_to_move)
+        std::cout << "    child_side_to_move: " << side_name(candidate.child_board.side_to_move)
                   << '\n'
                   << "    depth: " << candidate.depth << '\n'
                   << "    score: " << candidate.score << '\n'
                   << "    child_search_score: " << candidate.child_search.score << '\n'
-                  << "    pv: " << format_principal_variation(candidate.principal_variation)
-                  << '\n'
+                  << "    pv: " << format_principal_variation(candidate.principal_variation) << '\n'
                   << "    nodes: " << candidate.child_search.nodes << '\n'
                   << "    elapsed_ms: " << std::fixed << std::setprecision(3)
                   << elapsed_ms(candidate.elapsed) << '\n'
