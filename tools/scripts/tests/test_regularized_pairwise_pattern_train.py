@@ -4,6 +4,7 @@ import json
 import re
 import sys
 import tempfile
+import time
 import unittest
 from dataclasses import replace
 from pathlib import Path
@@ -85,6 +86,7 @@ def teacher_row(
     move: str = "d1",
     split: str = "train",
     selected_move: str | None = None,
+    position_id: str | None = None,
 ) -> dict[str, object]:
     row: dict[str, object] = {
         "schema": "teacher_label.v1",
@@ -94,7 +96,7 @@ def teacher_row(
         "board_text": board,
         "move": move,
         "position_split": split,
-        "position_id": f"{split}-{move}",
+        "position_id": position_id or f"{split}-{move}",
     }
     if selected_move is not None:
         row["selected_move"] = selected_move
@@ -349,6 +351,224 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
         self.assertEqual(pairs[0].pair_weight, 1.0)
         self.assertEqual(stats["preference_pairs"], 1)
         self.assertTrue(any(record.status == "paired" for record in records))
+        self.assertEqual(stats["analysis_cache_mode"], "off")
+        self.assertEqual(stats["analysis_jobs"], 1)
+
+    def test_analysis_cache_read_write_writes_then_hits(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            cache_dir = temp_path / "runs" / "analysis-cache"
+            config = make_config(
+                temp_path,
+                labels,
+                extra_args=[
+                    "--analysis-cache-dir",
+                    str(cache_dir),
+                    "--analysis-cache-mode",
+                    "read-write",
+                ],
+            )
+            config.analyze_position.write_text("fake analyzer\n", encoding="utf-8")
+            calls = 0
+
+            def counting_analyzer(
+                inner_config: trainer.TrainerConfig,
+                board_text: str,
+            ) -> trainer.AnalyzeResult:
+                nonlocal calls
+                calls += 1
+                return fake_analyzer(inner_config, board_text)
+
+            first_pairs, _, first_stats = trainer.collect_pairs(config, analyzer=counting_analyzer)
+            second_pairs, _, second_stats = trainer.collect_pairs(config, analyzer=counting_analyzer)
+
+        self.assertEqual(len(first_pairs), 1)
+        self.assertEqual(len(second_pairs), 1)
+        self.assertEqual(calls, 1)
+        self.assertEqual(first_stats["analysis_cache_hits"], 0)
+        self.assertEqual(first_stats["analysis_cache_misses"], 1)
+        self.assertEqual(first_stats["analysis_cache_writes"], 1)
+        self.assertEqual(second_stats["analysis_cache_hits"], 1)
+        self.assertEqual(second_stats["analysis_cache_misses"], 0)
+
+    def test_analysis_cache_stale_eval_config_hash_is_not_reused(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            cache_dir = temp_path / "runs" / "analysis-cache"
+            config = make_config(
+                temp_path,
+                labels,
+                extra_args=[
+                    "--analysis-cache-dir",
+                    str(cache_dir),
+                    "--analysis-cache-mode",
+                    "read-write",
+                ],
+            )
+            config.analyze_position.write_text("fake analyzer\n", encoding="utf-8")
+            calls = 0
+
+            def counting_analyzer(
+                inner_config: trainer.TrainerConfig,
+                board_text: str,
+            ) -> trainer.AnalyzeResult:
+                nonlocal calls
+                calls += 1
+                return fake_analyzer(inner_config, board_text)
+
+            trainer.collect_pairs(config, analyzer=counting_analyzer)
+            config.eval_config.write_text(
+                config.eval_config.read_text(encoding="utf-8") + "late.corner=1\n",
+                encoding="utf-8",
+            )
+            _, _, stale_stats = trainer.collect_pairs(config, analyzer=counting_analyzer)
+
+        self.assertEqual(calls, 2)
+        self.assertEqual(stale_stats["analysis_cache_hits"], 0)
+        self.assertEqual(stale_stats["analysis_cache_misses"], 1)
+
+    def test_analysis_cache_stale_analyzer_hash_is_not_reused(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            cache_dir = temp_path / "runs" / "analysis-cache"
+            config = make_config(
+                temp_path,
+                labels,
+                extra_args=[
+                    "--analysis-cache-dir",
+                    str(cache_dir),
+                    "--analysis-cache-mode",
+                    "read-write",
+                ],
+            )
+            config.analyze_position.write_text("fake analyzer v1\n", encoding="utf-8")
+            calls = 0
+
+            def counting_analyzer(
+                inner_config: trainer.TrainerConfig,
+                board_text: str,
+            ) -> trainer.AnalyzeResult:
+                nonlocal calls
+                calls += 1
+                return fake_analyzer(inner_config, board_text)
+
+            trainer.collect_pairs(config, analyzer=counting_analyzer)
+            config.analyze_position.write_text("fake analyzer v2\n", encoding="utf-8")
+            _, _, stale_stats = trainer.collect_pairs(config, analyzer=counting_analyzer)
+            cache_rows = [
+                json.loads(line)
+                for line in (cache_dir / "root_analysis.jsonl").read_text(encoding="utf-8").splitlines()
+            ]
+
+        self.assertEqual(calls, 2)
+        self.assertEqual(stale_stats["analysis_cache_hits"], 0)
+        self.assertEqual(stale_stats["analysis_cache_misses"], 1)
+        self.assertEqual(stale_stats["analysis_cache_writes"], 1)
+        self.assertEqual(len(cache_rows), 2)
+        self.assertNotEqual(
+            cache_rows[0]["analyze_position_hash"],
+            cache_rows[1]["analyze_position_hash"],
+        )
+
+    def test_analysis_cache_read_only_fails_when_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            config = make_config(
+                temp_path,
+                labels,
+                extra_args=[
+                    "--analysis-cache-dir",
+                    str(temp_path / "runs" / "analysis-cache"),
+                    "--analysis-cache-mode",
+                    "read-only",
+                ],
+            )
+
+            with self.assertRaisesRegex(ScriptError, "analysis cache missing"):
+                trainer.collect_pairs(config, analyzer=fake_analyzer)
+
+    def test_analysis_cache_refresh_ignores_existing_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            cache_dir = temp_path / "runs" / "analysis-cache"
+            warm_config = make_config(
+                temp_path,
+                labels,
+                extra_args=[
+                    "--analysis-cache-dir",
+                    str(cache_dir),
+                    "--analysis-cache-mode",
+                    "read-write",
+                ],
+            )
+            warm_config.analyze_position.write_text("fake analyzer\n", encoding="utf-8")
+            refresh_config = make_config(
+                temp_path,
+                labels,
+                extra_args=[
+                    "--analysis-cache-dir",
+                    str(cache_dir),
+                    "--analysis-cache-mode",
+                    "refresh",
+                ],
+            )
+            calls = 0
+
+            def counting_analyzer(
+                inner_config: trainer.TrainerConfig,
+                board_text: str,
+            ) -> trainer.AnalyzeResult:
+                nonlocal calls
+                calls += 1
+                return fake_analyzer(inner_config, board_text)
+
+            trainer.collect_pairs(warm_config, analyzer=counting_analyzer)
+            _, _, refresh_stats = trainer.collect_pairs(refresh_config, analyzer=counting_analyzer)
+
+        self.assertEqual(calls, 2)
+        self.assertEqual(refresh_stats["analysis_cache_hits"], 0)
+        self.assertEqual(refresh_stats["analysis_cache_misses"], 1)
+        self.assertEqual(refresh_stats["analysis_cache_writes"], 1)
+
+    def test_parallel_analysis_preserves_deterministic_pair_order(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(
+                temp_path / "labels.jsonl",
+                [
+                    teacher_row(position_id="first"),
+                    teacher_row(position_id="second"),
+                    teacher_row(position_id="third"),
+                ],
+            )
+            config = make_config(
+                temp_path,
+                labels,
+                extra_args=[
+                    "--pair-mode",
+                    "best-vs-all",
+                    "--analysis-jobs",
+                    "3",
+                ],
+            )
+
+            def slow_analyzer(
+                inner_config: trainer.TrainerConfig,
+                board_text: str,
+            ) -> trainer.AnalyzeResult:
+                del inner_config
+                time.sleep(0.01)
+                return wide_fake_analyzer(config, board_text)
+
+            pairs, _, stats = trainer.collect_pairs(config, analyzer=slow_analyzer)
+
+        self.assertEqual(stats["analysis_jobs"], 3)
+        self.assertEqual([pair.source_line for pair in pairs], [1, 1, 1, 2, 2, 2, 3, 3, 3])
 
     def test_best_vs_all_pair_generation_uses_root_candidates(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
