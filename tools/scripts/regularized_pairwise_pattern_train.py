@@ -1743,6 +1743,54 @@ def clamp_weight(value: float, maximum: float) -> float:
     return max(-maximum, min(maximum, value))
 
 
+class LazyPhaseWeights:
+    def __init__(self) -> None:
+        self.scale = 1.0
+        self.stored: dict[FeatureKey, float] = {}
+
+    def effective_value(self, key: FeatureKey) -> float:
+        return self.stored.get(key, 0.0) * self.scale
+
+    def shrink(self, factor: float) -> None:
+        if not self.stored or factor == 1.0:
+            return
+        if factor <= 0.0:
+            self.stored.clear()
+            self.scale = 1.0
+            return
+        self.scale *= factor
+        if self.scale < 1.0e-8:
+            self.materialize()
+
+    def add_effective_update(self, key: FeatureKey, delta: float, maximum: float) -> None:
+        updated = clamp_weight(self.effective_value(key) + delta, maximum)
+        if abs(updated) < 1.0e-12:
+            self.stored.pop(key, None)
+            return
+        self.stored[key] = updated / self.scale
+
+    def materialize(self) -> dict[FeatureKey, float]:
+        if self.scale != 1.0:
+            self.stored = {
+                key: value * self.scale
+                for key, value in self.stored.items()
+                if abs(value * self.scale) >= 1.0e-12
+            }
+            self.scale = 1.0
+        else:
+            self.stored = {
+                key: value
+                for key, value in self.stored.items()
+                if abs(value) >= 1.0e-12
+            }
+        return self.stored
+
+
+def lazy_pair_margin(lazy_weights: dict[str, LazyPhaseWeights], pair: PreferencePair) -> float:
+    phase_weights = lazy_weights[pair.phase]
+    return sum(phase_weights.effective_value(key) * value for key, value in pair.features.items())
+
+
 def train_weights(config: TrainerConfig, pairs: list[PreferencePair]) -> tuple[WeightsByPhase, list[dict[str, Any]]]:
     weights: WeightsByPhase = {phase: {} for phase in PHASES}
     history: list[dict[str, Any]] = []
@@ -1752,17 +1800,18 @@ def train_weights(config: TrainerConfig, pairs: list[PreferencePair]) -> tuple[W
         return weights, history
 
     rng = random.Random(config.seed)
+    lazy_weights = {phase: LazyPhaseWeights() for phase in PHASES}
+    shrink_factor = max(0.0, 1.0 - config.learning_rate * config.l2)
     for epoch in range(1, config.epochs + 1):
         shuffled = list(pairs)
         rng.shuffle(shuffled)
         for pair in shuffled:
-            phase_weights = weights[pair.phase]
-            shrink_phase_weights(
-                phase_weights,
-                learning_rate=config.learning_rate,
-                l2=config.l2,
-            )
-            margin = model_margin(config, weights, pair)
+            phase_weights = lazy_weights[pair.phase]
+            if config.l2 != 0.0:
+                phase_weights.shrink(shrink_factor)
+            margin = lazy_pair_margin(lazy_weights, pair)
+            if config.include_base_margin:
+                margin += base_score_margin(pair)
             if config.loss == "hinge":
                 factor = 1.0 if margin < 1.0 else 0.0
             else:
@@ -1770,9 +1819,9 @@ def train_weights(config: TrainerConfig, pairs: list[PreferencePair]) -> tuple[W
             if factor == 0.0:
                 continue
             for key, value in pair.features.items():
-                current = phase_weights.get(key, 0.0)
-                updated = current + config.learning_rate * pair.pair_weight * factor * value
-                phase_weights[key] = clamp_weight(updated, config.max_abs_weight)
+                delta = config.learning_rate * pair.pair_weight * factor * value
+                phase_weights.add_effective_update(key, delta, config.max_abs_weight)
+        weights = {phase: dict(lazy_weights[phase].materialize()) for phase in PHASES}
         metrics = evaluate_pairs(config, weights, pairs)
         history.append({"epoch": epoch, **metrics})
     return weights, history
