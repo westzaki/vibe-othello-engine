@@ -1,4 +1,5 @@
 #include "common/eval_config_io.hpp"
+#include "common/pattern_table_io.hpp"
 
 #include <algorithm>
 #include <array>
@@ -7,12 +8,10 @@
 #include <fstream>
 #include <filesystem>
 #include <iterator>
-#include <limits>
 #include <memory>
 #include <sstream>
 #include <string>
 #include <system_error>
-#include <utility>
 #include <vector>
 
 namespace othello::tools {
@@ -35,23 +34,9 @@ struct ConfigKeySpec {
     int EvaluationConfig::*value;
 };
 
-struct PatternTableLoadResult {
-    std::shared_ptr<const PatternTableBundle> tables;
-    std::string error;
-
-    [[nodiscard]] bool ok() const noexcept {
-        return error.empty();
-    }
-};
-
 struct PatternTablePathKeySpec {
     std::string_view key;
     std::optional<std::string> EvaluationConfigLoadResult::*path;
-};
-
-struct PatternTableCacheEntry {
-    std::filesystem::path path;
-    std::shared_ptr<const PatternTableBundle> tables;
 };
 
 enum class EvaluationConfigMode {
@@ -169,12 +154,6 @@ constexpr std::array<PatternTablePathKeySpec, 3> phase_pattern_table_path_keys{{
     return out.str();
 }
 
-[[nodiscard]] PatternTableLoadResult pattern_table_error(std::string error) {
-    PatternTableLoadResult result;
-    result.error = std::move(error);
-    return result;
-}
-
 [[nodiscard]] std::optional<int> parse_eval_int(std::string_view text) noexcept {
     int value = 0;
     const auto* begin = text.data();
@@ -190,24 +169,6 @@ constexpr std::array<PatternTablePathKeySpec, 3> phase_pattern_table_path_keys{{
     return std::ranges::any_of(keys, [key](const std::string& seen) {
         return seen == key;
     });
-}
-
-template <std::size_t N>
-[[nodiscard]] std::string assign_sparse_pattern_entry(std::array<std::int16_t, N>& table,
-                                                      std::array<bool, N>& seen,
-                                                      int line_number,
-                                                      std::string_view family, int index,
-                                                      int value) {
-    if (index < 0 || index >= static_cast<int>(N)) {
-        return line_error(line_number, std::string{family} + " index out of range");
-    }
-    const auto table_index = static_cast<std::size_t>(index);
-    if (seen[table_index]) {
-        return line_error(line_number, "duplicate " + std::string{family} + " index");
-    }
-    table[table_index] = static_cast<std::int16_t>(value);
-    seen[table_index] = true;
-    return {};
 }
 
 [[nodiscard]] std::optional<std::size_t>
@@ -270,124 +231,6 @@ void assign_missing_feature_keys(EvaluationConfig& config,
 void assign_config_key(EvaluationConfig& config, std::size_t index, int value) noexcept {
     const ConfigKeySpec& spec = config_keys[index];
     config.*spec.value = value;
-}
-
-[[nodiscard]] PatternTableLoadResult
-load_pattern_table_file(const std::filesystem::path& path) {
-    std::ifstream input{path};
-    if (!input) {
-        return pattern_table_error("failed to open pattern table: " + path.string());
-    }
-
-    auto loaded = std::make_shared<PatternTableBundle>();
-    std::array<bool, corner_2x3_pattern_table_size> seen_corner{};
-    std::array<bool, corner_3x3_pattern_table_size> seen_corner_3x3{};
-    std::array<bool, edge_8_pattern_table_size> seen_edge{};
-    std::array<bool, edge_x_10_pattern_table_size> seen_edge_x_10{};
-    std::array<bool, diagonal_8_pattern_table_size> seen_diagonal{};
-    std::array<bool, inner_row_8_pattern_table_size> seen_inner_row{};
-    bool has_entries = false;
-
-    int line_number = 0;
-    std::string raw_line;
-    while (std::getline(input, raw_line)) {
-        ++line_number;
-        std::string_view line{raw_line};
-        if (const std::size_t comment = line.find('#'); comment != std::string_view::npos) {
-            line = line.substr(0, comment);
-        }
-        line = trim_ascii(line);
-        if (line.empty()) {
-            continue;
-        }
-
-        std::istringstream parts{std::string{line}};
-        std::string family;
-        int index = 0;
-        int value = 0;
-        std::string trailing;
-        if (!(parts >> family >> index >> value) || (parts >> trailing)) {
-            return pattern_table_error(
-                line_error(line_number, "expected '<family> <index> <value>'"));
-        }
-        if (value < std::numeric_limits<std::int16_t>::min() ||
-            value > std::numeric_limits<std::int16_t>::max()) {
-            return pattern_table_error(
-                line_error(line_number, "pattern value outside int16 range"));
-        }
-
-        if (family == "corner_2x3") {
-            if (const std::string error = assign_sparse_pattern_entry(
-                    loaded->corner_2x3, seen_corner, line_number, family, index, value);
-                !error.empty()) {
-                return pattern_table_error(error);
-            }
-        } else if (family == "corner_3x3") {
-            if (const std::string error = assign_sparse_pattern_entry(
-                    loaded->corner_3x3, seen_corner_3x3, line_number, family, index, value);
-                !error.empty()) {
-                return pattern_table_error(error);
-            }
-        } else if (family == "edge_8") {
-            if (const std::string error = assign_sparse_pattern_entry(
-                    loaded->edge_8, seen_edge, line_number, family, index, value);
-                !error.empty()) {
-                return pattern_table_error(error);
-            }
-        } else if (family == "edge_x_10") {
-            if (const std::string error = assign_sparse_pattern_entry(
-                    loaded->edge_x_10, seen_edge_x_10, line_number, family, index, value);
-                !error.empty()) {
-                return pattern_table_error(error);
-            }
-        } else if (family == "diagonal_8") {
-            if (const std::string error = assign_sparse_pattern_entry(
-                    loaded->diagonal_8, seen_diagonal, line_number, family, index, value);
-                !error.empty()) {
-                return pattern_table_error(error);
-            }
-        } else if (family == "inner_row_8") {
-            if (const std::string error = assign_sparse_pattern_entry(
-                    loaded->inner_row_8, seen_inner_row, line_number, family, index, value);
-                !error.empty()) {
-                return pattern_table_error(error);
-            }
-        } else {
-            return pattern_table_error(
-                line_error(line_number, "unknown pattern family: " + family));
-        }
-        has_entries = true;
-    }
-
-    if (input.bad()) {
-        return pattern_table_error("failed to read pattern table: " + path.string());
-    }
-    if (!has_entries) {
-        return pattern_table_error("pattern table has no entries");
-    }
-
-    PatternTableLoadResult result;
-    result.tables = std::move(loaded);
-    return result;
-}
-
-[[nodiscard]] PatternTableLoadResult
-load_pattern_table_file_cached(const std::filesystem::path& path,
-                               std::vector<PatternTableCacheEntry>& cache) {
-    const std::filesystem::path normalized = path.lexically_normal();
-    for (const PatternTableCacheEntry& entry : cache) {
-        if (entry.path == normalized) {
-            PatternTableLoadResult result;
-            result.tables = entry.tables;
-            return result;
-        }
-    }
-
-    PatternTableLoadResult loaded = load_pattern_table_file(normalized);
-    if (loaded.ok()) {
-        cache.push_back(PatternTableCacheEntry{.path = normalized, .tables = loaded.tables});
-    }
-    return loaded;
 }
 
 } // namespace
@@ -542,7 +385,7 @@ EvaluationConfigLoadResult load_evaluation_config_file(const std::filesystem::pa
         return result;
     }
 
-    std::vector<PatternTableCacheEntry> table_cache;
+    PatternTableCache table_cache;
     const auto load_optional_pattern_table =
         [&](const std::optional<std::string>& table_path,
             std::shared_ptr<const PatternTableBundle> EvaluationConfig::* target) -> bool {
@@ -553,8 +396,7 @@ EvaluationConfigLoadResult load_evaluation_config_file(const std::filesystem::pa
         const std::filesystem::path resolved_table_path =
             parsed_table_path.is_absolute() ? parsed_table_path
                                             : path.parent_path() / parsed_table_path;
-        const PatternTableLoadResult table_result =
-            load_pattern_table_file_cached(resolved_table_path, table_cache);
+        const PatternTableLoadResult table_result = table_cache.load(resolved_table_path);
         if (!table_result.ok()) {
             result.error = resolved_table_path.string() + ": " + table_result.error;
             return false;
