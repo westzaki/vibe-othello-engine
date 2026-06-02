@@ -27,14 +27,35 @@ TEST_CASE("Sample eval configs round-trip to expected evaluator configs", "[eval
     REQUIRE(current_default.ok());
     REQUIRE(current_default.name.has_value());
     CHECK(*current_default.name == "current_default");
-    CHECK(current_default.config == othello::default_evaluation_config());
+    CHECK(current_default.opening_pattern_table_path ==
+          "patterns/ntest_pairwise_full_v2_opening.tsv");
+    CHECK(current_default.midgame_pattern_table_path ==
+          "patterns/ntest_pairwise_full_v2_midgame.tsv");
+    CHECK(current_default.late_pattern_table_path ==
+          "patterns/ntest_pairwise_full_v2_late.tsv");
+    CHECK(current_default.config != othello::default_evaluation_config());
     CHECK(current_default.config.pattern_tables == nullptr);
-    CHECK(current_default.config.opening_pattern_tables == nullptr);
-    CHECK(current_default.config.midgame_pattern_tables == nullptr);
-    CHECK(current_default.config.late_pattern_tables == nullptr);
-    CHECK(current_default.config.opening.pattern_table == 0);
-    CHECK(current_default.config.midgame.pattern_table == 0);
-    CHECK(current_default.config.late.pattern_table == 0);
+    REQUIRE(current_default.config.opening_pattern_tables != nullptr);
+    REQUIRE(current_default.config.midgame_pattern_tables != nullptr);
+    REQUIRE(current_default.config.late_pattern_tables != nullptr);
+    CHECK(current_default.config.opening.pattern_table == 1);
+    CHECK(current_default.config.midgame.pattern_table == 1);
+    CHECK(current_default.config.late.pattern_table == 1);
+
+    const othello::tools::EvaluationConfigLoadResult legacy_scalar =
+        othello::tools::load_evaluation_config_file(
+            sample_eval_config_path("current_default_legacy_scalar_2026_06_02.eval"));
+    REQUIRE(legacy_scalar.ok());
+    REQUIRE(legacy_scalar.name.has_value());
+    CHECK(*legacy_scalar.name == "current_default_legacy_scalar_2026_06_02");
+    CHECK(legacy_scalar.config == othello::default_evaluation_config());
+    CHECK(legacy_scalar.config.pattern_tables == nullptr);
+    CHECK(legacy_scalar.config.opening_pattern_tables == nullptr);
+    CHECK(legacy_scalar.config.midgame_pattern_tables == nullptr);
+    CHECK(legacy_scalar.config.late_pattern_tables == nullptr);
+    CHECK(legacy_scalar.config.opening.pattern_table == 0);
+    CHECK(legacy_scalar.config.midgame.pattern_table == 0);
+    CHECK(legacy_scalar.config.late.pattern_table == 0);
 
     const othello::tools::EvaluationConfigLoadResult pattern =
         othello::tools::load_evaluation_config_file(
@@ -125,6 +146,7 @@ TEST_CASE("Sample eval configs round-trip to expected evaluator configs", "[eval
                               [](std::int16_t value) { return value != 0; }));
     CHECK(std::ranges::any_of(ntest_pairwise.config.late_pattern_tables->corner_3x3,
                               [](std::int16_t value) { return value != 0; }));
+    CHECK(current_default.config == ntest_pairwise.config);
 
     const othello::tools::EvaluationConfigLoadResult pattern_only_smoke =
         othello::tools::load_evaluation_config_file(
@@ -148,6 +170,7 @@ TEST_CASE("Committed eval artifact surface contains only active fixtures",
           "[evaluation]") {
     constexpr std::array allowed_eval_configs{
         std::string_view{"current_default.eval"},
+        std::string_view{"current_default_legacy_scalar_2026_06_02.eval"},
         std::string_view{"ntest_pairwise_full_v2.eval"},
         std::string_view{"pattern_reboot_v0.eval"},
         std::string_view{"pattern_teacher_v0.eval"},
@@ -181,7 +204,7 @@ TEST_CASE("Committed eval config fixtures parse and preserve intended identities
         REQUIRE(loaded.name.has_value());
 
         const std::string file_name = path.filename().string();
-        if (file_name == "current_default.eval") {
+        if (file_name == "current_default_legacy_scalar_2026_06_02.eval") {
             CHECK(loaded.config == default_config);
         } else {
             CHECK(loaded.config != default_config);
@@ -266,7 +289,16 @@ TEST_CASE("Tool evaluator selection resolves the default evaluator and config fi
     CHECK(othello::tools::uses_project_default_eval_config(*default_selection));
     CHECK_FALSE(othello::tools::uses_built_in_fallback_eval_config(*default_selection));
     CHECK(othello::tools::resolve_evaluator_selection(*default_selection) ==
-          othello::default_evaluation_config());
+          default_selection->config_override.value());
+    CHECK(default_selection->config_override->opening_pattern_tables != nullptr);
+    CHECK(default_selection->config_override->midgame_pattern_tables != nullptr);
+    CHECK(default_selection->config_override->late_pattern_tables != nullptr);
+    const othello::tools::EvaluationConfigLoadResult explicit_ntest_pairwise =
+        othello::tools::load_evaluation_config_file(
+            sample_eval_config_path("ntest_pairwise_full_v2.eval"));
+    REQUIRE(explicit_ntest_pairwise.ok());
+    CHECK(*default_selection->config_override ==
+          explicit_ntest_pairwise.config);
 
     const othello::tools::EvaluatorSelection built_in_fallback_selection;
     CHECK_FALSE(built_in_fallback_selection.config_override.has_value());

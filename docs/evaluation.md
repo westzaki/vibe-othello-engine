@@ -128,6 +128,11 @@ The repository also has a project default evaluator:
 fail clearly and ask the caller to run from the repository/build environment or
 pass `--eval-config PATH`.
 
+The current project default is promoted from
+`data/eval/ntest_pairwise_full_v2.eval`, which adds source-controlled
+phase-specific learned pattern tables. The C++ built-in fallback remains
+file-free and unchanged.
+
 The built-in fallback and project default may intentionally differ. Changing
 `data/eval/current_default.eval` changes the project default only for callers
 that load the file; it does not automatically change
@@ -154,6 +159,11 @@ tools. It may differ from the C++ built-in fallback when the project default
 uses source-controlled learned tables. Do not change it as part of a research
 cleanup or pattern-learning setup PR.
 
+As of the NTest pairwise full v2 promotion, `current_default.eval` uses learned
+phase-specific pattern tables. The old scalar project default is preserved as
+`data/eval/current_default_legacy_scalar_2026_06_02.eval` for comparison and
+revert, and it matches the C++ built-in fallback.
+
 Pattern-first research should usually start from `pattern_teacher_v0.eval`, the
 clean pattern-only `pattern_reboot_v0.eval`, or another explicit
 pattern-only/pattern-first config rather than another scalar residual weight
@@ -168,8 +178,14 @@ candidates or scalar tweaking the main research path. Rejected or superseded
 report is merged.
 
 Default promotion remains separate. A pattern candidate should become the
-default only after strong evidence across correctness checks, exact-label
-diagnostics, search benchmarks, and match or base/head validation.
+project default only through an explicit promotion PR with durable evidence and
+a documented revert path.
+
+The NTest pairwise full v2 promotion is not a formal Elo claim. NTest teacher
+agreement is useful teacher evidence, not exact truth. Known risks remain:
+exact-best top group regresses from 5166 to 5121, exact-best rank sum regresses
+from 19602 to 19790, and recorded search overhead increases by nodes +34.73%
+and elapsed +16.70%.
 
 ## Othello Evaluation Directions
 
