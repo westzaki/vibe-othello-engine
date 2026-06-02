@@ -1,8 +1,6 @@
 #include "evaluation_internal.hpp"
 
-#include <bit>
 #include <othello/evaluation.hpp>
-#include <othello/rules.hpp>
 
 namespace othello {
 namespace {
@@ -89,66 +87,74 @@ enum class RawFeatureMode {
     Breakdown,
 };
 
-using FeatureFunction = int (*)(const Board&, Side) noexcept;
+using ScratchFeatureFunction =
+    int (*)(const evaluation_detail::EvaluationScratch&) noexcept;
 
-void accumulate_feature(const Board& board, Side side, int weight,
-                        bool compute_when_unweighted, FeatureFunction compute,
+void accumulate_feature(const evaluation_detail::EvaluationScratch& scratch, int weight,
+                        bool compute_when_unweighted, ScratchFeatureFunction compute,
                         int& value, int& weighted_score, int& total) noexcept {
     if (weight == 0 && !compute_when_unweighted) {
         return;
     }
-    value = compute(board, side);
+    value = compute(scratch);
     weighted_score = value * weight;
     total += weighted_score;
 }
 
 [[nodiscard]] NonTerminalEvaluation accumulate_non_terminal_evaluation(
-    const Board& board, Side side, const EvaluationConfig& config,
+    const Board& board, Side side, const evaluation_detail::EvaluationScratch& scratch,
+    const EvaluationConfig& config,
     EvaluationPhase phase, RawFeatureMode mode) noexcept {
     const EvaluationFeatureWeights& weights = weights_for_phase(config, phase);
     const bool preserve_breakdown_raw_values = mode == RawFeatureMode::Breakdown;
 
     NonTerminalEvaluation result;
-    accumulate_feature(board, side, weights.disc_difference,
-                       preserve_breakdown_raw_values, evaluate_disc_difference,
+    accumulate_feature(scratch, weights.disc_difference,
+                       preserve_breakdown_raw_values,
+                       evaluation_detail::disc_difference_score,
                        result.disc_difference, result.disc_difference_score, result.total);
-    accumulate_feature(board, side, weights.mobility, preserve_breakdown_raw_values,
-                       evaluate_mobility, result.mobility, result.mobility_score,
-                       result.total);
-    accumulate_feature(board, side, weights.corner_occupancy,
+    accumulate_feature(scratch, weights.mobility, preserve_breakdown_raw_values,
+                       evaluation_detail::mobility_score, result.mobility,
+                       result.mobility_score, result.total);
+    accumulate_feature(scratch, weights.corner_occupancy,
                        preserve_breakdown_raw_values,
                        evaluation_detail::corner_occupancy_score,
                        result.corner_occupancy, result.corner_occupancy_score,
                        result.total);
-    accumulate_feature(board, side, weights.potential_mobility,
+    accumulate_feature(scratch, weights.potential_mobility,
                        preserve_breakdown_raw_values,
                        evaluation_detail::potential_mobility_score,
                        result.potential_mobility, result.potential_mobility_score,
                        result.total);
-    accumulate_feature(board, side, weights.corner_access,
+    accumulate_feature(scratch, weights.corner_access,
                        preserve_breakdown_raw_values, evaluation_detail::corner_access_score,
                        result.corner_access, result.corner_access_score, result.total);
-    accumulate_feature(board, side, weights.x_square_danger,
+    accumulate_feature(scratch, weights.x_square_danger,
                        preserve_breakdown_raw_values,
                        evaluation_detail::x_square_danger_score,
                        result.x_square_danger, result.x_square_danger_score, result.total);
-    accumulate_feature(board, side, weights.frontier, preserve_breakdown_raw_values,
+    accumulate_feature(scratch, weights.frontier, preserve_breakdown_raw_values,
                        evaluation_detail::frontier_score, result.frontier,
                        result.frontier_score, result.total);
-    accumulate_feature(board, side, weights.corner_local_2x3, false,
+    accumulate_feature(scratch, weights.corner_local_2x3, false,
                        evaluation_detail::corner_local_2x3_score,
                        result.corner_local_2x3, result.corner_local_2x3_score,
                        result.total);
-    accumulate_feature(board, side, weights.corner_2x3_pattern, false,
-                       corner_2x3_pattern_score, result.corner_2x3_pattern,
-                       result.corner_2x3_pattern_score, result.total);
-    accumulate_feature(board, side, weights.edge_stability_lite, false,
+    if (weights.corner_2x3_pattern != 0) {
+        result.corner_2x3_pattern = corner_2x3_pattern_score(board, side);
+        result.corner_2x3_pattern_score =
+            result.corner_2x3_pattern * weights.corner_2x3_pattern;
+        result.total += result.corner_2x3_pattern_score;
+    }
+    accumulate_feature(scratch, weights.edge_stability_lite, false,
                        evaluation_detail::edge_stability_lite_score,
                        result.edge_stability_lite, result.edge_stability_lite_score,
                        result.total);
-    accumulate_feature(board, side, weights.edge_8_pattern, false,
-                       edge_8_pattern_score, result.edge_8_pattern,
-                       result.edge_8_pattern_score, result.total);
+    if (weights.edge_8_pattern != 0) {
+        result.edge_8_pattern = edge_8_pattern_score(board, side);
+        result.edge_8_pattern_score = result.edge_8_pattern * weights.edge_8_pattern;
+        result.total += result.edge_8_pattern_score;
+    }
 
     if (weights.pattern_table != 0) {
         const PatternTableBundle* pattern_tables = pattern_tables_for_phase(config, phase);
@@ -165,15 +171,16 @@ void accumulate_feature(const Board& board, Side side, int weight,
 
 [[nodiscard]] int evaluate_score_only(const Board& board, Side side,
                                       const EvaluationConfig& config) noexcept {
-    const int occupied_count = std::popcount(board.occupied());
-    const EvaluationPhase phase = phase_for_occupied_count(occupied_count, config);
+    const evaluation_detail::EvaluationScratch scratch =
+        evaluation_detail::make_evaluation_scratch(board, side);
+    const EvaluationPhase phase = phase_for_occupied_count(scratch.occupied_count, config);
 
-    if (is_game_over(board)) {
-        return score(board, side) * terminal_score_weight;
+    if (scratch.game_over) {
+        return evaluation_detail::disc_difference_score(scratch) * terminal_score_weight;
     }
 
     return accumulate_non_terminal_evaluation(
-               board, side, config, phase, RawFeatureMode::ScoreOnly)
+               board, side, scratch, config, phase, RawFeatureMode::ScoreOnly)
         .total;
 }
 
@@ -181,14 +188,15 @@ void accumulate_feature(const Board& board, Side side, int weight,
 
 EvaluationBreakdown evaluate_basic_breakdown(const Board& board, Side side,
                                              const EvaluationConfig& config) noexcept {
-    const int occupied_count = std::popcount(board.occupied());
-    const EvaluationPhase phase = phase_for_occupied_count(occupied_count, config);
+    const evaluation_detail::EvaluationScratch scratch =
+        evaluation_detail::make_evaluation_scratch(board, side);
+    const EvaluationPhase phase = phase_for_occupied_count(scratch.occupied_count, config);
     const EvaluationFeatureWeights& weights = weights_for_phase(config, phase);
 
     EvaluationBreakdown breakdown{
         .phase = phase,
-        .occupied_count = occupied_count,
-        .empty_count = 64 - occupied_count,
+        .occupied_count = scratch.occupied_count,
+        .empty_count = scratch.empty_count,
         .disc_difference_weight = weights.disc_difference,
         .mobility_weight = weights.mobility,
         .corner_occupancy_weight = weights.corner_occupancy,
@@ -204,9 +212,10 @@ EvaluationBreakdown evaluate_basic_breakdown(const Board& board, Side side,
         .terminal_score_weight = terminal_score_weight,
     };
 
-    if (is_game_over(board)) {
+    if (scratch.game_over) {
         breakdown.terminal = true;
-        breakdown.terminal_disc_difference = score(board, side);
+        breakdown.terminal_disc_difference =
+            evaluation_detail::disc_difference_score(scratch);
         breakdown.terminal_score =
             breakdown.terminal_disc_difference * breakdown.terminal_score_weight;
         breakdown.total = breakdown.terminal_score;
@@ -214,7 +223,7 @@ EvaluationBreakdown evaluate_basic_breakdown(const Board& board, Side side,
     }
 
     const NonTerminalEvaluation features = accumulate_non_terminal_evaluation(
-        board, side, config, phase, RawFeatureMode::Breakdown);
+        board, side, scratch, config, phase, RawFeatureMode::Breakdown);
     breakdown.disc_difference = features.disc_difference;
     breakdown.disc_difference_score = features.disc_difference_score;
     breakdown.mobility = features.mobility;

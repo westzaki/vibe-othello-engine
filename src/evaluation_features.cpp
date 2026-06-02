@@ -57,32 +57,8 @@ constexpr std::array<EdgeCornerSpec, 4> edge_corner_specs{{
     };
 }
 
-[[nodiscard]] int legal_move_count(const Board& board, Side side) noexcept {
-    return std::popcount(legal_moves(with_side_to_move(board, side)));
-}
-
-[[nodiscard]] int corner_count(const Board& board, Side side) noexcept {
-    return std::popcount(board.discs(side) & corner_squares);
-}
-
-[[nodiscard]] int legal_corner_move_count(const Board& board, Side side) noexcept {
-    return std::popcount(legal_moves(with_side_to_move(board, side)) & corner_squares);
-}
-
-[[nodiscard]] int potential_mobility_count(const Board& board, Side side) noexcept {
-    const Bitboard empty_squares = ~board.occupied();
-    return std::popcount(adjacent_squares(board.discs(opponent(side))) & empty_squares);
-}
-
-[[nodiscard]] int frontier_count(const Board& board, Side side) noexcept {
-    const Bitboard frontier_squares = adjacent_squares(~board.occupied());
-    return std::popcount(board.discs(side) & frontier_squares);
-}
-
-[[nodiscard]] int dangerous_x_square_count(const Board& board, Side side) noexcept {
+[[nodiscard]] int dangerous_x_square_count(Bitboard discs, Bitboard occupied) noexcept {
     int count = 0;
-    const Bitboard occupied = board.occupied();
-    const Bitboard discs = board.discs(side);
 
     const auto count_if_dangerous = [&](int x_square_index) noexcept {
         const Bitboard x_square = square_bit(x_square_index);
@@ -99,10 +75,9 @@ constexpr std::array<EdgeCornerSpec, 4> edge_corner_specs{{
     return count;
 }
 
-[[nodiscard]] int corner_local_2x3_value_for_side(const Board& board, Side side) noexcept {
+[[nodiscard]] int corner_local_2x3_value_for_discs(Bitboard discs,
+                                                   Bitboard occupied) noexcept {
     int value = 0;
-    const Bitboard occupied = board.occupied();
-    const Bitboard discs = board.discs(side);
 
     for (const CornerLocalSpec& spec : corner_local_specs) {
         const Bitboard corner = square_bit(spec.corner_index);
@@ -130,10 +105,9 @@ constexpr std::array<EdgeCornerSpec, 4> edge_corner_specs{{
     return value;
 }
 
-[[nodiscard]] Bitboard anchored_edge_ray_squares(const Board& board, Side side,
+[[nodiscard]] Bitboard anchored_edge_ray_squares(Bitboard discs,
                                                  const EdgeRaySpec& ray) noexcept {
     Bitboard squares = 0;
-    const Bitboard discs = board.discs(side);
     int index = ray.first_index;
     for (int distance = 0; distance < 7; ++distance) {
         const Bitboard square = square_bit(index);
@@ -146,9 +120,8 @@ constexpr std::array<EdgeCornerSpec, 4> edge_corner_specs{{
     return squares;
 }
 
-[[nodiscard]] int edge_stability_lite_value_for_side(const Board& board, Side side) noexcept {
+[[nodiscard]] int edge_stability_lite_value_for_discs(Bitboard discs) noexcept {
     Bitboard stable_edge_squares = 0;
-    const Bitboard discs = board.discs(side);
 
     // This is a stability-lite approximation: collect continuous edge rays
     // anchored at owned corners, then count unique found squares only once. A
@@ -159,7 +132,7 @@ constexpr std::array<EdgeCornerSpec, 4> edge_corner_specs{{
             continue;
         }
         for (const EdgeRaySpec& ray : spec.rays) {
-            stable_edge_squares |= anchored_edge_ray_squares(board, side, ray);
+            stable_edge_squares |= anchored_edge_ray_squares(discs, ray);
         }
     }
 
@@ -173,44 +146,110 @@ int evaluate_disc_difference(const Board& board, Side side) noexcept {
 }
 
 int evaluate_mobility(const Board& board, Side side) noexcept {
-    return legal_move_count(board, side) - legal_move_count(board, opponent(side));
+    return evaluation_detail::mobility_score(
+        evaluation_detail::make_evaluation_scratch(board, side));
 }
 
 namespace evaluation_detail {
 
+EvaluationScratch make_evaluation_scratch(const Board& board, Side side) noexcept {
+    const Bitboard player = board.discs(side);
+    const Bitboard opponent_discs = board.discs(opponent(side));
+    const Bitboard occupied = player | opponent_discs;
+    const Bitboard empty = ~occupied;
+    const Bitboard own_moves = legal_moves(with_side_to_move(board, side));
+    const Bitboard opp_moves = legal_moves(with_side_to_move(board, opponent(side)));
+    const int occupied_count = std::popcount(occupied);
+    return EvaluationScratch{
+        .player = player,
+        .opponent = opponent_discs,
+        .occupied = occupied,
+        .empty = empty,
+        .own_moves = own_moves,
+        .opp_moves = opp_moves,
+        .adjacent_empty = adjacent_squares(empty),
+        .own_adjacent_empty = adjacent_squares(player) & empty,
+        .opp_adjacent_empty = adjacent_squares(opponent_discs) & empty,
+        .own_mobility = std::popcount(own_moves),
+        .opp_mobility = std::popcount(opp_moves),
+        .occupied_count = occupied_count,
+        .empty_count = 64 - occupied_count,
+        .game_over = own_moves == 0 && opp_moves == 0,
+    };
+}
+
+int disc_difference_score(const EvaluationScratch& scratch) noexcept {
+    return std::popcount(scratch.player) - std::popcount(scratch.opponent);
+}
+
+int mobility_score(const EvaluationScratch& scratch) noexcept {
+    return scratch.own_mobility - scratch.opp_mobility;
+}
+
+int corner_occupancy_score(const EvaluationScratch& scratch) noexcept {
+    return std::popcount(scratch.player & corner_squares) -
+           std::popcount(scratch.opponent & corner_squares);
+}
+
+int potential_mobility_score(const EvaluationScratch& scratch) noexcept {
+    return std::popcount(scratch.opp_adjacent_empty) -
+           std::popcount(scratch.own_adjacent_empty);
+}
+
+int corner_access_score(const EvaluationScratch& scratch) noexcept {
+    return std::popcount(scratch.own_moves & corner_squares) -
+           std::popcount(scratch.opp_moves & corner_squares);
+}
+
+int x_square_danger_score(const EvaluationScratch& scratch) noexcept {
+    // Owning an X-square next to an empty corner is dangerous, so the score is
+    // opponent dangerous X-squares minus our dangerous X-squares.
+    return dangerous_x_square_count(scratch.opponent, scratch.occupied) -
+           dangerous_x_square_count(scratch.player, scratch.occupied);
+}
+
+int frontier_score(const EvaluationScratch& scratch) noexcept {
+    // Fewer own frontier discs is usually better.
+    return std::popcount(scratch.opponent & scratch.adjacent_empty) -
+           std::popcount(scratch.player & scratch.adjacent_empty);
+}
+
+int corner_local_2x3_score(const EvaluationScratch& scratch) noexcept {
+    return corner_local_2x3_value_for_discs(scratch.player, scratch.occupied) -
+           corner_local_2x3_value_for_discs(scratch.opponent, scratch.occupied);
+}
+
+int edge_stability_lite_score(const EvaluationScratch& scratch) noexcept {
+    return edge_stability_lite_value_for_discs(scratch.player) -
+           edge_stability_lite_value_for_discs(scratch.opponent);
+}
+
 int corner_occupancy_score(const Board& board, Side side) noexcept {
-    return corner_count(board, side) - corner_count(board, opponent(side));
+    return corner_occupancy_score(make_evaluation_scratch(board, side));
 }
 
 int potential_mobility_score(const Board& board, Side side) noexcept {
-    return potential_mobility_count(board, side) -
-           potential_mobility_count(board, opponent(side));
+    return potential_mobility_score(make_evaluation_scratch(board, side));
 }
 
 int corner_access_score(const Board& board, Side side) noexcept {
-    return legal_corner_move_count(board, side) -
-           legal_corner_move_count(board, opponent(side));
+    return corner_access_score(make_evaluation_scratch(board, side));
 }
 
 int x_square_danger_score(const Board& board, Side side) noexcept {
-    // Owning an X-square next to an empty corner is dangerous, so the score is
-    // opponent dangerous X-squares minus our dangerous X-squares.
-    return dangerous_x_square_count(board, opponent(side)) - dangerous_x_square_count(board, side);
+    return x_square_danger_score(make_evaluation_scratch(board, side));
 }
 
 int frontier_score(const Board& board, Side side) noexcept {
-    // Fewer own frontier discs is usually better.
-    return frontier_count(board, opponent(side)) - frontier_count(board, side);
+    return frontier_score(make_evaluation_scratch(board, side));
 }
 
 int corner_local_2x3_score(const Board& board, Side side) noexcept {
-    return corner_local_2x3_value_for_side(board, side) -
-           corner_local_2x3_value_for_side(board, opponent(side));
+    return corner_local_2x3_score(make_evaluation_scratch(board, side));
 }
 
 int edge_stability_lite_score(const Board& board, Side side) noexcept {
-    return edge_stability_lite_value_for_side(board, side) -
-           edge_stability_lite_value_for_side(board, opponent(side));
+    return edge_stability_lite_score(make_evaluation_scratch(board, side));
 }
 
 } // namespace evaluation_detail
