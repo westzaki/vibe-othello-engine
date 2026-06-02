@@ -171,14 +171,14 @@ class PatternTeacherTrainTests(unittest.TestCase):
 
     def test_broad_pattern_indexes_are_deterministic(self) -> None:
         board = (
-            "BWB.....\n"
-            "WB....W.\n"
+            "........\n"
+            "........\n"
+            "........\n"
+            "........\n"
+            "........\n"
             "..W.....\n"
-            "........\n"
-            "........\n"
-            "........\n"
-            "........\n"
-            "........\n"
+            "WB....W.\n"
+            "BWB.....\n"
             "side=B"
         )
         families = trainer.parse_families("broad_all")
@@ -200,7 +200,8 @@ class PatternTeacherTrainTests(unittest.TestCase):
             rows = fixture["rows"]
             self.assertIsInstance(rows, list)
             self.assertEqual(len(rows), 8)
-            board = "\n".join([*rows, f"side={fixture['side_to_move']}"])
+            board9_rows = list(reversed(rows))
+            board = "\n".join([*board9_rows, f"side={fixture['side_to_move']}"])
 
             expectations = fixture["expectations"]
             self.assertIsInstance(expectations, list)
@@ -219,6 +220,28 @@ class PatternTeacherTrainTests(unittest.TestCase):
                     trainer.pattern_indexes_by_family(board, side, (family,))[family],
                     [value for _, value in indexes],
                 )
+
+    def test_pattern_index_fixture_would_fail_without_board9_row_reversal(self) -> None:
+        fixture = load_pattern_index_fixtures()[0]
+        rows = fixture["rows"]
+        self.assertIsInstance(rows, list)
+        board9_rows = list(reversed(rows))
+        board = "\n".join([*board9_rows, f"side={fixture['side_to_move']}"])
+        converted = trainer.board9_rows_to_square_index_rows(trainer.parse_board(board)[0])
+
+        for family in PATTERN_FIXTURE_INSTANCES:
+            with self.subTest(family=family):
+                expected = trainer.pattern_index(
+                    converted,
+                    "B",
+                    trainer.PATTERN_SPECS[family][0],
+                )
+                display_order_index = trainer.pattern_index(
+                    board9_rows,
+                    "B",
+                    trainer.PATTERN_SPECS[family][0],
+                )
+                self.assertNotEqual(display_order_index, expected)
 
     def test_render_table_is_deterministic(self) -> None:
         text = trainer.render_table(

@@ -36,7 +36,7 @@ from pattern_specs import (
     COMMON_FAMILY_ALIASES,
     FAMILY_ORDER,
     PATTERN_SPECS,
-    board_cell,
+    board9_rows_to_square_index_rows,
     pattern_index,
 )
 
@@ -1059,10 +1059,7 @@ def apply_move_to_board(board_text: str, move: str) -> str:
 
 def pattern_counts(board_text: str, root_side: str, families: tuple[str, ...]) -> collections.Counter[FeatureKey]:
     rows, _ = parse_board(board_text)
-    # board9 text is displayed from rank 8 down to rank 1, while pattern specs
-    # use square-index order with a1..h1 first. Match the C++ evaluator's
-    # square-index convention before calculating pattern indexes.
-    square_index_rows = list(reversed(rows))
+    square_index_rows = board9_rows_to_square_index_rows(rows)
     counts: collections.Counter[FeatureKey] = collections.Counter()
     for family in families:
         for spec in PATTERN_SPECS[family]:

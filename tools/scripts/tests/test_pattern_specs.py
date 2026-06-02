@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parents[1]
+REPO_ROOT = SCRIPT_DIR.parents[1]
 sys.path.insert(0, str(SCRIPT_DIR))
 
 import pattern_specs  # noqa: E402
@@ -51,6 +52,54 @@ class PatternSpecsTests(unittest.TestCase):
 
         self.assertEqual(pattern_specs.pattern_index(rows, "B", spec), 151)
         self.assertEqual(pattern_specs.pattern_index([list(row) for row in rows], "B", spec), 151)
+
+    def test_board9_rows_to_square_index_rows_reverses_display_order(self) -> None:
+        square_index_rows = [
+            "BWB.WB.W",
+            "WB..BW.B",
+            "..W.B...",
+            "...BW...",
+            "...WB...",
+            "...B.W..",
+            "B.W..WB.",
+            "W.BW.BWB",
+        ]
+        board9_rows = list(reversed(square_index_rows))
+        spec = pattern_specs.PATTERN_SPECS["corner_2x3"][0]
+
+        converted = pattern_specs.board9_rows_to_square_index_rows(board9_rows)
+
+        self.assertEqual(converted, tuple(square_index_rows))
+        self.assertEqual(pattern_specs.pattern_index(converted, "B", spec), 151)
+        self.assertNotEqual(pattern_specs.pattern_index(board9_rows, "B", spec), 151)
+
+    def test_parse_board9_square_index_rows_matches_cpp_fixture(self) -> None:
+        fixture = REPO_ROOT / "tests" / "fixtures" / "pattern_index_drift.txt"
+        rows = [
+            line.split()[1]
+            for line in fixture.read_text(encoding="utf-8").splitlines()
+            if line.startswith("row ")
+        ]
+        self.assertEqual(len(rows), 8)
+        board9_rows = list(reversed(rows))
+        board9 = "\n".join(board9_rows) + "\nside=B"
+
+        converted = pattern_specs.parse_board9_square_index_rows(board9)
+
+        self.assertEqual(converted, tuple(rows))
+        for family in (
+            "corner_2x3",
+            "corner_3x3",
+            "edge_8",
+            "edge_x_10",
+            "diagonal_8",
+            "inner_row_8",
+        ):
+            with self.subTest(family=family):
+                spec = pattern_specs.PATTERN_SPECS[family][0]
+                expected_index = pattern_specs.pattern_index(converted, "B", spec)
+                flipped_index = pattern_specs.pattern_index(board9_rows, "B", spec)
+                self.assertNotEqual(flipped_index, expected_index)
 
 
 if __name__ == "__main__":

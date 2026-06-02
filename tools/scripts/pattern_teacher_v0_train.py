@@ -19,7 +19,7 @@ from pattern_specs import (
     COMMON_FAMILY_ALIASES,
     FAMILY_ORDER,
     PATTERN_SPECS,
-    board_cell,
+    board9_rows_to_square_index_rows,
     pattern_index,
 )
 
@@ -338,7 +338,8 @@ def parse_board(board_text: str) -> tuple[list[str], str]:
 
 def pattern_indexes(board_text: str, side: str, specs: tuple[tuple[int, ...], ...]) -> list[int]:
     rows, _ = parse_board(board_text)
-    return [pattern_index(rows, side, spec) for spec in specs]
+    square_index_rows = board9_rows_to_square_index_rows(rows)
+    return [pattern_index(square_index_rows, side, spec) for spec in specs]
 
 
 def pattern_indexes_by_family(board_text: str, side: str, families: tuple[str, ...]) -> dict[str, list[int]]:

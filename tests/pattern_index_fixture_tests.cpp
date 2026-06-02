@@ -290,6 +290,8 @@ TEST_CASE("Pattern index fixture matches C++ pattern definitions", "[evaluation]
     for (const PatternIndexFixture& fixture : fixtures) {
         CAPTURE(fixture.name);
         REQUIRE(fixture.expectations.size() == 12);
+        REQUIRE(fixture.rows.size() == 8);
+        CHECK(fixture.rows.front() != fixture.rows.back());
         const Board board =
             board_from_index_order_rows(fixture.rows, fixture.side_to_move);
 
