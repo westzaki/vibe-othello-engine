@@ -166,6 +166,12 @@ othello_add_help_contains_test(
     "--format"
 )
 
+othello_add_help_contains_test(
+    othello_search_bench_help_includes_tt_store_leaf
+    othello_search_bench
+    "--tt-store-leaf"
+)
+
 othello_add_tool_smoke_test(
     othello_search_bench_jsonl_includes_score_kind
     othello_search_bench
@@ -213,6 +219,18 @@ othello_add_help_contains_test(
     othello_analyze_position_help_includes_eval_config
     othello_analyze_position
     "--eval-config"
+)
+
+othello_add_help_contains_test(
+    othello_analyze_position_help_includes_tt_store_leaf
+    othello_analyze_position
+    "--tt-store-leaf"
+)
+
+othello_add_help_contains_test(
+    othello_match_runner_help_includes_tt_store_leaf
+    othello_match_runner
+    "tt_store_leaf=on|off"
 )
 
 othello_add_help_contains_test(

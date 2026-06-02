@@ -40,6 +40,7 @@ void add_search_stats(SearchStats& total, const SearchStats& stats) noexcept {
     total.tt_lower_hits += stats.tt_lower_hits;
     total.tt_upper_hits += stats.tt_upper_hits;
     total.tt_stores += stats.tt_stores;
+    total.tt_leaf_stores += stats.tt_leaf_stores;
     total.tt_overwrites += stats.tt_overwrites;
     total.tt_collisions += stats.tt_collisions;
     total.tt_rejected_stores += stats.tt_rejected_stores;
@@ -58,8 +59,7 @@ void add_search_stats(SearchStats& total, const SearchStats& stats) noexcept {
     total.dynamic_ordering_moves += stats.dynamic_ordering_moves;
 }
 
-void add_exact_endgame_stats(ExactEndgameStats& total,
-                             const ExactEndgameStats& stats) noexcept {
+void add_exact_endgame_stats(ExactEndgameStats& total, const ExactEndgameStats& stats) noexcept {
     total.nodes += stats.nodes;
     total.tt_lookups += stats.tt_lookups;
     total.tt_hits += stats.tt_hits;

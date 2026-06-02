@@ -70,6 +70,7 @@ namespace {
         .tt_lower_hits = stats.tt_lower_hits,
         .tt_upper_hits = stats.tt_upper_hits,
         .tt_stores = stats.tt_stores,
+        .tt_leaf_stores = stats.tt_leaf_stores,
         .tt_overwrites = stats.tt_overwrites,
         .tt_collisions = stats.tt_collisions,
         .tt_rejected_stores = stats.tt_rejected_stores,
@@ -80,7 +81,7 @@ namespace {
 }
 
 [[nodiscard]] ExactRootTrace exact_root_trace(const Board& board, const MoveSelection& selection,
-                                             int ply, bool black_is_player_a) {
+                                              int ply, bool black_is_player_a) {
     const bool player_a =
         board.side_to_move == Side::Black ? black_is_player_a : !black_is_player_a;
     return ExactRootTrace{
@@ -236,7 +237,8 @@ GameRecord run_game(int game_index, const PlayerSpec& black_spec, const PlayerSp
         return true;
     };
 
-    if (!start_external(black_spec, black_external) || !start_external(white_spec, white_external)) {
+    if (!start_external(black_spec, black_external) ||
+        !start_external(white_spec, white_external)) {
         finish_record(board);
         return record;
     }
@@ -286,9 +288,8 @@ GameRecord run_game(int game_index, const PlayerSpec& black_spec, const PlayerSp
             record.exact_roots_white += selection.exact_root_searches;
         }
         if (selection.exact_root_searches > 0) {
-            record.exact_root_events.push_back(
-                exact_root_trace(board, selection, static_cast<int>(full_moves.size()),
-                                 record.black_is_player_a));
+            record.exact_root_events.push_back(exact_root_trace(
+                board, selection, static_cast<int>(full_moves.size()), record.black_is_player_a));
         }
 
         const std::optional<Square> move = selection.move;
@@ -343,9 +344,9 @@ std::vector<GameRecord> run_match(const MatchConfig& config) {
     std::vector<GameRecord> records;
     records.reserve(static_cast<std::size_t>(std::max(config.games, 0)));
     const std::vector<Opening> fallback_openings{default_opening()};
-    const std::span<const Opening> openings =
-        config.openings.empty() ? std::span<const Opening>{fallback_openings}
-                                : std::span<const Opening>{config.openings};
+    const std::span<const Opening> openings = config.openings.empty()
+                                                  ? std::span<const Opening>{fallback_openings}
+                                                  : std::span<const Opening>{config.openings};
 
     for (int game_index = 0; game_index < config.games; ++game_index) {
         const bool swapped = config.swap_sides && (game_index % 2 == 1);
@@ -386,9 +387,8 @@ MatchSummary summarize(std::span<const GameRecord> records) {
     }
 
     if (summary.valid_games > 0) {
-        summary.average_disc_diff_from_player_a =
-            static_cast<double>(total_diff_from_player_a) /
-            static_cast<double>(summary.valid_games);
+        summary.average_disc_diff_from_player_a = static_cast<double>(total_diff_from_player_a) /
+                                                  static_cast<double>(summary.valid_games);
     }
 
     return summary;

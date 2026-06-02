@@ -23,6 +23,7 @@ struct SearchPlayerOptions {
     int max_depth = SearchOptions{}.max_depth;
     bool use_transposition_table = SearchOptions{}.use_transposition_table;
     std::size_t transposition_table_entries = SearchOptions{}.transposition_table_entries;
+    bool store_leaf_tt_entries = SearchOptions{}.store_leaf_tt_entries;
     int exact_endgame_empty_threshold = SearchOptions{}.exact_endgame_empty_threshold;
     ExactEndgameRootPolicy exact_endgame_root_policy = SearchOptions{}.exact_endgame_root_policy;
     bool use_pvs = SearchOptions{}.use_pvs;
@@ -72,6 +73,7 @@ struct ExactRootTraceStats {
     std::uint64_t tt_lower_hits = 0;
     std::uint64_t tt_upper_hits = 0;
     std::uint64_t tt_stores = 0;
+    std::uint64_t tt_leaf_stores = 0;
     std::uint64_t tt_overwrites = 0;
     std::uint64_t tt_collisions = 0;
     std::uint64_t tt_rejected_stores = 0;
@@ -99,8 +101,7 @@ struct ExactRootTrace {
     ExactRootTraceStats stats;
     std::vector<Square> principal_variation;
 
-    [[nodiscard]] friend bool operator==(const ExactRootTrace&,
-                                         const ExactRootTrace&) = default;
+    [[nodiscard]] friend bool operator==(const ExactRootTrace&, const ExactRootTrace&) = default;
 };
 
 struct Opening {

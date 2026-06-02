@@ -24,6 +24,7 @@ struct AnalysisOptions {
     AnalysisMode mode = AnalysisMode::Fixed;
     bool use_transposition_table = true;
     std::size_t transposition_table_entries = SearchOptions{}.transposition_table_entries;
+    bool store_leaf_tt_entries = SearchOptions{}.store_leaf_tt_entries;
     int exact_endgame_empty_threshold = SearchOptions{}.exact_endgame_empty_threshold;
     bool use_pvs = SearchOptions{}.use_pvs;
     bool use_aspiration_window = SearchOptions{}.use_aspiration_window;

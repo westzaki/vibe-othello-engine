@@ -117,6 +117,7 @@ struct BenchmarkOptions {
     bool describe_positions = false;
     bool by_position = false;
     std::optional<bool> use_transposition_table;
+    std::optional<bool> store_leaf_tt_entries;
     std::optional<bool> use_pvs;
     std::optional<bool> use_aspiration_window;
     std::size_t transposition_table_entries = othello::SearchOptions{}.transposition_table_entries;
@@ -132,6 +133,7 @@ struct SearchBenchmarkResult {
     std::string_view name;
     SearchRunMode mode;
     bool use_transposition_table;
+    bool store_leaf_tt_entries;
     bool use_pvs;
     bool use_aspiration_window;
     int aspiration_window;
@@ -162,6 +164,7 @@ struct PositionBenchmarkResult {
     std::string_view tags;
     SearchRunMode mode;
     bool use_transposition_table;
+    bool store_leaf_tt_entries;
     bool use_pvs;
     bool use_aspiration_window;
     int aspiration_window;
@@ -199,7 +202,8 @@ void print_usage(std::string_view program_name) {
               << " [--mode fixed|iterative|both] [--depths 1,2,3,4,5]"
                  " [--repetitions N] [--positions smoke|suite|evaluation|threshold]"
                  " [--describe-positions] [--by-position] [--tt on|off] [--tt-entries N]"
-                 " [--pvs on|off] [--aspiration on|off] [--aspiration-window N]"
+                 " [--tt-store-leaf on|off] [--pvs on|off] [--aspiration on|off]"
+                 " [--aspiration-window N]"
                  " [--aspiration-max-researches N] [--exact-endgame-threshold N]"
                  " [--exact-endgame-thresholds LIST]"
                  " "
@@ -215,6 +219,8 @@ void print_usage(std::string_view program_name) {
               << "  --by-position       print per-position benchmark rows and summaries\n"
               << "  --tt on|off         override the SearchOptions TT default\n"
               << "  --tt-entries N      requested transposition table entry count\n"
+              << "  --tt-store-leaf on|off\n"
+              << "                      store depth-0 midgame heuristic leaves in TT\n"
               << "  --pvs on|off        override the SearchOptions PVS default\n"
               << "  --aspiration on|off enable iterative-search aspiration windows\n"
               << "  --aspiration-window N\n"
@@ -520,6 +526,22 @@ parse_exact_root_profiles(std::string_view text) {
             continue;
         }
 
+        if (option == "--tt-store-leaf") {
+            ++index;
+            if (index >= args.size()) {
+                std::cerr << "--tt-store-leaf requires on or off\n";
+                return std::nullopt;
+            }
+
+            const auto store_leaf_setting = othello::tools::parse_on_off(args[index]);
+            if (!store_leaf_setting.has_value()) {
+                std::cerr << "--tt-store-leaf must be on or off\n";
+                return std::nullopt;
+            }
+            options.store_leaf_tt_entries = store_leaf_setting;
+            continue;
+        }
+
         if (option == "--pvs") {
             ++index;
             if (index >= args.size()) {
@@ -636,8 +658,7 @@ parse_exact_root_profiles(std::string_view text) {
         std::string evaluator_cli_error;
         const othello::tools::EvaluatorCliParseResult evaluator_cli_result =
             othello::tools::parse_evaluator_cli_option(args, index, evaluator_cli,
-                                                       evaluator_cli_error,
-                                                       evaluator_cli_options);
+                                                       evaluator_cli_error, evaluator_cli_options);
         if (evaluator_cli_result == othello::tools::EvaluatorCliParseResult::Error) {
             std::cerr << evaluator_cli_error << '\n';
             return std::nullopt;
@@ -942,6 +963,9 @@ make_search_options(const BenchmarkOptions& options, int depth,
     if (options.use_transposition_table.has_value()) {
         search_options.use_transposition_table = *options.use_transposition_table;
     }
+    if (options.store_leaf_tt_entries.has_value()) {
+        search_options.store_leaf_tt_entries = *options.store_leaf_tt_entries;
+    }
     if (options.use_pvs.has_value()) {
         search_options.use_pvs = *options.use_pvs;
     }
@@ -1011,8 +1035,7 @@ make_search_options(const BenchmarkOptions& options, int depth,
 benchmark_search(const std::vector<othello::benchmarks::Position>& positions, int depth,
                  std::uint64_t repetitions, const BenchmarkOptions& benchmark_options,
                  SearchRunMode mode, const ExactRootProfile& exact_root_profile) {
-    const auto search_options =
-        make_search_options(benchmark_options, depth, exact_root_profile);
+    const auto search_options = make_search_options(benchmark_options, depth, exact_root_profile);
     std::uint64_t result_checksum = 0;
     std::uint64_t work_checksum = 0;
     std::uint64_t searches = 0;
@@ -1036,7 +1059,8 @@ benchmark_search(const std::vector<othello::benchmarks::Position>& positions, in
     const auto start = Clock::now();
     for (std::uint64_t repetition = 0; repetition < repetitions; ++repetition) {
         for (const auto& position : positions) {
-            const auto result = run_search(position.board, search_options, mode, exact_root_profile);
+            const auto result =
+                run_search(position.board, search_options, mode, exact_root_profile);
             auto stable_result_checksum = othello::benchmarks::mix_checksum(
                 othello::benchmarks::search_result_checksum(result),
                 othello::benchmarks::board_checksum(position.board));
@@ -1068,6 +1092,7 @@ benchmark_search(const std::vector<othello::benchmarks::Position>& positions, in
         .name = "search",
         .mode = mode,
         .use_transposition_table = search_options.use_transposition_table,
+        .store_leaf_tt_entries = search_options.store_leaf_tt_entries,
         .use_pvs = search_options.use_pvs,
         .use_aspiration_window = search_options.use_aspiration_window,
         .aspiration_window = search_options.aspiration_window,
@@ -1097,8 +1122,7 @@ benchmark_search(const std::vector<othello::benchmarks::Position>& positions, in
 benchmark_position(const othello::benchmarks::Position& position, int depth,
                    std::uint64_t repetitions, const BenchmarkOptions& benchmark_options,
                    SearchRunMode mode, const ExactRootProfile& exact_root_profile) {
-    const auto search_options =
-        make_search_options(benchmark_options, depth, exact_root_profile);
+    const auto search_options = make_search_options(benchmark_options, depth, exact_root_profile);
     const int empty_count = root_empty_count(position.board);
     const auto exact_decision =
         benchmark_exact_root_decision(position.board, search_options, exact_root_profile);
@@ -1149,6 +1173,7 @@ benchmark_position(const othello::benchmarks::Position& position, int depth,
         .tags = position.tags,
         .mode = mode,
         .use_transposition_table = search_options.use_transposition_table,
+        .store_leaf_tt_entries = search_options.store_leaf_tt_entries,
         .use_pvs = search_options.use_pvs,
         .use_aspiration_window = search_options.use_aspiration_window,
         .aspiration_window = search_options.aspiration_window,
@@ -1191,7 +1216,8 @@ benchmark_position(const othello::benchmarks::Position& position, int depth,
 
 void print_search_result_header() {
     std::cout << std::left << std::setw(12) << "benchmark" << "  " << std::setw(10) << "mode"
-              << "  " << std::setw(3) << "tt" << "  " << std::setw(3) << "pvs"
+              << "  " << std::setw(3) << "tt" << "  " << std::setw(13) << "tt_store_leaf"
+              << "  " << std::setw(3) << "pvs"
               << "  " << std::setw(3) << "asp" << "  " << std::setw(10) << "asp_window"
               << "  " << std::setw(11) << "asp_max_re"
               << "  " << std::setw(10) << "tt_entries"
@@ -1200,7 +1226,7 @@ void print_search_result_header() {
               << "  searches  elapsed_ms      searches/s  total_nodes         nodes/s"
                  "  nodes/search  searched_moves  legal_nodes  eval_calls  pass_nodes"
                  "  game_over_nodes  beta_cutoffs  beta_cut_first_move_pct"
-                 "  tt_lookups  tt_hits  tt_hit_rate  tt_stores  tt_overwrites"
+                 "  tt_lookups  tt_hits  tt_hit_rate  tt_stores  tt_leaf_stores  tt_overwrites"
                  "  tt_collisions  tt_rejected_stores  tt_order_probes  tt_order_hits"
                  "  tt_order_used  pvs_scouts  pvs_researches  pvs_scout_cutoffs"
                  "  asp_searches  asp_researches  asp_fail_lows  asp_fail_highs  asp_fallbacks"
@@ -1227,16 +1253,17 @@ void print_search_result(const SearchBenchmarkResult& result) {
 
     std::cout << std::left << std::setw(12) << result.name << "  " << std::setw(10)
               << mode_name(result.mode) << "  " << std::setw(3)
-              << (result.use_transposition_table ? "on" : "off") << "  " << std::setw(3)
+              << (result.use_transposition_table ? "on" : "off") << "  " << std::setw(13)
+              << (result.store_leaf_tt_entries ? "on" : "off") << "  " << std::setw(3)
               << (result.use_pvs ? "on" : "off") << "  " << std::setw(3)
               << (result.use_aspiration_window ? "on" : "off") << "  " << std::right
               << std::setw(10) << result.aspiration_window << "  " << std::setw(11)
               << result.aspiration_max_researches << "  " << std::setw(10)
               << result.transposition_table_entries << "  " << std::setw(13)
-              << result.exact_root_profile << "  " << std::setw(9)
-              << result.exact_root_positions << "  " << std::setw(11) << result.exact_root_searches
-              << "  " << std::setw(9) << result.position_count << "  " << std::setw(5)
-              << result.depth << "  " << std::left << std::setw(9)
+              << result.exact_root_profile << "  " << std::setw(9) << result.exact_root_positions
+              << "  " << std::setw(11) << result.exact_root_searches << "  " << std::setw(9)
+              << result.position_count << "  " << std::setw(5) << result.depth << "  " << std::left
+              << std::setw(9)
               << (result.sample_best_move.has_value() ? othello::to_string(*result.sample_best_move)
                                                       : "-")
               << "  " << std::right << std::setw(5) << result.sample_score << "  " << std::left
@@ -1254,7 +1281,8 @@ void print_search_result(const SearchBenchmarkResult& result) {
               << beta_cut_first_move_percentage(result.total_stats) << "  " << std::setw(10)
               << result.total_stats.tt_lookups << "  " << std::setw(7) << result.total_stats.tt_hits
               << "  " << std::setw(11) << tt_hit_percentage(result.total_stats) << "  "
-              << std::setw(9) << result.total_stats.tt_stores << "  " << std::setw(13)
+              << std::setw(9) << result.total_stats.tt_stores << "  " << std::setw(14)
+              << result.total_stats.tt_leaf_stores << "  " << std::setw(13)
               << result.total_stats.tt_overwrites << "  " << std::setw(13)
               << result.total_stats.tt_collisions << "  " << std::setw(18)
               << result.total_stats.tt_rejected_stores << "  " << std::setw(9)
@@ -1278,16 +1306,18 @@ void print_position_result_header() {
     std::cout
         << std::left << std::setw(28) << "position" << "  " << std::setw(14) << "phase"
         << "  " << std::setw(44) << "tags" << "  " << std::setw(10) << "mode"
-        << "  " << std::setw(3) << "tt" << "  " << std::setw(3) << "pvs"
+        << "  " << std::setw(3) << "tt" << "  " << std::setw(13) << "tt_store_leaf"
+        << "  " << std::setw(3) << "pvs"
         << "  " << std::setw(3) << "asp" << "  " << std::setw(10) << "asp_window"
         << "  " << std::setw(11) << "asp_max_re"
         << "  " << std::setw(10) << "tt_entries"
-        << "  exact_profile  empty  exact_root  exact_skip_reason            depth  best_move  score  "
+        << "  exact_profile  empty  exact_root  exact_skip_reason            depth  best_move  "
+           "score  "
         << std::setw(28) << "pv"
         << "  searches  elapsed_ms       nodes  nodes/search         nodes/s"
            "  searched_moves  legal_nodes  eval_calls  pass_nodes  game_over_nodes"
            "  beta_cutoffs  beta_cut_first_move_pct"
-           "  tt_lookups  tt_hits  tt_hit_rate  tt_stores  tt_overwrites"
+           "  tt_lookups  tt_hits  tt_hit_rate  tt_stores  tt_leaf_stores  tt_overwrites"
            "  tt_collisions  tt_rejected_stores  tt_order_probes  tt_order_hits  tt_order_used"
            "  pvs_scouts  pvs_researches  pvs_scout_cutoffs"
            "  asp_searches  asp_researches  asp_fail_lows  asp_fail_highs  asp_fallbacks"
@@ -1301,16 +1331,17 @@ void print_position_result(const PositionBenchmarkResult& result) {
     std::cout << std::left << std::setw(28) << result.position_name << "  " << std::setw(14)
               << result.phase << "  " << std::setw(44) << (result.tags.empty() ? "-" : result.tags)
               << "  " << std::setw(10) << mode_name(result.mode) << "  " << std::setw(3)
-              << (result.use_transposition_table ? "on" : "off") << "  " << std::setw(3)
+              << (result.use_transposition_table ? "on" : "off") << "  " << std::setw(13)
+              << (result.store_leaf_tt_entries ? "on" : "off") << "  " << std::setw(3)
               << (result.use_pvs ? "on" : "off") << "  " << std::setw(3)
               << (result.use_aspiration_window ? "on" : "off") << "  " << std::right
               << std::setw(10) << result.aspiration_window << "  " << std::setw(11)
               << result.aspiration_max_researches << "  " << std::setw(10)
               << result.transposition_table_entries << "  " << std::setw(13)
-              << result.exact_root_profile << "  " << std::setw(5) << result.empty_count
-              << "  " << std::setw(10) << (result.exact_root ? "yes" : "no") << "  "
-              << std::left << std::setw(28) << result.exact_skip_reason << "  " << std::right
-              << std::setw(5) << result.depth << "  " << std::left << std::setw(9)
+              << result.exact_root_profile << "  " << std::setw(5) << result.empty_count << "  "
+              << std::setw(10) << (result.exact_root ? "yes" : "no") << "  " << std::left
+              << std::setw(28) << result.exact_skip_reason << "  " << std::right << std::setw(5)
+              << result.depth << "  " << std::left << std::setw(9)
               << (result.sample_best_move.has_value() ? othello::to_string(*result.sample_best_move)
                                                       : "-")
               << "  " << std::right << std::setw(5) << result.sample_score << "  " << std::left
@@ -1328,7 +1359,8 @@ void print_position_result(const PositionBenchmarkResult& result) {
               << beta_cut_first_move_percentage(result.total_stats) << "  " << std::setw(10)
               << result.total_stats.tt_lookups << "  " << std::setw(7) << result.total_stats.tt_hits
               << "  " << std::setw(11) << tt_hit_percentage(result.total_stats) << "  "
-              << std::setw(9) << result.total_stats.tt_stores << "  " << std::setw(13)
+              << std::setw(9) << result.total_stats.tt_stores << "  " << std::setw(14)
+              << result.total_stats.tt_leaf_stores << "  " << std::setw(13)
               << result.total_stats.tt_overwrites << "  " << std::setw(13)
               << result.total_stats.tt_collisions << "  " << std::setw(18)
               << result.total_stats.tt_rejected_stores << "  " << std::setw(9)
@@ -1393,6 +1425,7 @@ void write_json_search_stats_fields(JsonObjectWriter& writer, const othello::Sea
     writer.uint_field("tt_hits", stats.tt_hits);
     writer.double_field("tt_hit_rate", tt_hit_percentage(stats));
     writer.uint_field("tt_stores", stats.tt_stores);
+    writer.uint_field("tt_leaf_stores", stats.tt_leaf_stores);
     writer.uint_field("tt_overwrites", stats.tt_overwrites);
     writer.uint_field("tt_collisions", stats.tt_collisions);
     writer.uint_field("tt_rejected_stores", stats.tt_rejected_stores);
@@ -1422,10 +1455,9 @@ void write_search_jsonl(const SearchBenchmarkResult& result, PositionSet positio
         elapsed_count == 0 ? 0.0
                            : (static_cast<double>(result.total_nodes) * 1'000'000'000.0) /
                                  static_cast<double>(elapsed_count);
-    const double nodes_per_search = result.searches == 0
-                                        ? 0.0
-                                        : static_cast<double>(result.total_nodes) /
-                                              static_cast<double>(result.searches);
+    const double nodes_per_search = result.searches == 0 ? 0.0
+                                                         : static_cast<double>(result.total_nodes) /
+                                                               static_cast<double>(result.searches);
 
     JsonObjectWriter writer{std::cout};
     writer.begin_object();
@@ -1436,6 +1468,7 @@ void write_search_jsonl(const SearchBenchmarkResult& result, PositionSet positio
     writer.string_field("positions", position_set_name(position_set));
     writer.uint_field("repetitions", repetitions);
     writer.bool_field("tt", result.use_transposition_table);
+    writer.bool_field("tt_store_leaf", result.store_leaf_tt_entries);
     writer.bool_field("pvs", result.use_pvs);
     writer.bool_field("aspiration", result.use_aspiration_window);
     writer.int_field("aspiration_window", result.aspiration_window);
@@ -1479,6 +1512,7 @@ void write_position_jsonl(const PositionBenchmarkResult& result, PositionSet pos
     writer.int_field("depth", result.depth);
     writer.uint_field("repetitions", repetitions);
     writer.bool_field("tt", result.use_transposition_table);
+    writer.bool_field("tt_store_leaf", result.store_leaf_tt_entries);
     writer.bool_field("pvs", result.use_pvs);
     writer.bool_field("aspiration", result.use_aspiration_window);
     writer.uint_field("tt_entries", static_cast<std::uint64_t>(result.transposition_table_entries));
@@ -1530,7 +1564,8 @@ void write_position_jsonl(const PositionBenchmarkResult& result, PositionSet pos
 
 void print_position_summary_header() {
     std::cout << std::left << std::setw(10) << "mode" << "  " << std::setw(3) << "tt"
-              << "  " << std::setw(3) << "pvs" << "  " << std::setw(3) << "asp"
+              << "  " << std::setw(13) << "tt_store_leaf" << "  " << std::setw(3) << "pvs"
+              << "  " << std::setw(3) << "asp"
               << "  exact_profile  exact_pos  exact_roots  depth  positions  total_elapsed_ms"
                  "  avg_ms_per_position"
                  "  p50_ms_per_position  p95_ms_per_position  max_ms_per_position"
@@ -1548,6 +1583,7 @@ void print_position_summary(std::span<const PositionBenchmarkResult> results, Se
     std::chrono::nanoseconds total_elapsed{0};
     std::uint64_t total_nodes = 0;
     bool use_transposition_table = false;
+    bool store_leaf_tt_entries = true;
     bool use_pvs = false;
     bool use_aspiration_window = false;
     std::uint64_t exact_root_positions = 0;
@@ -1559,6 +1595,7 @@ void print_position_summary(std::span<const PositionBenchmarkResult> results, Se
         total_elapsed += result.elapsed;
         total_nodes += result.total_nodes;
         use_transposition_table = result.use_transposition_table;
+        store_leaf_tt_entries = result.store_leaf_tt_entries;
         use_pvs = result.use_pvs;
         use_aspiration_window = result.use_aspiration_window;
         if (result.exact_root) {
@@ -1579,17 +1616,17 @@ void print_position_summary(std::span<const PositionBenchmarkResult> results, Se
                                : *std::ranges::max_element(per_position_nodes);
 
     std::cout << std::left << std::setw(10) << mode_name(mode) << "  " << std::setw(3)
-              << (use_transposition_table ? "on" : "off") << "  " << std::setw(3)
+              << (use_transposition_table ? "on" : "off") << "  " << std::setw(13)
+              << (store_leaf_tt_entries ? "on" : "off") << "  " << std::setw(3)
               << (use_pvs ? "on" : "off") << "  " << std::setw(3)
               << (use_aspiration_window ? "on" : "off") << "  " << std::right << std::setw(13)
-              << exact_root_profile << "  " << std::setw(9) << exact_root_positions
-              << "  " << std::setw(11) << exact_root_searches << "  " << std::setw(5) << depth
-              << "  " << std::setw(9) << position_count << "  " << std::fixed
-              << std::setprecision(3) << std::setw(16) << elapsed_ms(total_elapsed) << "  "
-              << std::setw(19) << avg_ms << "  " << std::setw(20)
-              << percentile_value(per_position_ms, 50) << "  " << std::setw(20)
-              << percentile_value(per_position_ms, 95) << "  " << std::setw(19) << max_ms << "  "
-              << std::setw(22) << avg_nodes << "  " << std::setw(22)
+              << exact_root_profile << "  " << std::setw(9) << exact_root_positions << "  "
+              << std::setw(11) << exact_root_searches << "  " << std::setw(5) << depth << "  "
+              << std::setw(9) << position_count << "  " << std::fixed << std::setprecision(3)
+              << std::setw(16) << elapsed_ms(total_elapsed) << "  " << std::setw(19) << avg_ms
+              << "  " << std::setw(20) << percentile_value(per_position_ms, 50) << "  "
+              << std::setw(20) << percentile_value(per_position_ms, 95) << "  " << std::setw(19)
+              << max_ms << "  " << std::setw(22) << avg_nodes << "  " << std::setw(22)
               << percentile_value(per_position_nodes, 50) << "  " << std::setw(22)
               << percentile_value(per_position_nodes, 95) << "  " << std::setw(22) << max_nodes
               << '\n';
@@ -1723,6 +1760,12 @@ int run_benchmark(std::span<char* const> args) {
         std::cout << "tt: "
                   << (options.use_transposition_table.value_or(
                           default_search_options.use_transposition_table)
+                          ? "on"
+                          : "off")
+                  << '\n';
+        std::cout << "tt store leaf: "
+                  << (options.store_leaf_tt_entries.value_or(
+                          default_search_options.store_leaf_tt_entries)
                           ? "on"
                           : "off")
                   << '\n';

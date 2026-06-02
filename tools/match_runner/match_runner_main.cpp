@@ -1,8 +1,7 @@
+#include "common/cli.hpp"
 #include "match_runner/core.hpp"
 #include "match_runner/engine_config.hpp"
 #include "match_runner/jsonl_writer.hpp"
-
-#include "common/cli.hpp"
 
 #include <filesystem>
 #include <fstream>
@@ -39,7 +38,8 @@ void print_usage(std::string_view program_name) {
               << "  random\n"
               << "  eval\n"
               << "  search:depth=N[,tt=on|off][,pvs=on|off]"
-                 "[,exact=off|N|adaptive16][,tt_entries=N][,eval=NAME|eval_config=PATH]\n"
+                 "[,exact=off|N|adaptive16][,tt_entries=N][,tt_store_leaf=on|off]"
+                 "[,eval=NAME|eval_config=PATH]\n"
               << "  external:NAME\n"
               << '\n'
               << "Options:\n"
@@ -76,25 +76,25 @@ void print_usage(std::string_view program_name) {
             options.quiet = true;
         } else if (arg == "--black") {
             const auto value = othello::tools::next_argument(args, index, arg);
-            black = value.has_value() ? othello::match_runner::parse_player_spec(*value)
-                                      : std::nullopt;
+            black =
+                value.has_value() ? othello::match_runner::parse_player_spec(*value) : std::nullopt;
             if (!black.has_value()) {
                 std::cerr << "invalid --black player spec\n";
                 return std::nullopt;
             }
         } else if (arg == "--white") {
             const auto value = othello::tools::next_argument(args, index, arg);
-            white = value.has_value() ? othello::match_runner::parse_player_spec(*value)
-                                      : std::nullopt;
+            white =
+                value.has_value() ? othello::match_runner::parse_player_spec(*value) : std::nullopt;
             if (!white.has_value()) {
                 std::cerr << "invalid --white player spec\n";
                 return std::nullopt;
             }
         } else if (arg == "--games") {
             const auto value = othello::tools::next_argument(args, index, arg);
-            const auto games =
-                value.has_value() ? othello::match_runner::parse_non_negative_int(*value)
-                                  : std::nullopt;
+            const auto games = value.has_value()
+                                   ? othello::match_runner::parse_non_negative_int(*value)
+                                   : std::nullopt;
             if (!games.has_value() || *games <= 0) {
                 std::cerr << "invalid --games value\n";
                 return std::nullopt;
@@ -194,8 +194,8 @@ load_openings_file(const std::filesystem::path& path) {
         const othello::match_runner::OpeningParseResult result =
             othello::match_runner::parse_opening_line(line);
         if (!result.ok) {
-            std::cerr << "invalid opening at " << path << ':' << line_number << ": "
-                      << result.error << '\n';
+            std::cerr << "invalid opening at " << path << ':' << line_number << ": " << result.error
+                      << '\n';
             return std::nullopt;
         }
         if (result.has_opening) {

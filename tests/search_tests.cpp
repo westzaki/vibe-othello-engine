@@ -762,6 +762,63 @@ TEST_CASE("Search options can enable the transposition table", "[search]") {
     CHECK(default_without_tt.depth == with_tt.depth);
 }
 
+TEST_CASE("Search options can skip depth-zero transposition table stores", "[search]") {
+    const Board board = Board::initial();
+
+    const othello::SearchOptions with_leaf_store{
+        .max_depth = 0,
+        .use_transposition_table = true,
+        .store_leaf_tt_entries = true,
+        .exact_endgame_empty_threshold = 0,
+    };
+    const othello::SearchOptions without_leaf_store{
+        .max_depth = 0,
+        .use_transposition_table = true,
+        .store_leaf_tt_entries = false,
+        .exact_endgame_empty_threshold = 0,
+    };
+
+    const othello::SearchResult with_leaf = othello::search(board, with_leaf_store);
+    const othello::SearchResult without_leaf = othello::search(board, without_leaf_store);
+
+    CHECK(with_leaf.score == without_leaf.score);
+    CHECK(with_leaf.best_move == without_leaf.best_move);
+    CHECK(with_leaf.stats.tt_stores == 1);
+    CHECK(with_leaf.stats.tt_leaf_stores == 1);
+    CHECK(without_leaf.stats.tt_stores == 0);
+    CHECK(without_leaf.stats.tt_leaf_stores == 0);
+    CHECK(without_leaf.stats.tt_lookups == 1);
+}
+
+TEST_CASE("Skipping leaf transposition table stores preserves fixed-depth result", "[search]") {
+    const auto board = othello::apply_move(Board::initial(), othello::test::square("d3"));
+    REQUIRE(board.has_value());
+
+    const othello::SearchOptions with_leaf_store{
+        .max_depth = 1,
+        .use_transposition_table = true,
+        .store_leaf_tt_entries = true,
+        .exact_endgame_empty_threshold = 0,
+    };
+    const othello::SearchOptions without_leaf_store{
+        .max_depth = 1,
+        .use_transposition_table = true,
+        .store_leaf_tt_entries = false,
+        .exact_endgame_empty_threshold = 0,
+    };
+
+    const othello::SearchResult with_leaf = othello::search(*board, with_leaf_store);
+    const othello::SearchResult without_leaf = othello::search(*board, without_leaf_store);
+
+    CHECK(with_leaf.best_move == without_leaf.best_move);
+    CHECK(with_leaf.score == without_leaf.score);
+    CHECK(with_leaf.depth == without_leaf.depth);
+    CHECK(with_leaf.stats.tt_leaf_stores > 0);
+    CHECK(without_leaf.stats.tt_leaf_stores == 0);
+    CHECK(with_leaf.stats.tt_stores > without_leaf.stats.tt_stores);
+    CHECK(without_leaf.stats.tt_stores > 0);
+}
+
 TEST_CASE("Search stats leave transposition table counters zero when disabled", "[search]") {
     const auto board = othello::apply_move(Board::initial(), othello::test::square("d3"));
     REQUIRE(board.has_value());
@@ -776,6 +833,7 @@ TEST_CASE("Search stats leave transposition table counters zero when disabled", 
     CHECK(result.stats.tt_lower_hits == 0);
     CHECK(result.stats.tt_upper_hits == 0);
     CHECK(result.stats.tt_stores == 0);
+    CHECK(result.stats.tt_leaf_stores == 0);
     CHECK(result.stats.tt_overwrites == 0);
     CHECK(result.stats.tt_collisions == 0);
     CHECK(result.stats.tt_rejected_stores == 0);
@@ -803,6 +861,8 @@ TEST_CASE("Search stats count transposition table work when enabled", "[search]"
     CHECK(result.stats.nodes == result.nodes);
     CHECK(result.stats.tt_lookups > 0);
     CHECK(result.stats.tt_stores > 0);
+    CHECK(result.stats.tt_leaf_stores > 0);
+    CHECK(result.stats.tt_leaf_stores <= result.stats.tt_stores);
     CHECK(result.stats.tt_hits <= result.stats.tt_lookups);
     CHECK(result.stats.tt_exact_hits + result.stats.tt_lower_hits + result.stats.tt_upper_hits ==
           result.stats.tt_hits);

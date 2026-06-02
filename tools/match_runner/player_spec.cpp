@@ -57,6 +57,7 @@ std::optional<PlayerSpec> parse_player_spec(std::string_view text) {
         search_options.max_depth = *depth;
 
         bool seen_tt = false;
+        bool seen_tt_store_leaf = false;
         bool seen_pvs = false;
         bool seen_exact = false;
         bool seen_tt_entries = false;
@@ -94,6 +95,16 @@ std::optional<PlayerSpec> parse_player_spec(std::string_view text) {
                     }
                     search_options.use_transposition_table = *parsed;
                     seen_tt = true;
+                } else if (key == "tt_store_leaf") {
+                    if (seen_tt_store_leaf) {
+                        return std::nullopt;
+                    }
+                    const std::optional<bool> parsed = parse_on_off(value);
+                    if (!parsed.has_value()) {
+                        return std::nullopt;
+                    }
+                    search_options.store_leaf_tt_entries = *parsed;
+                    seen_tt_store_leaf = true;
                 } else if (key == "pvs") {
                     if (seen_pvs) {
                         return std::nullopt;
@@ -132,12 +143,11 @@ std::optional<PlayerSpec> parse_player_spec(std::string_view text) {
                     }
                     const std::optional<std::uint64_t> parsed = parse_u64(value);
                     if (!parsed.has_value() ||
-                        *parsed > static_cast<std::uint64_t>(
-                                      std::numeric_limits<std::size_t>::max())) {
+                        *parsed >
+                            static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())) {
                         return std::nullopt;
                     }
-                    search_options.transposition_table_entries =
-                        static_cast<std::size_t>(*parsed);
+                    search_options.transposition_table_entries = static_cast<std::size_t>(*parsed);
                     seen_tt_entries = true;
                 } else if (key == "eval_config") {
                     if (seen_eval_config || value.empty()) {
@@ -178,6 +188,7 @@ SearchOptions make_search_options(const PlayerSpec& spec) noexcept {
     options.max_depth = spec.search_options.max_depth;
     options.use_transposition_table = spec.search_options.use_transposition_table;
     options.transposition_table_entries = spec.search_options.transposition_table_entries;
+    options.store_leaf_tt_entries = spec.search_options.store_leaf_tt_entries;
     options.exact_endgame_empty_threshold = spec.search_options.exact_endgame_empty_threshold;
     options.exact_endgame_root_policy = spec.search_options.exact_endgame_root_policy;
     options.use_pvs = spec.search_options.use_pvs;

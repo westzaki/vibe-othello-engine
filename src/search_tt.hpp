@@ -15,8 +15,8 @@
 
 namespace othello::search_detail {
 
-using tt_detail::BoundKind;
 using tt_detail::bound_for_score;
+using tt_detail::BoundKind;
 using tt_detail::bucket_count_for_entry_count;
 using tt_detail::proves_cutoff;
 
@@ -38,8 +38,7 @@ class TranspositionTable {
 public:
     explicit TranspositionTable(const SearchOptions& options) noexcept
         : bucket_count_{normalized_bucket_count(options)},
-          buckets_{bucket_count_ == 0 ? nullptr
-                                      : new (std::nothrow) Bucket[bucket_count_]} {}
+          buckets_{bucket_count_ == 0 ? nullptr : new (std::nothrow) Bucket[bucket_count_]} {}
 
     [[nodiscard]] TranspositionLookup lookup(ZobristHash hash, int depth, int alpha, int beta,
                                              bool collect_best_move_hint,
@@ -81,16 +80,16 @@ public:
         return TranspositionLookup{.best_move_hint = best_move_hint_from_entry(entry, stats)};
     }
 
-    void store(ZobristHash hash, int depth, int score, int original_alpha, int beta,
+    bool store(ZobristHash hash, int depth, int score, int original_alpha, int beta,
                const std::optional<Square>& best_move, SearchStats& stats) noexcept {
         if (buckets_ == nullptr) {
-            return;
+            return false;
         }
 
         TranspositionEntry* entry = replacement_entry(buckets_[bucket_index(hash)], hash, depth);
         if (entry == nullptr) {
             ++stats.tt_rejected_stores;
-            return;
+            return false;
         }
 
         const BoundKind bound = bound_for_score(score, original_alpha, beta);
@@ -111,6 +110,7 @@ public:
             .bound = bound,
             .occupied = true,
         };
+        return true;
     }
 
 private:
@@ -148,8 +148,8 @@ private:
         return static_cast<std::size_t>(hash) & (bucket_count_ - 1);
     }
 
-    [[nodiscard]] static TranspositionEntry*
-    replacement_entry(Bucket& bucket, ZobristHash hash, int depth) noexcept {
+    [[nodiscard]] static TranspositionEntry* replacement_entry(Bucket& bucket, ZobristHash hash,
+                                                               int depth) noexcept {
         TranspositionEntry* empty_slot = nullptr;
         TranspositionEntry* shallowest = &bucket.entries.front();
         for (TranspositionEntry& entry : bucket.entries) {
