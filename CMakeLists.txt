@@ -92,7 +92,9 @@ find_package(Python3 COMPONENTS Interpreter)
 
 othello_add_executable(othello_tests
     tests/endgame_tests.cpp
+    tests/eval_config_io_tests.cpp
     tests/evaluation_tests.cpp
+    tests/evaluation_pattern_table_tests.cpp
     tests/eval_vs_exact_tests.cpp
     tests/exact_label_dump_tests.cpp
     tests/hash_tests.cpp
@@ -101,6 +103,7 @@ othello_add_executable(othello_tests
     tests/match_runner_tests.cpp
     tests/nboard_protocol_tests.cpp
     tests/notation_tests.cpp
+    tests/pattern_table_io_tests.cpp
     tests/pattern_index_fixture_tests.cpp
     tests/player_tests.cpp
     tests/position_sampler_tests.cpp
