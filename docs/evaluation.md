@@ -164,12 +164,14 @@ phase-specific pattern tables. The old scalar project default is preserved as
 `data/eval/current_default_legacy_scalar_2026_06_02.eval` for comparison and
 revert, and it matches the C++ built-in fallback.
 
-Pattern-first research should usually start from `pattern_teacher_v0.eval`, the
-clean pattern-only `pattern_reboot_v0.eval`, or another explicit
+Pattern-first research should usually start from the canonical pairwise trainer,
+the clean pattern-only `pattern_reboot_v0.eval`, or another explicit
 pattern-only/pattern-first config rather than another scalar residual weight
-tweak. Temporary strength regression is acceptable when the experiment is
-building pattern-table ownership, dataset, trainer objective, regularization,
-or validation foundations.
+tweak. Historical pattern-teacher reports remain useful provenance, but their
+old entry points are no longer the starting point for new work. Temporary
+strength regression is acceptable when the experiment is building pattern-table
+ownership, dataset, trainer objective, regularization, or validation
+foundations.
 
 The scalar feature code remains part of the engine for default compatibility and
 for comparison anchors. That does not make old scalar experiments active

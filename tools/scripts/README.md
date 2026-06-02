@@ -65,9 +65,9 @@ should be rebuilt with the current workflows above.
 For new evaluation research, start with the current role definitions in
 `data/eval/README.md` before choosing a script. `current_default.eval` is the
 engine default and product-facing compatibility baseline, not the research
-baseline. `pattern_teacher_v0.eval` is the retained experimental pattern
-baseline, and `pattern_reboot_v0.eval`, when present, is the clean pattern-only
-research baseline even though it is expected to be weak initially.
+baseline. `pattern_reboot_v0.eval`, when present, is the clean pattern-only
+research baseline even though it is expected to be weak initially. Historical
+pattern-teacher artifacts remain provenance, not active trainer entry points.
 
 The preferred next path is pattern learning foundation work, not another round
 of tiny scalar residual tuning. Use reusable teacher and exact artifacts through

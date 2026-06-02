@@ -46,10 +46,11 @@ comparison, reproduction, and reversible evaluator candidates.
 
 ### Pattern Research Baseline
 
-`pattern_teacher_v0.eval` is the retained experimental pattern baseline for the
-pattern-first research restart. It is not the engine default and not a strength
-claim. It is kept because it is a compact
-pattern-table baseline with durable experiment evidence.
+The historical pattern-teacher config is retained for the pattern-first
+research restart. It is not the engine default, not a strength claim, and no
+active parser or match-runner smoke test depends on it. It is kept for
+provenance while later cleanup clears remaining config and documentation
+dependencies.
 
 `pattern_reboot_v0.eval` is the clean pattern-only reboot baseline. It reuses
 the retained `pattern_teacher_v0` table, but zeros all scalar handcrafted
@@ -111,8 +112,8 @@ source preset for the project default.
 | `patterns/ntest_pairwise_full_v2_midgame.tsv` | current default snapshot table; required runtime/test fixture | Referenced by `current_default.eval`, `ntest_pairwise_full_v2.eval`, eval config tests, and full-v2 experiment docs. | Keep. Required for the current project default and source preset. |
 | `patterns/ntest_pairwise_full_v2_late.tsv` | current default snapshot table; required runtime/test fixture | Referenced by `current_default.eval`, `ntest_pairwise_full_v2.eval`, eval config tests, and full-v2 experiment docs. | Keep. Required for the current project default and source preset. |
 | `pattern_reboot_v0.eval` | canonical trainer baseline; required test fixture | Default base config for `tools/scripts/regularized_pairwise_pattern_train.py`; loaded by eval config tests and evaluation tests; referenced by pattern-first workflow docs and multiple experiment reports. Historical reports may mention removed transitional trainers that used it. | Keep until the trainer defaults move to a newer canonical base. Future prune requires updating trainer defaults, tests, and docs to the replacement base config. |
-| `pattern_teacher_v0.eval` | historical baseline; required test fixture; future prune candidate | Loaded by eval config tests and match-runner tests; referenced by `pattern_reboot_v0.eval`, dataset docs, script docs, and several experiment reports. | Future prune candidate, not safe to delete now. Replacement for current tests would be a small fixture under `tests/fixtures/eval`; historical docs can keep text references without requiring a live active config. |
-| `patterns/pattern_teacher_v0.tsv` | historical baseline table; required test fixture; future prune candidate | Referenced by `pattern_teacher_v0.eval`, `pattern_reboot_v0.eval`, eval config tests, pattern table tests through helper-generated configs, dataset docs, and pattern experiment reports. | Future prune candidate tied to `pattern_teacher_v0.eval` and `pattern_reboot_v0.eval`. Delete only after active configs/tests no longer load it; keep historical reports as docs-only provenance. |
+| `pattern_teacher_v0.eval` | historical baseline; future prune candidate | Referenced by `pattern_reboot_v0.eval` metadata, this audit, and historical/provenance docs and reports. Active parser and match-runner smoke tests use focused fixtures under `tests/fixtures/eval`. | Future prune candidate, not safe to delete yet. Delete only after active configs no longer cite it and the project accepts docs-only provenance for old reports. |
+| `patterns/pattern_teacher_v0.tsv` | historical baseline table; future prune candidate | Referenced by `pattern_teacher_v0.eval`, `pattern_reboot_v0.eval`, this audit, retained artifact metadata, and historical/provenance reports. Active parser and pattern-table smoke tests use focused fixtures under `tests/fixtures/eval`. | Future prune candidate tied to `pattern_reboot_v0.eval` and `pattern_teacher_v0.eval`. Delete only after active configs no longer load it; keep historical reports as docs-only provenance. |
 
 ### Future Prune Plan
 
@@ -121,8 +122,8 @@ so this PR deletes nothing.
 
 | Prune candidate | Current references to clear first | Tests to update | Replacement artifact or command | Delete or keep only docs/report |
 | --- | --- | --- | --- | --- |
-| `pattern_teacher_v0.eval` | `pattern_reboot_v0.eval`, `docs/datasets/README.md`, `tools/scripts/README.md`, historical experiment reports, eval/match tests. | Replace direct loads in `tests/eval_config_io_tests.cpp` and `tests/match_runner_tests.cpp` with a focused fixture or a current source preset. | Prefer a tiny `tests/fixtures/eval` config for parser/match-runner coverage; use current project default or future canonical trainer base for workflows. | Delete from `data/eval` when no active config depends on it; keep historical docs/report references. |
-| `patterns/pattern_teacher_v0.tsv` | `pattern_teacher_v0.eval`, `pattern_reboot_v0.eval`, eval config tests, pattern-table tests using helper-generated configs, historical reports. | Move parser/table smoke coverage to a fixture table or update tests to use the current NTest full-v2 phase tables where appropriate. | A minimal fixture TSV for parser coverage, or a newly trained canonical baseline table if one becomes active. | Delete with `pattern_teacher_v0.eval` once no active config references it; keep historical docs/report references. |
+| `pattern_teacher_v0.eval` | `pattern_reboot_v0.eval` metadata, this audit, and historical/provenance reports. | Active eval parser and match-runner smoke tests already use focused fixtures under `tests/fixtures/eval`. | Current project default or future canonical trainer base for workflows; fixture configs for parser smoke coverage. | Delete from `data/eval` when no active config cites it and historical references can remain docs-only provenance. |
+| `patterns/pattern_teacher_v0.tsv` | `pattern_teacher_v0.eval`, `pattern_reboot_v0.eval`, retained artifact metadata, this audit, and historical/provenance reports. | Active parser and pattern-table smoke tests already use focused fixtures under `tests/fixtures/eval`. | A future canonical table baseline if one becomes active; fixture TSVs for parser smoke coverage. | Delete after `pattern_reboot_v0.eval` and `pattern_teacher_v0.eval` no longer load it; keep historical reports as docs-only provenance. |
 | `pattern_reboot_v0.eval` | Trainer default in `regularized_pairwise_pattern_train.py`, `docs/evaluation.md`, `tools/scripts/README.md`, CTest dry-run evidence examples, eval/evaluation tests, historical reports. | Update trainer-default tests, eval config tests, and evaluation tests to the replacement base config. | A future canonical trainer base, likely either the legacy scalar preset plus explicit zeroed pattern terms or a new source-controlled trainer baseline. | Delete only after a replacement trainer base is source-controlled and docs/tests point at it; keep historical reports. |
 | `current_default_legacy_scalar_2026_06_02.eval` | Eval config tests and revert-plan docs. | Keep one test proving built-in fallback remains file-free; it can compare against `default_evaluation_config()` directly or a generated scalar snapshot. | `default_evaluation_config()` plus the current revert plan; regenerate a scalar `.eval` only if a revert PR needs it. | Keep short-term as revert preset; later delete from active configs if the project accepts docs-only revert instructions. |
 
