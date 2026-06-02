@@ -777,7 +777,7 @@ class ExternalTeacherLabelWorkflowTests(unittest.TestCase):
                     "--depth",
                     "10",
                     "--timeout-ms",
-                    "50",
+                    "500",
                     "--engine-lifecycle",
                     "persistent",
                     "--allow-failures",

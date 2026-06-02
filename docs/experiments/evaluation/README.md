@@ -16,7 +16,7 @@ candidate just because an old report describes next steps.
 | --- | --- | --- | --- |
 | [`2026-06-01-pattern-teacher-v0.md`](2026-06-01-pattern-teacher-v0.md) | current foundation | First retained sparse pattern-table baseline, trained from validated NTest residuals. | Use as the retained pattern comparison baseline; not a default-promotion signal. |
 | [`2026-06-01-pattern-reboot-v0.md`](2026-06-01-pattern-reboot-v0.md) | current foundation | Clean pattern-only reboot config with scalar handcrafted weights zeroed. | Use as an interpretable pattern-learning starting point; expect weak strength. |
-| [`2026-05-31-teacher-aggressive-v3.md`](2026-05-31-teacher-aggressive-v3.md) | current foundation | Scalar teacher-aggressive run that motivates the pattern-first pivot and remains a retained scalar comparison anchor. | Reference for comparison and provenance only; do not restart scalar tweaking from it. |
+| [`2026-05-31-teacher-aggressive-v3.md`](2026-05-31-teacher-aggressive-v3.md) | historical scalar provenance | Scalar teacher-aggressive run that motivates the pattern-first pivot. | Reference for comparison and provenance only; do not restart scalar tweaking from it or keep its config active. |
 | [`2026-06-01-ntest-depth26-dataset-migration.md`](2026-06-01-ntest-depth26-dataset-migration.md) | dataset/evidence infrastructure | Migration record for the reusable 2027-row NTest depth-26 teacher dataset layout. | Use the dataset references and workflow notes; this is not evaluator-strength evidence. |
 | [`2026-06-01-classic-pattern-v0.md`](2026-06-01-classic-pattern-v0.md) | dataset/evidence infrastructure | Broad classic sparse-pattern plumbing run over the 2027-row teacher data. | Keep as broad-pattern and dataset provenance; candidate is rejected as stronger evaluator. |
 | [`2026-06-01-pattern-teacher-v1.md`](2026-06-01-pattern-teacher-v1.md) | active research line | Deterministic split and rank-aware pattern iteration after `pattern_teacher_v0`. | Use the split/rank lessons; do not treat v1 as stronger than v0. |
@@ -26,8 +26,8 @@ candidate just because an old report describes next steps.
 
 ## Category Notes
 
-- Current foundation reports describe retained baselines or comparison anchors
-  that current docs still mention.
+- Current foundation reports describe retained pattern baselines that current
+  docs still mention.
 - Active research line reports may contain negative results, but they also
   document currently relevant trainer, dataset, or pattern-table workflow
   lessons.

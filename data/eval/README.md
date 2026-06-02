@@ -1,8 +1,8 @@
 # Evaluation Configs
 
 This directory contains the small active set of `.eval` v1 files that should
-work on the latest `main`: the current default snapshot and retained research
-configs. These files are selected explicitly with `--eval-config PATH` or
+work on the latest `main`: the current default snapshot and pattern research
+baselines. These files are selected explicitly with `--eval-config PATH` or
 `eval_config=PATH`; they do not change the built-in engine default.
 When no `--eval-config` is specified, tools use the built-in default evaluator.
 Use `.eval` configs for new evaluation experiments.
@@ -36,12 +36,6 @@ Pattern-first experiments may intentionally be weaker than the engine default
 while they build better table ownership, dataset, trainer, and validation
 foundations.
 
-### Retained Comparison Anchor
-
-`classic_othello_v3_teacher_aggressive.eval` is retained temporarily as a
-scalar comparison anchor for pattern research. It is not a preferred candidate
-and should not be used as a new scalar-tweaking baseline.
-
 ## Rejected or Superseded Configs
 
 Rejected and superseded configs should normally be removed from `data/eval`
@@ -57,6 +51,12 @@ Keep a rejected config or table only when a current test, tool contract, or
 explicit reproduction task truly needs the exact source-controlled file. If one
 is kept, its header must say it is rejected or retained for reproducibility
 only, and it must not be described as active or preferred.
+
+Scalar comparison evidence is historical provenance, not active evaluator data.
+Reports such as
+`docs/experiments/evaluation/2026-05-31-teacher-aggressive-v3.md` preserve the
+commands, fingerprints, and comparison results that motivated the pattern-first
+pivot without keeping scalar experiment anchors loadable as current configs.
 
 ## Format
 
@@ -91,9 +91,8 @@ config must not specify both the old key and its legacy alias for the same phase
 
 Plain `eval.v1` configs without `mode=pattern_only` are full snapshots. They
 must explicitly list every handcrafted feature weight and phase threshold. Use
-this form for `current_default.eval`, retained scalar anchors, or configs that
-need to describe the whole evaluator state without implicit feature-weight
-fallback.
+this form for `current_default.eval` or configs that need to describe the whole
+evaluator state without implicit feature-weight fallback.
 
 ### Pattern-Only Configs
 

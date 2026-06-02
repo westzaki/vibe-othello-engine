@@ -36,15 +36,6 @@ TEST_CASE("Sample eval configs round-trip to expected evaluator configs", "[eval
     CHECK(current_default.config.midgame.pattern_table == 0);
     CHECK(current_default.config.late.pattern_table == 0);
 
-    const othello::tools::EvaluationConfigLoadResult scalar_anchor =
-        othello::tools::load_evaluation_config_file(
-            sample_eval_config_path("classic_othello_v3_teacher_aggressive.eval"));
-    REQUIRE(scalar_anchor.ok());
-    REQUIRE(scalar_anchor.name.has_value());
-    CHECK(*scalar_anchor.name == "classic_othello_v3_teacher_aggressive");
-    CHECK(scalar_anchor.config != othello::default_evaluation_config());
-    CHECK(scalar_anchor.config.pattern_tables == nullptr);
-
     const othello::tools::EvaluationConfigLoadResult pattern =
         othello::tools::load_evaluation_config_file(
             sample_eval_config_path("pattern_teacher_v0.eval"));
@@ -122,7 +113,6 @@ TEST_CASE("Sample eval configs round-trip to expected evaluator configs", "[eval
 TEST_CASE("Committed eval artifact surface contains only active fixtures",
           "[evaluation]") {
     constexpr std::array allowed_eval_configs{
-        std::string_view{"classic_othello_v3_teacher_aggressive.eval"},
         std::string_view{"current_default.eval"},
         std::string_view{"pattern_reboot_v0.eval"},
         std::string_view{"pattern_teacher_v0.eval"},
