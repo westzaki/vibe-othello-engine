@@ -13,8 +13,6 @@ engine directly.
 - `current`: recommended for the current pattern-first workflow or shared PR
   evidence workflow.
 - `canonical`: the default current entry point for new work in its area.
-- `transitional`: still tested and acceptable for its narrow historical or
-  migration use case, but not the default for new experiments.
 - `legacy`: still useful for scalar/config diagnostics, compatibility checks,
   historical comparison, or focused debugging, but not the default path for new
   pattern-first work.
@@ -42,8 +40,6 @@ script.
 | `legacy_othello_rules.py` | deprecated | Transitional Python board replay helpers for old diagnostics. | Kept only while the deprecated divergence extractor remains available for historical reproduction. |
 | `match_summary.py` | current | Summarize C++ match-runner JSONL. | Shared by current evidence, match, and base/head workflows. |
 | `ntest_teacher_smoke.py` | current | Run a local NTest teacher-label smoke and estimate 300K run feasibility. | Operational preflight before overnight NTest teacher dataset generation; does not make strength claims. |
-| `pattern_teacher_v0_train.py` | transitional | Train sparse learned pattern tables and keep compatibility imports for older helper names. | Kept for `pattern_teacher_v0.tsv` provenance, historical comparison, and CTest; shared helpers now live under `pattern_training/`. |
-| `phase_pattern_table_train.py` | transitional | Train separate opening/midgame/late sparse pattern tables and local candidate configs. | Kept for phase-table workflow reproduction and focused migration checks; imports shared helpers from `pattern_training/` instead of using the old trainer as a helper bag. |
 | `regularized_pairwise_pattern_train.py` | current / canonical | Train phase-specific tables from teacher-vs-engine and exact-aware pairwise preferences. | Canonical current pattern trainer for new experiments; owns the shared analyzer cache/dedup/parallel workflow. |
 | `run_external_engine_once.py` | current | Probe one external-engine request through the canonical adapter CLI. | Current process/timeout/protocol smoke path for adapters. |
 | `run_match_experiment.py` | current | Thin subprocess wrapper around `othello_match_runner` plus optional summary. | Current simple match-smoke wrapper used by recent pattern reports. |
@@ -58,6 +54,8 @@ script.
 | `eval_config_search_validate.py` | deprecated | Chain held-out scalar/config summaries into search-bench and match-smoke validation. | Replaced by `eval_candidate_matrix.py`, `run_match_experiment.py`, `base_head_match_matrix.py`, and `evidence.py`; remaining repository mentions are historical experiment commands. |
 | `eval_config_tuner.py` | deprecated | Perturb fully expanded `.eval` scalar weights against exact-label JSONL. | Replaced for current work by `exact_label_workflow.py`, `eval_candidate_matrix.py`, and `evidence.py`; remaining repository mentions are historical experiment commands. |
 | `eval_experiment_matrix.py` | deprecated | Run staged `.eval` config search and match matrices. | Replaced by `eval_candidate_matrix.py`, `run_match_experiment.py`, `base_head_match_matrix.py`, and `evidence.py`; `evidence.py --profile eval` no longer depends on it. |
+| `pattern_teacher_v0_train.py` | deprecated | Train sparse learned pattern tables and provide temporary compatibility imports for older helper names. | Replaced by `regularized_pairwise_pattern_train.py` for new pattern work; shared dataset/split/pattern-table/preference helpers are tested directly under `pattern_training/`. Historical reports and `pattern_teacher_v0.tsv` metadata keep provenance only. |
+| `phase_pattern_table_train.py` | deprecated | Train separate opening/midgame/late sparse pattern tables and local candidate configs. | Replaced by the canonical regularized pairwise trainer for active work; helper behavior is covered directly under `pattern_training/`. Historical phase-table reports remain provenance only. |
 | `run_experiment_matrix.py` | deprecated | Run JSON-defined match-runner matrices from `tools/scripts/examples/search_ablation_smoke.json`. | Replaced by explicit `run_match_experiment.py`, `base_head_match_matrix.py`, and `evidence.py` workflows; it had no current docs outside this README and its dedicated test/example. |
 
 The deleted scripts' dedicated tests were removed with them. The committed
@@ -197,20 +195,11 @@ TSVs and `.eval` files remain generated artifacts under `runs/`, and follow-up
 evidence should be recorded in a separate experiment report such as
 `docs(eval): report pairwise pattern v1`.
 
-Older trainer workflows remain available but are no longer equally current:
-
-- Use `pattern_teacher_v0_train.py` only to reproduce the retained
-  `pattern_teacher_v0` provenance path, run compatibility tests around legacy
-  sparse table helpers, or compare against historical residual-count behavior.
-- Use `phase_pattern_table_train.py` only for focused phase-table workflow
-  reproduction or migration checks where its simpler rank update is the thing
-  under inspection.
-- Do not start new broad pattern-learning work from either older trainer unless
-  the task explicitly asks for that historical behavior.
-
-Future cleanup should first move any remaining compatibility-only imports or
-script-specific behavior out of old trainer entry points. Only after that should
-the old trainer entry points be considered for deletion.
+Historical reports and retained pattern-table metadata may still mention older
+trainer entry points as timestamped provenance. Those scripts are removed from
+active tooling; new work should use the canonical regularized pairwise trainer
+and direct `pattern_training/` helper tests instead of copying old command
+blocks.
 
 ## Current Evidence Workflows
 

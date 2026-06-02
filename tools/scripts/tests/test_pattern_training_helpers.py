@@ -71,6 +71,22 @@ class PatternTrainingHelperTests(unittest.TestCase):
         with self.assertRaises(ScriptError):
             splits.parse_split_ratios("60,40,0")
 
+    def test_write_split_files_is_deterministic(self) -> None:
+        rows = [{"board_text": BOARD, "move": move} for move in ("d3", "c4", "f5")]
+        ratios = splits.parse_split_ratios("60,20,20")
+        with tempfile.TemporaryDirectory() as temp:
+            out_dir = Path(temp)
+            splits.write_split_files(rows, out_dir, ratios, 20260601)
+            first = {path.name: path.read_text(encoding="utf-8") for path in out_dir.iterdir()}
+            splits.write_split_files(rows, out_dir, ratios, 20260601)
+            second = {path.name: path.read_text(encoding="utf-8") for path in out_dir.iterdir()}
+
+        self.assertEqual(first, second)
+        self.assertEqual(
+            set(first),
+            {"teacher_train.jsonl", "teacher_validation.jsonl", "teacher_holdout.jsonl"},
+        )
+
     def test_dataset_loaders_filter_accepted_rows_and_exact_best_moves(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             temp_path = Path(temp)
@@ -111,6 +127,58 @@ class PatternTrainingHelperTests(unittest.TestCase):
         )
 
         self.assertEqual(entries, [(1, 4), (partner, -4)])
+
+    def test_pattern_table_rendering_is_deterministic(self) -> None:
+        text = pattern_tables.render_table(
+            corner_entries=[(1, 2), (3, -2)],
+            edge_entries=[(9, 1)],
+            stats={"residual_updates": 2, "already_agreed": 1},
+            command=["helper-test", "--split", "train"],
+            generated_by="helper-test",
+        )
+
+        self.assertEqual(
+            text,
+            "# schema_version: pattern_table.v1\n"
+            "# name: pattern_teacher_v0\n"
+            "# generated_by: helper-test\n"
+            "# command: helper-test --split train\n"
+            "# already_agreed: 1\n"
+            "# residual_updates: 2\n"
+            "\n"
+            "corner_2x3\t1\t2\n"
+            "corner_2x3\t3\t-2\n"
+            "edge_8\t9\t1\n",
+        )
+
+    def test_pattern_table_rendering_supports_multiple_families(self) -> None:
+        text = pattern_tables.render_table(
+            name="broad_pattern_fixture",
+            family_entries={
+                "edge_x_10": [(1, 2), (2, -2)],
+                "corner_3x3": [(4, 1), (8, -1)],
+                "inner_row_8": [(16, 3), (32, -3)],
+            },
+            stats={"residual_updates": 1},
+            command=["helper-test", "--families", "broad_all"],
+            generated_by="helper-test",
+        )
+
+        self.assertEqual(
+            text,
+            "# schema_version: pattern_table.v1\n"
+            "# name: broad_pattern_fixture\n"
+            "# generated_by: helper-test\n"
+            "# command: helper-test --families broad_all\n"
+            "# residual_updates: 1\n"
+            "\n"
+            "corner_3x3\t4\t1\n"
+            "corner_3x3\t8\t-1\n"
+            "edge_x_10\t1\t2\n"
+            "edge_x_10\t2\t-2\n"
+            "inner_row_8\t16\t3\n"
+            "inner_row_8\t32\t-3\n",
+        )
 
     def test_preference_update_counts_teacher_minus_compared_features(self) -> None:
         families = pattern_tables.parse_families("corner_only")
