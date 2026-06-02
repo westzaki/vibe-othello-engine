@@ -167,13 +167,12 @@ revert, and it matches the C++ built-in fallback.
 Pattern-first research should usually start from the canonical pairwise trainer
 with an explicitly selected base evaluator such as `current_default.eval`, or
 from a new focused pattern-only/pattern-first config when the experiment needs
-one. `pattern_reboot_v0.eval` is retained as historical provenance for old
-pattern-only evidence, not as the default starting point for new work.
-Historical pattern-teacher reports remain useful provenance, but their old
-entry points are no longer the starting point for new work. Temporary strength
-regression is acceptable when the experiment is building pattern-table
-ownership, dataset, trainer objective, regularization, or validation
-foundations.
+one. Historical `pattern_reboot_v0` and `pattern_teacher_v0` reports remain
+useful provenance for old pattern-only evidence, but their loadable `data/eval`
+artifacts and old entry points were removed from active tooling. They are not
+the default starting point for new work. Temporary strength regression is
+acceptable when the experiment is building pattern-table ownership, dataset,
+trainer objective, regularization, or validation foundations.
 
 The scalar feature code remains part of the engine for default compatibility and
 for comparison anchors. That does not make old scalar experiments active

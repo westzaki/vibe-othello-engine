@@ -20,10 +20,17 @@ for provenance and dataset migration evidence, but those scripts have been
 removed from active tooling. Do not copy those historical command blocks into
 new work.
 
+Reports may also mention removed `data/eval/pattern_teacher_v0.eval`,
+`data/eval/pattern_reboot_v0.eval`, or
+`data/eval/patterns/pattern_teacher_v0.tsv` artifacts. Those paths are
+historical provenance only; the loadable source-controlled artifacts were
+pruned from active eval configs. Current work should use `current_default.eval`,
+`ntest_pairwise_full_v2.eval`, or an explicit new config.
+
 | Report | Status/category | One-line purpose | Current actionability |
 | --- | --- | --- | --- |
-| [`2026-06-01-pattern-teacher-v0.md`](2026-06-01-pattern-teacher-v0.md) | current foundation | First retained sparse pattern-table baseline, trained from validated NTest residuals. | Use as the retained pattern comparison baseline; not a default-promotion signal. |
-| [`2026-06-01-pattern-reboot-v0.md`](2026-06-01-pattern-reboot-v0.md) | current foundation | Clean pattern-only reboot config with scalar handcrafted weights zeroed. | Use as an interpretable pattern-learning starting point; expect weak strength. |
+| [`2026-06-01-pattern-teacher-v0.md`](2026-06-01-pattern-teacher-v0.md) | historical pattern provenance | First sparse pattern-table baseline, trained from validated NTest residuals. | Provenance only; the loadable artifact was pruned from active eval configs. |
+| [`2026-06-01-pattern-reboot-v0.md`](2026-06-01-pattern-reboot-v0.md) | historical pattern provenance | Clean pattern-only reboot config with scalar handcrafted weights zeroed. | Provenance only; the loadable artifact was pruned from active eval configs. |
 | [`2026-06-02-ntest-pairwise-full-v2-candidate.md`](2026-06-02-ntest-pairwise-full-v2-candidate.md) | promotion candidate | Source-controlled NTest 300K regularized pairwise evaluator candidate. | Review with the linked evidence and known risks; not automatic default promotion. |
 | [`2026-05-31-teacher-aggressive-v3.md`](2026-05-31-teacher-aggressive-v3.md) | historical scalar provenance | Scalar teacher-aggressive run that motivates the pattern-first pivot. | Reference for comparison and provenance only; do not restart scalar tweaking from it or keep its config active. |
 | [`2026-06-01-ntest-depth26-dataset-migration.md`](2026-06-01-ntest-depth26-dataset-migration.md) | dataset/evidence infrastructure | Migration record for the reusable 2027-row NTest depth-26 teacher dataset layout. | Use the dataset references and workflow notes; this is not evaluator-strength evidence. |
@@ -35,8 +42,8 @@ new work.
 
 ## Category Notes
 
-- Current foundation reports describe retained pattern baselines that current
-  docs still mention.
+- Historical pattern provenance reports describe pruned pattern-teacher
+  baselines that remain useful only as timestamped evidence.
 - Canonical trainer foundation reports document the current trainer family even
   when an individual generated candidate was rejected.
 - Transitional trainer reports may contain workflow lessons, but their script

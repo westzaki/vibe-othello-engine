@@ -15,6 +15,11 @@ metrics, or match smoke.
 
 This is not a strength claim and not a default-promotion proposal. The generated
 candidate and tables remain under `runs/` and are not committed.
+Historical `pattern_reboot_v0` and `pattern_teacher_v0` paths referenced below
+have been removed from active source-controlled eval configs; the command
+blocks are retained as provenance only. Current work should use
+`current_default.eval`, `ntest_pairwise_full_v2.eval`, or an explicit new
+config.
 
 ## Decision
 

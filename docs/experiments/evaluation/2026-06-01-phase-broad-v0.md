@@ -6,6 +6,11 @@ This report records the first phase-aware broad pattern training run using the
 new `phase_pattern_table_train.py` workflow. It is not a default-promotion
 proposal, not a C++ `EvaluationPreset`, not an Elo claim, not proof of strength,
 and it does not change exact solver or search semantics.
+Historical `pattern_reboot_v0` and `pattern_teacher_v0` paths referenced below
+have been removed from active source-controlled eval configs; the command
+blocks are retained as provenance only. Current work should use
+`current_default.eval`, `ntest_pairwise_full_v2.eval`, or an explicit new
+config.
 
 ## Decision
 
@@ -13,13 +18,14 @@ and it does not change exact solver or search semantics.
 
 The phase-aware broad trainer works: it generated separate opening, midgame, and
 late sparse TSVs plus a phase-specific local `candidate.eval` under `runs/`.
-The candidate also loads through the C++ `.eval` path. However, the learned
-tables do not beat `pattern_teacher_v0` on validation, holdout, exact heldout,
-or match smoke. This is useful workflow evidence, not a candidate to promote.
+The candidate also loaded through the C++ `.eval` path at the time. However,
+the learned tables did not beat `pattern_teacher_v0` on validation, holdout,
+exact heldout, or match smoke. This is useful workflow evidence, not a
+candidate to promote.
 
 Do not promote this candidate, do not add it to `data/eval`, and do not use it
-for strength claims. `pattern_teacher_v0` remains the preferred experimental
-pattern baseline for comparisons.
+for strength claims. `pattern_teacher_v0` is now a pruned historical baseline,
+not a current comparison preset.
 
 ## Metadata
 

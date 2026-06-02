@@ -5,16 +5,23 @@ Status: experimental report, not current guidance.
 This report records a clean pattern-only evaluator reboot baseline. It is not a
 default-promotion proposal, not a C++ `EvaluationPreset`, not an Elo claim, not
 proof of strength, and it does not change exact solver or search semantics.
+The `data/eval/pattern_reboot_v0.eval`,
+`data/eval/pattern_teacher_v0.eval`, and
+`data/eval/patterns/pattern_teacher_v0.tsv` artifacts referenced below have
+been removed from active source-controlled eval configs; the commands and paths
+are retained as historical provenance only. Current work should use
+`current_default.eval`, `ntest_pairwise_full_v2.eval`, or an explicit new
+config.
 
 ## Decision
 
-Keep `pattern_reboot_v0` as a clean pattern-only research baseline. Do not use
-it as a strength candidate.
+The recorded `pattern_reboot_v0` run was a clean pattern-only research
+baseline. Do not use it as a current loadable preset or strength candidate.
 
-The config is intentionally weak and interpretable: it reuses the retained
-`pattern_teacher_v0` sparse table, sets all scalar handcrafted feature weights
-to zero, and leaves only `pattern_table` nonzero. The value is clarity for the
-next pattern-learning line, not immediate playing strength.
+The recorded config was intentionally weak and interpretable: it reused the
+`pattern_teacher_v0` sparse table, set all scalar handcrafted feature weights to
+zero, and left only `pattern_table` nonzero. The value was clarity for the next
+pattern-learning line, not immediate playing strength.
 
 ## Metadata
 
@@ -48,8 +55,8 @@ scalar residual adjustment.
 - all scalar handcrafted feature weights are zero
 - only the sparse loaded pattern table contributes to non-terminal evaluation
 - default evaluator behavior is unchanged
-- `pattern_teacher_v0` remains the retained experimental pattern baseline for
-  strength-oriented comparison
+- `pattern_teacher_v0` was the historical experimental pattern baseline for
+  strength-oriented comparison in this report
 - temporary strength regression is acceptable
 
 The next research question should be pattern-table ownership, data, training
@@ -236,7 +243,7 @@ Results:
 
 ## Positive Evidence
 
-- The new config parses and loads the retained sparse pattern table.
+- The recorded config parsed and loaded the sparse pattern table at the time.
 - Tests assert `pattern_reboot_v0` has all scalar weights zero and only
   `pattern_table` nonzero.
 - `current_default.eval` remains synchronized with `default_evaluation_config()`.
@@ -266,6 +273,5 @@ Useful follow-up work is:
 - dense runtime table or future binary `.ptab` execution format while keeping
   TSV as source/review format
 
-`pattern_teacher_v0` remains the better experimental pattern baseline for
-strength-oriented comparisons until a new pattern-first learner beats it on
-validation and holdout evidence.
+`pattern_teacher_v0` was the better historical pattern baseline for
+strength-oriented comparisons in this report.

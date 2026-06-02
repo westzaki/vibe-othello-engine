@@ -6,6 +6,11 @@ This report records a serious pattern-evaluation improvement iteration after
 `pattern_teacher_v0`. It is not a default-promotion proposal, not a C++
 `EvaluationPreset`, not an Elo claim, not proof of strength, and it does not
 change exact solver or search semantics.
+Historical `data/eval/pattern_teacher_v0.eval` paths referenced below have
+been removed from active source-controlled eval configs; the command blocks and
+comparison paths are retained as provenance only. Current work should use
+`current_default.eval`, `ntest_pairwise_full_v2.eval`, or an explicit new
+config.
 
 ## Metadata
 
@@ -385,7 +390,8 @@ Rejected local variants:
 ## Final Decision
 
 Reject `pattern_teacher_v1` as a stronger evaluator candidate and keep
-`pattern_teacher_v0` as the better experimental pattern baseline for now.
+`pattern_teacher_v0` as the better historical comparison baseline in this
+recorded run.
 
 Continue pattern architecture, but do not keep squeezing this exact small-table
 path as-is. The next useful step is one of:
