@@ -21,6 +21,64 @@ using othello::Board;
 using othello::Side;
 using namespace othello::test::evaluation;
 
+namespace {
+
+struct GoldenEvaluationFixture {
+    std::string_view name;
+    Board board;
+    Side side = Side::Black;
+    othello::EvaluationPhase phase = othello::EvaluationPhase::Opening;
+    int occupied_count = 0;
+    int empty_count = 64;
+    bool terminal = false;
+    int total = 0;
+    int disc_difference = 0;
+    int mobility = 0;
+    int corner_occupancy = 0;
+    int potential_mobility = 0;
+    int corner_access = 0;
+    int x_square_danger = 0;
+    int frontier = 0;
+    int corner_local_2x3 = 0;
+    int corner_2x3_pattern = 0;
+    int edge_stability_lite = 0;
+    int edge_8_pattern = 0;
+    int pattern_table = 0;
+    int terminal_disc_difference = 0;
+};
+
+void check_golden_evaluation(const GoldenEvaluationFixture& fixture) {
+    CAPTURE(std::string{fixture.name});
+
+    const othello::EvaluationConfig config = othello::default_evaluation_config();
+    const othello::EvaluationBreakdown breakdown =
+        othello::evaluate_basic_breakdown(fixture.board, fixture.side, config);
+
+    CHECK(othello::evaluate_basic(fixture.board, fixture.side) == fixture.total);
+    CHECK(othello::evaluate_with_config(fixture.board, fixture.side, config) ==
+          fixture.total);
+    CHECK(breakdown.total == fixture.total);
+    CHECK(breakdown.phase == fixture.phase);
+    CHECK(breakdown.occupied_count == fixture.occupied_count);
+    CHECK(breakdown.empty_count == fixture.empty_count);
+    CHECK(breakdown.terminal == fixture.terminal);
+    CHECK(breakdown.disc_difference == fixture.disc_difference);
+    CHECK(breakdown.mobility == fixture.mobility);
+    CHECK(breakdown.corner_occupancy == fixture.corner_occupancy);
+    CHECK(breakdown.potential_mobility == fixture.potential_mobility);
+    CHECK(breakdown.corner_access == fixture.corner_access);
+    CHECK(breakdown.x_square_danger == fixture.x_square_danger);
+    CHECK(breakdown.frontier == fixture.frontier);
+    CHECK(breakdown.corner_local_2x3 == fixture.corner_local_2x3);
+    CHECK(breakdown.corner_2x3_pattern == fixture.corner_2x3_pattern);
+    CHECK(breakdown.edge_stability_lite == fixture.edge_stability_lite);
+    CHECK(breakdown.edge_8_pattern == fixture.edge_8_pattern);
+    CHECK(breakdown.pattern_table == fixture.pattern_table);
+    CHECK(breakdown.terminal_disc_difference == fixture.terminal_disc_difference);
+}
+
+} // namespace
+
 TEST_CASE("Initial board evaluation is symmetric", "[evaluation]") {
     const Board board = Board::initial();
 
@@ -30,6 +88,90 @@ TEST_CASE("Initial board evaluation is symmetric", "[evaluation]") {
     CHECK(othello::evaluate_mobility(board, Side::White) == 0);
     CHECK(othello::evaluate_basic(board, Side::Black) ==
           -othello::evaluate_basic(board, Side::White));
+}
+
+TEST_CASE("Golden evaluation fixtures preserve scratch refactor behavior",
+          "[evaluation]") {
+    const std::array fixtures{
+        GoldenEvaluationFixture{.name = "initial",
+                                .board = Board::initial(),
+                                .side = Side::Black,
+                                .phase = othello::EvaluationPhase::Opening,
+                                .occupied_count = 4,
+                                .empty_count = 60},
+        GoldenEvaluationFixture{
+            .name = "early-asymmetric",
+            .board = othello::test::board_from_text(R"(........
+........
+........
+...BW...
+...BBB..
+........
+........
+........
+side=W)"),
+            .side = Side::White,
+            .phase = othello::EvaluationPhase::Opening,
+            .occupied_count = 5,
+            .empty_count = 59,
+            .total = 51,
+            .disc_difference = -3,
+            .potential_mobility = 9,
+            .frontier = 3},
+        GoldenEvaluationFixture{.name = "midgame",
+                                .board = phase_midgame_board(),
+                                .side = Side::Black,
+                                .phase = othello::EvaluationPhase::Midgame,
+                                .occupied_count = 28,
+                                .empty_count = 36,
+                                .total = 206,
+                                .disc_difference = -20,
+                                .mobility = 4,
+                                .potential_mobility = 14,
+                                .frontier = 15,
+                                .corner_2x3_pattern = 1,
+                                .edge_8_pattern = 5},
+        GoldenEvaluationFixture{.name = "late",
+                                .board = phase_late_board(),
+                                .side = Side::Black,
+                                .phase = othello::EvaluationPhase::Late,
+                                .occupied_count = 54,
+                                .empty_count = 10,
+                                .total = -132,
+                                .disc_difference = -18,
+                                .mobility = 4,
+                                .potential_mobility = 1,
+                                .x_square_danger = 1,
+                                .frontier = 2,
+                                .corner_2x3_pattern = -1,
+                                .edge_stability_lite = -9,
+                                .edge_8_pattern = -6},
+        GoldenEvaluationFixture{.name = "pass-available",
+                                .board = othello::test::black_must_pass_board(),
+                                .side = Side::Black,
+                                .phase = othello::EvaluationPhase::Opening,
+                                .occupied_count = 5,
+                                .empty_count = 59,
+                                .total = 21,
+                                .disc_difference = -3,
+                                .mobility = -1,
+                                .potential_mobility = 3,
+                                .frontier = 3,
+                                .edge_8_pattern = 1},
+        GoldenEvaluationFixture{.name = "gameover",
+                                .board = terminal_black_win_board(),
+                                .side = Side::Black,
+                                .phase = othello::EvaluationPhase::Late,
+                                .occupied_count = 64,
+                                .empty_count = 0,
+                                .terminal = true,
+                                .total = 64'000,
+                                .terminal_disc_difference = 64},
+    };
+
+    for (const GoldenEvaluationFixture& fixture : fixtures) {
+        check_golden_evaluation(fixture);
+    }
 }
 
 TEST_CASE("Default evaluation config promotes frontier corner and edge pattern weights",
