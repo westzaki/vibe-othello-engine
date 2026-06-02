@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
-#include <othello/evaluation.hpp>
+#include <othello/board.hpp>
+#include <othello/evaluation_patterns.hpp>
 
 #include <array>
 #include <cstddef>

@@ -1,6 +1,6 @@
 #include "evaluation_internal.hpp"
 
-#include <othello/evaluation.hpp>
+#include <othello/evaluation_patterns.hpp>
 
 #include <array>
 #include <cstddef>
