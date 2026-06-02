@@ -97,7 +97,7 @@ def render_table(
     family_entries: dict[str, list[tuple[int, int]]] | None = None,
     stats: dict[str, int],
     command: list[str],
-    generated_by: str = "tools/scripts/pattern_teacher_v0_train.py",
+    generated_by: str = "tools/scripts/pattern_training/pattern_tables.py",
 ) -> str:
     entries_by_family: dict[str, list[tuple[int, int]]] = {}
     if family_entries is not None:

@@ -99,10 +99,6 @@ of committed docs.
 - `tools/scripts/regularized_pairwise_pattern_train.py` is the canonical
   current pattern trainer and supports `--dataset-root` for `--teacher-labels`
   and `--exact-labels` entries that start with `dataset:`.
-- `tools/scripts/pattern_teacher_v0_train.py` still supports `--dataset-root`
-  for legacy/transitional training reproduction.
-- `tools/scripts/phase_pattern_table_train.py` still supports `--dataset-root`
-  for specialized phase-table workflow reproduction.
 - `tools/scripts/teacher_label_mistake_mining.py` supports `--dataset-root` for
   `--teacher-labels` and `--exact-labels` entries that start with `dataset:`.
 - `tools/scripts/external_teacher_label_workflow.py` supports `--dataset-root`
@@ -117,6 +113,11 @@ of committed docs.
 The C++ engine, exact solver, and search behavior do not depend on external
 dataset roots. External engines remain optional local tooling and are not
 required in CI.
+
+Historical dataset migration reports may mention removed transitional pattern
+trainer entry points. Treat those command blocks as provenance only; active
+pattern training should use `regularized_pairwise_pattern_train.py` and the
+shared helpers under `tools/scripts/pattern_training/`.
 
 ## Teacher Dataset Builder
 

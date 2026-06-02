@@ -500,14 +500,6 @@ if(Python3_Interpreter_FOUND)
     )
 
     add_test(
-        NAME pattern_teacher_v0_train_py
-        COMMAND "${Python3_EXECUTABLE}"
-            -m unittest
-            tools/scripts/tests/test_pattern_teacher_v0_train.py
-        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-    )
-
-    add_test(
         NAME pattern_training_analysis_cache_py
         COMMAND "${Python3_EXECUTABLE}"
             -m unittest
