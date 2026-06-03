@@ -148,13 +148,6 @@ target_compile_definitions(othello_tests
         OTHELLO_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
 )
 
-if(OTHELLO_ENABLE_CLANG_TIDY)
-    set_target_properties(${OTHELLO_CLANG_TIDY_TARGETS}
-        PROPERTIES
-            CXX_CLANG_TIDY "${OTHELLO_CLANG_TIDY_COMMAND}"
-    )
-endif()
-
 list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
 include(Catch)
 catch_discover_tests(othello_tests)
@@ -706,4 +699,11 @@ othello_add_expect_failure_test(
     "invalid --format value"
     --format yaml
 )
+endif()
+
+if(OTHELLO_ENABLE_CLANG_TIDY)
+    set_target_properties(${OTHELLO_CLANG_TIDY_TARGETS}
+        PROPERTIES
+            CXX_CLANG_TIDY "${OTHELLO_CLANG_TIDY_COMMAND}"
+    )
 endif()
