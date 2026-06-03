@@ -45,7 +45,8 @@ workflow:
 
 The current test suite covers tool cores, so configure
 `OTHELLO_BUILD_TESTS=OFF` when disabling `OTHELLO_BUILD_TOOLS` or
-`OTHELLO_BUILD_EXPERIMENT_TOOLS`.
+`OTHELLO_BUILD_EXPERIMENT_TOOLS`. Experiment tools are built only when tools are
+also enabled.
 
 ## Test
 
