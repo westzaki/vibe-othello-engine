@@ -7,7 +7,9 @@
 #include <array>
 #include <bit>
 #include <cassert>
+#include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <othello/endgame.hpp>
 #include <othello/evaluation.hpp>
 #include <othello/hash.hpp>
@@ -85,7 +87,8 @@ struct SearchContext {
     explicit SearchContext(const SearchOptions& options, bool enable_dynamic_move_ordering) noexcept
         : transpositions{options}, dynamic_move_ordering{enable_dynamic_move_ordering},
           use_pvs{options.use_pvs}, store_leaf_tt_entries{options.store_leaf_tt_entries},
-          evaluation_config{resolve_evaluation_config(options)} {}
+          evaluation_config{resolve_evaluation_config(options)},
+          root_move_ordering_snapshot{options.root_move_ordering_snapshot} {}
 
     SearchStats stats;
     TranspositionTable transpositions;
@@ -94,6 +97,7 @@ struct SearchContext {
     bool use_pvs = false;
     bool store_leaf_tt_entries = true;
     EvaluationConfig evaluation_config = default_evaluation_config();
+    std::vector<RootMoveOrderingEntry>* root_move_ordering_snapshot = nullptr;
 };
 
 constexpr int search_score_min = -1'000'000'000;
@@ -114,6 +118,94 @@ constexpr ExactRootPolicyParams adaptive16_exact_root_policy_params{};
 [[nodiscard]] int evaluate_for_search(const Board& board, SearchContext& context) noexcept {
     ++context.stats.eval_calls;
     return evaluate_with_config(board, board.side_to_move, context.evaluation_config);
+}
+
+[[nodiscard]] SearchStats stats_delta(const SearchStats& after, const SearchStats& before) noexcept {
+    return SearchStats{
+        .nodes = after.nodes - before.nodes,
+        .beta_cutoffs = after.beta_cutoffs - before.beta_cutoffs,
+        .beta_cutoffs_first_move =
+            after.beta_cutoffs_first_move - before.beta_cutoffs_first_move,
+        .searched_moves = after.searched_moves - before.searched_moves,
+        .legal_move_nodes = after.legal_move_nodes - before.legal_move_nodes,
+        .eval_calls = after.eval_calls - before.eval_calls,
+        .pass_nodes = after.pass_nodes - before.pass_nodes,
+        .game_over_nodes = after.game_over_nodes - before.game_over_nodes,
+        .tt_lookups = after.tt_lookups - before.tt_lookups,
+        .tt_hits = after.tt_hits - before.tt_hits,
+        .tt_exact_hits = after.tt_exact_hits - before.tt_exact_hits,
+        .tt_lower_hits = after.tt_lower_hits - before.tt_lower_hits,
+        .tt_upper_hits = after.tt_upper_hits - before.tt_upper_hits,
+        .tt_stores = after.tt_stores - before.tt_stores,
+        .tt_leaf_stores = after.tt_leaf_stores - before.tt_leaf_stores,
+        .tt_overwrites = after.tt_overwrites - before.tt_overwrites,
+        .tt_collisions = after.tt_collisions - before.tt_collisions,
+        .tt_rejected_stores = after.tt_rejected_stores - before.tt_rejected_stores,
+        .tt_move_ordering_probes =
+            after.tt_move_ordering_probes - before.tt_move_ordering_probes,
+        .tt_move_ordering_hits = after.tt_move_ordering_hits - before.tt_move_ordering_hits,
+        .tt_move_ordering_used = after.tt_move_ordering_used - before.tt_move_ordering_used,
+        .pvs_scouts = after.pvs_scouts - before.pvs_scouts,
+        .pvs_researches = after.pvs_researches - before.pvs_researches,
+        .pvs_scout_cutoffs = after.pvs_scout_cutoffs - before.pvs_scout_cutoffs,
+        .aspiration_searches = after.aspiration_searches - before.aspiration_searches,
+        .aspiration_researches = after.aspiration_researches - before.aspiration_researches,
+        .aspiration_fail_lows = after.aspiration_fail_lows - before.aspiration_fail_lows,
+        .aspiration_fail_highs = after.aspiration_fail_highs - before.aspiration_fail_highs,
+        .aspiration_full_window_fallbacks =
+            after.aspiration_full_window_fallbacks - before.aspiration_full_window_fallbacks,
+        .aspiration_fail_low_distance_sum =
+            after.aspiration_fail_low_distance_sum - before.aspiration_fail_low_distance_sum,
+        .aspiration_fail_high_distance_sum =
+            after.aspiration_fail_high_distance_sum - before.aspiration_fail_high_distance_sum,
+        .aspiration_fail_low_distance_max =
+            after.aspiration_fail_low_distance_max > before.aspiration_fail_low_distance_max
+                ? after.aspiration_fail_low_distance_max
+                : 0,
+        .aspiration_fail_high_distance_max =
+            after.aspiration_fail_high_distance_max > before.aspiration_fail_high_distance_max
+                ? after.aspiration_fail_high_distance_max
+                : 0,
+        .dynamic_ordering_nodes = after.dynamic_ordering_nodes - before.dynamic_ordering_nodes,
+        .dynamic_ordering_moves = after.dynamic_ordering_moves - before.dynamic_ordering_moves,
+    };
+}
+
+void record_aspiration_fail_low_distance(SearchContext& context, int score, int alpha) noexcept {
+    const std::uint64_t distance =
+        static_cast<std::uint64_t>(alpha > score ? alpha - score : 0);
+    context.stats.aspiration_fail_low_distance_sum += distance;
+    context.stats.aspiration_fail_low_distance_max =
+        std::max(context.stats.aspiration_fail_low_distance_max, distance);
+}
+
+void record_aspiration_fail_high_distance(SearchContext& context, int score, int beta) noexcept {
+    const std::uint64_t distance =
+        static_cast<std::uint64_t>(score > beta ? score - beta : 0);
+    context.stats.aspiration_fail_high_distance_sum += distance;
+    context.stats.aspiration_fail_high_distance_max =
+        std::max(context.stats.aspiration_fail_high_distance_max, distance);
+}
+
+void record_root_move_ordering_snapshot(SearchContext& context,
+                                        const OrderedMoveIndexes& ordered_moves) noexcept {
+    if (context.root_move_ordering_snapshot == nullptr) {
+        return;
+    }
+
+    context.root_move_ordering_snapshot->clear();
+    context.root_move_ordering_snapshot->reserve(ordered_moves.size);
+    for (std::size_t index = 0; index < ordered_moves.size; ++index) {
+        const std::optional<Square> move =
+            Square::from_index(ordered_moves.moves[index].index);
+        if (!move.has_value()) {
+            continue;
+        }
+        context.root_move_ordering_snapshot->push_back(RootMoveOrderingEntry{
+            .move = *move,
+            .order_score = ordered_moves.moves[index].order_score,
+        });
+    }
 }
 
 void store_leaf_transposition(SearchContext& context, ZobristHash hash, int depth, int score,
@@ -354,6 +446,9 @@ ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
     const OrderedMoveIndexes ordered_moves = ordered_legal_move_indexes(
         board, moves, depth, preferred_move, cached.best_move_hint, use_dynamic_ordering,
         context.move_ordering_params, context.stats);
+    if (is_root) {
+        record_root_move_ordering_snapshot(context, ordered_moves);
+    }
     // Avoid very shallow scouts; with the current ordering, depth-2 null windows tend
     // to add overhead while giving little pruning back.
     const bool use_pvs_at_node = context.use_pvs && ordered_moves.size > 1 && depth >= 3;
@@ -512,8 +607,10 @@ ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
 
         if (failed_low(result, alpha)) {
             ++context.stats.aspiration_fail_lows;
+            record_aspiration_fail_low_distance(context, result.score, alpha);
         } else {
             ++context.stats.aspiration_fail_highs;
+            record_aspiration_fail_high_distance(context, result.score, beta);
         }
 
         ++context.stats.aspiration_researches;
@@ -650,6 +747,8 @@ SearchResult search_iterative(const Board& board, const SearchOptions& options) 
     std::optional<int> previous_score;
     PrincipalVariation previous_principal_variation;
     for (int depth = 1; depth <= search_depth; ++depth) {
+        const SearchStats stats_before_depth = context.stats;
+        const auto depth_start = std::chrono::steady_clock::now();
         const PrincipalVariationHint pv_hint{
             .principal_variation =
                 previous_principal_variation.size == 0 ? nullptr : &previous_principal_variation,
@@ -661,6 +760,24 @@ SearchResult search_iterative(const Board& board, const SearchOptions& options) 
                                                    pv_hint, *previous_score, options);
         } else {
             result = search_with_context(board, depth, context, previous_best_move, pv_hint);
+        }
+        const auto depth_elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now() - depth_start);
+        if (options.iterative_depth_observer != nullptr) {
+            const SearchStats depth_stats = stats_delta(context.stats, stats_before_depth);
+            const IterativeSearchDepthInfo info{
+                .requested_depth = search_depth,
+                .completed_depth = depth,
+                .previous_score = previous_score,
+                .score = result.score,
+                .previous_score_delta =
+                    previous_score.has_value() ? result.score - *previous_score : 0,
+                .best_move = result.best_move,
+                .principal_variation = result.principal_variation,
+                .stats = depth_stats,
+                .elapsed_ns = static_cast<std::uint64_t>(depth_elapsed.count()),
+            };
+            options.iterative_depth_observer(info, options.iterative_depth_observer_user_data);
         }
         previous_best_move = result.best_move;
         previous_score = result.score;

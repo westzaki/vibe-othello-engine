@@ -1,5 +1,7 @@
 #include "common/stats.hpp"
 
+#include <algorithm>
+
 namespace othello::tools {
 
 double rate(std::uint64_t numerator, std::uint64_t denominator) noexcept {
@@ -55,6 +57,14 @@ void add_search_stats(SearchStats& total, const SearchStats& stats) noexcept {
     total.aspiration_fail_lows += stats.aspiration_fail_lows;
     total.aspiration_fail_highs += stats.aspiration_fail_highs;
     total.aspiration_full_window_fallbacks += stats.aspiration_full_window_fallbacks;
+    total.aspiration_fail_low_distance_sum += stats.aspiration_fail_low_distance_sum;
+    total.aspiration_fail_high_distance_sum += stats.aspiration_fail_high_distance_sum;
+    total.aspiration_fail_low_distance_max =
+        std::max(total.aspiration_fail_low_distance_max,
+                 stats.aspiration_fail_low_distance_max);
+    total.aspiration_fail_high_distance_max =
+        std::max(total.aspiration_fail_high_distance_max,
+                 stats.aspiration_fail_high_distance_max);
     total.dynamic_ordering_nodes += stats.dynamic_ordering_nodes;
     total.dynamic_ordering_moves += stats.dynamic_ordering_moves;
 }
