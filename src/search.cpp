@@ -578,6 +578,27 @@ ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
     return window * 2;
 }
 
+[[nodiscard]] constexpr int aspiration_initial_window(
+    const SearchOptions& options, std::optional<int> previous_score_delta) noexcept {
+    const int base_window = positive_aspiration_window(options.aspiration_window);
+    if (options.aspiration_profile == AspirationProfile::Fixed ||
+        !previous_score_delta.has_value()) {
+        return base_window;
+    }
+
+    long long delta = *previous_score_delta;
+    if (delta < 0) {
+        delta = -delta;
+    }
+    if (delta <= static_cast<long long>(base_window) * 2) {
+        return base_window;
+    }
+
+    const long long widened = delta + base_window / 2;
+    const long long max_dynamic_window = static_cast<long long>(base_window) * 2;
+    return clamp_search_score(std::min(widened, max_dynamic_window));
+}
+
 [[nodiscard]] bool failed_low(const SearchResult& result, int alpha) noexcept {
     return result.score <= alpha;
 }
@@ -588,10 +609,11 @@ ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
 
 [[nodiscard]] SearchResult search_aspirated_with_context(
     const Board& board, int depth, SearchContext& context, std::optional<Square> previous_best_move,
-    PrincipalVariationHint pv_hint, int previous_score, const SearchOptions& options) noexcept {
+    PrincipalVariationHint pv_hint, int previous_score, int initial_window,
+    const SearchOptions& options) noexcept {
     ++context.stats.aspiration_searches;
 
-    int window = positive_aspiration_window(options.aspiration_window);
+    int window = positive_aspiration_window(initial_window);
     const int max_researches = non_negative_research_limit(options.aspiration_max_researches);
     int researches = 0;
 
@@ -745,6 +767,7 @@ SearchResult search_iterative(const Board& board, const SearchOptions& options) 
     SearchResult result;
     std::optional<Square> previous_best_move;
     std::optional<int> previous_score;
+    std::optional<int> previous_score_delta;
     PrincipalVariation previous_principal_variation;
     for (int depth = 1; depth <= search_depth; ++depth) {
         const SearchStats stats_before_depth = context.stats;
@@ -756,8 +779,10 @@ SearchResult search_iterative(const Board& board, const SearchOptions& options) 
             .matches_prefix = previous_principal_variation.size > 0,
         };
         if (options.use_aspiration_window && previous_score.has_value()) {
+            const int initial_window = aspiration_initial_window(options, previous_score_delta);
             result = search_aspirated_with_context(board, depth, context, previous_best_move,
-                                                   pv_hint, *previous_score, options);
+                                                   pv_hint, *previous_score, initial_window,
+                                                   options);
         } else {
             result = search_with_context(board, depth, context, previous_best_move, pv_hint);
         }
@@ -779,6 +804,9 @@ SearchResult search_iterative(const Board& board, const SearchOptions& options) 
             };
             options.iterative_depth_observer(info, options.iterative_depth_observer_user_data);
         }
+        previous_score_delta = previous_score.has_value()
+                                   ? std::optional<int>{result.score - *previous_score}
+                                   : std::nullopt;
         previous_best_move = result.best_move;
         previous_score = result.score;
         previous_principal_variation = principal_variation_from_vector(result.principal_variation);

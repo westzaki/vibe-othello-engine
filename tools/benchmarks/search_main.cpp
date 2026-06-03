@@ -126,6 +126,8 @@ struct BenchmarkOptions {
         fixed_exact_root_profile(othello::SearchOptions{}.exact_endgame_empty_threshold)};
     int aspiration_window = othello::SearchOptions{}.aspiration_window;
     int aspiration_max_researches = othello::SearchOptions{}.aspiration_max_researches;
+    othello::AspirationProfile aspiration_profile =
+        othello::SearchOptions{}.aspiration_profile;
     OutputFormat output_format = OutputFormat::Text;
     othello::tools::EvaluatorSelection evaluator;
 };
@@ -146,6 +148,7 @@ struct IterativeDepthBenchmarkResult {
     bool use_aspiration_window;
     int aspiration_window;
     int aspiration_max_researches;
+    othello::AspirationProfile aspiration_profile;
     std::size_t transposition_table_entries;
     std::string exact_root_profile;
     int empty_count;
@@ -174,6 +177,7 @@ struct SearchBenchmarkResult {
     bool use_aspiration_window;
     int aspiration_window;
     int aspiration_max_researches;
+    othello::AspirationProfile aspiration_profile;
     std::size_t transposition_table_entries;
     std::string exact_root_profile;
     std::uint64_t exact_root_positions;
@@ -206,6 +210,7 @@ struct PositionBenchmarkResult {
     bool use_aspiration_window;
     int aspiration_window;
     int aspiration_max_researches;
+    othello::AspirationProfile aspiration_profile;
     std::size_t transposition_table_entries;
     std::string exact_root_profile;
     int empty_count;
@@ -244,7 +249,9 @@ void print_usage(std::string_view program_name) {
                  " [--tt on|off] [--tt-entries N]"
                  " [--tt-store-leaf on|off] [--pvs on|off] [--aspiration on|off]"
                  " [--aspiration-window N]"
-                 " [--aspiration-max-researches N] [--exact-endgame-threshold N]"
+                 " [--aspiration-max-researches N]"
+                 " [--aspiration-profile fixed|score-delta-aware]"
+                 " [--exact-endgame-threshold N]"
                  " [--exact-endgame-thresholds LIST]"
                  " "
               << othello::tools::evaluator_cli_usage() << " [--format text|jsonl]\n"
@@ -271,6 +278,8 @@ void print_usage(std::string_view program_name) {
               << "  --aspiration-max-researches N\n"
               << "                      non-negative aspiration widening retries before "
                  "full-window fallback\n"
+              << "  --aspiration-profile PROFILE\n"
+              << "                      fixed or score-delta-aware (default: fixed)\n"
               << "  --exact-endgame-threshold N|adaptive16\n"
               << "                      solve root positions by fixed threshold N, or use the "
                  "experimental adaptive16 root profile; N <= 0 disables\n"
@@ -304,6 +313,29 @@ void print_usage(std::string_view program_name) {
     }
 
     return 0;
+}
+
+[[nodiscard]] std::string_view aspiration_profile_name(
+    othello::AspirationProfile profile) noexcept {
+    switch (profile) {
+    case othello::AspirationProfile::Fixed:
+        return "fixed";
+    case othello::AspirationProfile::ScoreDeltaAware:
+        return "score-delta-aware";
+    }
+
+    return "unknown";
+}
+
+[[nodiscard]] std::optional<othello::AspirationProfile>
+parse_aspiration_profile(std::string_view text) noexcept {
+    if (text == "fixed") {
+        return othello::AspirationProfile::Fixed;
+    }
+    if (text == "score-delta-aware") {
+        return othello::AspirationProfile::ScoreDeltaAware;
+    }
+    return std::nullopt;
 }
 
 [[nodiscard]] std::string_view position_set_name(PositionSet position_set) noexcept {
@@ -651,6 +683,22 @@ parse_exact_root_profiles(std::string_view text) {
                 return std::nullopt;
             }
             options.aspiration_max_researches = *researches;
+            continue;
+        }
+
+        if (option == "--aspiration-profile") {
+            ++index;
+            if (index >= args.size()) {
+                std::cerr << "--aspiration-profile requires fixed or score-delta-aware\n";
+                return std::nullopt;
+            }
+
+            const auto profile = parse_aspiration_profile(args[index]);
+            if (!profile.has_value()) {
+                std::cerr << "--aspiration-profile must be fixed or score-delta-aware\n";
+                return std::nullopt;
+            }
+            options.aspiration_profile = *profile;
             continue;
         }
 
@@ -1026,6 +1074,7 @@ make_search_options(const BenchmarkOptions& options, int depth,
     search_options.exact_endgame_root_policy = exact_root_profile.policy;
     search_options.aspiration_window = options.aspiration_window;
     search_options.aspiration_max_researches = options.aspiration_max_researches;
+    search_options.aspiration_profile = options.aspiration_profile;
     return othello::tools::apply_evaluator_selection(search_options, options.evaluator);
 }
 
@@ -1072,6 +1121,7 @@ struct IterativeDepthObserverData {
     bool use_aspiration_window = false;
     int aspiration_window = 0;
     int aspiration_max_researches = 0;
+    othello::AspirationProfile aspiration_profile = othello::AspirationProfile::Fixed;
     std::size_t transposition_table_entries = 0;
     std::string exact_root_profile;
     int empty_count = 0;
@@ -1116,6 +1166,7 @@ void observe_iterative_depth(const othello::IterativeSearchDepthInfo& info, void
         .use_aspiration_window = data->use_aspiration_window,
         .aspiration_window = data->aspiration_window,
         .aspiration_max_researches = data->aspiration_max_researches,
+        .aspiration_profile = data->aspiration_profile,
         .transposition_table_entries = data->transposition_table_entries,
         .exact_root_profile = data->exact_root_profile,
         .empty_count = data->empty_count,
@@ -1221,6 +1272,7 @@ benchmark_search(const std::vector<othello::benchmarks::Position>& positions, in
                     .use_aspiration_window = search_options.use_aspiration_window,
                     .aspiration_window = search_options.aspiration_window,
                     .aspiration_max_researches = search_options.aspiration_max_researches,
+                    .aspiration_profile = search_options.aspiration_profile,
                     .transposition_table_entries = search_options.transposition_table_entries,
                     .exact_root_profile = exact_root_profile.label,
                     .empty_count = exact_decision.empty_count,
@@ -1268,6 +1320,7 @@ benchmark_search(const std::vector<othello::benchmarks::Position>& positions, in
         .use_aspiration_window = base_search_options.use_aspiration_window,
         .aspiration_window = base_search_options.aspiration_window,
         .aspiration_max_researches = base_search_options.aspiration_max_researches,
+        .aspiration_profile = base_search_options.aspiration_profile,
         .transposition_table_entries = base_search_options.transposition_table_entries,
         .exact_root_profile = exact_root_profile.label,
         .exact_root_positions = exact_root_positions,
@@ -1340,6 +1393,7 @@ benchmark_position(const othello::benchmarks::Position& position, int depth,
                 .use_aspiration_window = search_options.use_aspiration_window,
                 .aspiration_window = search_options.aspiration_window,
                 .aspiration_max_researches = search_options.aspiration_max_researches,
+                .aspiration_profile = search_options.aspiration_profile,
                 .transposition_table_entries = search_options.transposition_table_entries,
                 .exact_root_profile = exact_root_profile.label,
                 .empty_count = empty_count,
@@ -1390,6 +1444,7 @@ benchmark_position(const othello::benchmarks::Position& position, int depth,
         .use_aspiration_window = base_search_options.use_aspiration_window,
         .aspiration_window = base_search_options.aspiration_window,
         .aspiration_max_researches = base_search_options.aspiration_max_researches,
+        .aspiration_profile = base_search_options.aspiration_profile,
         .transposition_table_entries = base_search_options.transposition_table_entries,
         .exact_root_profile = exact_root_profile.label,
         .empty_count = empty_count,
@@ -1734,6 +1789,7 @@ void write_search_jsonl(const SearchBenchmarkResult& result, PositionSet positio
     writer.bool_field("aspiration", result.use_aspiration_window);
     writer.int_field("aspiration_window", result.aspiration_window);
     writer.int_field("aspiration_max_researches", result.aspiration_max_researches);
+    writer.string_field("aspiration_profile", aspiration_profile_name(result.aspiration_profile));
     writer.uint_field("tt_entries", static_cast<std::uint64_t>(result.transposition_table_entries));
     writer.string_field("exact_endgame_profile", result.exact_root_profile);
     writer.uint_field("exact_root_positions", result.exact_root_positions);
@@ -1779,6 +1835,7 @@ void write_iterative_depth_jsonl(const IterativeDepthBenchmarkResult& result,
     writer.bool_field("aspiration", result.use_aspiration_window);
     writer.int_field("aspiration_window", result.aspiration_window);
     writer.int_field("aspiration_max_researches", result.aspiration_max_researches);
+    writer.string_field("aspiration_profile", aspiration_profile_name(result.aspiration_profile));
     writer.uint_field("tt_entries", static_cast<std::uint64_t>(result.transposition_table_entries));
     writer.string_field("exact_endgame_profile", result.exact_root_profile);
     writer.int_field("empty_count", result.empty_count);
@@ -1815,6 +1872,9 @@ void write_position_jsonl(const PositionBenchmarkResult& result, PositionSet pos
     writer.bool_field("tt_store_leaf", result.store_leaf_tt_entries);
     writer.bool_field("pvs", result.use_pvs);
     writer.bool_field("aspiration", result.use_aspiration_window);
+    writer.int_field("aspiration_window", result.aspiration_window);
+    writer.int_field("aspiration_max_researches", result.aspiration_max_researches);
+    writer.string_field("aspiration_profile", aspiration_profile_name(result.aspiration_profile));
     writer.uint_field("tt_entries", static_cast<std::uint64_t>(result.transposition_table_entries));
     writer.string_field("exact_endgame_profile", result.exact_root_profile);
     writer.int_field("empty_count", result.empty_count);
@@ -2098,6 +2158,8 @@ int run_benchmark(std::span<char* const> args) {
                   << '\n';
         std::cout << "aspiration window: " << options.aspiration_window << '\n';
         std::cout << "aspiration max researches: " << options.aspiration_max_researches << '\n';
+        std::cout << "aspiration profile: "
+                  << aspiration_profile_name(options.aspiration_profile) << '\n';
         std::cout << "tt entries: " << options.transposition_table_entries << '\n';
         std::cout << "exact endgame profiles: "
                   << exact_root_profile_list_text(options.exact_root_profiles) << '\n';

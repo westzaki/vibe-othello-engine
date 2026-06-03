@@ -1430,6 +1430,62 @@ TEST_CASE("Aspiration preserves iterative TT and PVS result", "[search]") {
           aspirated.stats.aspiration_researches);
 }
 
+TEST_CASE("Score-delta-aware aspiration is opt-in and preserves iterative result", "[search]") {
+    CHECK(othello::SearchOptions{}.aspiration_profile == othello::AspirationProfile::Fixed);
+
+    const Board board = othello::test::board_from_text(R"(........
+.B......
+..B.B...
+...BB...
+.WWWWW..
+..B.....
+........
+........
+side=W)");
+
+    const othello::SearchOptions full_window_options{
+        .max_depth = 6,
+        .use_transposition_table = true,
+        .exact_endgame_empty_threshold = 0,
+        .use_pvs = true,
+    };
+    const othello::SearchOptions fixed_options{
+        .max_depth = 6,
+        .use_transposition_table = true,
+        .exact_endgame_empty_threshold = 0,
+        .use_pvs = true,
+        .use_aspiration_window = true,
+        .aspiration_window = 50,
+        .aspiration_profile = othello::AspirationProfile::Fixed,
+    };
+    const othello::SearchOptions score_delta_aware_options{
+        .max_depth = 6,
+        .use_transposition_table = true,
+        .exact_endgame_empty_threshold = 0,
+        .use_pvs = true,
+        .use_aspiration_window = true,
+        .aspiration_window = 50,
+        .aspiration_profile = othello::AspirationProfile::ScoreDeltaAware,
+    };
+
+    const othello::SearchResult full_window =
+        othello::search_iterative(board, full_window_options);
+    const othello::SearchResult fixed = othello::search_iterative(board, fixed_options);
+    const othello::SearchResult score_delta_aware =
+        othello::search_iterative(board, score_delta_aware_options);
+
+    CHECK(fixed.best_move == full_window.best_move);
+    CHECK(fixed.score == full_window.score);
+    CHECK(fixed.depth == full_window.depth);
+    CHECK(fixed.principal_variation == full_window.principal_variation);
+    CHECK(score_delta_aware.best_move == full_window.best_move);
+    CHECK(score_delta_aware.score == full_window.score);
+    CHECK(score_delta_aware.depth == full_window.depth);
+    CHECK(score_delta_aware.principal_variation == full_window.principal_variation);
+    CHECK(score_delta_aware.stats.aspiration_searches > 0);
+    CHECK(score_delta_aware.stats.aspiration_researches <= fixed.stats.aspiration_researches);
+}
+
 TEST_CASE("Narrow aspiration falls back without changing iterative result", "[search]") {
     const auto board = othello::apply_move(Board::initial(), othello::test::square("d3"));
     REQUIRE(board.has_value());
