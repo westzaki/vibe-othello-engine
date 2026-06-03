@@ -67,32 +67,34 @@ target_include_directories(othello_analyze_core PRIVATE ${CMAKE_CURRENT_SOURCE_D
 othello_enable_sanitizers(othello_analyze_core)
 list(APPEND OTHELLO_CLANG_TIDY_TARGETS othello_analyze_core)
 
-add_library(othello_exact_label_dump_core OBJECT
-    exact_labels/exact_label_dump.cpp
-)
+if(OTHELLO_BUILD_EXPERIMENT_TOOLS)
+    add_library(othello_exact_label_dump_core OBJECT
+        exact_labels/exact_label_dump.cpp
+    )
 
-target_link_libraries(othello_exact_label_dump_core PRIVATE othello)
-target_include_directories(othello_exact_label_dump_core PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-othello_enable_sanitizers(othello_exact_label_dump_core)
-list(APPEND OTHELLO_CLANG_TIDY_TARGETS othello_exact_label_dump_core)
+    target_link_libraries(othello_exact_label_dump_core PRIVATE othello)
+    target_include_directories(othello_exact_label_dump_core PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    othello_enable_sanitizers(othello_exact_label_dump_core)
+    list(APPEND OTHELLO_CLANG_TIDY_TARGETS othello_exact_label_dump_core)
 
-add_library(othello_eval_vs_exact_core OBJECT
-    eval_vs_exact/eval_vs_exact.cpp
-)
+    add_library(othello_eval_vs_exact_core OBJECT
+        eval_vs_exact/eval_vs_exact.cpp
+    )
 
-target_link_libraries(othello_eval_vs_exact_core PRIVATE othello)
-target_include_directories(othello_eval_vs_exact_core PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-othello_enable_sanitizers(othello_eval_vs_exact_core)
-list(APPEND OTHELLO_CLANG_TIDY_TARGETS othello_eval_vs_exact_core)
+    target_link_libraries(othello_eval_vs_exact_core PRIVATE othello)
+    target_include_directories(othello_eval_vs_exact_core PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    othello_enable_sanitizers(othello_eval_vs_exact_core)
+    list(APPEND OTHELLO_CLANG_TIDY_TARGETS othello_eval_vs_exact_core)
 
-add_library(othello_position_sampler_core OBJECT
-    position_sampler/position_sampler.cpp
-)
+    add_library(othello_position_sampler_core OBJECT
+        position_sampler/position_sampler.cpp
+    )
 
-target_link_libraries(othello_position_sampler_core PRIVATE othello)
-target_include_directories(othello_position_sampler_core PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-othello_enable_sanitizers(othello_position_sampler_core)
-list(APPEND OTHELLO_CLANG_TIDY_TARGETS othello_position_sampler_core)
+    target_link_libraries(othello_position_sampler_core PRIVATE othello)
+    target_include_directories(othello_position_sampler_core PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    othello_enable_sanitizers(othello_position_sampler_core)
+    list(APPEND OTHELLO_CLANG_TIDY_TARGETS othello_position_sampler_core)
+endif()
 
 add_library(othello_replay_core OBJECT
     replay/replay.cpp
@@ -134,26 +136,28 @@ othello_add_executable(othello_analyze_position
 )
 target_include_directories(othello_analyze_position PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
-othello_add_executable(othello_exact_label_dump
-    exact_labels/exact_label_dump_main.cpp
-    $<TARGET_OBJECTS:othello_exact_label_dump_core>
-    $<TARGET_OBJECTS:othello_tools_common>
-)
-target_include_directories(othello_exact_label_dump PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+if(OTHELLO_BUILD_EXPERIMENT_TOOLS)
+    othello_add_executable(othello_exact_label_dump
+        exact_labels/exact_label_dump_main.cpp
+        $<TARGET_OBJECTS:othello_exact_label_dump_core>
+        $<TARGET_OBJECTS:othello_tools_common>
+    )
+    target_include_directories(othello_exact_label_dump PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
-othello_add_executable(othello_eval_vs_exact
-    eval_vs_exact/eval_vs_exact_main.cpp
-    $<TARGET_OBJECTS:othello_eval_vs_exact_core>
-    $<TARGET_OBJECTS:othello_tools_common>
-)
-target_include_directories(othello_eval_vs_exact PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    othello_add_executable(othello_eval_vs_exact
+        eval_vs_exact/eval_vs_exact_main.cpp
+        $<TARGET_OBJECTS:othello_eval_vs_exact_core>
+        $<TARGET_OBJECTS:othello_tools_common>
+    )
+    target_include_directories(othello_eval_vs_exact PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
-othello_add_executable(othello_position_sampler
-    position_sampler/position_sampler_main.cpp
-    $<TARGET_OBJECTS:othello_position_sampler_core>
-    $<TARGET_OBJECTS:othello_tools_common>
-)
-target_include_directories(othello_position_sampler PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    othello_add_executable(othello_position_sampler
+        position_sampler/position_sampler_main.cpp
+        $<TARGET_OBJECTS:othello_position_sampler_core>
+        $<TARGET_OBJECTS:othello_tools_common>
+    )
+    target_include_directories(othello_position_sampler PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+endif()
 
 othello_add_executable(othello_replay_game
     replay/replay_game_main.cpp

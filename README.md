@@ -23,6 +23,31 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
 cmake --build build
 ```
 
+The default build includes the reusable library, developer tools, experiment
+tools, and tests. Library consumers can configure a smaller library-only build:
+
+```sh
+cmake -S . -B build-lib \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DOTHELLO_BUILD_TOOLS=OFF \
+  -DOTHELLO_BUILD_TESTS=OFF
+cmake --build build-lib
+```
+
+Build scope options default to `ON` to preserve the normal developer and CI
+workflow:
+
+- `OTHELLO_BUILD_TOOLS`: build developer tools and command-line executables.
+- `OTHELLO_BUILD_TESTS`: build and register the test suite.
+- `OTHELLO_BUILD_EXPERIMENT_TOOLS`: build research, label, and training helper
+  tools such as exact-label dumping, eval-vs-exact analysis, and position
+  sampling.
+
+The current test suite covers tool cores, so configure
+`OTHELLO_BUILD_TESTS=OFF` when disabling `OTHELLO_BUILD_TOOLS` or
+`OTHELLO_BUILD_EXPERIMENT_TOOLS`. Experiment tools are built only when tools are
+also enabled.
+
 ## Test
 
 ```sh
