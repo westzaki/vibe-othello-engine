@@ -20,6 +20,16 @@ std::optional<bool> parse_on_off(std::string_view text) noexcept {
     return tools::parse_on_off(text);
 }
 
+std::optional<AspirationProfile> parse_aspiration_profile(std::string_view text) noexcept {
+    if (text == "fixed") {
+        return AspirationProfile::Fixed;
+    }
+    if (text == "score-delta-aware") {
+        return AspirationProfile::ScoreDeltaAware;
+    }
+    return std::nullopt;
+}
+
 std::optional<PlayerSpec> parse_player_spec(std::string_view text) {
     if (text == "first") {
         return PlayerSpec{.kind = PlayerKind::First, .depth = 0, .text = std::string{text}};
@@ -59,6 +69,7 @@ std::optional<PlayerSpec> parse_player_spec(std::string_view text) {
         bool seen_tt = false;
         bool seen_tt_store_leaf = false;
         bool seen_pvs = false;
+        bool seen_aspiration_profile = false;
         bool seen_exact = false;
         bool seen_tt_entries = false;
         bool seen_eval_config = false;
@@ -115,6 +126,18 @@ std::optional<PlayerSpec> parse_player_spec(std::string_view text) {
                     }
                     search_options.use_pvs = *parsed;
                     seen_pvs = true;
+                } else if (key == "aspiration_profile") {
+                    if (seen_aspiration_profile) {
+                        return std::nullopt;
+                    }
+                    const std::optional<AspirationProfile> parsed =
+                        parse_aspiration_profile(value);
+                    if (!parsed.has_value()) {
+                        return std::nullopt;
+                    }
+                    search_options.use_aspiration_window = true;
+                    search_options.aspiration_profile = *parsed;
+                    seen_aspiration_profile = true;
                 } else if (key == "exact") {
                     if (seen_exact) {
                         return std::nullopt;
@@ -192,6 +215,8 @@ SearchOptions make_search_options(const PlayerSpec& spec) noexcept {
     options.exact_endgame_empty_threshold = spec.search_options.exact_endgame_empty_threshold;
     options.exact_endgame_root_policy = spec.search_options.exact_endgame_root_policy;
     options.use_pvs = spec.search_options.use_pvs;
+    options.use_aspiration_window = spec.search_options.use_aspiration_window;
+    options.aspiration_profile = spec.search_options.aspiration_profile;
     return tools::apply_evaluator_selection(options, spec.search_options.evaluator);
 }
 

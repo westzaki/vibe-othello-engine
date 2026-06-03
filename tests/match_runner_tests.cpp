@@ -75,6 +75,8 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
     CHECK(depth_only_options.max_depth == 4);
     CHECK_FALSE(depth_only_options.use_transposition_table);
     CHECK_FALSE(depth_only_options.use_pvs);
+    CHECK_FALSE(depth_only_options.use_aspiration_window);
+    CHECK(depth_only_options.aspiration_profile == othello::AspirationProfile::Fixed);
     CHECK(depth_only_options.store_leaf_tt_entries);
     CHECK(depth_only_options.exact_endgame_empty_threshold == 12);
     CHECK(depth_only_options.transposition_table_entries == (1U << 18));
@@ -102,6 +104,15 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
     CHECK(require_search_options("search:depth=4,tt_entries=262144").transposition_table_entries ==
           262144U);
     CHECK_FALSE(require_search_options("search:depth=4,tt_store_leaf=off").store_leaf_tt_entries);
+    const othello::SearchOptions fixed_aspiration_options =
+        require_search_options("search:depth=4,aspiration_profile=fixed");
+    CHECK(fixed_aspiration_options.use_aspiration_window);
+    CHECK(fixed_aspiration_options.aspiration_profile == othello::AspirationProfile::Fixed);
+    const othello::SearchOptions score_delta_aware_options =
+        require_search_options("search:depth=4,aspiration_profile=score-delta-aware");
+    CHECK(score_delta_aware_options.use_aspiration_window);
+    CHECK(score_delta_aware_options.aspiration_profile ==
+          othello::AspirationProfile::ScoreDeltaAware);
     CHECK(depth_only_options.evaluation_config_override.has_value());
     CHECK(depth_only_options.evaluation_config_override->opening_pattern_tables != nullptr);
     CHECK(depth_only_options.evaluation_config_override->midgame_pattern_tables != nullptr);
@@ -132,6 +143,11 @@ TEST_CASE("Search player specs reject invalid options", "[match-runner]") {
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,exact=-1").has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,exact=adaptive17").has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,tt_entries=-1").has_value());
+    CHECK_FALSE(runner::parse_player_spec("search:depth=4,aspiration_profile=wide").has_value());
+    CHECK_FALSE(
+        runner::parse_player_spec(
+            "search:depth=4,aspiration_profile=fixed,aspiration_profile=score-delta-aware")
+            .has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,eval=default").has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,eval_config=missing.eval").has_value());
     CHECK_FALSE(

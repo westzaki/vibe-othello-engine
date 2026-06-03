@@ -126,7 +126,9 @@ MoveSelection choose_move(const PlayerSpec& spec, const Board& board, std::mt199
         const ExactEndgameRootDecision exact_root_decision =
             decide_exact_endgame_root(board, search_options);
         const auto started = std::chrono::steady_clock::now();
-        const SearchResult result = search(board, search_options);
+        const SearchResult result = search_options.use_aspiration_window
+                                        ? search_iterative(board, search_options)
+                                        : search(board, search_options);
         const auto finished = std::chrono::steady_clock::now();
         const double elapsed_ms =
             std::chrono::duration<double, std::milli>{finished - started}.count();
