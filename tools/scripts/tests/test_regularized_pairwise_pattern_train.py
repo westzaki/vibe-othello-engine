@@ -90,6 +90,7 @@ def teacher_row(
     split: str = "train",
     selected_move: str | None = None,
     position_id: str | None = None,
+    source_bucket: str | None = None,
 ) -> dict[str, object]:
     row: dict[str, object] = {
         "schema": "teacher_label.v1",
@@ -103,6 +104,8 @@ def teacher_row(
     }
     if selected_move is not None:
         row["selected_move"] = selected_move
+    if source_bucket is not None:
+        row["source_bucket"] = source_bucket
     return row
 
 
@@ -741,6 +744,111 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
         self.assertTrue(all(pair.other_score and pair.preferred_score for pair in pairs))
         self.assertTrue(all(pair.other_score > pair.preferred_score for pair in pairs))
         self.assertEqual(stats["teacher_pairs"], 1)
+
+    def test_bucket_weight_multiplies_pair_weight(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(
+                temp_path / "labels.jsonl",
+                [teacher_row(source_bucket="teacher_rank_regression")],
+            )
+            weights = temp_path / "bucket_weights.json"
+            weights.write_text(json.dumps({"teacher_rank_regression": 2.5}), encoding="utf-8")
+            config = make_config(
+                temp_path,
+                labels,
+                extra_args=["--bucket-weights", str(weights)],
+            )
+
+            pairs, _, stats = trainer.collect_pairs(config, analyzer=fake_analyzer)
+
+        self.assertEqual(len(pairs), 1)
+        self.assertEqual(pairs[0].bucket, "teacher_rank_regression")
+        self.assertEqual(pairs[0].bucket_weight, 2.5)
+        self.assertEqual(pairs[0].pair_weight, 2.5)
+        self.assertEqual(stats["bucket_pair_counts"], {"teacher_rank_regression": 1})
+        self.assertEqual(stats["bucket_pair_weight_mass"], {"teacher_rank_regression": 2.5})
+
+    def test_missing_bucket_uses_default_bucket_weight(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            weights = temp_path / "bucket_weights.json"
+            weights.write_text(json.dumps({"other_bucket": 3.0}), encoding="utf-8")
+            config = make_config(
+                temp_path,
+                labels,
+                extra_args=[
+                    "--bucket-weights",
+                    str(weights),
+                    "--default-bucket-weight",
+                    "0.25",
+                ],
+            )
+
+            pairs, _, stats = trainer.collect_pairs(config, analyzer=fake_analyzer)
+
+        self.assertEqual(len(pairs), 1)
+        self.assertEqual(pairs[0].bucket, "__missing__")
+        self.assertEqual(pairs[0].bucket_weight, 0.25)
+        self.assertEqual(pairs[0].pair_weight, 0.25)
+        self.assertEqual(stats["bucket_pair_counts"], {"__missing__": 1})
+        self.assertEqual(stats["bucket_pair_weight_mass"], {"__missing__": 0.25})
+
+    def test_bucket_weight_summary_records_counts_and_mass(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(
+                temp_path / "labels.jsonl",
+                [teacher_row(source_bucket="promoted_legacy_strong_disagreement")],
+            )
+            weights = temp_path / "bucket_weights.json"
+            weights.write_text(
+                json.dumps({"promoted_legacy_strong_disagreement": 1.5}),
+                encoding="utf-8",
+            )
+            config = make_config(
+                temp_path,
+                labels,
+                extra_args=[
+                    "--bucket-weights",
+                    str(weights),
+                    "--epochs",
+                    "1",
+                    "--l2",
+                    "0",
+                ],
+            )
+
+            result = trainer.train_pairwise_tables(config, analyzer=fake_analyzer)
+
+        self.assertEqual(
+            result.summary["rows"]["bucket_pair_counts"],
+            {"promoted_legacy_strong_disagreement": 1},
+        )
+        self.assertEqual(
+            result.summary["rows"]["bucket_pair_weight_mass"],
+            {"promoted_legacy_strong_disagreement": 1.5},
+        )
+        self.assertEqual(result.summary["bucket_weighting"]["field"], "source_bucket")
+        self.assertEqual(
+            result.summary["bucket_weighting"]["weights"],
+            {"promoted_legacy_strong_disagreement": 1.5},
+        )
+
+    def test_no_bucket_weights_preserves_default_pair_weight(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            config = make_config(temp_path, labels)
+
+            pairs, _, stats = trainer.collect_pairs(config, analyzer=fake_analyzer)
+
+        self.assertEqual(len(pairs), 1)
+        self.assertEqual(pairs[0].pair_weight, 1.0)
+        self.assertEqual(pairs[0].bucket_weight, 1.0)
+        self.assertEqual(stats["bucket_pair_counts"], {"__missing__": 1})
+        self.assertEqual(stats["bucket_pair_weight_mass"], {"__missing__": 1.0})
 
     def test_exact_aware_pair_generation_prefers_exact_best_moves(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

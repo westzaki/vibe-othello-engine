@@ -122,6 +122,10 @@ class TrainerConfig:
     loss: str
     pair_mode: str
     pair_weighting: str
+    bucket_weights_path: Path | None
+    bucket_weights: dict[str, float]
+    default_bucket_weight: float
+    bucket_field: str
     max_pairs_per_position: int
     exact_best_weight: float
     teacher_weight: float
@@ -154,6 +158,8 @@ class PreferencePair:
     other_move: str
     pair_kind: str
     pair_weight: float
+    bucket: str
+    bucket_weight: float
     features: dict[FeatureKey, int]
     exact_best_moves: tuple[str, ...]
     preferred_score: int | None
@@ -301,6 +307,23 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="pair weight policy used by the trainer objective",
     )
     parser.add_argument(
+        "--bucket-weights",
+        help=(
+            "optional JSON object mapping label-row bucket names to pair-weight multipliers"
+        ),
+    )
+    parser.add_argument(
+        "--default-bucket-weight",
+        type=parse_non_negative_float,
+        default=1.0,
+        help="pair-weight multiplier for rows whose bucket is missing or unmapped",
+    )
+    parser.add_argument(
+        "--bucket-field",
+        default="source_bucket",
+        help="label-row field used to look up bucket weights (default: source_bucket)",
+    )
+    parser.add_argument(
         "--max-pairs-per-position",
         type=parse_non_negative_int,
         default=0,
@@ -368,6 +391,28 @@ def parse_label_paths(value: str, *, dataset_root: str | None = None) -> tuple[P
             explicit_root=dataset_root,
         )
     )
+
+
+def load_bucket_weights(path: Path) -> dict[str, float]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise ScriptError(f"failed to read bucket weights {path}: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise ScriptError(f"failed to parse bucket weights {path}: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise ScriptError("--bucket-weights must contain a JSON object")
+    weights: dict[str, float] = {}
+    for raw_key, raw_value in payload.items():
+        if not isinstance(raw_key, str) or not raw_key.strip():
+            raise ScriptError("--bucket-weights keys must be non-empty strings")
+        if not isinstance(raw_value, int | float) or isinstance(raw_value, bool):
+            raise ScriptError(f"bucket weight for {raw_key!r} must be numeric")
+        value = float(raw_value)
+        if not math.isfinite(value) or value < 0:
+            raise ScriptError(f"bucket weight for {raw_key!r} must be a finite non-negative number")
+        weights[raw_key.strip()] = value
+    return weights
 
 
 def parse_families(text: str) -> tuple[str, ...]:
@@ -476,6 +521,8 @@ def config_from_args(
         raise ScriptError("--analysis-cache-dir is required unless --analysis-cache-mode=off")
     if args.analysis_cache_mode == "off" and analysis_cache_dir is not None:
         raise ScriptError("--analysis-cache-mode must not be off when --analysis-cache-dir is provided")
+    bucket_weights_path = Path(args.bucket_weights) if args.bucket_weights else None
+    bucket_weights = load_bucket_weights(bucket_weights_path) if bucket_weights_path is not None else {}
     return TrainerConfig(
         teacher_labels=teacher_labels,
         exact_labels=exact_labels,
@@ -492,6 +539,10 @@ def config_from_args(
         loss=args.loss,
         pair_mode=args.pair_mode,
         pair_weighting=args.pair_weighting,
+        bucket_weights_path=bucket_weights_path,
+        bucket_weights=bucket_weights,
+        default_bucket_weight=args.default_bucket_weight,
+        bucket_field=args.bucket_field,
         max_pairs_per_position=args.max_pairs_per_position,
         exact_best_weight=args.exact_best_weight,
         teacher_weight=args.teacher_weight,
@@ -984,6 +1035,18 @@ def should_keep_score_margin(config: TrainerConfig, score_margin: int | None) ->
     return abs(score_margin) >= config.min_score_margin
 
 
+def bucket_for_source(config: TrainerConfig, source: LabelSource) -> str:
+    value = source.record.get(config.bucket_field)
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return "__missing__"
+
+
+def bucket_weight_for_source(config: TrainerConfig, source: LabelSource) -> float:
+    bucket = bucket_for_source(config, source)
+    return config.bucket_weights.get(bucket, config.default_bucket_weight)
+
+
 def make_preference_pair(
     *,
     config: TrainerConfig,
@@ -1025,6 +1088,8 @@ def make_preference_pair(
         rank_margin=rank_margin,
         score_margin=score_margin,
     )
+    bucket = bucket_for_source(config, source)
+    bucket_weight = bucket_weight_for_source(config, source)
     return PreferencePair(
         position_id=position_id_for_source(source),
         source_path=source.path,
@@ -1037,7 +1102,9 @@ def make_preference_pair(
         preferred_move=preferred_move,
         other_move=other_move,
         pair_kind=pair_kind,
-        pair_weight=weight,
+        pair_weight=weight * bucket_weight,
+        bucket=bucket,
+        bucket_weight=bucket_weight,
         features=features,
         exact_best_moves=exact_best,
         preferred_score=root_scores.get(preferred_move),
@@ -1142,6 +1209,8 @@ def collect_pairs(
     pairs: list[PreferencePair] = []
     validation_records: list[ValidationRecord] = []
     stats: collections.Counter[str] = collections.Counter()
+    bucket_pair_counts: collections.Counter[str] = collections.Counter()
+    bucket_pair_weight_mass: collections.Counter[str] = collections.Counter()
     stats["teacher_rows"] = len(sources)
     stats["analysis_cache_hits"] = 0
     stats["analysis_cache_misses"] = 0
@@ -1323,6 +1392,8 @@ def collect_pairs(
         for pair in position_pairs:
             stats[f"{pair.phase}_pairs"] += 1
             stats[f"{pair.pair_kind}_pairs"] += 1
+            bucket_pair_counts[pair.bucket] += 1
+            bucket_pair_weight_mass[pair.bucket] += pair.pair_weight
             if pair.pair_kind == "exact":
                 stats["exact_aware_pairs"] += 1
             validation_records.append(
@@ -1382,6 +1453,12 @@ def collect_pairs(
         if row_stats["paired_positions"]
         else 0.0
     )
+    row_stats["bucket_pair_counts"] = {
+        bucket: int(bucket_pair_counts[bucket]) for bucket in sorted(bucket_pair_counts)
+    }
+    row_stats["bucket_pair_weight_mass"] = {
+        bucket: float(bucket_pair_weight_mass[bucket]) for bucket in sorted(bucket_pair_weight_mass)
+    }
     return pairs, validation_records, row_stats
 
 
@@ -1826,6 +1903,9 @@ def render_report(
         f"- loss: `{config.loss}`",
         f"- pair_mode: `{config.pair_mode}`",
         f"- pair_weighting: `{config.pair_weighting}`",
+        f"- bucket_weights: `{config.bucket_weights_path or 'none'}`",
+        f"- bucket_field: `{config.bucket_field}`",
+        f"- default_bucket_weight: `{config.default_bucket_weight}`",
         f"- max_pairs_per_position: `{config.max_pairs_per_position}`",
         f"- exact_best_weight: `{config.exact_best_weight}`",
         f"- teacher_weight: `{config.teacher_weight}`",
@@ -1846,7 +1926,18 @@ def render_report(
         "",
     ]
     for key in sorted(rows):
+        if key in ("bucket_pair_counts", "bucket_pair_weight_mass"):
+            continue
         lines.append(f"- {key}: `{rows[key]}`")
+    bucket_counts = rows.get("bucket_pair_counts", {})
+    bucket_mass = rows.get("bucket_pair_weight_mass", {})
+    if bucket_counts or bucket_mass:
+        lines.extend(["", "## Bucket Pair Weights", ""])
+        for bucket in sorted(set(bucket_counts) | set(bucket_mass)):
+            lines.append(
+                f"- {bucket}: count=`{bucket_counts.get(bucket, 0)}`, "
+                f"weighted_mass=`{float(bucket_mass.get(bucket, 0.0)):.6f}`"
+            )
     lines.extend(
         [
             "",
@@ -1961,6 +2052,12 @@ def train_pairwise_tables(
         "loss": config.loss,
         "pair_mode": config.pair_mode,
         "pair_weighting": config.pair_weighting,
+        "bucket_weighting": {
+            "path": str(config.bucket_weights_path) if config.bucket_weights_path is not None else "",
+            "field": config.bucket_field,
+            "default_weight": config.default_bucket_weight,
+            "weights": config.bucket_weights,
+        },
         "max_pairs_per_position": config.max_pairs_per_position,
         "exact_best_weight": config.exact_best_weight,
         "teacher_weight": config.teacher_weight,
