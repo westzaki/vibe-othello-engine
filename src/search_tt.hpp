@@ -1,6 +1,7 @@
 #pragma once
 
 #include "search_common.hpp"
+#include "search_runtime_options.hpp"
 #include "tt_common.hpp"
 
 #include <array>
@@ -10,7 +11,6 @@
 #include <new>
 #include <optional>
 #include <othello/hash.hpp>
-#include <othello/search.hpp>
 #include <othello/square.hpp>
 
 namespace othello::search_detail {
@@ -36,7 +36,7 @@ struct TranspositionLookup {
 
 class TranspositionTable {
 public:
-    explicit TranspositionTable(const SearchOptions& options) noexcept
+    explicit TranspositionTable(const SearchEngineOptions& options) noexcept
         : bucket_count_{normalized_bucket_count(options)},
           buckets_{bucket_count_ == 0 ? nullptr : new (std::nothrow) Bucket[bucket_count_]} {}
 
@@ -121,11 +121,11 @@ private:
         std::array<TranspositionEntry, bucket_width> entries{};
     };
 
-    // SearchOptions requests approximate entry count, not bucket count. Bucket indexing uses a
-    // bit mask, so we round the requested bucket count up to a power of two. Very small positive
+    // SearchEngineOptions requests approximate entry count, not bucket count. Bucket indexing uses
+    // a bit mask, so we round the requested bucket count up to a power of two. Very small positive
     // requests allocate one full bucket; oversized requests fall back to the default capacity.
     [[nodiscard]] static constexpr std::size_t
-    normalized_bucket_count(const SearchOptions& options) noexcept {
+    normalized_bucket_count(const SearchEngineOptions& options) noexcept {
         if (!options.use_transposition_table || options.transposition_table_entries == 0) {
             return 0;
         }

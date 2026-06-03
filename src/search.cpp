@@ -1,6 +1,7 @@
 #include "bitboard_ops.hpp"
 #include "hash_update.hpp"
 #include "search_common.hpp"
+#include "search_runtime_options.hpp"
 #include "search_tt.hpp"
 
 #include <algorithm>
@@ -41,10 +42,14 @@ using search_detail::empty_count;
 using search_detail::is_better_best_move;
 using search_detail::node_result_from_transposition_entry;
 using search_detail::NodeResult;
+using search_detail::diagnostics_options_from;
+using search_detail::engine_options_from;
 using search_detail::principal_variation_from_vector;
 using search_detail::principal_variation_to_vector;
 using search_detail::principal_variation_with_move;
 using search_detail::PrincipalVariation;
+using search_detail::SearchDiagnosticsOptions;
+using search_detail::SearchEngineOptions;
 using search_detail::TranspositionLookup;
 using search_detail::TranspositionTable;
 
@@ -84,20 +89,24 @@ struct MoveOrderingParams {
 constexpr MoveOrderingParams default_move_ordering_params{};
 
 struct SearchContext {
-    explicit SearchContext(const SearchOptions& options, bool enable_dynamic_move_ordering) noexcept
-        : transpositions{options}, dynamic_move_ordering{enable_dynamic_move_ordering},
-          use_pvs{options.use_pvs}, store_leaf_tt_entries{options.store_leaf_tt_entries},
-          evaluation_config{resolve_evaluation_config(options)},
-          root_move_ordering_snapshot{options.root_move_ordering_snapshot} {}
+    explicit SearchContext(SearchEngineOptions engine, SearchDiagnosticsOptions diagnostics_options,
+                           EvaluationConfig config,
+                           bool enable_dynamic_move_ordering) noexcept
+        : engine_options{engine}, transpositions{engine_options},
+          dynamic_move_ordering{enable_dynamic_move_ordering},
+          use_pvs{engine_options.use_pvs},
+          store_leaf_tt_entries{engine_options.store_leaf_tt_entries},
+          evaluation_config{std::move(config)}, diagnostics{diagnostics_options} {}
 
     SearchStats stats;
+    SearchEngineOptions engine_options;
     TranspositionTable transpositions;
     MoveOrderingParams move_ordering_params = default_move_ordering_params;
     bool dynamic_move_ordering = false;
     bool use_pvs = false;
     bool store_leaf_tt_entries = true;
     EvaluationConfig evaluation_config = default_evaluation_config();
-    std::vector<RootMoveOrderingEntry>* root_move_ordering_snapshot = nullptr;
+    SearchDiagnosticsOptions diagnostics;
 };
 
 constexpr int search_score_min = -1'000'000'000;
@@ -189,19 +198,19 @@ void record_aspiration_fail_high_distance(SearchContext& context, int score, int
 
 void record_root_move_ordering_snapshot(SearchContext& context,
                                         const OrderedMoveIndexes& ordered_moves) noexcept {
-    if (context.root_move_ordering_snapshot == nullptr) {
+    if (context.diagnostics.root_move_ordering_snapshot == nullptr) {
         return;
     }
 
-    context.root_move_ordering_snapshot->clear();
-    context.root_move_ordering_snapshot->reserve(ordered_moves.size);
+    context.diagnostics.root_move_ordering_snapshot->clear();
+    context.diagnostics.root_move_ordering_snapshot->reserve(ordered_moves.size);
     for (std::size_t index = 0; index < ordered_moves.size; ++index) {
         const std::optional<Square> move =
             Square::from_index(ordered_moves.moves[index].index);
         if (!move.has_value()) {
             continue;
         }
-        context.root_move_ordering_snapshot->push_back(RootMoveOrderingEntry{
+        context.diagnostics.root_move_ordering_snapshot->push_back(RootMoveOrderingEntry{
             .move = *move,
             .order_score = ordered_moves.moves[index].order_score,
         });
@@ -579,7 +588,7 @@ ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
 }
 
 [[nodiscard]] constexpr int aspiration_initial_window(
-    const SearchOptions& options, std::optional<int> previous_score_delta) noexcept {
+    const SearchEngineOptions& options, std::optional<int> previous_score_delta) noexcept {
     const int base_window = positive_aspiration_window(options.aspiration_window);
     if (options.aspiration_profile == AspirationProfile::Fixed ||
         !previous_score_delta.has_value()) {
@@ -610,7 +619,7 @@ ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
 [[nodiscard]] SearchResult search_aspirated_with_context(
     const Board& board, int depth, SearchContext& context, std::optional<Square> previous_best_move,
     PrincipalVariationHint pv_hint, int previous_score, int initial_window,
-    const SearchOptions& options) noexcept {
+    const SearchEngineOptions& options) noexcept {
     ++context.stats.aspiration_searches;
 
     int window = positive_aspiration_window(initial_window);
@@ -684,6 +693,7 @@ ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
 
 ExactEndgameRootDecision decide_exact_endgame_root(const Board& board,
                                                    const SearchOptions& options) noexcept {
+    const SearchEngineOptions engine_options = engine_options_from(options);
     Board opponent_board = board;
     opponent_board.side_to_move = opponent(board.side_to_move);
 
@@ -693,13 +703,13 @@ ExactEndgameRootDecision decide_exact_endgame_root(const Board& board,
         .legal_moves_opponent = static_cast<int>(std::popcount(legal_moves(opponent_board))),
     };
 
-    if (options.exact_endgame_empty_threshold <= 0) {
+    if (engine_options.exact_endgame_empty_threshold <= 0) {
         decision.skip_reason = ExactEndgameRootSkipReason::Disabled;
         return decision;
     }
 
-    if (options.exact_endgame_root_policy == ExactEndgameRootPolicy::FixedThreshold) {
-        if (decision.empty_count > options.exact_endgame_empty_threshold) {
+    if (engine_options.exact_endgame_root_policy == ExactEndgameRootPolicy::FixedThreshold) {
+        if (decision.empty_count > engine_options.exact_endgame_empty_threshold) {
             decision.skip_reason = ExactEndgameRootSkipReason::AboveThreshold;
             return decision;
         }
@@ -742,8 +752,11 @@ SearchResult search(const Board& board, const SearchOptions& options) noexcept {
         return exact_endgame_search_result(board);
     }
 
+    const SearchEngineOptions engine_options = engine_options_from(options);
+    const SearchDiagnosticsOptions diagnostics_options = diagnostics_options_from(options);
     const int search_depth = options.max_depth < 0 ? 0 : options.max_depth;
-    SearchContext context{options, true};
+    SearchContext context{engine_options, diagnostics_options, resolve_evaluation_config(options),
+                          true};
     return search_with_context(board, search_depth, context, std::nullopt,
                                PrincipalVariationHint{});
 }
@@ -757,8 +770,11 @@ SearchResult search_iterative(const Board& board, const SearchOptions& options) 
         return exact_endgame_search_result(board);
     }
 
+    const SearchEngineOptions engine_options = engine_options_from(options);
+    const SearchDiagnosticsOptions diagnostics_options = diagnostics_options_from(options);
     const int search_depth = options.max_depth < 0 ? 0 : options.max_depth;
-    SearchContext context{options, true};
+    SearchContext context{engine_options, diagnostics_options, resolve_evaluation_config(options),
+                          true};
 
     if (search_depth == 0) {
         return search_with_context(board, 0, context, std::nullopt, PrincipalVariationHint{});
@@ -778,17 +794,18 @@ SearchResult search_iterative(const Board& board, const SearchOptions& options) 
             .index = 0,
             .matches_prefix = previous_principal_variation.size > 0,
         };
-        if (options.use_aspiration_window && previous_score.has_value()) {
-            const int initial_window = aspiration_initial_window(options, previous_score_delta);
+        if (engine_options.use_aspiration_window && previous_score.has_value()) {
+            const int initial_window =
+                aspiration_initial_window(engine_options, previous_score_delta);
             result = search_aspirated_with_context(board, depth, context, previous_best_move,
                                                    pv_hint, *previous_score, initial_window,
-                                                   options);
+                                                   engine_options);
         } else {
             result = search_with_context(board, depth, context, previous_best_move, pv_hint);
         }
         const auto depth_elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(
             std::chrono::steady_clock::now() - depth_start);
-        if (options.iterative_depth_observer != nullptr) {
+        if (diagnostics_options.iterative_depth_observer != nullptr) {
             const SearchStats depth_stats = stats_delta(context.stats, stats_before_depth);
             const IterativeSearchDepthInfo info{
                 .requested_depth = search_depth,
@@ -802,7 +819,8 @@ SearchResult search_iterative(const Board& board, const SearchOptions& options) 
                 .stats = depth_stats,
                 .elapsed_ns = static_cast<std::uint64_t>(depth_elapsed.count()),
             };
-            options.iterative_depth_observer(info, options.iterative_depth_observer_user_data);
+            diagnostics_options.iterative_depth_observer(
+                info, diagnostics_options.iterative_depth_observer_user_data);
         }
         previous_score_delta = previous_score.has_value()
                                    ? std::optional<int>{result.score - *previous_score}
