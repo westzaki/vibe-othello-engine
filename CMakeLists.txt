@@ -4,6 +4,17 @@ project(vibe_othello_engine LANGUAGES CXX)
 
 option(OTHELLO_ENABLE_CLANG_TIDY "Enable clang-tidy checks" OFF)
 option(OTHELLO_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
+option(OTHELLO_BUILD_TOOLS "Build developer tools" ON)
+option(OTHELLO_BUILD_TESTS "Build tests" ON)
+option(OTHELLO_BUILD_EXPERIMENT_TOOLS "Build research/label/training helper tools" ON)
+
+if(OTHELLO_BUILD_TESTS AND NOT OTHELLO_BUILD_TOOLS)
+    message(FATAL_ERROR "OTHELLO_BUILD_TESTS requires OTHELLO_BUILD_TOOLS because the test suite covers tool cores")
+endif()
+
+if(OTHELLO_BUILD_TESTS AND NOT OTHELLO_BUILD_EXPERIMENT_TOOLS)
+    message(FATAL_ERROR "OTHELLO_BUILD_TESTS requires OTHELLO_BUILD_EXPERIMENT_TOOLS because the test suite covers experiment tool cores")
+endif()
 
 if(OTHELLO_ENABLE_CLANG_TIDY)
     find_program(CLANG_TIDY_EXE NAMES clang-tidy)
@@ -54,15 +65,17 @@ function(othello_add_executable target)
     set(OTHELLO_CLANG_TIDY_TARGETS ${OTHELLO_CLANG_TIDY_TARGETS} PARENT_SCOPE)
 endfunction()
 
-include(FetchContent)
+if(OTHELLO_BUILD_TESTS)
+    include(FetchContent)
 
-FetchContent_Declare(
-    Catch2
-    GIT_REPOSITORY https://github.com/catchorg/Catch2.git
-    GIT_TAG v3.8.1
-    GIT_SHALLOW TRUE
-)
-FetchContent_MakeAvailable(Catch2)
+    FetchContent_Declare(
+        Catch2
+        GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+        GIT_TAG v3.8.1
+        GIT_SHALLOW TRUE
+    )
+    FetchContent_MakeAvailable(Catch2)
+endif()
 
 add_library(othello STATIC
     src/endgame.cpp
@@ -85,8 +98,11 @@ target_include_directories(othello
 othello_enable_sanitizers(othello)
 set(OTHELLO_CLANG_TIDY_TARGETS othello)
 
-add_subdirectory(tools)
+if(OTHELLO_BUILD_TOOLS)
+    add_subdirectory(tools)
+endif()
 
+if(OTHELLO_BUILD_TESTS)
 enable_testing()
 find_package(Python3 COMPONENTS Interpreter)
 
@@ -690,3 +706,4 @@ othello_add_expect_failure_test(
     "invalid --format value"
     --format yaml
 )
+endif()
