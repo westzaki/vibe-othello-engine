@@ -1,6 +1,7 @@
 #include "bitboard_ops.hpp"
 #include "hash_update.hpp"
 #include "search_common.hpp"
+#include "search_runtime_options.hpp"
 #include "search_tt.hpp"
 
 #include <algorithm>
@@ -41,10 +42,14 @@ using search_detail::empty_count;
 using search_detail::is_better_best_move;
 using search_detail::node_result_from_transposition_entry;
 using search_detail::NodeResult;
+using search_detail::diagnostics_options_from;
+using search_detail::engine_options_from;
 using search_detail::principal_variation_from_vector;
 using search_detail::principal_variation_to_vector;
 using search_detail::principal_variation_with_move;
 using search_detail::PrincipalVariation;
+using search_detail::SearchDiagnosticsOptions;
+using search_detail::SearchEngineOptions;
 using search_detail::TranspositionLookup;
 using search_detail::TranspositionTable;
 
@@ -53,30 +58,6 @@ struct PrincipalVariationHint {
     std::size_t index = 0;
     bool matches_prefix = false;
 };
-
-[[nodiscard]] SearchEngineOptions engine_options_from(const SearchOptions& options) noexcept {
-    return SearchEngineOptions{
-        .use_transposition_table = options.use_transposition_table,
-        .transposition_table_entries = options.transposition_table_entries,
-        .store_leaf_tt_entries = options.store_leaf_tt_entries,
-        .exact_endgame_empty_threshold = options.exact_endgame_empty_threshold,
-        .exact_endgame_root_policy = options.exact_endgame_root_policy,
-        .use_pvs = options.use_pvs,
-        .use_aspiration_window = options.use_aspiration_window,
-        .aspiration_window = options.aspiration_window,
-        .aspiration_max_researches = options.aspiration_max_researches,
-        .aspiration_profile = options.aspiration_profile,
-    };
-}
-
-[[nodiscard]] SearchDiagnosticsOptions
-diagnostics_options_from(const SearchOptions& options) noexcept {
-    return SearchDiagnosticsOptions{
-        .iterative_depth_observer = options.iterative_depth_observer,
-        .iterative_depth_observer_user_data = options.iterative_depth_observer_user_data,
-        .root_move_ordering_snapshot = options.root_move_ordering_snapshot,
-    };
-}
 
 struct OrderedMoveIndexes {
     struct Move {
@@ -108,13 +89,14 @@ struct MoveOrderingParams {
 constexpr MoveOrderingParams default_move_ordering_params{};
 
 struct SearchContext {
-    explicit SearchContext(const SearchOptions& options, bool enable_dynamic_move_ordering) noexcept
-        : engine_options{engine_options_from(options)}, transpositions{engine_options},
+    explicit SearchContext(SearchEngineOptions engine, SearchDiagnosticsOptions diagnostics_options,
+                           EvaluationConfig config,
+                           bool enable_dynamic_move_ordering) noexcept
+        : engine_options{engine}, transpositions{engine_options},
           dynamic_move_ordering{enable_dynamic_move_ordering},
           use_pvs{engine_options.use_pvs},
           store_leaf_tt_entries{engine_options.store_leaf_tt_entries},
-          evaluation_config{resolve_evaluation_config(options)},
-          diagnostics{diagnostics_options_from(options)} {}
+          evaluation_config{std::move(config)}, diagnostics{diagnostics_options} {}
 
     SearchStats stats;
     SearchEngineOptions engine_options;
@@ -770,8 +752,11 @@ SearchResult search(const Board& board, const SearchOptions& options) noexcept {
         return exact_endgame_search_result(board);
     }
 
+    const SearchEngineOptions engine_options = engine_options_from(options);
+    const SearchDiagnosticsOptions diagnostics_options = diagnostics_options_from(options);
     const int search_depth = options.max_depth < 0 ? 0 : options.max_depth;
-    SearchContext context{options, true};
+    SearchContext context{engine_options, diagnostics_options, resolve_evaluation_config(options),
+                          true};
     return search_with_context(board, search_depth, context, std::nullopt,
                                PrincipalVariationHint{});
 }
@@ -788,7 +773,8 @@ SearchResult search_iterative(const Board& board, const SearchOptions& options) 
     const SearchEngineOptions engine_options = engine_options_from(options);
     const SearchDiagnosticsOptions diagnostics_options = diagnostics_options_from(options);
     const int search_depth = options.max_depth < 0 ? 0 : options.max_depth;
-    SearchContext context{options, true};
+    SearchContext context{engine_options, diagnostics_options, resolve_evaluation_config(options),
+                          true};
 
     if (search_depth == 0) {
         return search_with_context(board, 0, context, std::nullopt, PrincipalVariationHint{});

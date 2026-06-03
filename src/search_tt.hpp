@@ -1,6 +1,7 @@
 #pragma once
 
 #include "search_common.hpp"
+#include "search_runtime_options.hpp"
 #include "tt_common.hpp"
 
 #include <array>
@@ -10,7 +11,6 @@
 #include <new>
 #include <optional>
 #include <othello/hash.hpp>
-#include <othello/search.hpp>
 #include <othello/square.hpp>
 
 namespace othello::search_detail {
