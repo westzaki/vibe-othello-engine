@@ -27,6 +27,8 @@ struct SearchPlayerOptions {
     int exact_endgame_empty_threshold = SearchOptions{}.exact_endgame_empty_threshold;
     ExactEndgameRootPolicy exact_endgame_root_policy = SearchOptions{}.exact_endgame_root_policy;
     bool use_pvs = SearchOptions{}.use_pvs;
+    bool use_aspiration_window = SearchOptions{}.use_aspiration_window;
+    AspirationProfile aspiration_profile = SearchOptions{}.aspiration_profile;
     tools::EvaluatorSelection evaluator;
 
     [[nodiscard]] friend bool operator==(const SearchPlayerOptions&,

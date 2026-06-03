@@ -306,6 +306,12 @@ othello_add_help_contains_test(
 )
 
 othello_add_help_contains_test(
+    othello_match_runner_help_includes_aspiration_profile
+    othello_match_runner
+    "aspiration_profile=fixed|score-delta-aware"
+)
+
+othello_add_help_contains_test(
     othello_exact_label_dump_help_includes_move_scores
     othello_exact_label_dump
     "--include-move-scores"
