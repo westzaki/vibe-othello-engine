@@ -59,6 +59,11 @@ enum class ExactEndgameRootPolicy {
     Adaptive16,
 };
 
+enum class AspirationProfile {
+    Fixed,
+    ScoreDeltaAware,
+};
+
 enum class ExactEndgameRootSkipReason {
     None,
     Disabled,
@@ -141,6 +146,7 @@ struct SearchOptions {
     bool use_aspiration_window = false;
     int aspiration_window = 50;
     int aspiration_max_researches = 4;
+    AspirationProfile aspiration_profile = AspirationProfile::Fixed;
     std::optional<EvaluationConfig> evaluation_config_override = std::nullopt;
     // Optional instrumentation hooks used by benchmark tools. Null defaults keep
     // public search behavior and normal result payloads unchanged.

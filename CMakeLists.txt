@@ -180,6 +180,12 @@ othello_add_help_contains_test(
     "--emit-iterative-depth-rows"
 )
 
+othello_add_help_contains_test(
+    othello_search_bench_help_includes_aspiration_profile
+    othello_search_bench
+    "--aspiration-profile"
+)
+
 othello_add_tool_smoke_test(
     othello_search_bench_jsonl_includes_score_kind
     othello_search_bench
@@ -192,7 +198,26 @@ othello_add_tool_smoke_test(
 )
 set_tests_properties(
     othello_search_bench_jsonl_includes_score_kind
-    PROPERTIES PASS_REGULAR_EXPRESSION "\"tool\":\"othello_search_bench\".*\"score_kind\""
+    PROPERTIES PASS_REGULAR_EXPRESSION "\"tool\":\"othello_search_bench\".*\"aspiration_profile\":\"fixed\".*\"score_kind\""
+)
+
+othello_add_tool_smoke_test(
+    othello_search_bench_jsonl_score_delta_aware_aspiration_profile
+    othello_search_bench
+    --mode iterative
+    --depths 2
+    --positions smoke
+    --repetitions 1
+    --tt on
+    --pvs on
+    --aspiration on
+    --aspiration-profile score-delta-aware
+    --exact-endgame-threshold 0
+    --format jsonl
+)
+set_tests_properties(
+    othello_search_bench_jsonl_score_delta_aware_aspiration_profile
+    PROPERTIES PASS_REGULAR_EXPRESSION "\"aspiration_profile\":\"score-delta-aware\""
 )
 
 othello_add_tool_smoke_test(
@@ -453,6 +478,13 @@ othello_add_expect_failure_test(
     othello_search_bench
     "invalid --format value"
     --format yaml
+)
+
+othello_add_expect_failure_test(
+    othello_search_bench_rejects_invalid_aspiration_profile
+    othello_search_bench
+    "--aspiration-profile must be fixed or score-delta-aware"
+    --aspiration-profile wide
 )
 
 othello_add_expect_failure_test(
