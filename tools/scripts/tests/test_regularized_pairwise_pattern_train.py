@@ -128,6 +128,15 @@ def fake_analyzer(
     return trainer.AnalyzeResult(best_move="b1", root_scores={"b1": 20, "d1": 10})
 
 
+def agreeing_fake_analyzer(
+    config: trainer.TrainerConfig, board_text: str
+) -> trainer.AnalyzeResult:
+    del config
+    trainer.apply_move_to_board(board_text, "d1")
+    trainer.apply_move_to_board(board_text, "b1")
+    return trainer.AnalyzeResult(best_move="d1", root_scores={"d1": 20, "b1": 10})
+
+
 def wide_fake_analyzer(
     config: trainer.TrainerConfig, board_text: str
 ) -> trainer.AnalyzeResult:
@@ -481,6 +490,7 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
         self.assertEqual(pairs[0].pair_kind, "teacher")
         self.assertEqual(pairs[0].pair_weight, 1.0)
         self.assertEqual(stats["preference_pairs"], 1)
+        self.assertEqual(stats["guard_pairs"], 0)
         self.assertTrue(any(record.status == "paired" for record in records))
         self.assertEqual(stats["analysis_cache_mode"], "off")
         self.assertEqual(stats["analysis_jobs"], 1)
@@ -759,6 +769,123 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
         self.assertTrue(all(pair.other_score and pair.preferred_score for pair in pairs))
         self.assertTrue(all(pair.other_score > pair.preferred_score for pair in pairs))
         self.assertEqual(stats["teacher_pairs"], 1)
+
+    def test_base_agreement_guard_creates_guard_pair_when_base_matches_teacher(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            config = make_config(
+                temp_path,
+                labels,
+                extra_args=["--guard-mode", "base-agreement"],
+            )
+
+            pairs, records, stats = trainer.collect_pairs(config, analyzer=agreeing_fake_analyzer)
+
+        self.assertEqual(len(pairs), 1)
+        self.assertEqual(pairs[0].pair_kind, "guard")
+        self.assertEqual(pairs[0].preferred_move, "d1")
+        self.assertEqual(pairs[0].other_move, "b1")
+        self.assertEqual(pairs[0].pair_weight, 0.25)
+        self.assertEqual(stats["guard_pairs"], 1)
+        self.assertEqual(stats["guarded_positions"], 1)
+        self.assertEqual(stats["main_preference_pairs"], 0)
+        self.assertEqual(stats["guard_pair_weight_mass"], 0.25)
+        self.assertTrue(any(record.status == "paired" and record.pair_kind == "guard" for record in records))
+
+    def test_base_agreement_guard_skips_when_base_disagrees_with_teacher(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            config = make_config(
+                temp_path,
+                labels,
+                extra_args=["--guard-mode", "base-agreement"],
+            )
+
+            pairs, _, stats = trainer.collect_pairs(config, analyzer=fake_analyzer)
+
+        self.assertEqual(len(pairs), 1)
+        self.assertEqual(pairs[0].pair_kind, "teacher")
+        self.assertEqual(stats["teacher_pairs"], 1)
+        self.assertEqual(stats["guard_pairs"], 0)
+        self.assertEqual(stats["guard_base_disagreement_skipped"], 1)
+
+    def test_guard_pair_weight_uses_guard_weight_and_bucket_weight(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(
+                temp_path / "labels.jsonl",
+                [teacher_row(source_bucket="base_guard")],
+            )
+            weights = temp_path / "bucket_weights.json"
+            weights.write_text(json.dumps({"base_guard": 2.5}), encoding="utf-8")
+            config = make_config(
+                temp_path,
+                labels,
+                extra_args=[
+                    "--guard-mode",
+                    "base-agreement",
+                    "--guard-weight",
+                    "0.4",
+                    "--bucket-weights",
+                    str(weights),
+                ],
+            )
+
+            pairs, _, stats = trainer.collect_pairs(config, analyzer=agreeing_fake_analyzer)
+
+        self.assertEqual(len(pairs), 1)
+        self.assertEqual(pairs[0].pair_kind, "guard")
+        self.assertEqual(pairs[0].bucket, "base_guard")
+        self.assertEqual(pairs[0].bucket_weight, 2.5)
+        self.assertEqual(pairs[0].pair_weight, 1.0)
+        self.assertEqual(stats["guard_pair_weight_mass"], 1.0)
+        self.assertEqual(stats["bucket_pair_weight_mass"], {"base_guard": 1.0})
+
+    def test_guard_summary_records_counts_and_mass(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            config = make_config(
+                temp_path,
+                labels,
+                extra_args=["--guard-mode", "base-agreement", "--epochs", "1", "--l2", "0"],
+            )
+
+            result = trainer.train_pairwise_tables(config, analyzer=agreeing_fake_analyzer)
+
+        self.assertEqual(result.summary["rows"]["guard_pairs"], 1)
+        self.assertEqual(result.summary["rows"]["guard_pair_weight_mass"], 0.25)
+        self.assertEqual(result.summary["guard"]["mode"], "base-agreement")
+        self.assertEqual(result.summary["guard"]["weight"], 0.25)
+
+    def test_guard_pair_uses_child_phase_for_boundary_root(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            board, moves = boundary_board(20)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row(board=board, move=moves[0])])
+            config = make_config(
+                temp_path,
+                labels,
+                extra_args=["--guard-mode", "base-agreement"],
+            )
+            teacher_move, other_move = boundary_pair_moves(config, board, moves)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row(board=board, move=teacher_move)])
+
+            pairs, _, stats = trainer.collect_pairs(
+                config,
+                analyzer=lambda _config, _board: trainer.AnalyzeResult(
+                    best_move=teacher_move,
+                    root_scores={teacher_move: 20, other_move: 10},
+                ),
+            )
+
+        self.assertEqual(trainer.phase_for_board(board, config.phase_cutoffs), "opening")
+        self.assertEqual(len(pairs), 1)
+        self.assertEqual(pairs[0].pair_kind, "guard")
+        self.assertEqual(pairs[0].phase, "midgame")
+        self.assertEqual(stats["midgame_pairs"], 1)
 
     def test_bucket_weight_multiplies_pair_weight(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

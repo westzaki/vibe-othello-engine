@@ -68,6 +68,7 @@ PAIR_MODES = (
     "exact-aware",
 )
 PAIR_WEIGHTINGS = ("uniform", "rank-margin", "score-margin", "exact-boost")
+GUARD_MODES = ("off", "base-agreement")
 FAMILY_ALIASES: dict[str, tuple[str, ...]] = {
     **COMMON_FAMILY_ALIASES,
     "all": FAMILY_ORDER,
@@ -125,6 +126,9 @@ class TrainerConfig:
     bucket_weights: dict[str, float]
     default_bucket_weight: float
     bucket_field: str
+    guard_mode: str
+    guard_weight: float
+    guard_max_pairs_per_position: int
     max_pairs_per_position: int
     exact_best_weight: float
     teacher_weight: float
@@ -321,6 +325,24 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--bucket-field",
         default="source_bucket",
         help="label-row field used to look up bucket weights (default: source_bucket)",
+    )
+    parser.add_argument(
+        "--guard-mode",
+        choices=GUARD_MODES,
+        default="off",
+        help="optional anti-regression guard pair generation mode (default: off)",
+    )
+    parser.add_argument(
+        "--guard-weight",
+        type=parse_non_negative_float,
+        default=0.25,
+        help="base pair weight for generated guard pairs before bucket weighting",
+    )
+    parser.add_argument(
+        "--guard-max-pairs-per-position",
+        type=parse_non_negative_int,
+        default=1,
+        help="cap generated guard pairs per guarded position; 0 means no cap",
     )
     parser.add_argument(
         "--max-pairs-per-position",
@@ -542,6 +564,9 @@ def config_from_args(
         bucket_weights=bucket_weights,
         default_bucket_weight=args.default_bucket_weight,
         bucket_field=args.bucket_field,
+        guard_mode=args.guard_mode,
+        guard_weight=args.guard_weight,
+        guard_max_pairs_per_position=args.guard_max_pairs_per_position,
         max_pairs_per_position=args.max_pairs_per_position,
         exact_best_weight=args.exact_best_weight,
         teacher_weight=args.teacher_weight,
@@ -941,7 +966,7 @@ def pair_objective_weight(
 
 
 def pair_priority(pair: PreferencePair) -> tuple[int, float, str, str]:
-    kind_priority = 0 if pair.pair_kind == "exact" else 1
+    kind_priority = {"exact": 0, "teacher": 1}.get(pair.pair_kind, 2)
     margin = pair.score_margin if pair.score_margin is not None else pair.rank_margin or 0
     return (kind_priority, -abs(float(margin)), pair.preferred_move, pair.other_move)
 
@@ -1060,6 +1085,7 @@ def make_preference_pair(
     exact_best: tuple[str, ...],
     root_scores: dict[str, int],
     ranks: dict[str, int],
+    objective_weight_override: float | None = None,
 ) -> PreferencePair | None:
     if preferred_move == other_move:
         return None
@@ -1081,11 +1107,15 @@ def make_preference_pair(
     )
     if not features:
         return None
-    weight = pair_objective_weight(
-        config,
-        pair_kind=pair_kind,
-        rank_margin=rank_margin,
-        score_margin=score_margin,
+    weight = (
+        objective_weight_override
+        if objective_weight_override is not None
+        else pair_objective_weight(
+            config,
+            pair_kind=pair_kind,
+            rank_margin=rank_margin,
+            score_margin=score_margin,
+        )
     )
     bucket = bucket_for_source(config, source)
     bucket_weight = bucket_weight_for_source(config, source)
@@ -1199,6 +1229,74 @@ def generate_position_pairs(
     return limited, stats
 
 
+def generate_guard_pairs(
+    *,
+    config: TrainerConfig,
+    source: LabelSource,
+    split: str,
+    board_text: str,
+    teacher_move: str,
+    engine_move: str,
+    legal_moves: set[str],
+    exact_best: tuple[str, ...],
+    root_scores: dict[str, int],
+) -> tuple[list[PreferencePair], collections.Counter[str]]:
+    stats: collections.Counter[str] = collections.Counter()
+    if config.guard_mode == "off":
+        return [], stats
+    candidates = root_candidate_moves(root_scores, legal_moves)
+    ranks = root_score_ranks(root_scores)
+    generated: list[PreferencePair] = []
+
+    if config.guard_mode == "base-agreement":
+        preferred_move: str | None = None
+        protected: set[str] = set()
+        if exact_best and engine_move in exact_best:
+            preferred_move = engine_move
+            protected = set(exact_best)
+        elif engine_move == teacher_move:
+            preferred_move = engine_move
+            protected = {teacher_move}
+        else:
+            stats["guard_base_disagreement_skipped"] += 1
+            return [], stats
+
+        preferred_score = root_scores.get(preferred_move)
+        for candidate in candidates:
+            if candidate in protected or candidate == preferred_move:
+                continue
+            candidate_score = root_scores.get(candidate)
+            if preferred_score is not None and candidate_score is not None and candidate_score >= preferred_score:
+                continue
+            pair = make_preference_pair(
+                config=config,
+                source=source,
+                split=split,
+                board_text=board_text,
+                teacher_move=teacher_move,
+                engine_move=engine_move,
+                preferred_move=preferred_move,
+                other_move=candidate,
+                pair_kind="guard",
+                exact_best=exact_best,
+                root_scores=root_scores,
+                ranks=ranks,
+                objective_weight_override=config.guard_weight,
+            )
+            if pair is None:
+                stats["guard_pair_skipped"] += 1
+                continue
+            generated.append(pair)
+
+    limited, truncated = limit_pairs_for_position(generated, config.guard_max_pairs_per_position)
+    if limited:
+        stats["guarded_positions"] += 1
+    if truncated:
+        stats["guard_max_pairs_truncated"] += 1
+        stats["guard_pairs_truncated"] += truncated
+    return limited, stats
+
+
 def collect_pairs(
     config: TrainerConfig,
     analyzer: Analyzer = run_analysis,
@@ -1274,7 +1372,11 @@ def collect_pairs(
             stats["teacher_exact_disagreements_used_by_exact_aware"] += 1
 
         engine_move = precomputed_engine_move(record, legal_moves)
-        needs_analysis = engine_move is None or config.pair_mode != "best-vs-engine"
+        needs_analysis = (
+            engine_move is None
+            or config.pair_mode != "best-vs-engine"
+            or config.guard_mode != "off"
+        )
         board_hash = sha256_text(board_key(board_text))
         cache_key = analysis_cache_key(
             board_hash=board_hash,
@@ -1343,7 +1445,7 @@ def collect_pairs(
             continue
         if engine_move == teacher_move:
             stats["already_agreed"] += 1
-            if config.pair_mode == "best-vs-engine":
+            if config.pair_mode == "best-vs-engine" and config.guard_mode == "off":
                 validation_records.append(
                     make_validation_record(
                         source=source,
@@ -1369,7 +1471,20 @@ def collect_pairs(
             root_scores=root_scores,
         )
         stats.update(pair_stats)
-        if not position_pairs:
+        guard_pairs, guard_stats = generate_guard_pairs(
+            config=config,
+            source=source,
+            split=split,
+            board_text=board_text,
+            teacher_move=teacher_move,
+            engine_move=engine_move,
+            legal_moves=legal_moves,
+            exact_best=exact_best,
+            root_scores=root_scores,
+        )
+        stats.update(guard_stats)
+        all_position_pairs = [*position_pairs, *guard_pairs]
+        if not all_position_pairs:
             stats["no_pair_generated_skipped"] += 1
             validation_records.append(
                 make_validation_record(
@@ -1384,17 +1499,22 @@ def collect_pairs(
             )
             continue
 
-        pairs.extend(position_pairs)
+        pairs.extend(all_position_pairs)
         stats["paired_positions"] += 1
-        stats["preference_pairs"] += len(position_pairs)
-        stats["max_pairs_in_position"] = max(stats["max_pairs_in_position"], len(position_pairs))
-        for pair in position_pairs:
+        stats["preference_pairs"] += len(all_position_pairs)
+        stats["main_preference_pairs"] += len(position_pairs)
+        stats["max_pairs_in_position"] = max(stats["max_pairs_in_position"], len(all_position_pairs))
+        for pair in all_position_pairs:
             stats[f"{pair.phase}_pairs"] += 1
             stats[f"{pair.pair_kind}_pairs"] += 1
             bucket_pair_counts[pair.bucket] += 1
             bucket_pair_weight_mass[pair.bucket] += pair.pair_weight
             if pair.pair_kind == "exact":
                 stats["exact_aware_pairs"] += 1
+            if pair.pair_kind == "guard":
+                stats["guard_pair_weight_mass"] += pair.pair_weight
+            else:
+                stats["main_pair_weight_mass"] += pair.pair_weight
             validation_records.append(
                 make_validation_record(
                     source=source,
@@ -1418,6 +1538,15 @@ def collect_pairs(
         "exact_pairs",
         "exact_aware_pairs",
         "exact_unavailable_fallback_positions",
+        "guard_base_disagreement_skipped",
+        "guard_max_pairs_truncated",
+        "guard_pair_skipped",
+        "guard_pair_weight_mass",
+        "guard_pairs",
+        "guard_pairs_truncated",
+        "guarded_positions",
+        "main_pair_weight_mass",
+        "main_preference_pairs",
         "max_pairs_in_position",
         "max_pairs_truncated",
         "no_pair_generated_skipped",
@@ -1905,6 +2034,9 @@ def render_report(
         f"- bucket_weights: `{config.bucket_weights_path or 'none'}`",
         f"- bucket_field: `{config.bucket_field}`",
         f"- default_bucket_weight: `{config.default_bucket_weight}`",
+        f"- guard_mode: `{config.guard_mode}`",
+        f"- guard_weight: `{config.guard_weight}`",
+        f"- guard_max_pairs_per_position: `{config.guard_max_pairs_per_position}`",
         f"- max_pairs_per_position: `{config.max_pairs_per_position}`",
         f"- exact_best_weight: `{config.exact_best_weight}`",
         f"- teacher_weight: `{config.teacher_weight}`",
@@ -2056,6 +2188,11 @@ def train_pairwise_tables(
             "field": config.bucket_field,
             "default_weight": config.default_bucket_weight,
             "weights": config.bucket_weights,
+        },
+        "guard": {
+            "mode": config.guard_mode,
+            "weight": config.guard_weight,
+            "max_pairs_per_position": config.guard_max_pairs_per_position,
         },
         "max_pairs_per_position": config.max_pairs_per_position,
         "exact_best_weight": config.exact_best_weight,
