@@ -124,6 +124,41 @@ struct RootMoveOrderingEntry {
     int order_score = 0;
 };
 
+// Grouped copies of the search engine and diagnostics knobs. SearchOptions
+// keeps its flat fields for source compatibility while search internals consume
+// these smaller views.
+struct SearchEngineOptions {
+    bool use_transposition_table = false;
+    // Approximate requested midgame transposition table entries. The internal
+    // table may round this to a bucketed power-of-two capacity.
+    std::size_t transposition_table_entries = 1 << 18;
+    // Store depth-0 midgame heuristic leaves in the transposition table. The
+    // default preserves the current search behavior for ablation comparisons.
+    bool store_leaf_tt_entries = true;
+    // Root-only exact endgame cutoff by empty square count for FixedThreshold.
+    // Values <= 0 disable root exact solving for every root policy.
+    int exact_endgame_empty_threshold = 12;
+    // Adaptive16 is an experimental root-only profile: <=14 empties solve
+    // exactly, while 15/16 empties solve only for conservative low-branching
+    // roots with bounded opponent mobility.
+    ExactEndgameRootPolicy exact_endgame_root_policy = ExactEndgameRootPolicy::FixedThreshold;
+    bool use_pvs = false;
+    // Opt-in iterative-search aspiration window. Fixed-depth search ignores
+    // these fields; iterative search still uses a full window for depth 1.
+    bool use_aspiration_window = false;
+    int aspiration_window = 50;
+    int aspiration_max_researches = 4;
+    AspirationProfile aspiration_profile = AspirationProfile::Fixed;
+};
+
+struct SearchDiagnosticsOptions {
+    // Optional instrumentation hooks used by benchmark tools. Null defaults keep
+    // public search behavior and normal result payloads unchanged.
+    IterativeSearchDepthObserver iterative_depth_observer = nullptr;
+    void* iterative_depth_observer_user_data = nullptr;
+    std::vector<RootMoveOrderingEntry>* root_move_ordering_snapshot = nullptr;
+};
+
 struct SearchOptions {
     int max_depth = 5;
     bool use_transposition_table = false;
