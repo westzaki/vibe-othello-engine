@@ -45,6 +45,10 @@ struct SearchStats {
     std::uint64_t aspiration_fail_lows = 0;
     std::uint64_t aspiration_fail_highs = 0;
     std::uint64_t aspiration_full_window_fallbacks = 0;
+    std::uint64_t aspiration_fail_low_distance_sum = 0;
+    std::uint64_t aspiration_fail_high_distance_sum = 0;
+    std::uint64_t aspiration_fail_low_distance_max = 0;
+    std::uint64_t aspiration_fail_high_distance_max = 0;
 
     std::uint64_t dynamic_ordering_nodes = 0;
     std::uint64_t dynamic_ordering_moves = 0;
@@ -95,6 +99,26 @@ struct SearchResult {
     std::optional<int> exact_disc_margin = std::nullopt;
 };
 
+struct IterativeSearchDepthInfo {
+    int requested_depth = 0;
+    int completed_depth = 0;
+    std::optional<int> previous_score = std::nullopt;
+    int score = 0;
+    int previous_score_delta = 0;
+    std::optional<Square> best_move;
+    std::vector<Square> principal_variation;
+    SearchStats stats;
+    std::uint64_t elapsed_ns = 0;
+};
+
+using IterativeSearchDepthObserver = void (*)(const IterativeSearchDepthInfo& info,
+                                              void* user_data);
+
+struct RootMoveOrderingEntry {
+    Square move;
+    int order_score = 0;
+};
+
 struct SearchOptions {
     int max_depth = 5;
     bool use_transposition_table = false;
@@ -118,6 +142,11 @@ struct SearchOptions {
     int aspiration_window = 50;
     int aspiration_max_researches = 4;
     std::optional<EvaluationConfig> evaluation_config_override = std::nullopt;
+    // Optional instrumentation hooks used by benchmark tools. Null defaults keep
+    // public search behavior and normal result payloads unchanged.
+    IterativeSearchDepthObserver iterative_depth_observer = nullptr;
+    void* iterative_depth_observer_user_data = nullptr;
+    std::vector<RootMoveOrderingEntry>* root_move_ordering_snapshot = nullptr;
 };
 
 [[nodiscard]] EvaluationConfig resolve_evaluation_config(const SearchOptions& options) noexcept;

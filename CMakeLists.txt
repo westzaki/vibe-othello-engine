@@ -174,6 +174,12 @@ othello_add_help_contains_test(
     "--tt-store-leaf"
 )
 
+othello_add_help_contains_test(
+    othello_search_bench_help_includes_iterative_depth_rows
+    othello_search_bench
+    "--emit-iterative-depth-rows"
+)
+
 othello_add_tool_smoke_test(
     othello_search_bench_jsonl_includes_score_kind
     othello_search_bench
@@ -187,6 +193,45 @@ othello_add_tool_smoke_test(
 set_tests_properties(
     othello_search_bench_jsonl_includes_score_kind
     PROPERTIES PASS_REGULAR_EXPRESSION "\"tool\":\"othello_search_bench\".*\"score_kind\""
+)
+
+othello_add_tool_smoke_test(
+    othello_search_bench_jsonl_iterative_depth_rows
+    othello_search_bench
+    --mode iterative
+    --depths 2
+    --positions smoke
+    --repetitions 1
+    --tt on
+    --pvs on
+    --aspiration on
+    --exact-endgame-threshold 0
+    --emit-iterative-depth-rows
+    --format jsonl
+)
+set_tests_properties(
+    othello_search_bench_jsonl_iterative_depth_rows
+    PROPERTIES PASS_REGULAR_EXPRESSION "\"row\":\"iterative_depth\".*\"completed_depth\".*\"previous_score_delta\".*\"pvs_research_ratio\""
+)
+
+othello_add_tool_smoke_test(
+    othello_search_bench_jsonl_root_ordering_diagnostics
+    othello_search_bench
+    --mode iterative
+    --depths 2
+    --positions smoke
+    --repetitions 1
+    --by-position
+    --tt on
+    --pvs on
+    --aspiration on
+    --exact-endgame-threshold 0
+    --emit-iterative-depth-rows
+    --format jsonl
+)
+set_tests_properties(
+    othello_search_bench_jsonl_root_ordering_diagnostics
+    PROPERTIES PASS_REGULAR_EXPRESSION "\"row\":\"position\".*\"root_move_count\".*\"best_move_initial_order_rank\".*\"ordered_root_moves\""
 )
 
 othello_add_tool_smoke_test(

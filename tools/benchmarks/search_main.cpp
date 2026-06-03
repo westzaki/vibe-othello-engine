@@ -116,6 +116,7 @@ struct BenchmarkOptions {
     PositionSet position_set = PositionSet::Smoke;
     bool describe_positions = false;
     bool by_position = false;
+    bool emit_iterative_depth_rows = false;
     std::optional<bool> use_transposition_table;
     std::optional<bool> store_leaf_tt_entries;
     std::optional<bool> use_pvs;
@@ -127,6 +128,41 @@ struct BenchmarkOptions {
     int aspiration_max_researches = othello::SearchOptions{}.aspiration_max_researches;
     OutputFormat output_format = OutputFormat::Text;
     othello::tools::EvaluatorSelection evaluator;
+};
+
+struct RootMoveOrderingDiagnostic {
+    std::vector<othello::RootMoveOrderingEntry> moves;
+    std::optional<int> best_move_initial_order_rank;
+};
+
+struct IterativeDepthBenchmarkResult {
+    std::string_view position_name;
+    std::string_view phase;
+    std::string_view tags;
+    SearchRunMode mode;
+    bool use_transposition_table;
+    bool store_leaf_tt_entries;
+    bool use_pvs;
+    bool use_aspiration_window;
+    int aspiration_window;
+    int aspiration_max_researches;
+    std::size_t transposition_table_entries;
+    std::string exact_root_profile;
+    int empty_count;
+    bool exact_root;
+    std::string exact_skip_reason;
+    int requested_depth;
+    int completed_depth;
+    std::optional<int> previous_score;
+    int score = 0;
+    int previous_score_delta = 0;
+    std::optional<othello::Square> best_move;
+    std::vector<othello::Square> principal_variation;
+    std::chrono::nanoseconds elapsed;
+    std::uint64_t nodes = 0;
+    othello::SearchStats stats;
+    std::uint64_t result_checksum = 0;
+    std::uint64_t work_checksum = 0;
 };
 
 struct SearchBenchmarkResult {
@@ -156,6 +192,7 @@ struct SearchBenchmarkResult {
     othello::SearchStats total_stats;
     std::uint64_t result_checksum;
     std::uint64_t work_checksum;
+    std::vector<IterativeDepthBenchmarkResult> iterative_depth_rows;
 };
 
 struct PositionBenchmarkResult {
@@ -187,6 +224,8 @@ struct PositionBenchmarkResult {
     othello::SearchStats total_stats;
     std::uint64_t result_checksum;
     std::uint64_t work_checksum;
+    std::vector<IterativeDepthBenchmarkResult> iterative_depth_rows;
+    RootMoveOrderingDiagnostic root_move_ordering;
 };
 
 struct BenchmarkExactRootDecision {
@@ -201,7 +240,8 @@ void print_usage(std::string_view program_name) {
     std::cout << "usage: " << program_name
               << " [--mode fixed|iterative|both] [--depths 1,2,3,4,5]"
                  " [--repetitions N] [--positions smoke|suite|evaluation|threshold]"
-                 " [--describe-positions] [--by-position] [--tt on|off] [--tt-entries N]"
+                 " [--describe-positions] [--by-position] [--emit-iterative-depth-rows]"
+                 " [--tt on|off] [--tt-entries N]"
                  " [--tt-store-leaf on|off] [--pvs on|off] [--aspiration on|off]"
                  " [--aspiration-window N]"
                  " [--aspiration-max-researches N] [--exact-endgame-threshold N]"
@@ -217,6 +257,9 @@ void print_usage(std::string_view program_name) {
               << "  --describe-positions\n"
               << "                      print selected position metadata and metrics only\n"
               << "  --by-position       print per-position benchmark rows and summaries\n"
+              << "  --emit-iterative-depth-rows\n"
+              << "                      with jsonl output, emit diagnostic rows for each "
+                 "completed iterative depth\n"
               << "  --tt on|off         override the SearchOptions TT default\n"
               << "  --tt-entries N      requested transposition table entry count\n"
               << "  --tt-store-leaf on|off\n"
@@ -459,6 +502,11 @@ parse_exact_root_profiles(std::string_view text) {
 
         if (option == "--by-position") {
             options.by_position = true;
+            continue;
+        }
+
+        if (option == "--emit-iterative-depth-rows") {
+            options.emit_iterative_depth_rows = true;
             continue;
         }
 
@@ -1012,6 +1060,96 @@ make_search_options(const BenchmarkOptions& options, int depth,
     };
 }
 
+struct IterativeDepthObserverData {
+    std::vector<IterativeDepthBenchmarkResult>* rows = nullptr;
+    std::string_view position_name;
+    std::string_view phase;
+    std::string_view tags;
+    SearchRunMode mode = SearchRunMode::Iterative;
+    bool use_transposition_table = false;
+    bool store_leaf_tt_entries = true;
+    bool use_pvs = false;
+    bool use_aspiration_window = false;
+    int aspiration_window = 0;
+    int aspiration_max_researches = 0;
+    std::size_t transposition_table_entries = 0;
+    std::string exact_root_profile;
+    int empty_count = 0;
+    bool exact_root = false;
+    std::string exact_skip_reason;
+    std::uint64_t board_checksum = 0;
+};
+
+[[nodiscard]] othello::SearchResult
+search_result_from_iteration_info(const othello::IterativeSearchDepthInfo& info) {
+    return othello::SearchResult{
+        .best_move = info.best_move,
+        .score = info.score,
+        .depth = info.completed_depth,
+        .nodes = info.stats.nodes,
+        .principal_variation = info.principal_variation,
+        .stats = info.stats,
+    };
+}
+
+void observe_iterative_depth(const othello::IterativeSearchDepthInfo& info, void* user_data) {
+    auto* data = static_cast<IterativeDepthObserverData*>(user_data);
+    if (data == nullptr || data->rows == nullptr) {
+        return;
+    }
+
+    const othello::SearchResult result = search_result_from_iteration_info(info);
+    std::uint64_t result_checksum = othello::benchmarks::mix_checksum(
+        othello::benchmarks::search_result_checksum(result), data->board_checksum);
+    result_checksum = othello::benchmarks::mix_checksum(result_checksum, mode_checksum(data->mode));
+    std::uint64_t work_checksum =
+        othello::benchmarks::mix_checksum(result_checksum, result.nodes);
+
+    data->rows->push_back(IterativeDepthBenchmarkResult{
+        .position_name = data->position_name,
+        .phase = data->phase,
+        .tags = data->tags,
+        .mode = data->mode,
+        .use_transposition_table = data->use_transposition_table,
+        .store_leaf_tt_entries = data->store_leaf_tt_entries,
+        .use_pvs = data->use_pvs,
+        .use_aspiration_window = data->use_aspiration_window,
+        .aspiration_window = data->aspiration_window,
+        .aspiration_max_researches = data->aspiration_max_researches,
+        .transposition_table_entries = data->transposition_table_entries,
+        .exact_root_profile = data->exact_root_profile,
+        .empty_count = data->empty_count,
+        .exact_root = data->exact_root,
+        .exact_skip_reason = data->exact_skip_reason,
+        .requested_depth = info.requested_depth,
+        .completed_depth = info.completed_depth,
+        .previous_score = info.previous_score,
+        .score = info.score,
+        .previous_score_delta = info.previous_score_delta,
+        .best_move = info.best_move,
+        .principal_variation = info.principal_variation,
+        .elapsed = std::chrono::nanoseconds{info.elapsed_ns},
+        .nodes = info.stats.nodes,
+        .stats = info.stats,
+        .result_checksum = result_checksum,
+        .work_checksum = work_checksum,
+    });
+}
+
+[[nodiscard]] std::optional<int>
+best_move_initial_order_rank(std::span<const othello::RootMoveOrderingEntry> moves,
+                             std::optional<othello::Square> best_move) noexcept {
+    if (!best_move.has_value()) {
+        return std::nullopt;
+    }
+    for (std::size_t index = 0; index < moves.size(); ++index) {
+        if (moves[index].move == *best_move) {
+            return static_cast<int>(index) + 1;
+        }
+    }
+    return std::nullopt;
+}
+
 [[nodiscard]] othello::SearchResult run_search(const othello::Board& board,
                                                const othello::SearchOptions& options,
                                                SearchRunMode mode,
@@ -1035,7 +1173,8 @@ make_search_options(const BenchmarkOptions& options, int depth,
 benchmark_search(const std::vector<othello::benchmarks::Position>& positions, int depth,
                  std::uint64_t repetitions, const BenchmarkOptions& benchmark_options,
                  SearchRunMode mode, const ExactRootProfile& exact_root_profile) {
-    const auto search_options = make_search_options(benchmark_options, depth, exact_root_profile);
+    const auto base_search_options =
+        make_search_options(benchmark_options, depth, exact_root_profile);
     std::uint64_t result_checksum = 0;
     std::uint64_t work_checksum = 0;
     std::uint64_t searches = 0;
@@ -1048,9 +1187,14 @@ benchmark_search(const std::vector<othello::benchmarks::Position>& positions, in
     othello::SearchScoreKind sample_score_kind = othello::SearchScoreKind::Heuristic;
     bool sample_used_exact_endgame = false;
     std::optional<int> sample_exact_disc_margin;
+    std::vector<IterativeDepthBenchmarkResult> iterative_depth_rows;
+    if (benchmark_options.emit_iterative_depth_rows && mode == SearchRunMode::Iterative) {
+        iterative_depth_rows.reserve(positions.size() * repetitions *
+                                     static_cast<std::uint64_t>(std::max(depth, 0)));
+    }
 
     for (const auto& position : positions) {
-        if (benchmark_exact_root_decision(position.board, search_options, exact_root_profile)
+        if (benchmark_exact_root_decision(position.board, base_search_options, exact_root_profile)
                 .solve_exact) {
             ++exact_root_positions;
         }
@@ -1059,8 +1203,35 @@ benchmark_search(const std::vector<othello::benchmarks::Position>& positions, in
     const auto start = Clock::now();
     for (std::uint64_t repetition = 0; repetition < repetitions; ++repetition) {
         for (const auto& position : positions) {
-            const auto result =
-                run_search(position.board, search_options, mode, exact_root_profile);
+            auto search_options = base_search_options;
+            const auto exact_decision =
+                benchmark_exact_root_decision(position.board, search_options, exact_root_profile);
+            IterativeDepthObserverData observer_data;
+            if (benchmark_options.emit_iterative_depth_rows && mode == SearchRunMode::Iterative &&
+                !exact_decision.solve_exact) {
+                observer_data = IterativeDepthObserverData{
+                    .rows = &iterative_depth_rows,
+                    .position_name = position.name,
+                    .phase = position.phase,
+                    .tags = position.tags,
+                    .mode = mode,
+                    .use_transposition_table = search_options.use_transposition_table,
+                    .store_leaf_tt_entries = search_options.store_leaf_tt_entries,
+                    .use_pvs = search_options.use_pvs,
+                    .use_aspiration_window = search_options.use_aspiration_window,
+                    .aspiration_window = search_options.aspiration_window,
+                    .aspiration_max_researches = search_options.aspiration_max_researches,
+                    .transposition_table_entries = search_options.transposition_table_entries,
+                    .exact_root_profile = exact_root_profile.label,
+                    .empty_count = exact_decision.empty_count,
+                    .exact_root = exact_decision.solve_exact,
+                    .exact_skip_reason = std::string{exact_decision.skip_reason},
+                    .board_checksum = othello::benchmarks::board_checksum(position.board),
+                };
+                search_options.iterative_depth_observer = observe_iterative_depth;
+                search_options.iterative_depth_observer_user_data = &observer_data;
+            }
+            const auto result = run_search(position.board, search_options, mode, exact_root_profile);
             auto stable_result_checksum = othello::benchmarks::mix_checksum(
                 othello::benchmarks::search_result_checksum(result),
                 othello::benchmarks::board_checksum(position.board));
@@ -1091,13 +1262,13 @@ benchmark_search(const std::vector<othello::benchmarks::Position>& positions, in
     return SearchBenchmarkResult{
         .name = "search",
         .mode = mode,
-        .use_transposition_table = search_options.use_transposition_table,
-        .store_leaf_tt_entries = search_options.store_leaf_tt_entries,
-        .use_pvs = search_options.use_pvs,
-        .use_aspiration_window = search_options.use_aspiration_window,
-        .aspiration_window = search_options.aspiration_window,
-        .aspiration_max_researches = search_options.aspiration_max_researches,
-        .transposition_table_entries = search_options.transposition_table_entries,
+        .use_transposition_table = base_search_options.use_transposition_table,
+        .store_leaf_tt_entries = base_search_options.store_leaf_tt_entries,
+        .use_pvs = base_search_options.use_pvs,
+        .use_aspiration_window = base_search_options.use_aspiration_window,
+        .aspiration_window = base_search_options.aspiration_window,
+        .aspiration_max_researches = base_search_options.aspiration_max_researches,
+        .transposition_table_entries = base_search_options.transposition_table_entries,
         .exact_root_profile = exact_root_profile.label,
         .exact_root_positions = exact_root_positions,
         .exact_root_searches = exact_root_positions * repetitions,
@@ -1115,6 +1286,7 @@ benchmark_search(const std::vector<othello::benchmarks::Position>& positions, in
         .total_stats = total_stats,
         .result_checksum = result_checksum,
         .work_checksum = work_checksum,
+        .iterative_depth_rows = std::move(iterative_depth_rows),
     };
 }
 
@@ -1122,10 +1294,11 @@ benchmark_search(const std::vector<othello::benchmarks::Position>& positions, in
 benchmark_position(const othello::benchmarks::Position& position, int depth,
                    std::uint64_t repetitions, const BenchmarkOptions& benchmark_options,
                    SearchRunMode mode, const ExactRootProfile& exact_root_profile) {
-    const auto search_options = make_search_options(benchmark_options, depth, exact_root_profile);
+    const auto base_search_options =
+        make_search_options(benchmark_options, depth, exact_root_profile);
     const int empty_count = root_empty_count(position.board);
     const auto exact_decision =
-        benchmark_exact_root_decision(position.board, search_options, exact_root_profile);
+        benchmark_exact_root_decision(position.board, base_search_options, exact_root_profile);
     const bool exact_root = exact_decision.solve_exact;
     std::uint64_t searches = 0;
     std::uint64_t total_nodes = 0;
@@ -1138,9 +1311,45 @@ benchmark_position(const othello::benchmarks::Position& position, int depth,
     othello::SearchScoreKind sample_score_kind = othello::SearchScoreKind::Heuristic;
     bool sample_used_exact_endgame = false;
     std::optional<int> sample_exact_disc_margin;
+    std::vector<IterativeDepthBenchmarkResult> iterative_depth_rows;
+    if (benchmark_options.emit_iterative_depth_rows && mode == SearchRunMode::Iterative) {
+        iterative_depth_rows.reserve(repetitions *
+                                     static_cast<std::uint64_t>(std::max(depth, 0)));
+    }
+    RootMoveOrderingDiagnostic root_move_ordering;
 
     const auto start = Clock::now();
     for (std::uint64_t repetition = 0; repetition < repetitions; ++repetition) {
+        auto search_options = base_search_options;
+        std::vector<othello::RootMoveOrderingEntry> root_ordering_snapshot;
+        if (benchmark_options.emit_iterative_depth_rows && repetition == 0) {
+            search_options.root_move_ordering_snapshot = &root_ordering_snapshot;
+        }
+        IterativeDepthObserverData observer_data;
+        if (benchmark_options.emit_iterative_depth_rows && mode == SearchRunMode::Iterative &&
+            !exact_root) {
+            observer_data = IterativeDepthObserverData{
+                .rows = &iterative_depth_rows,
+                .position_name = position.name,
+                .phase = position.phase,
+                .tags = position.tags,
+                .mode = mode,
+                .use_transposition_table = search_options.use_transposition_table,
+                .store_leaf_tt_entries = search_options.store_leaf_tt_entries,
+                .use_pvs = search_options.use_pvs,
+                .use_aspiration_window = search_options.use_aspiration_window,
+                .aspiration_window = search_options.aspiration_window,
+                .aspiration_max_researches = search_options.aspiration_max_researches,
+                .transposition_table_entries = search_options.transposition_table_entries,
+                .exact_root_profile = exact_root_profile.label,
+                .empty_count = empty_count,
+                .exact_root = exact_root,
+                .exact_skip_reason = std::string{exact_decision.skip_reason},
+                .board_checksum = othello::benchmarks::board_checksum(position.board),
+            };
+            search_options.iterative_depth_observer = observe_iterative_depth;
+            search_options.iterative_depth_observer_user_data = &observer_data;
+        }
         const auto result = run_search(position.board, search_options, mode, exact_root_profile);
         auto stable_result_checksum =
             othello::benchmarks::mix_checksum(othello::benchmarks::search_result_checksum(result),
@@ -1160,6 +1369,9 @@ benchmark_position(const othello::benchmarks::Position& position, int depth,
             sample_used_exact_endgame = result.used_exact_endgame;
             sample_exact_disc_margin = result.exact_disc_margin;
             sample_principal_variation = result.principal_variation;
+            root_move_ordering.moves = std::move(root_ordering_snapshot);
+            root_move_ordering.best_move_initial_order_rank =
+                best_move_initial_order_rank(root_move_ordering.moves, result.best_move);
         }
         total_nodes += result.nodes;
         add_search_stats(total_stats, result.stats);
@@ -1172,13 +1384,13 @@ benchmark_position(const othello::benchmarks::Position& position, int depth,
         .phase = position.phase,
         .tags = position.tags,
         .mode = mode,
-        .use_transposition_table = search_options.use_transposition_table,
-        .store_leaf_tt_entries = search_options.store_leaf_tt_entries,
-        .use_pvs = search_options.use_pvs,
-        .use_aspiration_window = search_options.use_aspiration_window,
-        .aspiration_window = search_options.aspiration_window,
-        .aspiration_max_researches = search_options.aspiration_max_researches,
-        .transposition_table_entries = search_options.transposition_table_entries,
+        .use_transposition_table = base_search_options.use_transposition_table,
+        .store_leaf_tt_entries = base_search_options.store_leaf_tt_entries,
+        .use_pvs = base_search_options.use_pvs,
+        .use_aspiration_window = base_search_options.use_aspiration_window,
+        .aspiration_window = base_search_options.aspiration_window,
+        .aspiration_max_researches = base_search_options.aspiration_max_researches,
+        .transposition_table_entries = base_search_options.transposition_table_entries,
         .exact_root_profile = exact_root_profile.label,
         .empty_count = empty_count,
         .exact_root = exact_root,
@@ -1196,6 +1408,8 @@ benchmark_position(const othello::benchmarks::Position& position, int depth,
         .total_stats = total_stats,
         .result_checksum = result_checksum,
         .work_checksum = work_checksum,
+        .iterative_depth_rows = std::move(iterative_depth_rows),
+        .root_move_ordering = std::move(root_move_ordering),
     };
 }
 
@@ -1413,6 +1627,39 @@ void write_json_pv_field(JsonObjectWriter& writer, std::ostream& output, std::st
     output << ']';
 }
 
+void write_json_root_ordering_field(JsonObjectWriter& writer,
+                                    const RootMoveOrderingDiagnostic& diagnostic) {
+    writer.field_name("ordered_root_moves");
+    std::cout << '[';
+    bool first = true;
+    for (const auto& entry : diagnostic.moves) {
+        if (!first) {
+            std::cout << ',';
+        }
+        first = false;
+        JsonObjectWriter move_writer{std::cout};
+        move_writer.begin_object();
+        move_writer.string_field("move", othello::to_string(entry.move));
+        move_writer.int_field("order_score", entry.order_score);
+        move_writer.end_object();
+    }
+    std::cout << ']';
+}
+
+[[nodiscard]] double pvs_research_ratio(const othello::SearchStats& stats) noexcept {
+    return stats.pvs_scouts == 0
+               ? 0.0
+               : static_cast<double>(stats.pvs_researches) /
+                     static_cast<double>(stats.pvs_scouts);
+}
+
+[[nodiscard]] double average_distance(std::uint64_t total, std::uint64_t count) noexcept {
+    if (count == 0) {
+        return 0.0;
+    }
+    return static_cast<double>(total) / static_cast<double>(count);
+}
+
 void write_json_search_stats_fields(JsonObjectWriter& writer, const othello::SearchStats& stats) {
     writer.uint_field("searched_moves", stats.searched_moves);
     writer.uint_field("legal_nodes", stats.legal_move_nodes);
@@ -1442,6 +1689,20 @@ void write_json_search_stats_fields(JsonObjectWriter& writer, const othello::Sea
     writer.uint_field("asp_fallbacks", stats.aspiration_full_window_fallbacks);
     writer.uint_field("dyn_nodes", stats.dynamic_ordering_nodes);
     writer.uint_field("dyn_moves", stats.dynamic_ordering_moves);
+}
+
+void write_json_instrumentation_stats_fields(JsonObjectWriter& writer,
+                                             const othello::SearchStats& stats) {
+    write_json_search_stats_fields(writer, stats);
+    writer.double_field("pvs_research_ratio", pvs_research_ratio(stats));
+    writer.uint_field("asp_fail_low_distance_sum", stats.aspiration_fail_low_distance_sum);
+    writer.uint_field("asp_fail_high_distance_sum", stats.aspiration_fail_high_distance_sum);
+    writer.double_field("asp_fail_low_distance_avg",
+                        average_distance(stats.aspiration_fail_low_distance_sum,
+                                         stats.aspiration_fail_lows));
+    writer.double_field("asp_fail_high_distance_avg",
+                        average_distance(stats.aspiration_fail_high_distance_sum,
+                                         stats.aspiration_fail_highs));
 }
 
 void write_search_jsonl(const SearchBenchmarkResult& result, PositionSet position_set,
@@ -1498,8 +1759,47 @@ void write_search_jsonl(const SearchBenchmarkResult& result, PositionSet positio
     std::cout << '\n';
 }
 
+void write_iterative_depth_jsonl(const IterativeDepthBenchmarkResult& result,
+                                 PositionSet position_set, std::uint64_t repetitions) {
+    JsonObjectWriter writer{std::cout};
+    writer.begin_object();
+    writer.string_field("tool", "othello_search_bench");
+    writer.string_field("row", "iterative_depth");
+    writer.string_field("position", result.position_name);
+    writer.string_field("phase", result.phase);
+    writer.string_field("tags", result.tags);
+    writer.string_field("mode", mode_name(result.mode));
+    writer.string_field("positions", position_set_name(position_set));
+    writer.int_field("depth", result.requested_depth);
+    writer.int_field("completed_depth", result.completed_depth);
+    writer.uint_field("repetitions", repetitions);
+    writer.bool_field("tt", result.use_transposition_table);
+    writer.bool_field("tt_store_leaf", result.store_leaf_tt_entries);
+    writer.bool_field("pvs", result.use_pvs);
+    writer.bool_field("aspiration", result.use_aspiration_window);
+    writer.int_field("aspiration_window", result.aspiration_window);
+    writer.int_field("aspiration_max_researches", result.aspiration_max_researches);
+    writer.uint_field("tt_entries", static_cast<std::uint64_t>(result.transposition_table_entries));
+    writer.string_field("exact_endgame_profile", result.exact_root_profile);
+    writer.int_field("empty_count", result.empty_count);
+    writer.bool_field("exact_root", result.exact_root);
+    writer.string_field("exact_skip_reason", result.exact_skip_reason);
+    write_json_optional_int_field(writer, "previous_score", result.previous_score);
+    writer.int_field("score", result.score);
+    writer.int_field("previous_score_delta", result.previous_score_delta);
+    write_json_square_field(writer, "best_move", result.best_move);
+    write_json_pv_field(writer, std::cout, "principal_variation", result.principal_variation);
+    writer.double_field("elapsed_ms", elapsed_ms(result.elapsed));
+    writer.uint_field("nodes", result.nodes);
+    write_json_instrumentation_stats_fields(writer, result.stats);
+    writer.string_field("result_checksum", std::to_string(result.result_checksum));
+    writer.string_field("work_checksum", std::to_string(result.work_checksum));
+    writer.end_object();
+    std::cout << '\n';
+}
+
 void write_position_jsonl(const PositionBenchmarkResult& result, PositionSet position_set,
-                          std::uint64_t repetitions) {
+                          std::uint64_t repetitions, bool include_instrumentation) {
     JsonObjectWriter writer{std::cout};
     writer.begin_object();
     writer.string_field("tool", "othello_search_bench");
@@ -1533,6 +1833,12 @@ void write_position_jsonl(const PositionBenchmarkResult& result, PositionSet pos
     writer.double_field("nodes_per_search", nodes_per_search(result));
     writer.double_field("nps", nodes_per_second(result));
     write_json_search_stats_fields(writer, result.total_stats);
+    if (include_instrumentation) {
+        writer.uint_field("root_move_count", result.root_move_ordering.moves.size());
+        write_json_optional_int_field(writer, "best_move_initial_order_rank",
+                                      result.root_move_ordering.best_move_initial_order_rank);
+        write_json_root_ordering_field(writer, result.root_move_ordering);
+    }
     writer.string_field("result_checksum", std::to_string(result.result_checksum));
     writer.string_field("work_checksum", std::to_string(result.work_checksum));
     writer.end_object();
@@ -1639,6 +1945,11 @@ void run_requested_benchmarks(const std::vector<othello::benchmarks::Position>& 
         auto result = benchmark_search(positions, depth, options.repetitions, options, mode,
                                        exact_root_profile);
         if (options.output_format == OutputFormat::Jsonl) {
+            if (options.emit_iterative_depth_rows) {
+                for (const auto& row : result.iterative_depth_rows) {
+                    write_iterative_depth_jsonl(row, options.position_set, options.repetitions);
+                }
+            }
             write_search_jsonl(result, options.position_set, options.repetitions);
         } else {
             print_search_result(result);
@@ -1664,7 +1975,14 @@ void run_requested_position_benchmarks(const std::vector<othello::benchmarks::Po
             auto result = benchmark_position(position, depth, options.repetitions, options, mode,
                                              exact_root_profile);
             if (options.output_format == OutputFormat::Jsonl) {
-                write_position_jsonl(result, options.position_set, options.repetitions);
+                if (options.emit_iterative_depth_rows) {
+                    for (const auto& row : result.iterative_depth_rows) {
+                        write_iterative_depth_jsonl(row, options.position_set,
+                                                    options.repetitions);
+                    }
+                }
+                write_position_jsonl(result, options.position_set, options.repetitions,
+                                     options.emit_iterative_depth_rows);
             } else {
                 print_position_result(result);
             }

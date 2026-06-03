@@ -4,6 +4,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <cstdint>
 #include <othello/othello.hpp>
+#include <vector>
 
 using othello::Bitboard;
 using othello::Board;
@@ -133,6 +134,36 @@ void check_exact_score_metadata(const othello::SearchResult& result,
     CHECK(result.used_exact_endgame);
     REQUIRE(result.exact_disc_margin.has_value());
     CHECK(*result.exact_disc_margin == exact.disc_margin);
+}
+
+struct IterativeDepthCapture {
+    std::vector<othello::IterativeSearchDepthInfo> rows;
+    const std::vector<othello::RootMoveOrderingEntry>* root_ordering_snapshot = nullptr;
+    std::vector<std::vector<othello::RootMoveOrderingEntry>> root_ordering_by_depth;
+};
+
+void capture_iterative_depth(const othello::IterativeSearchDepthInfo& info, void* user_data) {
+    auto* capture = static_cast<IterativeDepthCapture*>(user_data);
+    REQUIRE(capture != nullptr);
+    capture->rows.push_back(info);
+    if (capture->root_ordering_snapshot != nullptr) {
+        capture->root_ordering_by_depth.push_back(*capture->root_ordering_snapshot);
+    }
+}
+
+[[nodiscard]] bool root_orderings_equal(
+    const std::vector<othello::RootMoveOrderingEntry>& left,
+    const std::vector<othello::RootMoveOrderingEntry>& right) {
+    if (left.size() != right.size()) {
+        return false;
+    }
+    for (std::size_t index = 0; index < left.size(); ++index) {
+        if (left[index].move != right[index].move ||
+            left[index].order_score != right[index].order_score) {
+            return false;
+        }
+    }
+    return true;
 }
 
 } // namespace
@@ -306,6 +337,10 @@ TEST_CASE("Search stats aggregation includes search observability counters", "[s
         .aspiration_fail_lows = 1,
         .aspiration_fail_highs = 0,
         .aspiration_full_window_fallbacks = 1,
+        .aspiration_fail_low_distance_sum = 7,
+        .aspiration_fail_high_distance_sum = 0,
+        .aspiration_fail_low_distance_max = 7,
+        .aspiration_fail_high_distance_max = 0,
     };
     const othello::SearchStats stats{
         .nodes = 5,
@@ -321,6 +356,10 @@ TEST_CASE("Search stats aggregation includes search observability counters", "[s
         .aspiration_fail_lows = 1,
         .aspiration_fail_highs = 1,
         .aspiration_full_window_fallbacks = 0,
+        .aspiration_fail_low_distance_sum = 5,
+        .aspiration_fail_high_distance_sum = 3,
+        .aspiration_fail_low_distance_max = 5,
+        .aspiration_fail_high_distance_max = 3,
     };
 
     othello::tools::add_search_stats(total, stats);
@@ -338,6 +377,10 @@ TEST_CASE("Search stats aggregation includes search observability counters", "[s
     CHECK(total.aspiration_fail_lows == 2);
     CHECK(total.aspiration_fail_highs == 1);
     CHECK(total.aspiration_full_window_fallbacks == 1);
+    CHECK(total.aspiration_fail_low_distance_sum == 12);
+    CHECK(total.aspiration_fail_high_distance_sum == 3);
+    CHECK(total.aspiration_fail_low_distance_max == 7);
+    CHECK(total.aspiration_fail_high_distance_max == 3);
     CHECK(othello::tools::beta_cut_first_move_percentage(total) == 60.0);
 }
 
@@ -746,6 +789,73 @@ TEST_CASE("Iterative search with transposition table is deterministic", "[search
     CHECK(first.nodes == second.nodes);
     CHECK(first.principal_variation == second.principal_variation);
     CHECK(first.nodes > 0);
+}
+
+TEST_CASE("Iterative depth instrumentation preserves search result", "[search]") {
+    const auto board = othello::apply_move(Board::initial(), othello::test::square("d3"));
+    REQUIRE(board.has_value());
+
+    const othello::SearchOptions baseline_options{
+        .max_depth = 4,
+        .use_transposition_table = true,
+        .transposition_table_entries = 64,
+        .exact_endgame_empty_threshold = 0,
+        .use_pvs = true,
+        .use_aspiration_window = true,
+    };
+
+    const othello::SearchResult baseline = othello::search_iterative(*board, baseline_options);
+
+    IterativeDepthCapture capture;
+    std::vector<othello::RootMoveOrderingEntry> root_ordering;
+    capture.root_ordering_snapshot = &root_ordering;
+    othello::SearchOptions instrumented_options = baseline_options;
+    instrumented_options.iterative_depth_observer = capture_iterative_depth;
+    instrumented_options.iterative_depth_observer_user_data = &capture;
+    instrumented_options.root_move_ordering_snapshot = &root_ordering;
+
+    const othello::SearchResult instrumented =
+        othello::search_iterative(*board, instrumented_options);
+
+    CHECK(instrumented.best_move == baseline.best_move);
+    CHECK(instrumented.score == baseline.score);
+    CHECK(instrumented.depth == baseline.depth);
+    CHECK(instrumented.nodes == baseline.nodes);
+    CHECK(instrumented.principal_variation == baseline.principal_variation);
+    CHECK(instrumented.stats.pvs_scouts == baseline.stats.pvs_scouts);
+    CHECK(instrumented.stats.pvs_researches == baseline.stats.pvs_researches);
+    CHECK(instrumented.stats.aspiration_searches == baseline.stats.aspiration_searches);
+    CHECK(instrumented.stats.aspiration_researches == baseline.stats.aspiration_researches);
+
+    REQUIRE(capture.rows.size() == 4);
+    for (std::size_t index = 0; index < capture.rows.size(); ++index) {
+        const auto& row = capture.rows[index];
+        CHECK(row.requested_depth == 4);
+        CHECK(row.completed_depth == static_cast<int>(index) + 1);
+        CHECK(row.elapsed_ns > 0);
+        CHECK(row.stats.nodes > 0);
+        if (index == 0) {
+            CHECK_FALSE(row.previous_score.has_value());
+            CHECK(row.previous_score_delta == 0);
+        } else {
+            REQUIRE(row.previous_score.has_value());
+            CHECK(row.previous_score_delta == row.score - *row.previous_score);
+        }
+    }
+
+    REQUIRE_FALSE(root_ordering.empty());
+    REQUIRE(capture.root_ordering_by_depth.size() == capture.rows.size());
+    CHECK(root_orderings_equal(root_ordering, capture.root_ordering_by_depth.back()));
+    CHECK_FALSE(root_orderings_equal(capture.root_ordering_by_depth.front(),
+                                     capture.root_ordering_by_depth.back()));
+    REQUIRE(instrumented.best_move.has_value());
+    bool best_move_was_ordered = false;
+    for (const auto& entry : root_ordering) {
+        if (entry.move == *instrumented.best_move) {
+            best_move_was_ordered = true;
+        }
+    }
+    CHECK(best_move_was_ordered);
 }
 
 TEST_CASE("Search options can enable the transposition table", "[search]") {
@@ -1352,6 +1462,9 @@ TEST_CASE("Narrow aspiration falls back without changing iterative result", "[se
     CHECK(narrow.stats.aspiration_researches ==
           narrow.stats.aspiration_fail_lows + narrow.stats.aspiration_fail_highs);
     CHECK(narrow.stats.aspiration_full_window_fallbacks <= narrow.stats.aspiration_researches);
+    CHECK(narrow.stats.aspiration_fail_low_distance_sum +
+              narrow.stats.aspiration_fail_high_distance_sum >
+          0);
 }
 
 TEST_CASE("Fixed-depth search handles terminal boards", "[search]") {
