@@ -40,7 +40,6 @@ script.
 | `ntest_teacher_smoke.py` | current | Run a local NTest teacher-label smoke and estimate 300K run feasibility. | Operational preflight before overnight NTest teacher dataset generation; does not make strength claims. |
 | `regularized_pairwise_pattern_train.py` | current / canonical | Train phase-specific tables from teacher-vs-engine and exact-aware pairwise preferences. | Canonical current pattern trainer for new experiments; owns the shared analyzer cache/dedup/parallel workflow. |
 | `run_external_engine_once.py` | current | Probe one external-engine request through the canonical adapter CLI. | Current process/timeout/protocol smoke path for adapters. |
-| `run_match_experiment.py` | current | Thin subprocess wrapper around `othello_match_runner` plus optional summary. | Current simple match-smoke wrapper used by recent pattern reports. |
 | `teacher_dataset_build.py` | current | Build reusable position shards, manifests, splits, teacher labels, and exact overlap labels under a dataset root. | Recommended durable dataset-builder entrypoint for pattern-first work. |
 | `teacher_label_mistake_mining.py` | current | Mine evaluator move-choice mistakes against validated teacher labels. | Current pattern diagnostics for teacher-vs-engine disagreement and vocabulary gaps. |
 
@@ -49,12 +48,12 @@ script.
 | Script | Status | Former purpose | Why it was safe to delete |
 | --- | --- | --- | --- |
 | `eval_config_validate.py` | deprecated | Validate generated scalar `.eval` candidates on held-out exact-label JSONL. | Replaced for current work by `eval_candidate_matrix.py --labels ...` and PR evidence reports; remaining repository mentions are historical experiment commands. |
-| `eval_config_search_validate.py` | deprecated | Chain held-out scalar/config summaries into search-bench and match-smoke validation. | Replaced by `eval_candidate_matrix.py`, `run_match_experiment.py`, `base_head_match_matrix.py`, and `evidence.py`; remaining repository mentions are historical experiment commands. |
+| `eval_config_search_validate.py` | deprecated | Chain held-out scalar/config summaries into search-bench and match-smoke validation. | Replaced by `eval_candidate_matrix.py`, direct `othello_match_runner` plus `match_summary.py`, `base_head_match_matrix.py`, and `evidence.py`; remaining repository mentions are historical experiment commands. |
 | `eval_config_tuner.py` | deprecated | Perturb fully expanded `.eval` scalar weights against exact-label JSONL. | Replaced for current work by `exact_label_workflow.py`, `eval_candidate_matrix.py`, and `evidence.py`; remaining repository mentions are historical experiment commands. |
-| `eval_experiment_matrix.py` | deprecated | Run staged `.eval` config search and match matrices. | Replaced by `eval_candidate_matrix.py`, `run_match_experiment.py`, `base_head_match_matrix.py`, and `evidence.py`; `evidence.py --profile eval` no longer depends on it. |
+| `eval_experiment_matrix.py` | deprecated | Run staged `.eval` config search and match matrices. | Replaced by `eval_candidate_matrix.py`, direct `othello_match_runner` plus `match_summary.py`, `base_head_match_matrix.py`, and `evidence.py`; `evidence.py --profile eval` no longer depends on it. |
 | `pattern_teacher_v0_train.py` | deprecated | Train sparse learned pattern tables and provide temporary compatibility imports for older helper names. | Replaced by `regularized_pairwise_pattern_train.py` for new pattern work; shared dataset/split/pattern-table/preference helpers are tested directly under `pattern_training/`. Historical reports keep provenance only. |
 | `phase_pattern_table_train.py` | deprecated | Train separate opening/midgame/late sparse pattern tables and local candidate configs. | Replaced by the canonical regularized pairwise trainer for active work; helper behavior is covered directly under `pattern_training/`. Historical phase-table reports remain provenance only. |
-| `run_experiment_matrix.py` | deprecated | Run JSON-defined match-runner matrices from `tools/scripts/examples/search_ablation_smoke.json`. | Replaced by explicit `run_match_experiment.py`, `base_head_match_matrix.py`, and `evidence.py` workflows; it had no current docs outside this README and its dedicated test/example. |
+| `run_experiment_matrix.py` | deprecated | Run JSON-defined match-runner matrices from `tools/scripts/examples/search_ablation_smoke.json`. | Replaced by direct `othello_match_runner`, `match_summary.py`, `base_head_match_matrix.py`, and `evidence.py` workflows; it had no current docs outside this README and its dedicated test/example. |
 
 The deleted scripts' dedicated tests were removed with them. The committed
 historical experiment reports remain as evidence snapshots; raw/local reruns
@@ -260,20 +259,20 @@ under the requested output directory. It does not tune weights, make a strength
 claim, or promote a default. Broader matches or base/head comparison are still
 required before any strength claim.
 
-Run the C++ match runner and summarize the result:
+Run the C++ match runner directly and summarize the generated JSONL:
 
 ```sh
-python3 tools/scripts/run_match_experiment.py \
-  --runner ./build/othello_match_runner \
-  --summary-script tools/scripts/match_summary.py \
+./build/othello_match_runner \
   --black search:depth=4,tt=on,pvs=on,exact=off \
   --white search:depth=4,tt=off,pvs=off,exact=off \
   --games 4 \
   --swap-sides true \
   --seed 1 \
   --openings data/openings/smoke_openings.txt \
-  --output build/matches/search4_options_from_python.jsonl \
-  --summary \
+  --output build/matches/search4_options.jsonl
+
+python3 tools/scripts/match_summary.py \
+  --input build/matches/search4_options.jsonl \
   --by-opening
 ```
 
