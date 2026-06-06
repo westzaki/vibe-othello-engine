@@ -1,3 +1,4 @@
+#include "../src/evaluation_internal.hpp"
 #include "common/eval_config_io.hpp"
 #include "common/evaluator_selection.hpp"
 #include "evaluation_test_helpers.hpp"
@@ -75,6 +76,31 @@ void check_golden_evaluation(const GoldenEvaluationFixture& fixture) {
     CHECK(breakdown.edge_8_pattern == fixture.edge_8_pattern);
     CHECK(breakdown.pattern_table == fixture.pattern_table);
     CHECK(breakdown.terminal_disc_difference == fixture.terminal_disc_difference);
+}
+
+void check_direct_bitboard_evaluation_matches_board(
+    const Board& board, Side side, const othello::EvaluationConfig& config) {
+    const Bitboard player = board.discs(side);
+    const Bitboard opponent = board.discs(othello::opponent(side));
+
+    const othello::evaluation_detail::EvaluationScratch board_scratch =
+        othello::evaluation_detail::make_evaluation_scratch(board, side);
+    const othello::evaluation_detail::EvaluationScratch bitboard_scratch =
+        othello::evaluation_detail::make_evaluation_scratch(player, opponent);
+
+    CHECK(bitboard_scratch.player == board_scratch.player);
+    CHECK(bitboard_scratch.opponent == board_scratch.opponent);
+    CHECK(bitboard_scratch.occupied == board_scratch.occupied);
+    CHECK(bitboard_scratch.empty == board_scratch.empty);
+    CHECK(bitboard_scratch.own_moves == board_scratch.own_moves);
+    CHECK(bitboard_scratch.opp_moves == board_scratch.opp_moves);
+    CHECK(bitboard_scratch.own_mobility == board_scratch.own_mobility);
+    CHECK(bitboard_scratch.opp_mobility == board_scratch.opp_mobility);
+    CHECK(bitboard_scratch.occupied_count == board_scratch.occupied_count);
+    CHECK(bitboard_scratch.empty_count == board_scratch.empty_count);
+    CHECK(bitboard_scratch.game_over == board_scratch.game_over);
+    CHECK(othello::evaluation_detail::evaluate_with_config(player, opponent, config) ==
+          othello::evaluate_with_config(board, side, config));
 }
 
 } // namespace
@@ -289,6 +315,46 @@ TEST_CASE("Score-only evaluator matches breakdown totals across configs and phas
                 CHECK(breakdown.terminal == fixture.terminal);
                 CHECK(othello::evaluate_with_config(fixture.board, side, config) ==
                       breakdown.total);
+            }
+        }
+    }
+}
+
+TEST_CASE("Direct bitboard evaluator matches Board evaluator on fixture positions",
+          "[evaluation]") {
+    struct BoardFixture {
+        std::string_view name;
+        Board board;
+    };
+
+    const othello::tools::EvaluationConfigLoadResult pattern_only =
+        othello::tools::load_evaluation_config_file(
+            test_eval_config_fixture_path("minimal_pattern_only_eval.eval"));
+    REQUIRE(pattern_only.ok());
+    REQUIRE(pattern_only.config.pattern_tables != nullptr);
+
+    const std::vector<std::pair<std::string, othello::EvaluationConfig>> configs{
+        {std::string{"default"}, othello::default_evaluation_config()},
+        {std::string{"sparse_scalar"}, sparse_scalar_config()},
+        {std::string{"all_feature_guard"}, all_feature_guard_config()},
+        {std::string{"minimal_pattern_only_fixture"}, pattern_only.config},
+    };
+    const std::array boards{
+        BoardFixture{.name = "opening", .board = Board::initial()},
+        BoardFixture{.name = "midgame", .board = phase_midgame_board()},
+        BoardFixture{.name = "late", .board = phase_late_board()},
+        BoardFixture{.name = "root-pass", .board = othello::test::black_must_pass_board()},
+        BoardFixture{.name = "terminal", .board = terminal_black_win_board()},
+    };
+
+    for (const auto& [config_name, config] : configs) {
+        for (const BoardFixture& fixture : boards) {
+            for (const Side side : {Side::Black, Side::White}) {
+                CAPTURE(config_name);
+                CAPTURE(std::string{fixture.name});
+                CAPTURE(side == Side::Black ? "black" : "white");
+
+                check_direct_bitboard_evaluation_matches_board(fixture.board, side, config);
             }
         }
     }

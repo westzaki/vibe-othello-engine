@@ -1,4 +1,5 @@
 #include "bitboard_ops.hpp"
+#include "evaluation_internal.hpp"
 #include "hash_update.hpp"
 #include "search_common.hpp"
 #include "search_ordering.hpp"
@@ -285,8 +286,8 @@ void finish_session_search(SearchSessionState& session, ZobristHash root_hash,
 [[nodiscard]] int evaluate_for_search(const SearchPosition& position,
                                       SearchContext& context) noexcept {
     ++context.stats.eval_calls;
-    const Board board = position.to_board();
-    return evaluate_with_config(board, position.side_to_move, context.evaluation_config);
+    return evaluation_detail::evaluate_with_config(position.player, position.opponent_discs,
+                                                   context.evaluation_config);
 }
 
 [[nodiscard]] SearchStats stats_delta(const SearchStats& after, const SearchStats& before) noexcept {

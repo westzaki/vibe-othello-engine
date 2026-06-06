@@ -1,6 +1,8 @@
 #pragma once
 
 #include <othello/board.hpp>
+#include <othello/evaluation.hpp>
+#include <othello/evaluation_patterns.hpp>
 #include <othello/types.hpp>
 
 namespace othello::evaluation_detail {
@@ -28,6 +30,10 @@ struct EvaluationScratch {
 
 [[nodiscard]] EvaluationScratch make_evaluation_scratch(const Board& board,
                                                         Side side) noexcept;
+[[nodiscard]] EvaluationScratch make_evaluation_scratch(Bitboard player,
+                                                        Bitboard opponent) noexcept;
+[[nodiscard]] int evaluate_with_config(Bitboard player, Bitboard opponent,
+                                       const EvaluationConfig& config) noexcept;
 [[nodiscard]] int disc_difference_score(const EvaluationScratch& scratch) noexcept;
 [[nodiscard]] int mobility_score(const EvaluationScratch& scratch) noexcept;
 [[nodiscard]] int corner_occupancy_score(const EvaluationScratch& scratch) noexcept;
@@ -45,5 +51,10 @@ struct EvaluationScratch {
 [[nodiscard]] int frontier_score(const Board& board, Side side) noexcept;
 [[nodiscard]] int corner_local_2x3_score(const Board& board, Side side) noexcept;
 [[nodiscard]] int edge_stability_lite_score(const Board& board, Side side) noexcept;
+
+[[nodiscard]] int corner_2x3_pattern_score(Bitboard player, Bitboard opponent) noexcept;
+[[nodiscard]] int edge_8_pattern_score(Bitboard player, Bitboard opponent) noexcept;
+[[nodiscard]] int evaluation_pattern_table_score(Bitboard player, Bitboard opponent,
+                                                 const PatternTableBundle& tables) noexcept;
 
 } // namespace othello::evaluation_detail

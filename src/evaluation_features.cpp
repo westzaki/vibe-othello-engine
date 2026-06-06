@@ -13,6 +13,14 @@ namespace {
 using bitboard_detail::adjacent_squares;
 using bitboard_detail::corner_squares;
 using bitboard_detail::is_x_square_next_to_empty_corner;
+using bitboard_detail::shift_east;
+using bitboard_detail::shift_north;
+using bitboard_detail::shift_northeast;
+using bitboard_detail::shift_northwest;
+using bitboard_detail::shift_south;
+using bitboard_detail::shift_southeast;
+using bitboard_detail::shift_southwest;
+using bitboard_detail::shift_west;
 using evaluation_detail::square_bit;
 
 struct CornerLocalSpec {
@@ -48,14 +56,6 @@ constexpr std::array<EdgeCornerSpec, 4> edge_corner_specs{{
     {.corner_index = 63, .rays = {{{.first_index = 62, .step = -1},
                                    {.first_index = 55, .step = -8}}}},
 }};
-
-[[nodiscard]] constexpr Board with_side_to_move(const Board& board, Side side) noexcept {
-    return Board{
-        .black = board.black,
-        .white = board.white,
-        .side_to_move = side,
-    };
-}
 
 [[nodiscard]] int dangerous_x_square_count(Bitboard discs, Bitboard occupied) noexcept {
     int count = 0;
@@ -139,6 +139,31 @@ constexpr std::array<EdgeCornerSpec, 4> edge_corner_specs{{
     return std::popcount(stable_edge_squares);
 }
 
+template <Bitboard (*Shift)(Bitboard) noexcept>
+[[nodiscard]] Bitboard legal_moves_in_direction(Bitboard player, Bitboard opponent,
+                                                Bitboard empty_squares) noexcept {
+    Bitboard captured = Shift(player) & opponent;
+
+    for (int step = 0; step < 5; ++step) {
+        captured |= Shift(captured) & opponent;
+    }
+
+    return Shift(captured) & empty_squares;
+}
+
+[[nodiscard]] Bitboard legal_moves_for_bitboards(Bitboard player,
+                                                 Bitboard opponent) noexcept {
+    const Bitboard empty_squares = ~(player | opponent);
+    return legal_moves_in_direction<shift_east>(player, opponent, empty_squares) |
+           legal_moves_in_direction<shift_west>(player, opponent, empty_squares) |
+           legal_moves_in_direction<shift_north>(player, opponent, empty_squares) |
+           legal_moves_in_direction<shift_south>(player, opponent, empty_squares) |
+           legal_moves_in_direction<shift_northeast>(player, opponent, empty_squares) |
+           legal_moves_in_direction<shift_northwest>(player, opponent, empty_squares) |
+           legal_moves_in_direction<shift_southeast>(player, opponent, empty_squares) |
+           legal_moves_in_direction<shift_southwest>(player, opponent, empty_squares);
+}
+
 } // namespace
 
 int evaluate_disc_difference(const Board& board, Side side) noexcept {
@@ -155,10 +180,14 @@ namespace evaluation_detail {
 EvaluationScratch make_evaluation_scratch(const Board& board, Side side) noexcept {
     const Bitboard player = board.discs(side);
     const Bitboard opponent_discs = board.discs(opponent(side));
+    return make_evaluation_scratch(player, opponent_discs);
+}
+
+EvaluationScratch make_evaluation_scratch(Bitboard player, Bitboard opponent_discs) noexcept {
     const Bitboard occupied = player | opponent_discs;
     const Bitboard empty = ~occupied;
-    const Bitboard own_moves = legal_moves(with_side_to_move(board, side));
-    const Bitboard opp_moves = legal_moves(with_side_to_move(board, opponent(side)));
+    const Bitboard own_moves = legal_moves_for_bitboards(player, opponent_discs);
+    const Bitboard opp_moves = legal_moves_for_bitboards(opponent_discs, player);
     const int occupied_count = std::popcount(occupied);
     return EvaluationScratch{
         .player = player,
