@@ -112,16 +112,15 @@ inline void write_text_file(const std::filesystem::path& path, std::string_view 
 
 [[nodiscard]] inline std::string eval_config_with_pattern_table_paths(
     const std::vector<std::pair<std::string, std::string>>& table_paths) {
-    std::string text =
-        read_text_file(sample_eval_config_path("current_default_legacy_scalar_2026_06_02.eval"));
-    const std::string marker = "name=current_default_legacy_scalar_2026_06_02\n";
-    const std::size_t insert_at = text.find(marker);
-    REQUIRE(insert_at != std::string::npos);
-    std::string inserted_paths;
+    std::string text = R"(schema_version=eval.v1
+mode=pattern_only
+name=test_pattern_table_paths
+opening_max_occupied=20
+midgame_max_occupied=44
+)";
     for (const auto& [key, value] : table_paths) {
-        inserted_paths += key + "=" + value + "\n";
+        text += key + "=" + value + "\n";
     }
-    text.insert(insert_at + marker.size(), inserted_paths);
     text += "\nopening.pattern_table=1\nmidgame.pattern_table=1\nlate.pattern_table=1\n";
     return text;
 }

@@ -160,9 +160,11 @@ uses source-controlled learned tables. Do not change it as part of a research
 cleanup or pattern-learning setup PR.
 
 As of the NTest pairwise full v2 promotion, `current_default.eval` uses learned
-phase-specific pattern tables. The old scalar project default is preserved as
-`data/eval/current_default_legacy_scalar_2026_06_02.eval` for comparison and
-revert, and it matches the C++ built-in fallback.
+phase-specific pattern tables. The C++ built-in fallback remains the file-free
+scalar anchor. If a scalar project-default revert is needed, regenerate a scalar
+`.eval` snapshot from `default_evaluation_config()` in that revert PR, update
+the project-default file and tests, and rerun eval config plus search smoke
+checks.
 
 Pattern-first research should usually start from the canonical pairwise trainer
 with an explicitly selected base evaluator such as `current_default.eval`, or
