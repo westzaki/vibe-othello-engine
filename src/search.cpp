@@ -85,55 +85,20 @@ constexpr int exact_endgame_score_scale = 1'000;
                                                    context.evaluation_config);
 }
 
-[[nodiscard]] SearchStats stats_delta(const SearchStats& after, const SearchStats& before) noexcept {
-    return SearchStats{
-        .nodes = after.nodes - before.nodes,
-        .beta_cutoffs = after.beta_cutoffs - before.beta_cutoffs,
-        .beta_cutoffs_first_move =
-            after.beta_cutoffs_first_move - before.beta_cutoffs_first_move,
-        .searched_moves = after.searched_moves - before.searched_moves,
-        .legal_move_nodes = after.legal_move_nodes - before.legal_move_nodes,
-        .eval_calls = after.eval_calls - before.eval_calls,
-        .pass_nodes = after.pass_nodes - before.pass_nodes,
-        .game_over_nodes = after.game_over_nodes - before.game_over_nodes,
-        .tt_lookups = after.tt_lookups - before.tt_lookups,
-        .tt_hits = after.tt_hits - before.tt_hits,
-        .tt_exact_hits = after.tt_exact_hits - before.tt_exact_hits,
-        .tt_lower_hits = after.tt_lower_hits - before.tt_lower_hits,
-        .tt_upper_hits = after.tt_upper_hits - before.tt_upper_hits,
-        .tt_stores = after.tt_stores - before.tt_stores,
-        .tt_leaf_stores = after.tt_leaf_stores - before.tt_leaf_stores,
-        .tt_overwrites = after.tt_overwrites - before.tt_overwrites,
-        .tt_collisions = after.tt_collisions - before.tt_collisions,
-        .tt_rejected_stores = after.tt_rejected_stores - before.tt_rejected_stores,
-        .tt_move_ordering_probes =
-            after.tt_move_ordering_probes - before.tt_move_ordering_probes,
-        .tt_move_ordering_hits = after.tt_move_ordering_hits - before.tt_move_ordering_hits,
-        .tt_move_ordering_used = after.tt_move_ordering_used - before.tt_move_ordering_used,
-        .pvs_scouts = after.pvs_scouts - before.pvs_scouts,
-        .pvs_researches = after.pvs_researches - before.pvs_researches,
-        .pvs_scout_cutoffs = after.pvs_scout_cutoffs - before.pvs_scout_cutoffs,
-        .aspiration_searches = after.aspiration_searches - before.aspiration_searches,
-        .aspiration_researches = after.aspiration_researches - before.aspiration_researches,
-        .aspiration_fail_lows = after.aspiration_fail_lows - before.aspiration_fail_lows,
-        .aspiration_fail_highs = after.aspiration_fail_highs - before.aspiration_fail_highs,
-        .aspiration_full_window_fallbacks =
-            after.aspiration_full_window_fallbacks - before.aspiration_full_window_fallbacks,
-        .aspiration_fail_low_distance_sum =
-            after.aspiration_fail_low_distance_sum - before.aspiration_fail_low_distance_sum,
-        .aspiration_fail_high_distance_sum =
-            after.aspiration_fail_high_distance_sum - before.aspiration_fail_high_distance_sum,
-        .aspiration_fail_low_distance_max =
-            after.aspiration_fail_low_distance_max > before.aspiration_fail_low_distance_max
-                ? after.aspiration_fail_low_distance_max
-                : 0,
-        .aspiration_fail_high_distance_max =
-            after.aspiration_fail_high_distance_max > before.aspiration_fail_high_distance_max
-                ? after.aspiration_fail_high_distance_max
-                : 0,
-        .dynamic_ordering_nodes = after.dynamic_ordering_nodes - before.dynamic_ordering_nodes,
-        .dynamic_ordering_moves = after.dynamic_ordering_moves - before.dynamic_ordering_moves,
-    };
+void record_aspiration_fail_low_distance(SearchContext& context, int score, int alpha) noexcept {
+    const std::uint64_t distance =
+        static_cast<std::uint64_t>(alpha > score ? alpha - score : 0);
+    context.stats.aspiration_fail_low_distance_sum += distance;
+    context.stats.aspiration_fail_low_distance_max =
+        std::max(context.stats.aspiration_fail_low_distance_max, distance);
+}
+
+void record_aspiration_fail_high_distance(SearchContext& context, int score, int beta) noexcept {
+    const std::uint64_t distance =
+        static_cast<std::uint64_t>(score > beta ? score - beta : 0);
+    context.stats.aspiration_fail_high_distance_sum += distance;
+    context.stats.aspiration_fail_high_distance_max =
+        std::max(context.stats.aspiration_fail_high_distance_max, distance);
 }
 
 void record_root_move_ordering_snapshot(SearchContext& context,
@@ -701,7 +666,8 @@ SearchResult search_iterative(SearchSession& session, const Board& board,
         const auto depth_elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(
             std::chrono::steady_clock::now() - depth_start);
         if (diagnostics_options.iterative_depth_observer != nullptr) {
-            const SearchStats depth_stats = stats_delta(context.stats, stats_before_depth);
+            const SearchStats depth_stats =
+                search_stats_delta(context.stats, stats_before_depth);
             const IterativeSearchDepthInfo info{
                 .requested_depth = search_depth,
                 .completed_depth = depth,

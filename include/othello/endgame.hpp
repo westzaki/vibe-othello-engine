@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -27,6 +28,36 @@ struct ExactEndgameStats {
     std::uint64_t tt_move_ordering_hits = 0;
     std::uint64_t tt_move_ordering_used = 0;
 };
+
+namespace exact_endgame_stats_detail {
+
+inline constexpr auto additive_members =
+    std::to_array<std::uint64_t ExactEndgameStats::*>({
+        &ExactEndgameStats::nodes,
+        &ExactEndgameStats::tt_lookups,
+        &ExactEndgameStats::tt_hits,
+        &ExactEndgameStats::tt_exact_hits,
+        &ExactEndgameStats::tt_lower_hits,
+        &ExactEndgameStats::tt_upper_hits,
+        &ExactEndgameStats::tt_stores,
+        &ExactEndgameStats::tt_overwrites,
+        &ExactEndgameStats::tt_collisions,
+        &ExactEndgameStats::tt_rejected_stores,
+        &ExactEndgameStats::tt_move_ordering_probes,
+        &ExactEndgameStats::tt_move_ordering_hits,
+        &ExactEndgameStats::tt_move_ordering_used,
+    });
+
+inline constexpr std::size_t tracked_member_count = additive_members.size();
+
+} // namespace exact_endgame_stats_detail
+
+inline void accumulate_exact_endgame_stats(ExactEndgameStats& total,
+                                           const ExactEndgameStats& stats) noexcept {
+    for (const auto member : exact_endgame_stats_detail::additive_members) {
+        total.*member += stats.*member;
+    }
+}
 
 struct ExactEndgameResult {
     std::optional<Square> best_move;

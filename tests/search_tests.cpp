@@ -415,6 +415,29 @@ TEST_CASE("Search stats aggregation includes search observability counters", "[s
     CHECK(othello::tools::beta_cut_first_move_percentage(total) == 60.0);
 }
 
+TEST_CASE("Search stats add and delta cover every counter field", "[search]") {
+    constexpr std::size_t field_count =
+        sizeof(othello::SearchStats) / sizeof(std::uint64_t);
+    CHECK(othello::search_stats_detail::tracked_member_count == field_count);
+
+    const othello::SearchStats before{
+        .nodes = 10,
+        .aspiration_fail_low_distance_max = 7,
+        .aspiration_fail_high_distance_max = 11,
+    };
+    const othello::SearchStats after{
+        .nodes = 15,
+        .aspiration_fail_low_distance_max = 7,
+        .aspiration_fail_high_distance_max = 13,
+    };
+
+    const othello::SearchStats delta = othello::search_stats_delta(after, before);
+
+    CHECK(delta.nodes == 5);
+    CHECK(delta.aspiration_fail_low_distance_max == 0);
+    CHECK(delta.aspiration_fail_high_distance_max == 13);
+}
+
 TEST_CASE("Search observability counters are sane on simple searches", "[search]") {
     const Board board = Board::initial();
 

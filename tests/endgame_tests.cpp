@@ -253,6 +253,27 @@ side=B)");
     CHECK(result.stats.tt_move_ordering_used <= result.stats.tt_move_ordering_hits);
 }
 
+TEST_CASE("Exact endgame stats aggregation covers every counter field", "[endgame]") {
+    constexpr std::size_t field_count =
+        sizeof(othello::ExactEndgameStats) / sizeof(std::uint64_t);
+    CHECK(othello::exact_endgame_stats_detail::tracked_member_count == field_count);
+
+    othello::ExactEndgameStats total{.nodes = 10, .tt_lookups = 4, .tt_hits = 2};
+    const othello::ExactEndgameStats stats{
+        .nodes = 5,
+        .tt_lookups = 3,
+        .tt_hits = 1,
+        .tt_move_ordering_used = 6,
+    };
+
+    othello::accumulate_exact_endgame_stats(total, stats);
+
+    CHECK(total.nodes == 15);
+    CHECK(total.tt_lookups == 7);
+    CHECK(total.tt_hits == 3);
+    CHECK(total.tt_move_ordering_used == 6);
+}
+
 TEST_CASE("Exact endgame TT sizing options preserve exact result", "[endgame]") {
     const Board board = othello::test::board_from_text(R"(...B....
 WWBWWW.B
