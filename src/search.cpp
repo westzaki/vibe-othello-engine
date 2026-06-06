@@ -16,6 +16,7 @@
 #include <memory>
 #include <othello/endgame.hpp>
 #include <othello/evaluation.hpp>
+#include <othello/evaluation_feature_specs.hpp>
 #include <othello/hash.hpp>
 #include <othello/rules.hpp>
 #include <othello/search.hpp>
@@ -196,18 +197,10 @@ constexpr ExactRootPolicyParams adaptive16_exact_root_policy_params{};
 [[nodiscard]] constexpr std::uint64_t
 evaluation_weights_identity(std::uint64_t hash,
                             const EvaluationFeatureWeights& weights) noexcept {
-    hash = hash_int(hash, weights.disc_difference);
-    hash = hash_int(hash, weights.mobility);
-    hash = hash_int(hash, weights.potential_mobility);
-    hash = hash_int(hash, weights.corner_occupancy);
-    hash = hash_int(hash, weights.corner_access);
-    hash = hash_int(hash, weights.x_square_danger);
-    hash = hash_int(hash, weights.frontier);
-    hash = hash_int(hash, weights.corner_local_2x3);
-    hash = hash_int(hash, weights.corner_2x3_pattern);
-    hash = hash_int(hash, weights.edge_stability_lite);
-    hash = hash_int(hash, weights.edge_8_pattern);
-    hash = hash_int(hash, weights.pattern_table);
+    for (const evaluation_detail::EvaluationFeatureSpec& spec :
+         evaluation_detail::evaluation_feature_specs) {
+        hash = hash_int(hash, weights.*spec.weight);
+    }
     return hash;
 }
 

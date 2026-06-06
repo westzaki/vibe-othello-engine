@@ -175,7 +175,7 @@ EvaluationConfigLoadResult parse_evaluation_config(std::string_view text) {
         eval_config_schema::assign_missing_feature_keys(result.config, seen_features, 0);
     } else {
         for (std::size_t index = 0; index < eval_config_schema::feature_key_count; ++index) {
-            const eval_config_schema::FeatureKeySpec& spec =
+            const eval_config_schema::FeatureKeySpec spec =
                 eval_config_schema::feature_key(index);
             if (spec.required && !seen_features[index]) {
                 result.error = "missing required key: " + std::string{spec.key};
