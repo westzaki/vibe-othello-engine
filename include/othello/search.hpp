@@ -225,6 +225,10 @@ struct SearchOptions {
     // exactly, while 15/16 empties solve only for conservative low-branching
     // roots with bounded opponent mobility.
     ExactEndgameRootPolicy exact_endgame_root_policy = ExactEndgameRootPolicy::FixedThreshold;
+    // Optional requested private exact-endgame TT entries for root exact solves.
+    // nullopt keeps the exact solver's root-empty-count based default; 0 disables
+    // only the exact solver TT.
+    std::optional<std::size_t> exact_endgame_tt_entries = std::nullopt;
     bool use_pvs = false;
     // Opt-in iterative-search aspiration window. Fixed-depth search ignores
     // these fields; iterative search still uses a full window for depth 1.

@@ -103,6 +103,13 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
     CHECK(adaptive_exact_options.exact_endgame_empty_threshold == 16);
     CHECK(adaptive_exact_options.exact_endgame_root_policy ==
           othello::ExactEndgameRootPolicy::Adaptive16);
+    const othello::SearchOptions adaptive_exact_tt_options =
+        require_search_options("search:depth=4,exact=adaptive16,exact_tt_entries=2097152");
+    CHECK(adaptive_exact_tt_options.exact_endgame_empty_threshold == 16);
+    CHECK(adaptive_exact_tt_options.exact_endgame_root_policy ==
+          othello::ExactEndgameRootPolicy::Adaptive16);
+    REQUIRE(adaptive_exact_tt_options.exact_endgame_tt_entries.has_value());
+    CHECK(*adaptive_exact_tt_options.exact_endgame_tt_entries == 2097152U);
     CHECK(require_search_options("search:depth=4,tt_entries=262144").transposition_table_entries ==
           262144U);
     CHECK_FALSE(require_search_options("search:depth=4,tt_store_leaf=off").store_leaf_tt_entries);
@@ -133,6 +140,7 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
     CHECK(strong_v1_options.exact_endgame_empty_threshold == 16);
     CHECK(strong_v1_options.exact_endgame_root_policy ==
           othello::ExactEndgameRootPolicy::Adaptive16);
+    CHECK_FALSE(strong_v1_options.exact_endgame_tt_entries.has_value());
     CHECK(strong_v1_options.evaluation_config_override.has_value());
     CHECK(strong_v1_options.evaluation_config_override->opening_pattern_tables != nullptr);
 

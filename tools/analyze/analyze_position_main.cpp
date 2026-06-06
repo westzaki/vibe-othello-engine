@@ -22,7 +22,8 @@ using AnalysisOptions = othello::tools::analyze::AnalysisOptions;
 void print_usage(std::string_view program_name) {
     std::cout << "usage: " << program_name
               << " (--board-file PATH | --stdin) [--depth N] [--mode fixed|iterative]"
-                 " [--tt on|off] [--tt-entries N] [--tt-store-leaf on|off] [--pvs on|off]"
+                 " [--tt on|off] [--tt-entries N] [--exact-tt-entries N]"
+                 " [--tt-store-leaf on|off] [--pvs on|off]"
                  " [--aspiration on|off] [--aspiration-window N]"
                  " [--aspiration-max-researches N] [--exact-endgame-threshold N]"
                  " "
@@ -35,6 +36,9 @@ void print_usage(std::string_view program_name) {
               << "  --mode MODE        fixed or iterative (default: fixed)\n"
               << "  --tt on|off        enable or disable transposition table (default: on)\n"
               << "  --tt-entries N     requested transposition table entry count\n"
+              << "  --exact-tt-entries N\n"
+              << "                    requested private exact-endgame TT entries; 0 disables "
+                 "only exact TT\n"
               << "  --tt-store-leaf on|off\n"
               << "                    store depth-0 midgame heuristic leaves in TT (default: on)\n"
               << "  --pvs on|off       enable or disable PVS (default: off)\n"

@@ -570,6 +570,15 @@ TEST_CASE("Exact root search exposes exact solver TT stats", "[search]") {
     CHECK(result.stats.eval_calls == 0);
     CHECK(result.stats.pvs_scouts == 0);
     CHECK(result.stats.aspiration_searches == 0);
+
+    const othello::SearchResult disabled_tt_result =
+        othello::search(board, othello::SearchOptions{.exact_endgame_empty_threshold = 10,
+                                                      .exact_endgame_tt_entries = 0});
+    CHECK(disabled_tt_result.best_move == exact.best_move);
+    CHECK(disabled_tt_result.score == exact.disc_margin * exact_endgame_score_scale);
+    CHECK(disabled_tt_result.exact_disc_margin == exact.disc_margin);
+    CHECK(disabled_tt_result.stats.tt_lookups == 0);
+    CHECK(disabled_tt_result.stats.tt_stores == 0);
 }
 
 TEST_CASE("Adaptive exact root policy solves conservative sixteen-empty roots", "[search]") {

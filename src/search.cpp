@@ -500,8 +500,9 @@ SearchResult search_with_context(const Board& board, int depth, SearchContext& c
 
 namespace {
 
-[[nodiscard]] SearchResult exact_endgame_search_result(const Board& board) noexcept {
-    ExactEndgameResult exact = solve_exact_endgame(board);
+[[nodiscard]] SearchResult exact_endgame_search_result(const Board& board,
+                                                       const ExactEndgameOptions& options) noexcept {
+    ExactEndgameResult exact = solve_exact_endgame(board, options);
     const SearchStats stats{
         .nodes = exact.nodes,
         .tt_lookups = exact.stats.tt_lookups,
@@ -582,7 +583,9 @@ SearchResult search(SearchSession& session, const Board& board,
 
     if (should_solve_exact_endgame_at_root(board, options)) {
         session.state_->mode = SearchMode::ExactEndgame;
-        SearchResult result = exact_endgame_search_result(board);
+        SearchResult result = exact_endgame_search_result(
+            board, ExactEndgameOptions{.transposition_table_entries =
+                                           engine_options.exact_endgame_tt_entries});
         finish_session_search(*session.state_, zobrist_hash(board), result);
         return result;
     }
@@ -624,7 +627,9 @@ SearchResult search_iterative(SearchSession& session, const Board& board,
 
     if (should_solve_exact_endgame_at_root(board, options)) {
         session.state_->mode = SearchMode::ExactEndgame;
-        SearchResult result = exact_endgame_search_result(board);
+        SearchResult result = exact_endgame_search_result(
+            board, ExactEndgameOptions{.transposition_table_entries =
+                                           engine_options.exact_endgame_tt_entries});
         finish_session_search(*session.state_, zobrist_hash(board), result);
         return result;
     }
