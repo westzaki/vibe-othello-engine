@@ -112,7 +112,8 @@ void print_usage(std::string_view program) {
 }
 
 [[nodiscard]] std::optional<othello::Square> choose_move(const othello::Board& board,
-                                                         const Options& engine_options) {
+                                                         const Options& engine_options,
+                                                         othello::SearchSession& session) {
     const othello::SearchOptions options =
         othello::tools::apply_evaluator_selection(othello::SearchOptions{
                                                       .max_depth = engine_options.depth,
@@ -123,7 +124,7 @@ void print_usage(std::string_view program) {
                                                       .use_pvs = true,
                                                   },
                                                   engine_options.evaluator);
-    const othello::SearchResult result = othello::search(board, options);
+    const othello::SearchResult result = othello::search(session, board, options);
     if (result.best_move.has_value()) {
         return result.best_move;
     }
@@ -138,8 +139,23 @@ void print_usage(std::string_view program) {
     return std::nullopt;
 }
 
+[[nodiscard]] bool is_same_game_extension(const std::vector<std::string>& previous_moves,
+                                          const std::vector<std::string>& next_moves) {
+    if (next_moves.size() < previous_moves.size()) {
+        return false;
+    }
+    for (std::size_t index = 0; index < previous_moves.size(); ++index) {
+        if (previous_moves[index] != next_moves[index]) {
+            return false;
+        }
+    }
+    return true;
+}
+
 int run_engine(Options options) {
     othello::Board board = othello::Board::initial();
+    othello::SearchSession search_session;
+    std::vector<std::string> game_moves;
     std::string line;
 
     while (std::getline(std::cin, line)) {
@@ -172,7 +188,11 @@ int run_engine(Options options) {
                 tail_text.starts_with("(;") ? othello::tools::nboard::parse_ggf_game(tail_text)
                                             : othello::tools::nboard::parse_move_list(tail_text);
             if (parsed.ok) {
+                if (!is_same_game_extension(game_moves, parsed.moves)) {
+                    search_session.reset();
+                }
                 board = parsed.board;
+                game_moves = parsed.moves;
             }
             continue;
         }
@@ -186,12 +206,13 @@ int run_engine(Options options) {
                                                : othello::apply_move(board, *parsed->square);
                 if (next.has_value()) {
                     board = *next;
+                    game_moves.push_back(parsed->pass ? std::string{"pass"} : parsed->text);
                 }
             }
             continue;
         }
         if (line == "go") {
-            const auto move = choose_move(board, options);
+            const auto move = choose_move(board, options, search_session);
             if (!move.has_value()) {
                 if (othello::pass_turn(board).has_value()) {
                     std::cout << "=== pass\n" << std::flush;

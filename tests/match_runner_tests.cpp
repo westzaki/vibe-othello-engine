@@ -6,6 +6,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <filesystem>
 #include <optional>
+#include <random>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -278,6 +279,54 @@ TEST_CASE("Search player records nodes and time", "[match-runner]") {
     CHECK(record.time_ms_white == 0.0);
     CHECK(record.time_ms_player_a == record.time_ms_black);
     CHECK(record.time_ms_player_b == record.time_ms_white);
+}
+
+TEST_CASE("Search player keeps a session across moves in one game", "[match-runner]") {
+    const auto search = runner::parse_player_spec("search:depth=1,tt=on,pvs=on,exact=off");
+    REQUIRE(search.has_value());
+
+    runner::InProcessPlayer player{*search};
+    std::mt19937_64 rng{7};
+    othello::Board board = othello::Board::initial();
+
+    player.reset_for_new_game();
+    CHECK(player.search_session_generation() == 0);
+
+    const runner::MoveSelection first = player.choose_move(board, rng);
+    REQUIRE(first.move.has_value());
+    REQUIRE((othello::legal_moves(board) & first.move->bit()) != 0);
+    CHECK(player.search_session_generation() == 1);
+
+    const std::optional<othello::Board> after_first = othello::apply_move(board, *first.move);
+    REQUIRE(after_first.has_value());
+    board = *after_first;
+
+    const runner::MoveSelection second = player.choose_move(board, rng);
+    REQUIRE(second.move.has_value());
+    REQUIRE((othello::legal_moves(board) & second.move->bit()) != 0);
+    CHECK(player.search_session_generation() == 2);
+}
+
+TEST_CASE("Search player reset and new instances start fresh sessions", "[match-runner]") {
+    const auto search = runner::parse_player_spec("search:depth=1,tt=on,pvs=on,exact=off");
+    REQUIRE(search.has_value());
+
+    std::mt19937_64 rng{11};
+    const othello::Board board = othello::Board::initial();
+
+    runner::InProcessPlayer player{*search};
+    static_cast<void>(player.choose_move(board, rng));
+    CHECK(player.search_session_generation() == 1);
+
+    player.reset_for_new_game();
+    CHECK(player.search_session_generation() == 0);
+    static_cast<void>(player.choose_move(board, rng));
+    CHECK(player.search_session_generation() == 1);
+
+    runner::InProcessPlayer new_player{*search};
+    CHECK(new_player.search_session_generation() == 0);
+    static_cast<void>(new_player.choose_move(board, rng));
+    CHECK(new_player.search_session_generation() == 1);
 }
 
 TEST_CASE("Search player records exact root searches", "[match-runner]") {

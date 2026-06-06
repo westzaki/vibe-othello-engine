@@ -106,8 +106,14 @@ namespace {
 
 } // namespace
 
-MoveSelection choose_move(const PlayerSpec& spec, const Board& board, std::mt19937_64& rng) {
-    switch (spec.kind) {
+InProcessPlayer::InProcessPlayer(PlayerSpec spec) : spec_{std::move(spec)} {}
+
+void InProcessPlayer::reset_for_new_game() noexcept {
+    search_session_.reset();
+}
+
+MoveSelection InProcessPlayer::choose_move(const Board& board, std::mt19937_64& rng) {
+    switch (spec_.kind) {
     case PlayerKind::First:
         return MoveSelection{.move = first_legal_move(board)};
     case PlayerKind::Random: {
@@ -122,13 +128,13 @@ MoveSelection choose_move(const PlayerSpec& spec, const Board& board, std::mt199
     case PlayerKind::Eval:
         return MoveSelection{.move = best_eval_move(board)};
     case PlayerKind::Search: {
-        const SearchOptions search_options = make_search_options(spec);
+        const SearchOptions search_options = make_search_options(spec_);
         const ExactEndgameRootDecision exact_root_decision =
             decide_exact_endgame_root(board, search_options);
         const auto started = std::chrono::steady_clock::now();
         const SearchResult result = search_options.use_aspiration_window
-                                        ? search_iterative(board, search_options)
-                                        : search(board, search_options);
+                                        ? search_iterative(search_session_, board, search_options)
+                                        : search(search_session_, board, search_options);
         const auto finished = std::chrono::steady_clock::now();
         const double elapsed_ms =
             std::chrono::duration<double, std::milli>{finished - started}.count();
@@ -147,6 +153,16 @@ MoveSelection choose_move(const PlayerSpec& spec, const Board& board, std::mt199
     }
 
     return MoveSelection{};
+}
+
+std::uint32_t InProcessPlayer::search_session_generation() const noexcept {
+    return search_session_.generation();
+}
+
+MoveSelection choose_move(const PlayerSpec& spec, const Board& board, std::mt19937_64& rng) {
+    InProcessPlayer player{spec};
+    player.reset_for_new_game();
+    return player.choose_move(board, rng);
 }
 
 std::pair<int, int> final_scores(const Board& board) noexcept {
@@ -189,6 +205,10 @@ GameRecord run_game(int game_index, const PlayerSpec& black_spec, const PlayerSp
     Board board = opening.start_board;
     std::vector<std::string> full_moves = opening.moves;
     std::mt19937_64 rng{seed};
+    InProcessPlayer black_player{black_spec};
+    InProcessPlayer white_player{white_spec};
+    black_player.reset_for_new_game();
+    white_player.reset_for_new_game();
     ExternalNBoardPlayer black_external;
     ExternalNBoardPlayer white_external;
 
@@ -278,7 +298,9 @@ GameRecord run_game(int game_index, const PlayerSpec& black_spec, const PlayerSp
                 set_error(external_result.error);
             }
         } else {
-            selection = choose_move(spec, board, rng);
+            InProcessPlayer& player =
+                board.side_to_move == Side::Black ? black_player : white_player;
+            selection = player.choose_move(board, rng);
         }
         if (board.side_to_move == Side::Black) {
             record.nodes_black += selection.nodes;
