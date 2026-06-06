@@ -41,6 +41,15 @@ TEST_CASE("Sample eval configs round-trip to expected evaluator configs", "[eval
     CHECK(current_default.config.opening.pattern_table == 1);
     CHECK(current_default.config.midgame.pattern_table == 1);
     CHECK(current_default.config.late.pattern_table == 1);
+    CHECK(current_default.config.late.disc_difference == 3);
+    CHECK(current_default.config.late.mobility == 8);
+    CHECK(current_default.config.late.potential_mobility == 4);
+    CHECK(current_default.config.late.corner_occupancy == 56);
+    CHECK(current_default.config.late.corner_access == 30);
+    CHECK(current_default.config.late.x_square_danger == 23);
+    CHECK(current_default.config.late.frontier == 10);
+    CHECK(current_default.config.late.corner_local_2x3 == 4);
+    CHECK(current_default.config.late.edge_stability_lite == 15);
 
     const othello::tools::EvaluationConfigLoadResult minimal_pattern =
         othello::tools::load_evaluation_config_file(
@@ -132,7 +141,15 @@ TEST_CASE("Sample eval configs round-trip to expected evaluator configs", "[eval
                               [](std::int16_t value) { return value != 0; }));
     CHECK(std::ranges::any_of(ntest_pairwise.config.late_pattern_tables->corner_3x3,
                               [](std::int16_t value) { return value != 0; }));
-    CHECK(current_default.config == ntest_pairwise.config);
+    CHECK(current_default.config.opening == ntest_pairwise.config.opening);
+    CHECK(current_default.config.midgame == ntest_pairwise.config.midgame);
+    CHECK(current_default.config.late != ntest_pairwise.config.late);
+    CHECK(*current_default.config.opening_pattern_tables ==
+          *ntest_pairwise.config.opening_pattern_tables);
+    CHECK(*current_default.config.midgame_pattern_tables ==
+          *ntest_pairwise.config.midgame_pattern_tables);
+    CHECK(*current_default.config.late_pattern_tables ==
+          *ntest_pairwise.config.late_pattern_tables);
 
     const othello::tools::EvaluationConfigLoadResult pattern_only_smoke =
         othello::tools::load_evaluation_config_file(
@@ -290,8 +307,18 @@ TEST_CASE("Tool evaluator selection resolves the default evaluator and config fi
         othello::tools::load_evaluation_config_file(
             sample_eval_config_path("ntest_pairwise_full_v2.eval"));
     REQUIRE(explicit_ntest_pairwise.ok());
-    CHECK(*default_selection->config_override ==
-          explicit_ntest_pairwise.config);
+    CHECK(default_selection->config_override->opening ==
+          explicit_ntest_pairwise.config.opening);
+    CHECK(default_selection->config_override->midgame ==
+          explicit_ntest_pairwise.config.midgame);
+    CHECK(default_selection->config_override->late !=
+          explicit_ntest_pairwise.config.late);
+    CHECK(*default_selection->config_override->opening_pattern_tables ==
+          *explicit_ntest_pairwise.config.opening_pattern_tables);
+    CHECK(*default_selection->config_override->midgame_pattern_tables ==
+          *explicit_ntest_pairwise.config.midgame_pattern_tables);
+    CHECK(*default_selection->config_override->late_pattern_tables ==
+          *explicit_ntest_pairwise.config.late_pattern_tables);
 
     const othello::tools::EvaluatorSelection built_in_fallback_selection;
     CHECK_FALSE(built_in_fallback_selection.config_override.has_value());
