@@ -23,10 +23,10 @@ using search_detail::PrincipalVariation;
 using search_detail::score_for_player;
 using search_detail::SearchPosition;
 
-// The final 0-3 empties avoid TT lookup/store and full move ordering overhead.
-// Four-empty specialization was benchmarked separately and rejected because it helped 20-empty
-// tail latency a bit more but made 14-empty tail behavior noisier.
-constexpr int last_n_specialized_empties = 3;
+// The final 0-4 empties avoid TT lookup/store and full move ordering overhead.
+// The tail solver remains exact alpha-beta; it only skips machinery whose cost dominates at
+// these depths.
+constexpr int last_n_specialized_empties = 4;
 
 [[nodiscard]] inline NodeResult solve_last_0(const SearchPosition& position,
                                              ExactEndgameContext& context) noexcept {
@@ -47,6 +47,7 @@ constexpr int last_n_specialized_empties = 3;
     case 1:
     case 2:
     case 3:
+    case 4:
         return solve_last_n_node(position, alpha, beta, context);
     default:
         assert(false);

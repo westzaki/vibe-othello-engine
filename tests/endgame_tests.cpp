@@ -41,6 +41,8 @@ void check_exact_regression_case(const ExactRegressionCase& test_case) {
 
     const othello::ExactEndgameResult first = othello::solve_exact_endgame(board);
     const othello::ExactEndgameResult second = othello::solve_exact_endgame(board);
+    const othello::ExactEndgameResult disabled_tt = othello::solve_exact_endgame(
+        board, othello::ExactEndgameOptions{.transposition_table_entries = 0});
 
     CHECK(first.empties == test_case.empties);
     CHECK(first.best_move == expected_move);
@@ -52,6 +54,12 @@ void check_exact_regression_case(const ExactRegressionCase& test_case) {
     CHECK(second.best_move == first.best_move);
     CHECK(second.disc_margin == first.disc_margin);
     CHECK(second.principal_variation == first.principal_variation);
+
+    CHECK(disabled_tt.empties == first.empties);
+    CHECK(disabled_tt.best_move == first.best_move);
+    CHECK(disabled_tt.disc_margin == first.disc_margin);
+    CHECK(disabled_tt.stats.tt_lookups == 0);
+    CHECK(disabled_tt.stats.tt_stores == 0);
 
     if (expected_move.has_value()) {
         REQUIRE_FALSE(first.principal_variation.empty());
@@ -368,6 +376,57 @@ side=W)");
     CHECK(terminal.empties == 4);
     CHECK(terminal.disc_margin ==
           othello::score(terminal_with_empty_squares, terminal_with_empty_squares.side_to_move));
+}
+
+TEST_CASE("Exact endgame four-empty tail preserves legal pass and double-pass outcomes",
+          "[endgame]") {
+    const Board legal_move = othello::test::board_from_text(R"(BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBW....
+side=B)");
+    REQUIRE(othello::legal_moves(legal_move) != 0);
+
+    const Board root_pass = othello::test::board_from_text(R"(BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBW....
+side=W)");
+    REQUIRE(othello::legal_moves(root_pass) == 0);
+    REQUIRE(othello::pass_turn(root_pass).has_value());
+
+    const Board double_pass = othello::test::board_from_text(R"(BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBB....
+side=W)");
+    REQUIRE(othello::legal_moves(double_pass) == 0);
+    REQUIRE_FALSE(othello::pass_turn(double_pass).has_value());
+    REQUIRE(othello::is_game_over(double_pass));
+
+    for (const Board& board : {legal_move, root_pass, double_pass}) {
+        const othello::ExactEndgameResult default_tt = othello::solve_exact_endgame(board);
+        const othello::ExactEndgameResult disabled_tt = othello::solve_exact_endgame(
+            board, othello::ExactEndgameOptions{.transposition_table_entries = 0});
+
+        CHECK(default_tt.empties == 4);
+        CHECK(disabled_tt.best_move == default_tt.best_move);
+        CHECK(disabled_tt.disc_margin == default_tt.disc_margin);
+        CHECK(disabled_tt.stats.tt_lookups == 0);
+        CHECK(disabled_tt.stats.tt_stores == 0);
+    }
 }
 
 TEST_CASE("Endgame empty-region parity ordering scores candidate regions", "[endgame]") {

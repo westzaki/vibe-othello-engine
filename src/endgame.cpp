@@ -60,7 +60,7 @@ empty_region_parity_ordering_policy(int root_empties, int empties,
     }
 
     // Broader activation made 16/18-empty roots noisier; keep only the last ordered layer weakly
-    // parity-aware. The 0-3 empty tail uses the specialized solver instead of this ordering path.
+    // parity-aware. The 0-4 empty tail uses the specialized solver instead of this ordering path.
     policy.use_empty_region_parity = empties <= search_policy.reduced_parity_max_current_empties;
     policy.params.singleton_region_bonus = 4'000;
     policy.params.odd_region_bonus = 1'000;
