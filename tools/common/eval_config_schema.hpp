@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <optional>
 #include <othello/evaluation.hpp>
+#include <othello/evaluation_feature_specs.hpp>
 #include <string>
 #include <string_view>
 
@@ -19,7 +20,7 @@ enum class Mode {
 };
 
 struct FeatureKeySpec {
-    std::string_view key;
+    std::string key;
     EvaluationFeatureWeights EvaluationConfig::*phase;
     int EvaluationFeatureWeights::*weight;
     bool required = true;
@@ -36,10 +37,12 @@ struct PatternTablePathKeySpec {
 };
 
 inline constexpr std::string_view schema_version = "eval.v1";
-inline constexpr std::size_t feature_key_count = 36;
+inline constexpr std::size_t phase_key_count = 3;
+inline constexpr std::size_t feature_key_count =
+    phase_key_count * evaluation_detail::evaluation_feature_count;
 inline constexpr std::size_t config_key_count = 2;
 
-[[nodiscard]] const FeatureKeySpec& feature_key(std::size_t index) noexcept;
+[[nodiscard]] FeatureKeySpec feature_key(std::size_t index);
 [[nodiscard]] const ConfigKeySpec& config_key(std::size_t index) noexcept;
 [[nodiscard]] const PatternTablePathKeySpec&
 phase_pattern_table_path_key(std::size_t index) noexcept;
