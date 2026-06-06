@@ -8,6 +8,7 @@
 #include "test_helpers.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+#include <othello/evaluation_feature_specs.hpp>
 #include <othello/othello.hpp>
 
 #include <algorithm>
@@ -318,6 +319,31 @@ TEST_CASE("Score-only evaluator matches breakdown totals across configs and phas
             }
         }
     }
+}
+
+TEST_CASE("Evaluation feature specs map weights raw values and weighted scores",
+          "[evaluation]") {
+    const othello::EvaluationConfig config = all_feature_guard_config();
+    const Board board = phase_midgame_board();
+    const othello::EvaluationFeatureWeights& weights = config.midgame;
+
+    const othello::EvaluationBreakdown breakdown =
+        othello::evaluate_basic_breakdown(board, Side::Black, config);
+
+    REQUIRE_FALSE(breakdown.terminal);
+    REQUIRE(breakdown.phase == othello::EvaluationPhase::Midgame);
+
+    int total = 0;
+    for (const othello::evaluation_detail::EvaluationFeatureSpec& spec :
+         othello::evaluation_detail::evaluation_feature_specs) {
+        CAPTURE(std::string{spec.key});
+        CHECK(breakdown.*spec.breakdown_weight == weights.*spec.weight);
+        CHECK(breakdown.*spec.weighted_score ==
+              (breakdown.*spec.raw_value) * (breakdown.*spec.breakdown_weight));
+        total += breakdown.*spec.weighted_score;
+    }
+    CHECK(breakdown.total == total);
+    CHECK(breakdown.total == othello::evaluate_with_config(board, Side::Black, config));
 }
 
 TEST_CASE("Direct bitboard evaluator matches Board evaluator on fixture positions",

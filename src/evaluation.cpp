@@ -1,6 +1,9 @@
 #include "evaluation_internal.hpp"
 
 #include <othello/evaluation.hpp>
+#include <othello/evaluation_feature_specs.hpp>
+
+#include <array>
 
 namespace othello {
 namespace {
@@ -55,30 +58,13 @@ pattern_tables_for_phase(const EvaluationConfig& config, EvaluationPhase phase) 
 }
 
 struct NonTerminalEvaluation {
-    int disc_difference = 0;
-    int disc_difference_score = 0;
-    int mobility = 0;
-    int mobility_score = 0;
-    int corner_occupancy = 0;
-    int corner_occupancy_score = 0;
-    int potential_mobility = 0;
-    int potential_mobility_score = 0;
-    int corner_access = 0;
-    int corner_access_score = 0;
-    int x_square_danger = 0;
-    int x_square_danger_score = 0;
-    int frontier = 0;
-    int frontier_score = 0;
-    int corner_local_2x3 = 0;
-    int corner_local_2x3_score = 0;
-    int corner_2x3_pattern = 0;
-    int corner_2x3_pattern_score = 0;
-    int edge_stability_lite = 0;
-    int edge_stability_lite_score = 0;
-    int edge_8_pattern = 0;
-    int edge_8_pattern_score = 0;
-    int pattern_table = 0;
-    int pattern_table_score = 0;
+    struct FeatureValue {
+        int raw_value = 0;
+        int weight = 0;
+        int weighted_score = 0;
+    };
+
+    std::array<FeatureValue, evaluation_detail::evaluation_feature_count> features{};
     int total = 0;
 };
 
@@ -87,18 +73,44 @@ enum class RawFeatureMode {
     Breakdown,
 };
 
-using ScratchFeatureFunction =
-    int (*)(const evaluation_detail::EvaluationScratch&) noexcept;
-
-void accumulate_feature(const evaluation_detail::EvaluationScratch& scratch, int weight,
-                        bool compute_when_unweighted, ScratchFeatureFunction compute,
-                        int& value, int& weighted_score, int& total) noexcept {
-    if (weight == 0 && !compute_when_unweighted) {
-        return;
+[[nodiscard]] int compute_feature_raw_value(
+    const evaluation_detail::EvaluationFeatureSpec& spec, Bitboard player,
+    Bitboard opponent, const evaluation_detail::EvaluationScratch& scratch,
+    const EvaluationConfig& config, EvaluationPhase phase) noexcept {
+    switch (spec.computation) {
+    case evaluation_detail::EvaluationFeatureComputation::DiscDifference:
+        return evaluation_detail::disc_difference_score(scratch);
+    case evaluation_detail::EvaluationFeatureComputation::Mobility:
+        return evaluation_detail::mobility_score(scratch);
+    case evaluation_detail::EvaluationFeatureComputation::PotentialMobility:
+        return evaluation_detail::potential_mobility_score(scratch);
+    case evaluation_detail::EvaluationFeatureComputation::CornerOccupancy:
+        return evaluation_detail::corner_occupancy_score(scratch);
+    case evaluation_detail::EvaluationFeatureComputation::CornerAccess:
+        return evaluation_detail::corner_access_score(scratch);
+    case evaluation_detail::EvaluationFeatureComputation::XSquareDanger:
+        return evaluation_detail::x_square_danger_score(scratch);
+    case evaluation_detail::EvaluationFeatureComputation::Frontier:
+        return evaluation_detail::frontier_score(scratch);
+    case evaluation_detail::EvaluationFeatureComputation::CornerLocal2x3:
+        return evaluation_detail::corner_local_2x3_score(scratch);
+    case evaluation_detail::EvaluationFeatureComputation::Corner2x3Pattern:
+        return evaluation_detail::corner_2x3_pattern_score(player, opponent);
+    case evaluation_detail::EvaluationFeatureComputation::EdgeStabilityLite:
+        return evaluation_detail::edge_stability_lite_score(scratch);
+    case evaluation_detail::EvaluationFeatureComputation::Edge8Pattern:
+        return evaluation_detail::edge_8_pattern_score(player, opponent);
+    case evaluation_detail::EvaluationFeatureComputation::PatternTable:
+        if (const PatternTableBundle* pattern_tables =
+                pattern_tables_for_phase(config, phase);
+            pattern_tables != nullptr) {
+            return evaluation_detail::evaluation_pattern_table_score(player, opponent,
+                                                                     *pattern_tables);
+        }
+        return 0;
     }
-    value = compute(scratch);
-    weighted_score = value * weight;
-    total += weighted_score;
+
+    return 0;
 }
 
 [[nodiscard]] NonTerminalEvaluation accumulate_non_terminal_evaluation(
@@ -109,66 +121,44 @@ void accumulate_feature(const evaluation_detail::EvaluationScratch& scratch, int
     const bool preserve_breakdown_raw_values = mode == RawFeatureMode::Breakdown;
 
     NonTerminalEvaluation result;
-    accumulate_feature(scratch, weights.disc_difference,
-                       preserve_breakdown_raw_values,
-                       evaluation_detail::disc_difference_score,
-                       result.disc_difference, result.disc_difference_score, result.total);
-    accumulate_feature(scratch, weights.mobility, preserve_breakdown_raw_values,
-                       evaluation_detail::mobility_score, result.mobility,
-                       result.mobility_score, result.total);
-    accumulate_feature(scratch, weights.corner_occupancy,
-                       preserve_breakdown_raw_values,
-                       evaluation_detail::corner_occupancy_score,
-                       result.corner_occupancy, result.corner_occupancy_score,
-                       result.total);
-    accumulate_feature(scratch, weights.potential_mobility,
-                       preserve_breakdown_raw_values,
-                       evaluation_detail::potential_mobility_score,
-                       result.potential_mobility, result.potential_mobility_score,
-                       result.total);
-    accumulate_feature(scratch, weights.corner_access,
-                       preserve_breakdown_raw_values, evaluation_detail::corner_access_score,
-                       result.corner_access, result.corner_access_score, result.total);
-    accumulate_feature(scratch, weights.x_square_danger,
-                       preserve_breakdown_raw_values,
-                       evaluation_detail::x_square_danger_score,
-                       result.x_square_danger, result.x_square_danger_score, result.total);
-    accumulate_feature(scratch, weights.frontier, preserve_breakdown_raw_values,
-                       evaluation_detail::frontier_score, result.frontier,
-                       result.frontier_score, result.total);
-    accumulate_feature(scratch, weights.corner_local_2x3, false,
-                       evaluation_detail::corner_local_2x3_score,
-                       result.corner_local_2x3, result.corner_local_2x3_score,
-                       result.total);
-    if (weights.corner_2x3_pattern != 0) {
-        result.corner_2x3_pattern =
-            evaluation_detail::corner_2x3_pattern_score(player, opponent);
-        result.corner_2x3_pattern_score =
-            result.corner_2x3_pattern * weights.corner_2x3_pattern;
-        result.total += result.corner_2x3_pattern_score;
-    }
-    accumulate_feature(scratch, weights.edge_stability_lite, false,
-                       evaluation_detail::edge_stability_lite_score,
-                       result.edge_stability_lite, result.edge_stability_lite_score,
-                       result.total);
-    if (weights.edge_8_pattern != 0) {
-        result.edge_8_pattern = evaluation_detail::edge_8_pattern_score(player, opponent);
-        result.edge_8_pattern_score = result.edge_8_pattern * weights.edge_8_pattern;
-        result.total += result.edge_8_pattern_score;
-    }
-
-    if (weights.pattern_table != 0) {
-        const PatternTableBundle* pattern_tables = pattern_tables_for_phase(config, phase);
-        if (pattern_tables != nullptr) {
-            result.pattern_table =
-                evaluation_detail::evaluation_pattern_table_score(player, opponent,
-                                                                  *pattern_tables);
-            result.pattern_table_score = result.pattern_table * weights.pattern_table;
-            result.total += result.pattern_table_score;
+    for (std::size_t index = 0; index < evaluation_detail::evaluation_feature_count;
+         ++index) {
+        const evaluation_detail::EvaluationFeatureSpec& spec =
+            evaluation_detail::evaluation_feature_specs[index];
+        NonTerminalEvaluation::FeatureValue& feature = result.features[index];
+        feature.weight = weights.*spec.weight;
+        const bool compute_unweighted =
+            preserve_breakdown_raw_values && spec.compute_when_unweighted_breakdown;
+        if (feature.weight == 0 && !compute_unweighted) {
+            continue;
         }
+        feature.raw_value = compute_feature_raw_value(spec, player, opponent, scratch,
+                                                      config, phase);
+        feature.weighted_score = feature.raw_value * feature.weight;
+        result.total += feature.weighted_score;
     }
 
     return result;
+}
+
+void assign_breakdown_feature_weights(EvaluationBreakdown& breakdown,
+                                      const EvaluationFeatureWeights& weights) noexcept {
+    for (const evaluation_detail::EvaluationFeatureSpec& spec :
+         evaluation_detail::evaluation_feature_specs) {
+        breakdown.*spec.breakdown_weight = weights.*spec.weight;
+    }
+}
+
+void assign_breakdown_feature_values(
+    EvaluationBreakdown& breakdown, const NonTerminalEvaluation& features) noexcept {
+    for (std::size_t index = 0; index < evaluation_detail::evaluation_feature_count;
+         ++index) {
+        const evaluation_detail::EvaluationFeatureSpec& spec =
+            evaluation_detail::evaluation_feature_specs[index];
+        const NonTerminalEvaluation::FeatureValue& feature = features.features[index];
+        breakdown.*spec.raw_value = feature.raw_value;
+        breakdown.*spec.weighted_score = feature.weighted_score;
+    }
 }
 
 [[nodiscard]] int evaluate_score_only(Bitboard player, Bitboard opponent,
@@ -199,20 +189,9 @@ EvaluationBreakdown evaluate_basic_breakdown(const Board& board, Side side,
         .phase = phase,
         .occupied_count = scratch.occupied_count,
         .empty_count = scratch.empty_count,
-        .disc_difference_weight = weights.disc_difference,
-        .mobility_weight = weights.mobility,
-        .corner_occupancy_weight = weights.corner_occupancy,
-        .potential_mobility_weight = weights.potential_mobility,
-        .corner_access_weight = weights.corner_access,
-        .x_square_danger_weight = weights.x_square_danger,
-        .frontier_weight = weights.frontier,
-        .corner_local_2x3_weight = weights.corner_local_2x3,
-        .corner_2x3_pattern_weight = weights.corner_2x3_pattern,
-        .edge_stability_lite_weight = weights.edge_stability_lite,
-        .edge_8_pattern_weight = weights.edge_8_pattern,
-        .pattern_table_weight = weights.pattern_table,
         .terminal_score_weight = terminal_score_weight,
     };
+    assign_breakdown_feature_weights(breakdown, weights);
 
     if (scratch.game_over) {
         breakdown.terminal = true;
@@ -226,30 +205,7 @@ EvaluationBreakdown evaluate_basic_breakdown(const Board& board, Side side,
 
     const NonTerminalEvaluation features = accumulate_non_terminal_evaluation(
         scratch.player, scratch.opponent, scratch, config, phase, RawFeatureMode::Breakdown);
-    breakdown.disc_difference = features.disc_difference;
-    breakdown.disc_difference_score = features.disc_difference_score;
-    breakdown.mobility = features.mobility;
-    breakdown.mobility_score = features.mobility_score;
-    breakdown.corner_occupancy = features.corner_occupancy;
-    breakdown.corner_occupancy_score = features.corner_occupancy_score;
-    breakdown.potential_mobility = features.potential_mobility;
-    breakdown.potential_mobility_score = features.potential_mobility_score;
-    breakdown.corner_access = features.corner_access;
-    breakdown.corner_access_score = features.corner_access_score;
-    breakdown.x_square_danger = features.x_square_danger;
-    breakdown.x_square_danger_score = features.x_square_danger_score;
-    breakdown.frontier = features.frontier;
-    breakdown.frontier_score = features.frontier_score;
-    breakdown.corner_local_2x3 = features.corner_local_2x3;
-    breakdown.corner_local_2x3_score = features.corner_local_2x3_score;
-    breakdown.corner_2x3_pattern = features.corner_2x3_pattern;
-    breakdown.corner_2x3_pattern_score = features.corner_2x3_pattern_score;
-    breakdown.edge_stability_lite = features.edge_stability_lite;
-    breakdown.edge_stability_lite_score = features.edge_stability_lite_score;
-    breakdown.edge_8_pattern = features.edge_8_pattern;
-    breakdown.edge_8_pattern_score = features.edge_8_pattern_score;
-    breakdown.pattern_table = features.pattern_table;
-    breakdown.pattern_table_score = features.pattern_table_score;
+    assign_breakdown_feature_values(breakdown, features);
     breakdown.total = features.total;
     return breakdown;
 }
