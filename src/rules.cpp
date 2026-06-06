@@ -1,66 +1,14 @@
-#include "bitboard_ops.hpp"
+#include "bitboard_rules.hpp"
 
 #include <bit>
 #include <othello/rules.hpp>
 
 namespace othello {
-namespace {
-
-using bitboard_detail::shift_east;
-using bitboard_detail::shift_north;
-using bitboard_detail::shift_northeast;
-using bitboard_detail::shift_northwest;
-using bitboard_detail::shift_south;
-using bitboard_detail::shift_southeast;
-using bitboard_detail::shift_southwest;
-using bitboard_detail::shift_west;
-
-template <Bitboard (*Shift)(Bitboard) noexcept>
-[[nodiscard]] Bitboard legal_moves_in_direction(Bitboard own_discs, Bitboard opponent_discs,
-                                                Bitboard empty_squares) noexcept {
-    Bitboard captured = Shift(own_discs) & opponent_discs;
-
-    for (int step = 0; step < 5; ++step) {
-        captured |= Shift(captured) & opponent_discs;
-    }
-
-    return Shift(captured) & empty_squares;
-}
-
-template <Bitboard (*Shift)(Bitboard) noexcept>
-[[nodiscard]] Bitboard flips_in_direction(Bitboard move_bit, Bitboard own_discs,
-                                          Bitboard opponent_discs) noexcept {
-    Bitboard flips = 0;
-    Bitboard captured = Shift(move_bit) & opponent_discs;
-
-    while (captured != 0) {
-        flips |= captured;
-        const Bitboard next = Shift(captured);
-        if ((next & own_discs) != 0) {
-            return flips;
-        }
-
-        captured = next & opponent_discs;
-    }
-
-    return 0;
-}
-
-} // namespace
 
 Bitboard legal_moves(const Board& board) noexcept {
     const Bitboard own_discs = board.discs(board.side_to_move);
     const Bitboard opponent_discs = board.discs(opponent(board.side_to_move));
-    const Bitboard empty_squares = ~board.occupied();
-
-    return legal_moves_in_direction<shift_east>(own_discs, opponent_discs, empty_squares) |
-           legal_moves_in_direction<shift_west>(own_discs, opponent_discs, empty_squares) |
-           legal_moves_in_direction<shift_north>(own_discs, opponent_discs, empty_squares) |
-           legal_moves_in_direction<shift_south>(own_discs, opponent_discs, empty_squares) |
-           legal_moves_in_direction<shift_northeast>(own_discs, opponent_discs, empty_squares) |
-           legal_moves_in_direction<shift_northwest>(own_discs, opponent_discs, empty_squares) |
-           legal_moves_in_direction<shift_southeast>(own_discs, opponent_discs, empty_squares) |
-           legal_moves_in_direction<shift_southwest>(own_discs, opponent_discs, empty_squares);
+    return rules_detail::legal_moves_for(own_discs, opponent_discs);
 }
 
 bool has_legal_move(const Board& board) noexcept {
@@ -68,22 +16,9 @@ bool has_legal_move(const Board& board) noexcept {
 }
 
 Bitboard flips_for_move(const Board& board, Square square) noexcept {
-    const Bitboard move_bit = square.bit();
     const Bitboard own_discs = board.discs(board.side_to_move);
     const Bitboard opponent_discs = board.discs(opponent(board.side_to_move));
-
-    if ((board.occupied() & move_bit) != 0) {
-        return 0;
-    }
-
-    return flips_in_direction<shift_east>(move_bit, own_discs, opponent_discs) |
-           flips_in_direction<shift_west>(move_bit, own_discs, opponent_discs) |
-           flips_in_direction<shift_north>(move_bit, own_discs, opponent_discs) |
-           flips_in_direction<shift_south>(move_bit, own_discs, opponent_discs) |
-           flips_in_direction<shift_northeast>(move_bit, own_discs, opponent_discs) |
-           flips_in_direction<shift_northwest>(move_bit, own_discs, opponent_discs) |
-           flips_in_direction<shift_southeast>(move_bit, own_discs, opponent_discs) |
-           flips_in_direction<shift_southwest>(move_bit, own_discs, opponent_discs);
+    return rules_detail::flips_for_move_for(own_discs, opponent_discs, square);
 }
 
 std::optional<Board> apply_move(const Board& board, Square square) noexcept {
