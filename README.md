@@ -68,6 +68,10 @@ capability map and workstreams.
 
 Read [docs/benchmarks.md](docs/benchmarks.md) for lightweight benchmark guidance.
 
+The former `tools/scripts/run_match_experiment.py` maintenance wrapper has been
+removed. Run `./build/othello_match_runner` directly, then summarize the
+generated JSONL with `python3 tools/scripts/match_summary.py`.
+
 ## Documentation Model
 
 Permanent docs should describe durable project boundaries, workflows, command
