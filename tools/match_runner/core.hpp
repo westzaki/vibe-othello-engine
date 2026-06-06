@@ -14,6 +14,19 @@
 
 namespace othello::match_runner {
 
+class InProcessPlayer {
+public:
+    explicit InProcessPlayer(PlayerSpec spec);
+
+    void reset_for_new_game() noexcept;
+    [[nodiscard]] MoveSelection choose_move(const Board& board, std::mt19937_64& rng);
+    [[nodiscard]] std::uint32_t search_session_generation() const noexcept;
+
+private:
+    PlayerSpec spec_;
+    SearchSession search_session_;
+};
+
 [[nodiscard]] MoveSelection choose_move(const PlayerSpec& spec, const Board& board,
                                         std::mt19937_64& rng);
 [[nodiscard]] std::pair<int, int> final_scores(const Board& board) noexcept;
