@@ -2,11 +2,16 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <othello/board.hpp>
 #include <othello/evaluation.hpp>
 #include <othello/square.hpp>
 #include <vector>
+
+namespace othello::search_detail {
+struct SearchSessionState;
+}
 
 namespace othello {
 
@@ -86,6 +91,13 @@ enum class SearchScoreKind {
     ExactDiscMarginScaled,
 };
 
+enum class SearchMode {
+    FixedDepth,
+    Iterative,
+    ExactEndgame,
+    Selective,
+};
+
 struct SearchResult {
     std::optional<Square> best_move;
     // Depth-limited searches report a heuristic score from the search/evaluator.
@@ -155,12 +167,42 @@ struct SearchOptions {
     std::vector<RootMoveOrderingEntry>* root_move_ordering_snapshot = nullptr;
 };
 
+class SearchSession {
+public:
+    SearchSession();
+    explicit SearchSession(const SearchOptions& options);
+    SearchSession(SearchSession&&) noexcept;
+    SearchSession& operator=(SearchSession&&) noexcept;
+    SearchSession(const SearchSession&) = delete;
+    SearchSession& operator=(const SearchSession&) = delete;
+    ~SearchSession();
+
+    void reset() noexcept;
+
+    [[nodiscard]] std::uint32_t generation() const noexcept;
+    [[nodiscard]] SearchMode mode() const noexcept;
+    [[nodiscard]] std::optional<Square> previous_best_move() const noexcept;
+    [[nodiscard]] std::vector<Square> root_principal_variation() const;
+
+private:
+    std::unique_ptr<search_detail::SearchSessionState> state_;
+
+    friend SearchResult search(SearchSession& session, const Board& board,
+                               const SearchOptions& options) noexcept;
+    friend SearchResult search_iterative(SearchSession& session, const Board& board,
+                                         const SearchOptions& options) noexcept;
+};
+
 [[nodiscard]] EvaluationConfig resolve_evaluation_config(const SearchOptions& options) noexcept;
 [[nodiscard]] ExactEndgameRootDecision
 decide_exact_endgame_root(const Board& board, const SearchOptions& options) noexcept;
 [[nodiscard]] SearchResult search(const Board& board, const SearchOptions& options) noexcept;
+[[nodiscard]] SearchResult search(SearchSession& session, const Board& board,
+                                  const SearchOptions& options) noexcept;
 [[nodiscard]] SearchResult search_fixed_depth(const Board& board, int depth) noexcept;
 [[nodiscard]] SearchResult search_iterative(const Board& board,
+                                            const SearchOptions& options) noexcept;
+[[nodiscard]] SearchResult search_iterative(SearchSession& session, const Board& board,
                                             const SearchOptions& options) noexcept;
 
 } // namespace othello

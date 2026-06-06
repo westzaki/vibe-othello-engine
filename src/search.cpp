@@ -11,6 +11,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <othello/endgame.hpp>
 #include <othello/evaluation.hpp>
 #include <othello/hash.hpp>
@@ -20,6 +21,57 @@
 #include <vector>
 
 namespace othello {
+
+namespace search_detail {
+
+struct SearchSessionState {
+    SearchEngineOptions engine_options{};
+    EvaluationConfig evaluation_config = default_evaluation_config();
+    std::uint64_t evaluation_identity = 0;
+    std::uint32_t generation = 0;
+    SearchMode mode = SearchMode::FixedDepth;
+    TranspositionTable transpositions;
+    PrincipalVariation root_principal_variation;
+    std::optional<ZobristHash> root_hash = std::nullopt;
+    std::optional<Square> previous_best_move = std::nullopt;
+    std::optional<int> previous_score = std::nullopt;
+    std::optional<int> previous_score_delta = std::nullopt;
+    std::array<int, 64> history{};
+    std::array<std::array<int, 2>, 65> killer_moves{};
+
+    SearchSessionState() noexcept : transpositions{engine_options} { reset_killer_moves(); }
+
+    explicit SearchSessionState(const SearchOptions& options) noexcept
+        : engine_options{engine_options_from(options)},
+          evaluation_config{resolve_evaluation_config(options)},
+          transpositions{engine_options} {
+        reset_killer_moves();
+    }
+
+    void reset() noexcept {
+        engine_options = SearchEngineOptions{};
+        evaluation_config = default_evaluation_config();
+        evaluation_identity = 0;
+        generation = 0;
+        mode = SearchMode::FixedDepth;
+        transpositions = TranspositionTable{engine_options};
+        root_principal_variation = PrincipalVariation{};
+        root_hash = std::nullopt;
+        previous_best_move = std::nullopt;
+        previous_score = std::nullopt;
+        previous_score_delta = std::nullopt;
+        history.fill(0);
+        reset_killer_moves();
+    }
+
+    void reset_killer_moves() noexcept {
+        for (auto& moves : killer_moves) {
+            moves.fill(-1);
+        }
+    }
+};
+
+} // namespace search_detail
 
 EvaluationConfig resolve_evaluation_config(const SearchOptions& options) noexcept {
     if (options.evaluation_config_override.has_value()) {
@@ -31,6 +83,7 @@ EvaluationConfig resolve_evaluation_config(const SearchOptions& options) noexcep
 namespace {
 
 using bitboard_detail::corner_squares;
+using bitboard_detail::adjacent_squares;
 using bitboard_detail::is_corner;
 using bitboard_detail::is_edge;
 using bitboard_detail::is_x_square;
@@ -54,7 +107,9 @@ using search_detail::PrincipalVariation;
 using search_detail::SearchPosition;
 using search_detail::SearchDiagnosticsOptions;
 using search_detail::SearchEngineOptions;
+using search_detail::SearchSessionState;
 using search_detail::TranspositionLookup;
+using search_detail::TranspositionScope;
 using search_detail::TranspositionTable;
 
 struct PrincipalVariationHint {
@@ -82,9 +137,13 @@ struct MoveOrderingParams {
 
     int dynamic_corner_bonus = 100'000;
     int dynamic_edge_bonus = 1'000;
-    int dynamic_x_square_empty_corner_penalty = 30'000;
     int dynamic_opponent_corner_penalty = 80'000;
     int dynamic_opponent_mobility_penalty = 500;
+    int dynamic_potential_mobility_penalty = 25;
+    int dynamic_static_risk_penalty = 10;
+    int dynamic_history_max_bonus = 8;
+    int dynamic_killer_first_bonus = 6;
+    int dynamic_killer_second_bonus = 3;
 
     int dynamic_min_depth = 3;
     std::size_t dynamic_min_moves = 5;
@@ -93,18 +152,23 @@ struct MoveOrderingParams {
 constexpr MoveOrderingParams default_move_ordering_params{};
 
 struct SearchContext {
-    explicit SearchContext(SearchEngineOptions engine, SearchDiagnosticsOptions diagnostics_options,
-                           EvaluationConfig config,
+    explicit SearchContext(SearchSessionState& session_state, SearchEngineOptions engine,
+                           SearchDiagnosticsOptions diagnostics_options,
                            bool enable_dynamic_move_ordering) noexcept
-        : engine_options{engine}, transpositions{engine_options},
+        : session{session_state}, engine_options{engine},
+          transpositions{session_state.transpositions},
+          transposition_scope{.mode = session_state.mode,
+                              .eval_identity = session_state.evaluation_identity},
           dynamic_move_ordering{enable_dynamic_move_ordering},
           use_pvs{engine_options.use_pvs},
           store_leaf_tt_entries{engine_options.store_leaf_tt_entries},
-          evaluation_config{std::move(config)}, diagnostics{diagnostics_options} {}
+          evaluation_config{session_state.evaluation_config}, diagnostics{diagnostics_options} {}
 
     SearchStats stats;
+    SearchSessionState& session;
     SearchEngineOptions engine_options;
-    TranspositionTable transpositions;
+    TranspositionTable& transpositions;
+    TranspositionScope transposition_scope;
     MoveOrderingParams move_ordering_params = default_move_ordering_params;
     bool dynamic_move_ordering = false;
     bool use_pvs = false;
@@ -127,6 +191,106 @@ struct ExactRootPolicyParams {
 };
 
 constexpr ExactRootPolicyParams adaptive16_exact_root_policy_params{};
+
+[[nodiscard]] constexpr std::uint64_t hash_mix(std::uint64_t hash,
+                                                std::uint64_t value) noexcept {
+    hash ^= value + 0x9E3779B97F4A7C15ULL + (hash << 6) + (hash >> 2);
+    return hash;
+}
+
+[[nodiscard]] constexpr std::uint64_t hash_int(std::uint64_t hash, int value) noexcept {
+    return hash_mix(hash, static_cast<std::uint64_t>(static_cast<std::int64_t>(value)));
+}
+
+[[nodiscard]] constexpr std::uint64_t
+evaluation_weights_identity(std::uint64_t hash,
+                            const EvaluationFeatureWeights& weights) noexcept {
+    hash = hash_int(hash, weights.disc_difference);
+    hash = hash_int(hash, weights.mobility);
+    hash = hash_int(hash, weights.potential_mobility);
+    hash = hash_int(hash, weights.corner_occupancy);
+    hash = hash_int(hash, weights.corner_access);
+    hash = hash_int(hash, weights.x_square_danger);
+    hash = hash_int(hash, weights.frontier);
+    hash = hash_int(hash, weights.corner_local_2x3);
+    hash = hash_int(hash, weights.corner_2x3_pattern);
+    hash = hash_int(hash, weights.edge_stability_lite);
+    hash = hash_int(hash, weights.edge_8_pattern);
+    hash = hash_int(hash, weights.pattern_table);
+    return hash;
+}
+
+template <std::size_t Size>
+[[nodiscard]] std::uint64_t table_identity(std::uint64_t hash,
+                                           const std::array<std::int16_t, Size>& values) noexcept {
+    for (std::int16_t value : values) {
+        hash = hash_int(hash, value);
+    }
+    return hash;
+}
+
+[[nodiscard]] std::uint64_t pattern_tables_identity(
+    std::uint64_t hash, const std::shared_ptr<const PatternTableBundle>& tables) noexcept {
+    if (tables == nullptr) {
+        return hash_mix(hash, 0);
+    }
+
+    hash = hash_mix(hash, 1);
+    hash = table_identity(hash, tables->corner_2x3);
+    hash = table_identity(hash, tables->corner_3x3);
+    hash = table_identity(hash, tables->edge_8);
+    hash = table_identity(hash, tables->edge_x_10);
+    hash = table_identity(hash, tables->diagonal_8);
+    hash = table_identity(hash, tables->inner_row_8);
+    return hash;
+}
+
+[[nodiscard]] std::uint64_t evaluation_config_identity(const EvaluationConfig& config) noexcept {
+    std::uint64_t hash = 0xCBF29CE484222325ULL;
+    hash = evaluation_weights_identity(hash, config.opening);
+    hash = evaluation_weights_identity(hash, config.midgame);
+    hash = evaluation_weights_identity(hash, config.late);
+    hash = hash_int(hash, config.opening_max_occupied);
+    hash = hash_int(hash, config.midgame_max_occupied);
+    hash = pattern_tables_identity(hash, config.pattern_tables);
+    hash = pattern_tables_identity(hash, config.opening_pattern_tables);
+    hash = pattern_tables_identity(hash, config.midgame_pattern_tables);
+    hash = pattern_tables_identity(hash, config.late_pattern_tables);
+    return hash;
+}
+
+[[nodiscard]] constexpr bool requires_new_transposition_table(
+    const SearchEngineOptions& current, const SearchEngineOptions& next) noexcept {
+    return current.use_transposition_table != next.use_transposition_table ||
+           current.transposition_table_entries != next.transposition_table_entries;
+}
+
+void begin_session_search(SearchSessionState& session, const SearchEngineOptions& engine_options,
+                          EvaluationConfig evaluation_config, SearchMode mode) noexcept {
+    if (requires_new_transposition_table(session.engine_options, engine_options)) {
+        session.transpositions = TranspositionTable{engine_options};
+    }
+    session.engine_options = engine_options;
+    session.evaluation_config = std::move(evaluation_config);
+    session.evaluation_identity = evaluation_config_identity(session.evaluation_config);
+    session.mode = mode;
+    ++session.generation;
+    if (session.generation == 0) {
+        session.generation = 1;
+    }
+}
+
+void finish_session_search(SearchSessionState& session, ZobristHash root_hash,
+                           const SearchResult& result) noexcept {
+    session.previous_score_delta = session.previous_score.has_value()
+                                       ? std::optional<int>{result.score - *session.previous_score}
+                                       : std::nullopt;
+    session.previous_score = result.score;
+    session.previous_best_move = result.best_move;
+    session.root_hash = root_hash;
+    session.root_principal_variation =
+        principal_variation_from_vector(result.principal_variation);
+}
 
 [[nodiscard]] int evaluate_for_search(const SearchPosition& position,
                                       SearchContext& context) noexcept {
@@ -229,8 +393,9 @@ void store_leaf_transposition(SearchContext& context, ZobristHash hash, int dept
     if (!context.store_leaf_tt_entries) {
         return;
     }
-    if (context.transpositions.store(hash, depth, score, original_alpha, beta, best_move,
-                                     context.stats)) {
+    if (context.transpositions.store(hash, context.transposition_scope,
+                                     context.session.generation, depth, score, original_alpha,
+                                     beta, best_move, context.stats)) {
         ++context.stats.tt_leaf_stores;
     }
 }
@@ -246,9 +411,57 @@ should_use_dynamic_move_ordering(bool enabled, std::size_t move_count, int depth
     return enabled && depth >= params.dynamic_min_depth && move_count >= params.dynamic_min_moves;
 }
 
+[[nodiscard]] constexpr int depth_bucket(int depth) noexcept {
+    if (depth < 0) {
+        return 0;
+    }
+    if (depth > 64) {
+        return 64;
+    }
+    return depth;
+}
+
+[[nodiscard]] int history_killer_bonus(const SearchContext& context, int index,
+                                       int depth) noexcept {
+    const int history_bonus =
+        std::min(context.session.history[static_cast<std::size_t>(index)],
+                 context.move_ordering_params.dynamic_history_max_bonus);
+    const auto& killers =
+        context.session.killer_moves[static_cast<std::size_t>(depth_bucket(depth))];
+    int bonus = history_bonus;
+    if (killers[0] == index) {
+        bonus += context.move_ordering_params.dynamic_killer_first_bonus;
+    } else if (killers[1] == index) {
+        bonus += context.move_ordering_params.dynamic_killer_second_bonus;
+    }
+    return bonus;
+}
+
+void record_history_killer_cutoff(SearchContext& context, Square move, int depth) noexcept {
+    const int index = move.index();
+    int& history = context.session.history[static_cast<std::size_t>(index)];
+    history = std::min(history + std::max(depth, 1) * std::max(depth, 1), 1'000'000);
+
+    auto& killers = context.session.killer_moves[static_cast<std::size_t>(depth_bucket(depth))];
+    if (killers[0] == index) {
+        return;
+    }
+    killers[1] = killers[0];
+    killers[0] = index;
+}
+
+[[nodiscard]] int potential_mobility_after_move(const SearchPosition& next) noexcept {
+    return std::popcount(adjacent_squares(next.opponent_discs) & ~next.occupied());
+}
+
+[[nodiscard]] int static_risk_for_move(const SearchPosition& position, int index) noexcept {
+    return is_x_square_next_to_empty_corner(index, position.occupied()) ? 1 : 0;
+}
+
 [[nodiscard]] int move_order_score(const SearchPosition& position, Square square, Bitboard flips,
                                    std::size_t move_count, int depth, bool dynamic_move_ordering,
-                                   const MoveOrderingParams& params) noexcept {
+                                   SearchContext& context) noexcept {
+    const MoveOrderingParams& params = context.move_ordering_params;
     const int index = square.index();
     if (!should_use_dynamic_move_ordering(dynamic_move_ordering, move_count, depth, params)) {
         if (is_corner(index)) {
@@ -270,23 +483,22 @@ should_use_dynamic_move_ordering(bool enabled, std::size_t move_count, int depth
     if (is_edge(index)) {
         score += params.dynamic_edge_bonus;
     }
-    if (is_x_square_next_to_empty_corner(index, position.occupied())) {
-        score -= params.dynamic_x_square_empty_corner_penalty;
-    }
-
     const SearchPosition next = position_after_move(position, square, flips);
     const Bitboard opponent_moves = legal_moves(next);
     if ((opponent_moves & corner_squares) != 0) {
         score -= params.dynamic_opponent_corner_penalty;
     }
     score -= std::popcount(opponent_moves) * params.dynamic_opponent_mobility_penalty;
+    score -= potential_mobility_after_move(next) * params.dynamic_potential_mobility_penalty;
+    score -= static_risk_for_move(position, index) * params.dynamic_static_risk_penalty;
+    score += history_killer_bonus(context, index, depth);
 
     return score;
 }
 
 [[nodiscard]] OrderedMoveIndexes
 ordered_legal_move_indexes(const SearchPosition& position, Bitboard moves, int depth,
-                           bool dynamic_move_ordering, const MoveOrderingParams& params) noexcept {
+                           bool dynamic_move_ordering, SearchContext& context) noexcept {
     OrderedMoveIndexes candidates;
     const auto move_count = static_cast<std::size_t>(std::popcount(moves));
 
@@ -308,7 +520,7 @@ ordered_legal_move_indexes(const SearchPosition& position, Bitboard moves, int d
             .index = index,
             .flips = flips,
             .order_score = move_order_score(position, *square, flips, move_count, depth,
-                                            dynamic_move_ordering, params),
+                                            dynamic_move_ordering, context),
         };
         ++candidates.size;
     }
@@ -347,13 +559,13 @@ ordered_legal_move_indexes(const SearchPosition& position, Bitboard moves, int d
 ordered_legal_move_indexes(const SearchPosition& position, Bitboard moves, int depth,
                            std::optional<Square> preferred_move,
                            std::optional<Square> tt_preferred_move, bool dynamic_move_ordering,
-                           const MoveOrderingParams& params, SearchStats& stats) noexcept {
+                           SearchContext& context) noexcept {
     OrderedMoveIndexes candidates =
-        ordered_legal_move_indexes(position, moves, depth, dynamic_move_ordering, params);
+        ordered_legal_move_indexes(position, moves, depth, dynamic_move_ordering, context);
 
     if (tt_preferred_move.has_value() && (moves & tt_preferred_move->bit()) != 0 &&
         promote_preferred_move(candidates, *tt_preferred_move)) {
-        ++stats.tt_move_ordering_used;
+        ++context.stats.tt_move_ordering_used;
     }
 
     if (preferred_move.has_value() && (moves & preferred_move->bit()) != 0) {
@@ -403,7 +615,8 @@ ordered_legal_move_indexes(const SearchPosition& position, Bitboard moves, int d
     const bool collect_tt_best_move_hint = context.dynamic_move_ordering && !is_root &&
                                            depth >= context.move_ordering_params.dynamic_min_depth;
     const TranspositionLookup cached = context.transpositions.lookup(
-        hash, depth, alpha, beta, collect_tt_best_move_hint, context.stats);
+        hash, context.transposition_scope, depth, alpha, beta, collect_tt_best_move_hint,
+        context.stats);
     if (cached.cutoff.has_value()) {
         return *cached.cutoff;
     }
@@ -421,8 +634,9 @@ ordered_legal_move_indexes(const SearchPosition& position, Bitboard moves, int d
         if (legal_moves(next) == 0) {
             ++context.stats.game_over_nodes;
             const NodeResult result{.score = evaluate_for_search(position, context)};
-            context.transpositions.store(hash, depth, result.score, original_alpha, beta,
-                                         result.best_move, context.stats);
+            context.transpositions.store(hash, context.transposition_scope,
+                                         context.session.generation, depth, result.score,
+                                         original_alpha, beta, result.best_move, context.stats);
             return result;
         }
 
@@ -438,8 +652,9 @@ ordered_legal_move_indexes(const SearchPosition& position, Bitboard moves, int d
             .score = -child.score,
             .principal_variation = child.principal_variation,
         };
-        context.transpositions.store(hash, depth, result.score, original_alpha, beta,
-                                     result.best_move, context.stats);
+        context.transpositions.store(hash, context.transposition_scope,
+                                     context.session.generation, depth, result.score,
+                                     original_alpha, beta, result.best_move, context.stats);
         return result;
     }
 
@@ -462,7 +677,7 @@ ordered_legal_move_indexes(const SearchPosition& position, Bitboard moves, int d
 
     const OrderedMoveIndexes ordered_moves = ordered_legal_move_indexes(
         position, moves, depth, preferred_move, cached.best_move_hint, use_dynamic_ordering,
-        context.move_ordering_params, context.stats);
+        context);
     if (is_root) {
         record_root_move_ordering_snapshot(context, ordered_moves);
     }
@@ -523,6 +738,7 @@ ordered_legal_move_indexes(const SearchPosition& position, Bitboard moves, int d
             if (move == 0) {
                 ++context.stats.beta_cutoffs_first_move;
             }
+            record_history_killer_cutoff(context, *square, depth);
             break;
         }
     }
@@ -532,7 +748,8 @@ ordered_legal_move_indexes(const SearchPosition& position, Bitboard moves, int d
         .score = best_score.value_or(evaluate_for_search(position, context)),
         .principal_variation = best_principal_variation,
     };
-    context.transpositions.store(hash, depth, result.score, original_alpha, beta, result.best_move,
+    context.transpositions.store(hash, context.transposition_scope, context.session.generation,
+                                 depth, result.score, original_alpha, beta, result.best_move,
                                  context.stats);
     return result;
 }
@@ -542,15 +759,22 @@ ordered_legal_move_indexes(const SearchPosition& position, Bitboard moves, int d
                                                std::optional<Square> root_preferred_move,
                                                PrincipalVariationHint pv_hint) noexcept {
     const SearchPosition position = SearchPosition::from_board(board);
-    const NodeResult result = search_node(position, zobrist_hash(board), depth, alpha, beta,
+    const ZobristHash root_hash = zobrist_hash(board);
+    const NodeResult result = search_node(position, root_hash, depth, alpha, beta,
                                           context, root_preferred_move, pv_hint, true);
+    PrincipalVariation principal_variation = result.principal_variation;
+    if (principal_variation.size < context.session.root_principal_variation.size &&
+        context.session.root_hash == root_hash && context.session.previous_score == result.score &&
+        context.session.previous_best_move == result.best_move) {
+        principal_variation = context.session.root_principal_variation;
+    }
 
     return SearchResult{
         .best_move = result.best_move,
         .score = result.score,
         .depth = depth,
         .nodes = context.stats.nodes,
-        .principal_variation = principal_variation_to_vector(result.principal_variation),
+        .principal_variation = principal_variation_to_vector(principal_variation),
         .stats = context.stats,
         .score_kind = SearchScoreKind::Heuristic,
         .used_exact_endgame = false,
@@ -703,6 +927,42 @@ ordered_legal_move_indexes(const SearchPosition& position, Bitboard moves, int d
 
 } // namespace
 
+SearchSession::SearchSession() : state_{std::make_unique<search_detail::SearchSessionState>()} {}
+
+SearchSession::SearchSession(const SearchOptions& options)
+    : state_{std::make_unique<search_detail::SearchSessionState>(options)} {}
+
+SearchSession::SearchSession(SearchSession&&) noexcept = default;
+
+SearchSession& SearchSession::operator=(SearchSession&&) noexcept = default;
+
+SearchSession::~SearchSession() = default;
+
+void SearchSession::reset() noexcept {
+    if (state_ != nullptr) {
+        state_->reset();
+    }
+}
+
+std::uint32_t SearchSession::generation() const noexcept {
+    return state_ == nullptr ? 0 : state_->generation;
+}
+
+SearchMode SearchSession::mode() const noexcept {
+    return state_ == nullptr ? SearchMode::FixedDepth : state_->mode;
+}
+
+std::optional<Square> SearchSession::previous_best_move() const noexcept {
+    return state_ == nullptr ? std::nullopt : state_->previous_best_move;
+}
+
+std::vector<Square> SearchSession::root_principal_variation() const {
+    if (state_ == nullptr) {
+        return {};
+    }
+    return search_detail::principal_variation_to_vector(state_->root_principal_variation);
+}
+
 ExactEndgameRootDecision decide_exact_endgame_root(const Board& board,
                                                    const SearchOptions& options) noexcept {
     const SearchEngineOptions engine_options = engine_options_from(options);
@@ -759,44 +1019,82 @@ ExactEndgameRootDecision decide_exact_endgame_root(const Board& board,
     return decision;
 }
 
-SearchResult search(const Board& board, const SearchOptions& options) noexcept {
-    if (should_solve_exact_endgame_at_root(board, options)) {
-        return exact_endgame_search_result(board);
+SearchResult search(SearchSession& session, const Board& board,
+                    const SearchOptions& options) noexcept {
+    if (session.state_ == nullptr) {
+        session.state_ = std::make_unique<search_detail::SearchSessionState>();
     }
 
     const SearchEngineOptions engine_options = engine_options_from(options);
     const SearchDiagnosticsOptions diagnostics_options = diagnostics_options_from(options);
+    begin_session_search(*session.state_, engine_options, resolve_evaluation_config(options),
+                         SearchMode::FixedDepth);
+
+    if (should_solve_exact_endgame_at_root(board, options)) {
+        session.state_->mode = SearchMode::ExactEndgame;
+        SearchResult result = exact_endgame_search_result(board);
+        finish_session_search(*session.state_, zobrist_hash(board), result);
+        return result;
+    }
+
     const int search_depth = options.max_depth < 0 ? 0 : options.max_depth;
-    SearchContext context{engine_options, diagnostics_options, resolve_evaluation_config(options),
-                          true};
-    return search_with_context(board, search_depth, context, std::nullopt,
-                               PrincipalVariationHint{});
+    SearchContext context{*session.state_, engine_options, diagnostics_options, true};
+    const PrincipalVariationHint pv_hint{
+        .principal_variation = session.state_->root_principal_variation.size == 0
+                                   ? nullptr
+                                   : &session.state_->root_principal_variation,
+        .index = 0,
+        .matches_prefix = session.state_->root_principal_variation.size > 0,
+    };
+    SearchResult result = search_with_context(board, search_depth, context,
+                                              session.state_->previous_best_move, pv_hint);
+    finish_session_search(*session.state_, zobrist_hash(board), result);
+    return result;
+}
+
+SearchResult search(const Board& board, const SearchOptions& options) noexcept {
+    SearchSession session{options};
+    return search(session, board, options);
 }
 
 SearchResult search_fixed_depth(const Board& board, int depth) noexcept {
     return search(board, SearchOptions{.max_depth = depth});
 }
 
-SearchResult search_iterative(const Board& board, const SearchOptions& options) noexcept {
-    if (should_solve_exact_endgame_at_root(board, options)) {
-        return exact_endgame_search_result(board);
+SearchResult search_iterative(SearchSession& session, const Board& board,
+                              const SearchOptions& options) noexcept {
+    if (session.state_ == nullptr) {
+        session.state_ = std::make_unique<search_detail::SearchSessionState>();
     }
 
     const SearchEngineOptions engine_options = engine_options_from(options);
     const SearchDiagnosticsOptions diagnostics_options = diagnostics_options_from(options);
+    begin_session_search(*session.state_, engine_options, resolve_evaluation_config(options),
+                         SearchMode::Iterative);
+
+    if (should_solve_exact_endgame_at_root(board, options)) {
+        session.state_->mode = SearchMode::ExactEndgame;
+        SearchResult result = exact_endgame_search_result(board);
+        finish_session_search(*session.state_, zobrist_hash(board), result);
+        return result;
+    }
+
     const int search_depth = options.max_depth < 0 ? 0 : options.max_depth;
-    SearchContext context{engine_options, diagnostics_options, resolve_evaluation_config(options),
-                          true};
+    SearchContext context{*session.state_, engine_options, diagnostics_options, true};
 
     if (search_depth == 0) {
-        return search_with_context(board, 0, context, std::nullopt, PrincipalVariationHint{});
+        SearchResult result = search_with_context(board, 0, context,
+                                                  session.state_->previous_best_move,
+                                                  PrincipalVariationHint{});
+        finish_session_search(*session.state_, zobrist_hash(board), result);
+        return result;
     }
 
     SearchResult result;
-    std::optional<Square> previous_best_move;
+    std::optional<Square> previous_best_move = session.state_->previous_best_move;
     std::optional<int> previous_score;
     std::optional<int> previous_score_delta;
-    PrincipalVariation previous_principal_variation;
+    PrincipalVariation previous_principal_variation = session.state_->root_principal_variation;
     for (int depth = 1; depth <= search_depth; ++depth) {
         const SearchStats stats_before_depth = context.stats;
         const auto depth_start = std::chrono::steady_clock::now();
@@ -842,7 +1140,13 @@ SearchResult search_iterative(const Board& board, const SearchOptions& options) 
         previous_principal_variation = principal_variation_from_vector(result.principal_variation);
     }
 
+    finish_session_search(*session.state_, zobrist_hash(board), result);
     return result;
+}
+
+SearchResult search_iterative(const Board& board, const SearchOptions& options) noexcept {
+    SearchSession session{options};
+    return search_iterative(session, board, options);
 }
 
 } // namespace othello
