@@ -37,17 +37,21 @@ using bitboard_detail::is_x_square;
 using bitboard_detail::is_x_square_next_to_empty_corner;
 using hash_detail::hash_after_move;
 using hash_detail::hash_after_pass;
-using search_detail::board_after_move;
 using search_detail::empty_count;
+using search_detail::flips_for_move;
 using search_detail::is_better_best_move;
+using search_detail::legal_moves;
 using search_detail::node_result_from_transposition_entry;
 using search_detail::NodeResult;
 using search_detail::diagnostics_options_from;
 using search_detail::engine_options_from;
+using search_detail::position_after_move;
+using search_detail::position_after_pass;
 using search_detail::principal_variation_from_vector;
 using search_detail::principal_variation_to_vector;
 using search_detail::principal_variation_with_move;
 using search_detail::PrincipalVariation;
+using search_detail::SearchPosition;
 using search_detail::SearchDiagnosticsOptions;
 using search_detail::SearchEngineOptions;
 using search_detail::TranspositionLookup;
@@ -124,9 +128,11 @@ struct ExactRootPolicyParams {
 
 constexpr ExactRootPolicyParams adaptive16_exact_root_policy_params{};
 
-[[nodiscard]] int evaluate_for_search(const Board& board, SearchContext& context) noexcept {
+[[nodiscard]] int evaluate_for_search(const SearchPosition& position,
+                                      SearchContext& context) noexcept {
     ++context.stats.eval_calls;
-    return evaluate_with_config(board, board.side_to_move, context.evaluation_config);
+    const Board board = position.to_board();
+    return evaluate_with_config(board, position.side_to_move, context.evaluation_config);
 }
 
 [[nodiscard]] SearchStats stats_delta(const SearchStats& after, const SearchStats& before) noexcept {
@@ -240,7 +246,7 @@ should_use_dynamic_move_ordering(bool enabled, std::size_t move_count, int depth
     return enabled && depth >= params.dynamic_min_depth && move_count >= params.dynamic_min_moves;
 }
 
-[[nodiscard]] int move_order_score(const Board& board, Square square, Bitboard flips,
+[[nodiscard]] int move_order_score(const SearchPosition& position, Square square, Bitboard flips,
                                    std::size_t move_count, int depth, bool dynamic_move_ordering,
                                    const MoveOrderingParams& params) noexcept {
     const int index = square.index();
@@ -264,11 +270,11 @@ should_use_dynamic_move_ordering(bool enabled, std::size_t move_count, int depth
     if (is_edge(index)) {
         score += params.dynamic_edge_bonus;
     }
-    if (is_x_square_next_to_empty_corner(index, board.occupied())) {
+    if (is_x_square_next_to_empty_corner(index, position.occupied())) {
         score -= params.dynamic_x_square_empty_corner_penalty;
     }
 
-    const Board next = board_after_move(board, square, flips);
+    const SearchPosition next = position_after_move(position, square, flips);
     const Bitboard opponent_moves = legal_moves(next);
     if ((opponent_moves & corner_squares) != 0) {
         score -= params.dynamic_opponent_corner_penalty;
@@ -279,7 +285,7 @@ should_use_dynamic_move_ordering(bool enabled, std::size_t move_count, int depth
 }
 
 [[nodiscard]] OrderedMoveIndexes
-ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
+ordered_legal_move_indexes(const SearchPosition& position, Bitboard moves, int depth,
                            bool dynamic_move_ordering, const MoveOrderingParams& params) noexcept {
     OrderedMoveIndexes candidates;
     const auto move_count = static_cast<std::size_t>(std::popcount(moves));
@@ -293,7 +299,7 @@ ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
             continue;
         }
 
-        const Bitboard flips = flips_for_move(board, *square);
+        const Bitboard flips = flips_for_move(position, *square);
         if (flips == 0) {
             continue;
         }
@@ -301,7 +307,7 @@ ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
         candidates.moves[candidates.size] = OrderedMoveIndexes::Move{
             .index = index,
             .flips = flips,
-            .order_score = move_order_score(board, *square, flips, move_count, depth,
+            .order_score = move_order_score(position, *square, flips, move_count, depth,
                                             dynamic_move_ordering, params),
         };
         ++candidates.size;
@@ -338,12 +344,12 @@ ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
 }
 
 [[nodiscard]] OrderedMoveIndexes
-ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
+ordered_legal_move_indexes(const SearchPosition& position, Bitboard moves, int depth,
                            std::optional<Square> preferred_move,
                            std::optional<Square> tt_preferred_move, bool dynamic_move_ordering,
                            const MoveOrderingParams& params, SearchStats& stats) noexcept {
     OrderedMoveIndexes candidates =
-        ordered_legal_move_indexes(board, moves, depth, dynamic_move_ordering, params);
+        ordered_legal_move_indexes(position, moves, depth, dynamic_move_ordering, params);
 
     if (tt_preferred_move.has_value() && (moves & tt_preferred_move->bit()) != 0 &&
         promote_preferred_move(candidates, *tt_preferred_move)) {
@@ -386,8 +392,8 @@ ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
 
 // Fixed-depth negamax is easiest to audit as direct recursion at this stage.
 // NOLINTNEXTLINE(misc-no-recursion)
-[[nodiscard]] NodeResult search_node(const Board& board, ZobristHash hash, int depth, int alpha,
-                                     int beta, SearchContext& context,
+[[nodiscard]] NodeResult search_node(const SearchPosition& position, ZobristHash hash, int depth,
+                                     int alpha, int beta, SearchContext& context,
                                      std::optional<Square> root_preferred_move,
                                      PrincipalVariationHint pv_hint, bool is_root) noexcept {
     ++context.stats.nodes;
@@ -403,28 +409,30 @@ ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
     }
 
     if (depth <= 0) {
-        const NodeResult result{.score = evaluate_for_search(board, context)};
+        const NodeResult result{.score = evaluate_for_search(position, context)};
         store_leaf_transposition(context, hash, depth, result.score, original_alpha, beta,
                                  result.best_move);
         return result;
     }
 
-    const Bitboard moves = legal_moves(board);
+    const Bitboard moves = legal_moves(position);
     if (moves == 0) {
-        const std::optional<Board> next = pass_turn(board);
-        if (!next.has_value()) {
+        const SearchPosition next = position_after_pass(position);
+        if (legal_moves(next) == 0) {
             ++context.stats.game_over_nodes;
-            const NodeResult result{.score = evaluate_for_search(board, context)};
+            const NodeResult result{.score = evaluate_for_search(position, context)};
             context.transpositions.store(hash, depth, result.score, original_alpha, beta,
                                          result.best_move, context.stats);
             return result;
         }
 
         ++context.stats.pass_nodes;
-        const ZobristHash next_hash = hash_after_pass(hash, board.side_to_move);
-        assert(next_hash == zobrist_hash(*next));
+        const ZobristHash next_hash = hash_after_pass(hash, position.side_to_move);
+#ifndef NDEBUG
+        assert(next_hash == zobrist_hash(next.to_board()));
+#endif
 
-        const NodeResult child = search_node(*next, next_hash, depth - 1, -beta, -alpha, context,
+        const NodeResult child = search_node(next, next_hash, depth - 1, -beta, -alpha, context,
                                              std::nullopt, child_hint_after_pass(pv_hint), false);
         const NodeResult result{
             .score = -child.score,
@@ -453,7 +461,7 @@ ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
     }
 
     const OrderedMoveIndexes ordered_moves = ordered_legal_move_indexes(
-        board, moves, depth, preferred_move, cached.best_move_hint, use_dynamic_ordering,
+        position, moves, depth, preferred_move, cached.best_move_hint, use_dynamic_ordering,
         context.move_ordering_params, context.stats);
     if (is_root) {
         record_root_move_ordering_snapshot(context, ordered_moves);
@@ -473,9 +481,12 @@ ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
             continue;
         }
 
-        const Board next = board_after_move(board, *square, flips);
-        const ZobristHash next_hash = hash_after_move(hash, board.side_to_move, *square, flips);
-        assert(next_hash == zobrist_hash(next));
+        const SearchPosition next = position_after_move(position, *square, flips);
+        const ZobristHash next_hash =
+            hash_after_move(hash, position.side_to_move, *square, flips);
+#ifndef NDEBUG
+        assert(next_hash == zobrist_hash(next.to_board()));
+#endif
         ++context.stats.searched_moves;
 
         const PrincipalVariationHint child_hint = child_hint_after_move(pv_hint, *square);
@@ -518,7 +529,7 @@ ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
 
     const NodeResult result{
         .best_move = best_move,
-        .score = best_score.value_or(evaluate_for_search(board, context)),
+        .score = best_score.value_or(evaluate_for_search(position, context)),
         .principal_variation = best_principal_variation,
     };
     context.transpositions.store(hash, depth, result.score, original_alpha, beta, result.best_move,
@@ -530,8 +541,9 @@ ordered_legal_move_indexes(const Board& board, Bitboard moves, int depth,
                                                SearchContext& context, int alpha, int beta,
                                                std::optional<Square> root_preferred_move,
                                                PrincipalVariationHint pv_hint) noexcept {
-    const NodeResult result = search_node(board, zobrist_hash(board), depth, alpha, beta, context,
-                                          root_preferred_move, pv_hint, true);
+    const SearchPosition position = SearchPosition::from_board(board);
+    const NodeResult result = search_node(position, zobrist_hash(board), depth, alpha, beta,
+                                          context, root_preferred_move, pv_hint, true);
 
     return SearchResult{
         .best_move = result.best_move,

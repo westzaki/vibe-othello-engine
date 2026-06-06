@@ -1,8 +1,10 @@
+#include "../src/search_common.hpp"
 #include "test_helpers.hpp"
 
 #include <array>
 #include <catch2/catch_test_macros.hpp>
 #include <othello/othello.hpp>
+#include <optional>
 #include <random>
 #include <string>
 #include <string_view>
@@ -12,6 +14,49 @@ using othello::Bitboard;
 using othello::Board;
 using othello::Side;
 using othello::Square;
+
+namespace {
+
+void check_search_position_matches_public_rules(const Board& board) {
+    const othello::search_detail::SearchPosition position =
+        othello::search_detail::SearchPosition::from_board(board);
+
+    CHECK(othello::test::same_board(position.to_board(), board));
+
+    const Bitboard public_moves = othello::legal_moves(board);
+    const Bitboard search_moves = othello::search_detail::legal_moves(position);
+    CHECK(search_moves == public_moves);
+
+    for (int index = Square::min_index; index <= Square::max_index; ++index) {
+        const std::optional<Square> square = Square::from_index(index);
+        REQUIRE(square.has_value());
+
+        const Bitboard public_flips = othello::flips_for_move(board, *square);
+        const Bitboard search_flips =
+            othello::search_detail::flips_for_move(position, *square);
+        CHECK(search_flips == public_flips);
+
+        const std::optional<Board> public_next = othello::apply_move(board, *square);
+        if (public_next.has_value()) {
+            const othello::search_detail::SearchPosition search_next =
+                othello::search_detail::position_after_move(position, *square, search_flips);
+            CHECK(othello::test::same_board(search_next.to_board(), *public_next));
+        } else {
+            CHECK(search_flips == 0);
+        }
+    }
+
+    const std::optional<Board> public_pass = othello::pass_turn(board);
+    const othello::search_detail::SearchPosition search_pass =
+        othello::search_detail::position_after_pass(position);
+    if (public_pass.has_value()) {
+        CHECK(othello::test::same_board(search_pass.to_board(), *public_pass));
+    } else if (search_moves == 0) {
+        CHECK(othello::search_detail::legal_moves(search_pass) == 0);
+    }
+}
+
+} // namespace
 
 TEST_CASE("Initial board has starting discs and black to move", "[rule-core]") {
     const Board board = Board::initial();
@@ -267,6 +312,46 @@ TEST_CASE("Score is disc difference from the requested side", "[rule-core]") {
     CHECK(othello::score(terminal, Side::White) == -64);
 }
 
+TEST_CASE("SearchPosition rule operations match public Board rules on fixed positions",
+          "[rule-core]") {
+    const std::array boards{
+        Board::initial(),
+        othello::test::black_must_pass_board(),
+        othello::test::board_from_text(R"(........
+........
+........
+........
+........
+........
+........
+.WWWWWWB
+side=B)"),
+        othello::test::board_from_text(R"(........
+........
+........
+........
+........
+........
+........
+WB......
+side=B)"),
+        othello::test::board_from_text(R"(BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+side=B)"),
+    };
+
+    for (const Board& board : boards) {
+        CAPTURE(othello::to_string(board));
+        check_search_position_matches_public_rules(board);
+    }
+}
+
 TEST_CASE("Random legal playouts preserve rule-core invariants", "[rule-core]") {
     constexpr int playout_count = 10;
     constexpr int max_steps = 200;
@@ -284,6 +369,7 @@ TEST_CASE("Random legal playouts preserve rule-core invariants", "[rule-core]") 
 
             REQUIRE(step < max_steps);
             othello::test::require_board_invariants(board);
+            check_search_position_matches_public_rules(board);
 
             const Bitboard moves = othello::legal_moves(board);
             if (moves != 0) {

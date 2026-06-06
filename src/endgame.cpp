@@ -21,13 +21,16 @@ using endgame_detail::ordered_legal_move_indexes;
 using endgame_detail::OrderedMoveIndexes;
 using endgame_detail::solve_last_n_dispatch;
 using hash_detail::hash_after_pass;
-using search_detail::board_after_pass;
 using search_detail::empty_count;
 using search_detail::is_better_best_move;
+using search_detail::legal_moves;
 using search_detail::NodeResult;
+using search_detail::position_after_pass;
 using search_detail::principal_variation_to_vector;
 using search_detail::principal_variation_with_move;
 using search_detail::PrincipalVariation;
+using search_detail::score_for_player;
+using search_detail::SearchPosition;
 
 // Final disc margins are always in [-64, 64]; this leaves a simple generous alpha-beta window.
 constexpr int exact_score_min = -1'000;
@@ -75,10 +78,11 @@ empty_region_parity_ordering_policy(int root_empties, int empties,
     return -scout_result.score < required_score;
 }
 
-[[nodiscard]] NodeResult solve_root_candidate_full(const Board& board, ZobristHash hash,
+[[nodiscard]] NodeResult solve_root_candidate_full(const SearchPosition& position, ZobristHash hash,
                                                    ExactEndgameContext& context) noexcept;
 
-[[nodiscard]] bool root_candidate_needs_full_search(const Board& board, ZobristHash hash,
+[[nodiscard]] bool root_candidate_needs_full_search(const SearchPosition& position,
+                                                    ZobristHash hash,
                                                     int required_score,
                                                     ExactEndgameContext& context) noexcept;
 
@@ -94,11 +98,12 @@ empty_region_parity_ordering_policy(int root_empties, int empties,
 
 // Exact negamax searches to game-over leaves only.
 // NOLINTNEXTLINE(misc-no-recursion)
-[[nodiscard]] NodeResult solve_node(const Board& board, ZobristHash hash, int alpha, int beta,
-                                    ExactEndgameContext& context, bool is_root) noexcept {
-    const int empties = empty_count(board);
+[[nodiscard]] NodeResult solve_node(const SearchPosition& position, ZobristHash hash, int alpha,
+                                    int beta, ExactEndgameContext& context,
+                                    bool is_root) noexcept {
+    const int empties = empty_count(position);
     if (empties <= last_n_specialized_empties) {
-        return solve_last_n_dispatch(board, alpha, beta, context, empties);
+        return solve_last_n_dispatch(position, alpha, beta, context, empties);
     }
 
     ++context.stats.nodes;
@@ -110,11 +115,11 @@ empty_region_parity_ordering_policy(int root_empties, int empties,
         return *cached.cutoff;
     }
 
-    const Bitboard moves = legal_moves(board);
+    const Bitboard moves = legal_moves(position);
     if (moves == 0) {
-        const Board next = board_after_pass(board);
+        const SearchPosition next = position_after_pass(position);
         if (legal_moves(next) == 0) {
-            const NodeResult result{.score = score(board, board.side_to_move)};
+            const NodeResult result{.score = score_for_player(position)};
             context.transpositions.store(hash, empties, result.score, original_alpha, beta,
                                          result.best_move, context.stats);
             return result;
@@ -123,9 +128,9 @@ empty_region_parity_ordering_policy(int root_empties, int empties,
         // At a root pass, the after-pass child is still the first real move choice in the public
         // PV. Treat only that child as a root traversal so root PVS can help without exposing a
         // fake pass move or changing best_move=nullopt semantics.
-        const ZobristHash next_hash = hash_after_pass(hash, board);
+        const ZobristHash next_hash = hash_after_pass(hash, position.side_to_move);
 #ifndef NDEBUG
-        assert(next_hash == zobrist_hash(next));
+        assert(next_hash == zobrist_hash(next.to_board()));
 #endif
         constexpr EndgameSearchPolicy search_policy = default_endgame_search_policy;
         const bool use_after_pass_root_pvs =
@@ -146,7 +151,7 @@ empty_region_parity_ordering_policy(int root_empties, int empties,
     PrincipalVariation best_principal_variation;
 
     const OrderedMoveIndexes ordered_moves = ordered_legal_move_indexes(
-        board, hash, moves, cached.best_move_hint, context.stats,
+        position, hash, moves, cached.best_move_hint, context.stats,
         empty_region_parity_ordering_policy(context.root_empties, empties,
                                             default_endgame_search_policy));
     const bool use_root_pvs =
@@ -206,7 +211,7 @@ empty_region_parity_ordering_policy(int root_empties, int empties,
 
     const NodeResult result{
         .best_move = best_move,
-        .score = best_score.value_or(score(board, board.side_to_move)),
+        .score = best_score.value_or(score_for_player(position)),
         .principal_variation = best_principal_variation,
     };
     context.transpositions.store(hash, empties, result.score, original_alpha, beta,
@@ -215,13 +220,14 @@ empty_region_parity_ordering_policy(int root_empties, int empties,
 }
 
 // NOLINTNEXTLINE(misc-no-recursion)
-[[nodiscard]] NodeResult solve_root_candidate_full(const Board& board, ZobristHash hash,
+[[nodiscard]] NodeResult solve_root_candidate_full(const SearchPosition& position, ZobristHash hash,
                                                    ExactEndgameContext& context) noexcept {
-    return solve_node(board, hash, exact_score_min, exact_score_max, context, false);
+    return solve_node(position, hash, exact_score_min, exact_score_max, context, false);
 }
 
 // NOLINTNEXTLINE(misc-no-recursion)
-[[nodiscard]] bool root_candidate_needs_full_search(const Board& board, ZobristHash hash,
+[[nodiscard]] bool root_candidate_needs_full_search(const SearchPosition& position,
+                                                    ZobristHash hash,
                                                     int required_score,
                                                     ExactEndgameContext& context) noexcept {
     // Root candidate score is -child_score. The null window [a, a + 1), where
@@ -229,7 +235,8 @@ empty_region_parity_ordering_policy(int root_empties, int empties,
     // root_score < required_score. Equality is handled by required_score:
     // lower-index candidates need only tie, higher-index candidates must beat.
     const int scout_alpha = -required_score;
-    const NodeResult scout = solve_node(board, hash, scout_alpha, scout_alpha + 1, context, false);
+    const NodeResult scout =
+        solve_node(position, hash, scout_alpha, scout_alpha + 1, context, false);
     return !root_scout_rejects_candidate(scout, required_score);
 }
 
@@ -238,8 +245,9 @@ empty_region_parity_ordering_policy(int root_empties, int empties,
 ExactEndgameResult solve_exact_endgame(const Board& board,
                                        const ExactEndgameOptions& options) noexcept {
     ExactEndgameContext context{empty_count(board), options};
+    const SearchPosition position = SearchPosition::from_board(board);
     const NodeResult result =
-        solve_node(board, zobrist_hash(board), exact_score_min, exact_score_max, context, true);
+        solve_node(position, zobrist_hash(board), exact_score_min, exact_score_max, context, true);
 
     return ExactEndgameResult{
         .best_move = result.best_move,
