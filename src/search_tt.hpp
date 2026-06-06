@@ -4,6 +4,7 @@
 #include "search_runtime_options.hpp"
 #include "tt_common.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -13,6 +14,7 @@
 #include <optional>
 #include <othello/hash.hpp>
 #include <othello/square.hpp>
+#include <span>
 
 namespace othello::search_detail {
 
@@ -42,6 +44,69 @@ struct TranspositionLookup {
     std::optional<NodeResult> cutoff;
     std::optional<Square> best_move_hint;
 };
+
+[[nodiscard]] constexpr std::uint32_t generation_age(std::uint32_t current_generation,
+                                                     std::uint32_t entry_generation) noexcept {
+    if (current_generation == 0 || entry_generation == 0) {
+        return std::numeric_limits<std::uint32_t>::max();
+    }
+    if (current_generation >= entry_generation) {
+        return current_generation - entry_generation;
+    }
+    return current_generation + (std::numeric_limits<std::uint32_t>::max() - entry_generation);
+}
+
+[[nodiscard]] constexpr int replacement_protection_score(int depth,
+                                                         std::uint32_t age) noexcept {
+    constexpr int depth_weight = 4;
+    constexpr std::uint32_t max_age_penalty = 8;
+    const int normalized_depth = std::max(depth, 0);
+    const int age_penalty = static_cast<int>(std::min(age, max_age_penalty));
+    return normalized_depth * depth_weight - age_penalty;
+}
+
+[[nodiscard]] inline TranspositionEntry*
+select_replacement_entry(std::span<TranspositionEntry> entries, ZobristHash hash,
+                         TranspositionScope scope, std::uint32_t current_generation,
+                         int incoming_depth) noexcept {
+    TranspositionEntry* empty_slot = nullptr;
+    TranspositionEntry* weakest_entry = nullptr;
+    int weakest_score = 0;
+    std::uint32_t weakest_age = 0;
+
+    for (TranspositionEntry& entry : entries) {
+        if (entry.occupied && entry.hash == hash && entry.mode == scope.mode &&
+            entry.eval_identity == scope.eval_identity) {
+            return &entry;
+        }
+        if (!entry.occupied) {
+            if (empty_slot == nullptr) {
+                empty_slot = &entry;
+            }
+            continue;
+        }
+
+        const std::uint32_t age = generation_age(current_generation, entry.generation);
+        const int score = replacement_protection_score(entry.depth, age);
+        if (weakest_entry == nullptr || score < weakest_score ||
+            (score == weakest_score && age > weakest_age) ||
+            (score == weakest_score && age == weakest_age && entry.depth < weakest_entry->depth)) {
+            weakest_entry = &entry;
+            weakest_score = score;
+            weakest_age = age;
+        }
+    }
+
+    if (empty_slot != nullptr) {
+        return empty_slot;
+    }
+
+    const int incoming_score = replacement_protection_score(incoming_depth, 0);
+    if (weakest_entry == nullptr || incoming_score < weakest_score) {
+        return nullptr;
+    }
+    return weakest_entry;
+}
 
 class TranspositionTable {
 public:
@@ -98,7 +163,7 @@ public:
         }
 
         TranspositionEntry* entry =
-            replacement_entry(buckets_[bucket_index(hash)], hash, scope, depth);
+            replacement_entry(buckets_[bucket_index(hash)], hash, scope, generation, depth);
         if (entry == nullptr) {
             ++stats.tt_rejected_stores;
             return false;
@@ -163,37 +228,11 @@ private:
         return static_cast<std::size_t>(hash) & (bucket_count_ - 1);
     }
 
-    [[nodiscard]] static TranspositionEntry* replacement_entry(Bucket& bucket, ZobristHash hash,
-                                                               TranspositionScope scope,
-                                                               int depth) noexcept {
-        TranspositionEntry* empty_slot = nullptr;
-        TranspositionEntry* shallowest = &bucket.entries.front();
-        for (TranspositionEntry& entry : bucket.entries) {
-            if (entry.occupied && entry.hash == hash && entry.mode == scope.mode &&
-                entry.eval_identity == scope.eval_identity) {
-                return &entry;
-            }
-            if (!entry.occupied) {
-                if (empty_slot == nullptr) {
-                    empty_slot = &entry;
-                }
-                continue;
-            }
-            if (entry.depth < shallowest->depth) {
-                shallowest = &entry;
-            }
-        }
-
-        if (empty_slot != nullptr) {
-            return empty_slot;
-        }
-
-        // Keep deeper entries stable under pressure. Equal-depth stores replace the first
-        // shallowest slot deterministically; strictly shallower stores are rejected.
-        if (depth < shallowest->depth) {
-            return nullptr;
-        }
-        return shallowest;
+    [[nodiscard]] static TranspositionEntry*
+    replacement_entry(Bucket& bucket, ZobristHash hash, TranspositionScope scope,
+                      std::uint32_t generation, int depth) noexcept {
+        return select_replacement_entry(std::span<TranspositionEntry>{bucket.entries}, hash, scope,
+                                        generation, depth);
     }
 
     [[nodiscard]] static NodeResult
