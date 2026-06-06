@@ -102,8 +102,8 @@ void accumulate_feature(const evaluation_detail::EvaluationScratch& scratch, int
 }
 
 [[nodiscard]] NonTerminalEvaluation accumulate_non_terminal_evaluation(
-    const Board& board, Side side, const evaluation_detail::EvaluationScratch& scratch,
-    const EvaluationConfig& config,
+    Bitboard player, Bitboard opponent,
+    const evaluation_detail::EvaluationScratch& scratch, const EvaluationConfig& config,
     EvaluationPhase phase, RawFeatureMode mode) noexcept {
     const EvaluationFeatureWeights& weights = weights_for_phase(config, phase);
     const bool preserve_breakdown_raw_values = mode == RawFeatureMode::Breakdown;
@@ -141,7 +141,8 @@ void accumulate_feature(const evaluation_detail::EvaluationScratch& scratch, int
                        result.corner_local_2x3, result.corner_local_2x3_score,
                        result.total);
     if (weights.corner_2x3_pattern != 0) {
-        result.corner_2x3_pattern = corner_2x3_pattern_score(board, side);
+        result.corner_2x3_pattern =
+            evaluation_detail::corner_2x3_pattern_score(player, opponent);
         result.corner_2x3_pattern_score =
             result.corner_2x3_pattern * weights.corner_2x3_pattern;
         result.total += result.corner_2x3_pattern_score;
@@ -151,7 +152,7 @@ void accumulate_feature(const evaluation_detail::EvaluationScratch& scratch, int
                        result.edge_stability_lite, result.edge_stability_lite_score,
                        result.total);
     if (weights.edge_8_pattern != 0) {
-        result.edge_8_pattern = edge_8_pattern_score(board, side);
+        result.edge_8_pattern = evaluation_detail::edge_8_pattern_score(player, opponent);
         result.edge_8_pattern_score = result.edge_8_pattern * weights.edge_8_pattern;
         result.total += result.edge_8_pattern_score;
     }
@@ -160,7 +161,8 @@ void accumulate_feature(const evaluation_detail::EvaluationScratch& scratch, int
         const PatternTableBundle* pattern_tables = pattern_tables_for_phase(config, phase);
         if (pattern_tables != nullptr) {
             result.pattern_table =
-                evaluation_pattern_table_score(board, side, *pattern_tables);
+                evaluation_detail::evaluation_pattern_table_score(player, opponent,
+                                                                  *pattern_tables);
             result.pattern_table_score = result.pattern_table * weights.pattern_table;
             result.total += result.pattern_table_score;
         }
@@ -169,10 +171,10 @@ void accumulate_feature(const evaluation_detail::EvaluationScratch& scratch, int
     return result;
 }
 
-[[nodiscard]] int evaluate_score_only(const Board& board, Side side,
+[[nodiscard]] int evaluate_score_only(Bitboard player, Bitboard opponent,
                                       const EvaluationConfig& config) noexcept {
     const evaluation_detail::EvaluationScratch scratch =
-        evaluation_detail::make_evaluation_scratch(board, side);
+        evaluation_detail::make_evaluation_scratch(player, opponent);
     const EvaluationPhase phase = phase_for_occupied_count(scratch.occupied_count, config);
 
     if (scratch.game_over) {
@@ -180,7 +182,7 @@ void accumulate_feature(const evaluation_detail::EvaluationScratch& scratch, int
     }
 
     return accumulate_non_terminal_evaluation(
-               board, side, scratch, config, phase, RawFeatureMode::ScoreOnly)
+               player, opponent, scratch, config, phase, RawFeatureMode::ScoreOnly)
         .total;
 }
 
@@ -223,7 +225,7 @@ EvaluationBreakdown evaluate_basic_breakdown(const Board& board, Side side,
     }
 
     const NonTerminalEvaluation features = accumulate_non_terminal_evaluation(
-        board, side, scratch, config, phase, RawFeatureMode::Breakdown);
+        scratch.player, scratch.opponent, scratch, config, phase, RawFeatureMode::Breakdown);
     breakdown.disc_difference = features.disc_difference;
     breakdown.disc_difference_score = features.disc_difference_score;
     breakdown.mobility = features.mobility;
@@ -257,11 +259,21 @@ EvaluationBreakdown evaluate_basic_breakdown(const Board& board, Side side) noex
 }
 
 int evaluate_with_config(const Board& board, Side side, const EvaluationConfig& config) noexcept {
-    return evaluate_score_only(board, side, config);
+    return evaluation_detail::evaluate_with_config(board.discs(side),
+                                                   board.discs(opponent(side)), config);
 }
 
 int evaluate_basic(const Board& board, Side side) noexcept {
     return evaluate_with_config(board, side, default_evaluation_config());
 }
+
+namespace evaluation_detail {
+
+int evaluate_with_config(Bitboard player, Bitboard opponent,
+                         const EvaluationConfig& config) noexcept {
+    return evaluate_score_only(player, opponent, config);
+}
+
+} // namespace evaluation_detail
 
 } // namespace othello

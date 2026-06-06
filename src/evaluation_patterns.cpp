@@ -224,6 +224,14 @@ template <std::size_t N>
     };
 }
 
+[[nodiscard]] constexpr PatternIndexContext pattern_index_context(Bitboard player,
+                                                                  Bitboard opponent) noexcept {
+    return PatternIndexContext{
+        .own = player,
+        .opponent = opponent,
+    };
+}
+
 template <std::size_t N>
 [[nodiscard]] int pattern_index_for_squares(const Board& board, Side side,
                                             const std::array<int, N>& square_indexes) noexcept {
@@ -508,5 +516,60 @@ int evaluation_pattern_table_score(const Board& board, Side side,
                                    const PatternTableBundle& tables) noexcept {
     return evaluation_pattern_table_value(board, side, tables);
 }
+
+namespace evaluation_detail {
+
+int corner_2x3_pattern_score(Bitboard player, Bitboard opponent) noexcept {
+    const PatternIndexContext context = pattern_index_context(player, opponent);
+    int value = 0;
+    for (const Corner2x3PatternSpec& spec : corner_2x3_pattern_specs) {
+        value += corner_2x3_pattern_table_value(
+            pattern_index_for_squares(context, spec.square_indexes));
+    }
+    return value;
+}
+
+int edge_8_pattern_score(Bitboard player, Bitboard opponent) noexcept {
+    const PatternIndexContext context = pattern_index_context(player, opponent);
+    int value = 0;
+    for (const Edge8PatternSpec& spec : edge_8_pattern_specs) {
+        value += edge_8_pattern_table_value(
+            pattern_index_for_squares(context, spec.square_indexes));
+    }
+    return value;
+}
+
+int evaluation_pattern_table_score(Bitboard player, Bitboard opponent,
+                                   const PatternTableBundle& tables) noexcept {
+    const PatternIndexContext context = pattern_index_context(player, opponent);
+    int value = 0;
+    for (const Corner2x3PatternSpec& spec : corner_2x3_pattern_specs) {
+        value += tables.corner_2x3[static_cast<std::size_t>(
+            pattern_index_for_squares(context, spec.square_indexes))];
+    }
+    for (const Corner3x3PatternSpec& spec : corner_3x3_pattern_specs) {
+        value += tables.corner_3x3[static_cast<std::size_t>(
+            pattern_index_for_squares(context, spec.square_indexes))];
+    }
+    for (const Edge8PatternSpec& spec : edge_8_pattern_specs) {
+        value += tables.edge_8[static_cast<std::size_t>(
+            pattern_index_for_squares(context, spec.square_indexes))];
+    }
+    for (const EdgeX10PatternSpec& spec : edge_x_10_pattern_specs) {
+        value += tables.edge_x_10[static_cast<std::size_t>(
+            pattern_index_for_squares(context, spec.square_indexes))];
+    }
+    for (const Diagonal8PatternSpec& spec : diagonal_8_pattern_specs) {
+        value += tables.diagonal_8[static_cast<std::size_t>(
+            pattern_index_for_squares(context, spec.square_indexes))];
+    }
+    for (const InnerRow8PatternSpec& spec : inner_row_8_pattern_specs) {
+        value += tables.inner_row_8[static_cast<std::size_t>(
+            pattern_index_for_squares(context, spec.square_indexes))];
+    }
+    return value;
+}
+
+} // namespace evaluation_detail
 
 } // namespace othello
