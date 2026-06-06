@@ -1,6 +1,7 @@
 #include "common/cli.hpp"
 #include "common/evaluator_cli.hpp"
 #include "common/evaluator_selection.hpp"
+#include "common/search_cli_options.hpp"
 #include "common/search_preset.hpp"
 #include "protocols/nboard/game_codec.hpp"
 
@@ -15,17 +16,14 @@ namespace {
 
 struct Options {
     int depth = 4;
-    int exact_endgame_empty_threshold = 12;
-    bool exact_endgame_threshold_overridden = false;
-    othello::tools::SearchPreset preset = othello::tools::SearchPreset::Default;
+    othello::tools::NBoardSearchCliOptions search_cli;
     othello::tools::EvaluatorSelection evaluator;
     bool verbose = false;
     bool help = false;
 };
 
 void print_usage(std::string_view program) {
-    std::cout << "usage: " << program
-              << " [--depth N] " << othello::tools::evaluator_cli_usage()
+    std::cout << "usage: " << program << " [--depth N] " << othello::tools::evaluator_cli_usage()
               << " [--preset default|strong-v1]"
               << " [--exact-endgame-threshold N]"
                  " [--verbose] [--help]\n"
@@ -68,17 +66,6 @@ void print_usage(std::string_view program) {
             options.depth = *depth;
             continue;
         }
-        if (arg == "--preset") {
-            const auto value = othello::tools::next_argument(args, index, arg);
-            const auto preset =
-                value.has_value() ? othello::tools::parse_search_preset(*value) : std::nullopt;
-            if (!preset.has_value()) {
-                std::cerr << "invalid --preset value\n";
-                return std::nullopt;
-            }
-            options.preset = *preset;
-            continue;
-        }
         std::string evaluator_cli_error;
         const othello::tools::EvaluatorCliParseResult evaluator_cli_result =
             othello::tools::parse_evaluator_cli_option(args, index, evaluator_cli,
@@ -90,16 +77,16 @@ void print_usage(std::string_view program) {
         if (evaluator_cli_result == othello::tools::EvaluatorCliParseResult::Parsed) {
             continue;
         }
-        if (arg == "--exact-endgame-threshold") {
-            const auto value = othello::tools::next_argument(args, index, arg);
-            const auto threshold =
-                value.has_value() ? othello::tools::parse_int(*value) : std::nullopt;
-            if (!threshold.has_value()) {
-                std::cerr << "invalid --exact-endgame-threshold value\n";
-                return std::nullopt;
-            }
-            options.exact_endgame_empty_threshold = *threshold;
-            options.exact_endgame_threshold_overridden = true;
+
+        std::string search_cli_error;
+        const othello::tools::SearchCliParseResult search_cli_result =
+            othello::tools::parse_nboard_search_cli_option(args, index, options.search_cli,
+                                                           search_cli_error);
+        if (search_cli_result == othello::tools::SearchCliParseResult::Error) {
+            std::cerr << search_cli_error << '\n';
+            return std::nullopt;
+        }
+        if (search_cli_result == othello::tools::SearchCliParseResult::Parsed) {
             continue;
         }
         std::cerr << "unknown option: " << arg << '\n';
@@ -135,18 +122,14 @@ void print_usage(std::string_view program) {
                                                          const Options& engine_options,
                                                          othello::SearchSession& session) {
     othello::tools::SearchPresetOptions preset_options =
-        othello::tools::search_preset_options(engine_options.preset);
-    othello::SearchOptions options = preset_options.search_options;
-    options.max_depth = engine_options.depth;
-    if (engine_options.preset == othello::tools::SearchPreset::Default) {
-        options.use_transposition_table = true;
-        options.use_pvs = true;
-        options.exact_endgame_empty_threshold = engine_options.exact_endgame_empty_threshold;
-    } else if (engine_options.exact_endgame_threshold_overridden) {
-        options.exact_endgame_empty_threshold = engine_options.exact_endgame_empty_threshold;
-        options.exact_endgame_root_policy = othello::ExactEndgameRootPolicy::FixedThreshold;
-    }
-    options = othello::tools::apply_evaluator_selection(options, engine_options.evaluator);
+        othello::tools::search_preset_options(engine_options.search_cli.preset);
+    const std::optional<int> exact_threshold =
+        engine_options.search_cli.exact_endgame_threshold_overridden
+            ? std::optional<int>{engine_options.search_cli.exact_endgame_empty_threshold}
+            : std::nullopt;
+    const othello::SearchOptions options = othello::tools::make_search_options_from_preset(
+        engine_options.search_cli.preset, engine_options.depth, exact_threshold,
+        engine_options.evaluator);
     const othello::SearchResult result = preset_options.use_iterative_search
                                              ? othello::search_iterative(session, board, options)
                                              : othello::search(session, board, options);
@@ -209,9 +192,9 @@ int run_engine(Options options) {
         }
         if (const auto tail = command_tail(line, "set game"); tail.has_value()) {
             const std::string tail_text = othello::tools::nboard::trim_ascii(*tail);
-            const auto parsed =
-                tail_text.starts_with("(;") ? othello::tools::nboard::parse_ggf_game(tail_text)
-                                            : othello::tools::nboard::parse_move_list(tail_text);
+            const auto parsed = tail_text.starts_with("(;")
+                                    ? othello::tools::nboard::parse_ggf_game(tail_text)
+                                    : othello::tools::nboard::parse_move_list(tail_text);
             if (parsed.ok) {
                 if (!is_same_game_extension(game_moves, parsed.moves)) {
                     search_session.reset();

@@ -4,6 +4,7 @@
 #include "common/formatting.hpp"
 #include "common/jsonl.hpp"
 #include "common/output_format.hpp"
+#include "common/search_cli_options.hpp"
 #include "common/stats.hpp"
 #include "positions/metrics.hpp"
 #include "positions/search_positions.hpp"
@@ -11,7 +12,6 @@
 
 #include <algorithm>
 #include <bit>
-#include <charconv>
 #include <chrono>
 #include <cstdint>
 #include <exception>
@@ -23,7 +23,6 @@
 #include <span>
 #include <string>
 #include <string_view>
-#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -117,17 +116,9 @@ struct BenchmarkOptions {
     bool describe_positions = false;
     bool by_position = false;
     bool emit_iterative_depth_rows = false;
-    std::optional<bool> use_transposition_table;
-    std::optional<bool> store_leaf_tt_entries;
-    std::optional<bool> use_pvs;
-    std::optional<bool> use_aspiration_window;
-    std::size_t transposition_table_entries = othello::SearchOptions{}.transposition_table_entries;
+    othello::tools::SearchCliOptions search_cli;
     std::vector<ExactRootProfile> exact_root_profiles{
         fixed_exact_root_profile(othello::SearchOptions{}.exact_endgame_empty_threshold)};
-    int aspiration_window = othello::SearchOptions{}.aspiration_window;
-    int aspiration_max_researches = othello::SearchOptions{}.aspiration_max_researches;
-    othello::AspirationProfile aspiration_profile =
-        othello::SearchOptions{}.aspiration_profile;
     OutputFormat output_format = OutputFormat::Text;
     othello::tools::EvaluatorSelection evaluator;
 };
@@ -315,29 +306,6 @@ void print_usage(std::string_view program_name) {
     return 0;
 }
 
-[[nodiscard]] std::string_view aspiration_profile_name(
-    othello::AspirationProfile profile) noexcept {
-    switch (profile) {
-    case othello::AspirationProfile::Fixed:
-        return "fixed";
-    case othello::AspirationProfile::ScoreDeltaAware:
-        return "score-delta-aware";
-    }
-
-    return "unknown";
-}
-
-[[nodiscard]] std::optional<othello::AspirationProfile>
-parse_aspiration_profile(std::string_view text) noexcept {
-    if (text == "fixed") {
-        return othello::AspirationProfile::Fixed;
-    }
-    if (text == "score-delta-aware") {
-        return othello::AspirationProfile::ScoreDeltaAware;
-    }
-    return std::nullopt;
-}
-
 [[nodiscard]] std::string_view position_set_name(PositionSet position_set) noexcept {
     switch (position_set) {
     case PositionSet::Smoke:
@@ -354,25 +322,11 @@ parse_aspiration_profile(std::string_view text) noexcept {
 }
 
 [[nodiscard]] std::optional<int> parse_positive_depth(std::string_view text) noexcept {
-    int value = 0;
-    const auto* begin = text.data();
-    const auto* end = text.data() + text.size();
-    const auto result = std::from_chars(begin, end, value);
-    if (result.ec != std::errc{} || result.ptr != end || value <= 0) {
-        return std::nullopt;
-    }
-    return value;
+    return othello::tools::parse_positive_int(text);
 }
 
 [[nodiscard]] std::optional<int> parse_int(std::string_view text) noexcept {
-    int value = 0;
-    const auto* begin = text.data();
-    const auto* end = text.data() + text.size();
-    const auto result = std::from_chars(begin, end, value);
-    if (result.ec != std::errc{} || result.ptr != end) {
-        return std::nullopt;
-    }
-    return value;
+    return othello::tools::parse_int(text);
 }
 
 [[nodiscard]] std::optional<std::vector<int>> parse_depths(std::string_view text) {
@@ -508,10 +462,6 @@ parse_exact_root_profiles(std::string_view text) {
     return std::nullopt;
 }
 
-[[nodiscard]] std::optional<bool> parse_tt_setting(std::string_view text) {
-    return othello::tools::parse_on_off(text);
-}
-
 [[nodiscard]] std::optional<BenchmarkOptions> parse_options(std::span<char* const> args) {
     BenchmarkOptions options;
     othello::tools::EvaluatorCliParseState evaluator_cli;
@@ -590,131 +540,15 @@ parse_exact_root_profiles(std::string_view text) {
             continue;
         }
 
-        if (option == "--tt") {
-            ++index;
-            if (index >= args.size()) {
-                std::cerr << "--tt requires on or off\n";
-                return std::nullopt;
-            }
-
-            const auto tt_setting = parse_tt_setting(args[index]);
-            if (!tt_setting.has_value()) {
-                std::cerr << "--tt must be on or off\n";
-                return std::nullopt;
-            }
-            options.use_transposition_table = tt_setting;
-            continue;
+        std::string search_cli_error;
+        const othello::tools::SearchCliParseResult search_cli_result =
+            othello::tools::parse_search_cli_option(args, index, options.search_cli,
+                                                    search_cli_error);
+        if (search_cli_result == othello::tools::SearchCliParseResult::Error) {
+            std::cerr << search_cli_error << '\n';
+            return std::nullopt;
         }
-
-        if (option == "--tt-store-leaf") {
-            ++index;
-            if (index >= args.size()) {
-                std::cerr << "--tt-store-leaf requires on or off\n";
-                return std::nullopt;
-            }
-
-            const auto store_leaf_setting = othello::tools::parse_on_off(args[index]);
-            if (!store_leaf_setting.has_value()) {
-                std::cerr << "--tt-store-leaf must be on or off\n";
-                return std::nullopt;
-            }
-            options.store_leaf_tt_entries = store_leaf_setting;
-            continue;
-        }
-
-        if (option == "--pvs") {
-            ++index;
-            if (index >= args.size()) {
-                std::cerr << "--pvs requires on or off\n";
-                return std::nullopt;
-            }
-
-            const auto pvs_setting = othello::tools::parse_on_off(args[index]);
-            if (!pvs_setting.has_value()) {
-                std::cerr << "--pvs must be on or off\n";
-                return std::nullopt;
-            }
-            options.use_pvs = pvs_setting;
-            continue;
-        }
-
-        if (option == "--aspiration") {
-            ++index;
-            if (index >= args.size()) {
-                std::cerr << "--aspiration requires on or off\n";
-                return std::nullopt;
-            }
-
-            const auto aspiration_setting = othello::tools::parse_on_off(args[index]);
-            if (!aspiration_setting.has_value()) {
-                std::cerr << "--aspiration must be on or off\n";
-                return std::nullopt;
-            }
-            options.use_aspiration_window = aspiration_setting;
-            continue;
-        }
-
-        if (option == "--aspiration-window") {
-            ++index;
-            if (index >= args.size()) {
-                std::cerr << "--aspiration-window requires a positive integer\n";
-                return std::nullopt;
-            }
-
-            const auto window = parse_positive_depth(args[index]);
-            if (!window.has_value()) {
-                std::cerr << "--aspiration-window must be a positive integer\n";
-                return std::nullopt;
-            }
-            options.aspiration_window = *window;
-            continue;
-        }
-
-        if (option == "--aspiration-max-researches") {
-            ++index;
-            if (index >= args.size()) {
-                std::cerr << "--aspiration-max-researches requires a non-negative integer\n";
-                return std::nullopt;
-            }
-
-            const auto researches = parse_int(args[index]);
-            if (!researches.has_value() || *researches < 0) {
-                std::cerr << "--aspiration-max-researches must be a non-negative integer\n";
-                return std::nullopt;
-            }
-            options.aspiration_max_researches = *researches;
-            continue;
-        }
-
-        if (option == "--aspiration-profile") {
-            ++index;
-            if (index >= args.size()) {
-                std::cerr << "--aspiration-profile requires fixed or score-delta-aware\n";
-                return std::nullopt;
-            }
-
-            const auto profile = parse_aspiration_profile(args[index]);
-            if (!profile.has_value()) {
-                std::cerr << "--aspiration-profile must be fixed or score-delta-aware\n";
-                return std::nullopt;
-            }
-            options.aspiration_profile = *profile;
-            continue;
-        }
-
-        if (option == "--tt-entries") {
-            ++index;
-            if (index >= args.size()) {
-                std::cerr << "--tt-entries requires a non-negative integer\n";
-                return std::nullopt;
-            }
-
-            const auto entry_count = othello::tools::parse_entry_count(args[index]);
-            if (!entry_count.has_value()) {
-                std::cerr << "--tt-entries must be a non-negative integer\n";
-                return std::nullopt;
-            }
-            options.transposition_table_entries = *entry_count;
+        if (search_cli_result == othello::tools::SearchCliParseResult::Parsed) {
             continue;
         }
 
@@ -1056,25 +890,10 @@ benchmark_exact_root_decision(const othello::Board& board, const othello::Search
 make_search_options(const BenchmarkOptions& options, int depth,
                     const ExactRootProfile& exact_root_profile) noexcept {
     auto search_options = othello::SearchOptions{.max_depth = depth};
-    if (options.use_transposition_table.has_value()) {
-        search_options.use_transposition_table = *options.use_transposition_table;
-    }
-    if (options.store_leaf_tt_entries.has_value()) {
-        search_options.store_leaf_tt_entries = *options.store_leaf_tt_entries;
-    }
-    if (options.use_pvs.has_value()) {
-        search_options.use_pvs = *options.use_pvs;
-    }
-    if (options.use_aspiration_window.has_value()) {
-        search_options.use_aspiration_window = *options.use_aspiration_window;
-    }
-    search_options.transposition_table_entries = options.transposition_table_entries;
+    search_options = othello::tools::apply_search_cli_options(search_options, options.search_cli);
     search_options.exact_endgame_empty_threshold =
         profile_uses_engine_gate(exact_root_profile) ? exact_root_profile.threshold : 0;
     search_options.exact_endgame_root_policy = exact_root_profile.policy;
-    search_options.aspiration_window = options.aspiration_window;
-    search_options.aspiration_max_researches = options.aspiration_max_researches;
-    search_options.aspiration_profile = options.aspiration_profile;
     return othello::tools::apply_evaluator_selection(search_options, options.evaluator);
 }
 
@@ -1152,8 +971,7 @@ void observe_iterative_depth(const othello::IterativeSearchDepthInfo& info, void
     std::uint64_t result_checksum = othello::benchmarks::mix_checksum(
         othello::benchmarks::search_result_checksum(result), data->board_checksum);
     result_checksum = othello::benchmarks::mix_checksum(result_checksum, mode_checksum(data->mode));
-    std::uint64_t work_checksum =
-        othello::benchmarks::mix_checksum(result_checksum, result.nodes);
+    std::uint64_t work_checksum = othello::benchmarks::mix_checksum(result_checksum, result.nodes);
 
     data->rows->push_back(IterativeDepthBenchmarkResult{
         .position_name = data->position_name,
@@ -1283,7 +1101,8 @@ benchmark_search(const std::vector<othello::benchmarks::Position>& positions, in
                 search_options.iterative_depth_observer = observe_iterative_depth;
                 search_options.iterative_depth_observer_user_data = &observer_data;
             }
-            const auto result = run_search(position.board, search_options, mode, exact_root_profile);
+            const auto result =
+                run_search(position.board, search_options, mode, exact_root_profile);
             auto stable_result_checksum = othello::benchmarks::mix_checksum(
                 othello::benchmarks::search_result_checksum(result),
                 othello::benchmarks::board_checksum(position.board));
@@ -1366,8 +1185,7 @@ benchmark_position(const othello::benchmarks::Position& position, int depth,
     std::optional<int> sample_exact_disc_margin;
     std::vector<IterativeDepthBenchmarkResult> iterative_depth_rows;
     if (benchmark_options.emit_iterative_depth_rows && mode == SearchRunMode::Iterative) {
-        iterative_depth_rows.reserve(repetitions *
-                                     static_cast<std::uint64_t>(std::max(depth, 0)));
+        iterative_depth_rows.reserve(repetitions * static_cast<std::uint64_t>(std::max(depth, 0)));
     }
     RootMoveOrderingDiagnostic root_move_ordering;
 
@@ -1704,8 +1522,7 @@ void write_json_root_ordering_field(JsonObjectWriter& writer,
 [[nodiscard]] double pvs_research_ratio(const othello::SearchStats& stats) noexcept {
     return stats.pvs_scouts == 0
                ? 0.0
-               : static_cast<double>(stats.pvs_researches) /
-                     static_cast<double>(stats.pvs_scouts);
+               : static_cast<double>(stats.pvs_researches) / static_cast<double>(stats.pvs_scouts);
 }
 
 [[nodiscard]] double average_distance(std::uint64_t total, std::uint64_t count) noexcept {
@@ -1752,12 +1569,12 @@ void write_json_instrumentation_stats_fields(JsonObjectWriter& writer,
     writer.double_field("pvs_research_ratio", pvs_research_ratio(stats));
     writer.uint_field("asp_fail_low_distance_sum", stats.aspiration_fail_low_distance_sum);
     writer.uint_field("asp_fail_high_distance_sum", stats.aspiration_fail_high_distance_sum);
-    writer.double_field("asp_fail_low_distance_avg",
-                        average_distance(stats.aspiration_fail_low_distance_sum,
-                                         stats.aspiration_fail_lows));
-    writer.double_field("asp_fail_high_distance_avg",
-                        average_distance(stats.aspiration_fail_high_distance_sum,
-                                         stats.aspiration_fail_highs));
+    writer.double_field(
+        "asp_fail_low_distance_avg",
+        average_distance(stats.aspiration_fail_low_distance_sum, stats.aspiration_fail_lows));
+    writer.double_field(
+        "asp_fail_high_distance_avg",
+        average_distance(stats.aspiration_fail_high_distance_sum, stats.aspiration_fail_highs));
 }
 
 void write_search_jsonl(const SearchBenchmarkResult& result, PositionSet position_set,
@@ -1789,7 +1606,8 @@ void write_search_jsonl(const SearchBenchmarkResult& result, PositionSet positio
     writer.bool_field("aspiration", result.use_aspiration_window);
     writer.int_field("aspiration_window", result.aspiration_window);
     writer.int_field("aspiration_max_researches", result.aspiration_max_researches);
-    writer.string_field("aspiration_profile", aspiration_profile_name(result.aspiration_profile));
+    writer.string_field("aspiration_profile",
+                        othello::tools::aspiration_profile_name(result.aspiration_profile));
     writer.uint_field("tt_entries", static_cast<std::uint64_t>(result.transposition_table_entries));
     writer.string_field("exact_endgame_profile", result.exact_root_profile);
     writer.uint_field("exact_root_positions", result.exact_root_positions);
@@ -1835,7 +1653,8 @@ void write_iterative_depth_jsonl(const IterativeDepthBenchmarkResult& result,
     writer.bool_field("aspiration", result.use_aspiration_window);
     writer.int_field("aspiration_window", result.aspiration_window);
     writer.int_field("aspiration_max_researches", result.aspiration_max_researches);
-    writer.string_field("aspiration_profile", aspiration_profile_name(result.aspiration_profile));
+    writer.string_field("aspiration_profile",
+                        othello::tools::aspiration_profile_name(result.aspiration_profile));
     writer.uint_field("tt_entries", static_cast<std::uint64_t>(result.transposition_table_entries));
     writer.string_field("exact_endgame_profile", result.exact_root_profile);
     writer.int_field("empty_count", result.empty_count);
@@ -1874,7 +1693,8 @@ void write_position_jsonl(const PositionBenchmarkResult& result, PositionSet pos
     writer.bool_field("aspiration", result.use_aspiration_window);
     writer.int_field("aspiration_window", result.aspiration_window);
     writer.int_field("aspiration_max_researches", result.aspiration_max_researches);
-    writer.string_field("aspiration_profile", aspiration_profile_name(result.aspiration_profile));
+    writer.string_field("aspiration_profile",
+                        othello::tools::aspiration_profile_name(result.aspiration_profile));
     writer.uint_field("tt_entries", static_cast<std::uint64_t>(result.transposition_table_entries));
     writer.string_field("exact_endgame_profile", result.exact_root_profile);
     writer.int_field("empty_count", result.empty_count);
@@ -2037,8 +1857,7 @@ void run_requested_position_benchmarks(const std::vector<othello::benchmarks::Po
             if (options.output_format == OutputFormat::Jsonl) {
                 if (options.emit_iterative_depth_rows) {
                     for (const auto& row : result.iterative_depth_rows) {
-                        write_iterative_depth_jsonl(row, options.position_set,
-                                                    options.repetitions);
+                        write_iterative_depth_jsonl(row, options.position_set, options.repetitions);
                     }
                 }
                 write_position_jsonl(result, options.position_set, options.repetitions,
@@ -2136,31 +1955,34 @@ int run_benchmark(std::span<char* const> args) {
         std::cout << '\n';
         const auto default_search_options = othello::SearchOptions{};
         std::cout << "tt: "
-                  << (options.use_transposition_table.value_or(
+                  << (options.search_cli.use_transposition_table.value_or(
                           default_search_options.use_transposition_table)
                           ? "on"
                           : "off")
                   << '\n';
         std::cout << "tt store leaf: "
-                  << (options.store_leaf_tt_entries.value_or(
+                  << (options.search_cli.store_leaf_tt_entries.value_or(
                           default_search_options.store_leaf_tt_entries)
                           ? "on"
                           : "off")
                   << '\n';
         std::cout << "pvs: "
-                  << (options.use_pvs.value_or(default_search_options.use_pvs) ? "on" : "off")
+                  << (options.search_cli.use_pvs.value_or(default_search_options.use_pvs) ? "on"
+                                                                                          : "off")
                   << '\n';
         std::cout << "aspiration: "
-                  << (options.use_aspiration_window.value_or(
+                  << (options.search_cli.use_aspiration_window.value_or(
                           default_search_options.use_aspiration_window)
                           ? "on"
                           : "off")
                   << '\n';
-        std::cout << "aspiration window: " << options.aspiration_window << '\n';
-        std::cout << "aspiration max researches: " << options.aspiration_max_researches << '\n';
+        std::cout << "aspiration window: " << options.search_cli.aspiration_window << '\n';
+        std::cout << "aspiration max researches: " << options.search_cli.aspiration_max_researches
+                  << '\n';
         std::cout << "aspiration profile: "
-                  << aspiration_profile_name(options.aspiration_profile) << '\n';
-        std::cout << "tt entries: " << options.transposition_table_entries << '\n';
+                  << othello::tools::aspiration_profile_name(options.search_cli.aspiration_profile)
+                  << '\n';
+        std::cout << "tt entries: " << options.search_cli.transposition_table_entries << '\n';
         std::cout << "exact endgame profiles: "
                   << exact_root_profile_list_text(options.exact_root_profiles) << '\n';
         std::cout << "eval config: "
