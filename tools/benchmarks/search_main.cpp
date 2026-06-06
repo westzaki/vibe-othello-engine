@@ -1105,8 +1105,10 @@ benchmark_search(const std::vector<othello::benchmarks::Position>& positions, in
                     .exact_skip_reason = std::string{exact_decision.skip_reason},
                     .board_checksum = othello::benchmarks::board_checksum(position.board),
                 };
-                search_options.iterative_depth_observer = observe_iterative_depth;
-                search_options.iterative_depth_observer_user_data = &observer_data;
+                search_options.instrumentation.iterative_depth_observer =
+                    observe_iterative_depth;
+                search_options.instrumentation.iterative_depth_observer_user_data =
+                    &observer_data;
             }
             const auto result =
                 run_search(position.board, search_options, mode, exact_root_profile);
@@ -1201,7 +1203,8 @@ benchmark_position(const othello::benchmarks::Position& position, int depth,
         auto search_options = base_search_options;
         std::vector<othello::RootMoveOrderingEntry> root_ordering_snapshot;
         if (benchmark_options.emit_iterative_depth_rows && repetition == 0) {
-            search_options.root_move_ordering_snapshot = &root_ordering_snapshot;
+            search_options.instrumentation.root_move_ordering_snapshot =
+                &root_ordering_snapshot;
         }
         IterativeDepthObserverData observer_data;
         if (benchmark_options.emit_iterative_depth_rows && mode == SearchRunMode::Iterative &&
@@ -1226,8 +1229,10 @@ benchmark_position(const othello::benchmarks::Position& position, int depth,
                 .exact_skip_reason = std::string{exact_decision.skip_reason},
                 .board_checksum = othello::benchmarks::board_checksum(position.board),
             };
-            search_options.iterative_depth_observer = observe_iterative_depth;
-            search_options.iterative_depth_observer_user_data = &observer_data;
+            search_options.instrumentation.iterative_depth_observer =
+                observe_iterative_depth;
+            search_options.instrumentation.iterative_depth_observer_user_data =
+                &observer_data;
         }
         const auto result = run_search(position.board, search_options, mode, exact_root_profile);
         auto stable_result_checksum =
