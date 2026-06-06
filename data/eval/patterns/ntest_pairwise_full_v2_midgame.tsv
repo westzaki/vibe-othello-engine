@@ -6,7 +6,6 @@
 # source_run: runs/pattern-training/ntest-balanced300k-v0/regularized_pairwise_full_v2/
 # phase: midgame
 # no_strength_claim: true
-# not_default_promotion: true
 # loss: logistic
 # pair_mode: teacher-vs-ranked-above
 # pair_weighting: score-margin
