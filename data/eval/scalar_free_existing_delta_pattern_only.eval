@@ -1,0 +1,20 @@
+# schema_version: eval.v1
+# status: experimental
+# role: scalar_free_diagnostic_candidate
+# created_at: 2026-06-07
+# based_on: data/eval/current_default.eval
+# model_shape: existing learned phase-specific pattern tables only
+# diagnostic_purpose: measure scalar-zero behavior of tables trained as scalar fallback delta
+# not_default_promotion: true
+# zeroing_scalar_weights_is_diagnostic_only: true
+mode=pattern_only
+name=scalar_free_existing_delta_pattern_only
+pattern_table.opening=patterns/ntest_pairwise_full_v2_opening.tsv
+pattern_table.midgame=patterns/ntest_pairwise_full_v2_midgame.tsv
+pattern_table.late=patterns/ntest_pairwise_full_v2_late.tsv
+opening.pattern_table=1
+midgame.pattern_table=1
+late.pattern_table=1
+
+opening_max_occupied=20
+midgame_max_occupied=44

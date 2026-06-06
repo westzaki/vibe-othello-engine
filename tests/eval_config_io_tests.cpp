@@ -186,6 +186,7 @@ TEST_CASE("Committed eval artifact surface contains only active fixtures",
     std::vector<std::string> allowed_eval_configs{
         std::string{"current_default.eval"},
         std::string{"ntest_pairwise_full_v2.eval"},
+        std::string{"scalar_free_existing_delta_pattern_only.eval"},
     };
     std::vector<std::string> allowed_pattern_tables{
         std::string{"ntest_pairwise_full_v2_late.tsv"},
@@ -206,6 +207,7 @@ TEST_CASE("Active committed eval config fixtures parse and preserve intended ide
     const std::vector<std::filesystem::path> paths{
         sample_eval_config_path("current_default.eval"),
         sample_eval_config_path("ntest_pairwise_full_v2.eval"),
+        sample_eval_config_path("scalar_free_existing_delta_pattern_only.eval"),
     };
 
     const othello::EvaluationConfig default_config = othello::default_evaluation_config();

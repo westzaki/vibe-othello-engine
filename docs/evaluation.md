@@ -182,6 +182,29 @@ candidates or scalar tweaking the main research path. Rejected or superseded
 `.eval` files should generally be removed from `data/eval` after their durable
 report is merged.
 
+### Pattern-First Policy
+
+The scalar evaluator remains useful as a file-free fallback, compatibility
+anchor, and diagnostic baseline. It should not be treated as the normal source
+of future project-default strength improvements.
+
+Default strength improvements should normally come from learned pattern tables,
+pattern families, teacher data, exact-label guards, or evaluator architecture
+that makes learned pattern evidence more reliable. Scalar-only default
+promotion is not the normal path for evaluation work.
+
+Scalar tuning can still be recorded as a diagnostic experiment when it explains
+an evaluator failure mode or creates a baseline for comparison. For example,
+the late scalar blend report for `current_default.eval` is evidence about a
+specific scalar diagnostic, not a durable instruction to continue hand-tuning
+scalar weights.
+
+A scalar-free `current_default.eval` requires retrained full pattern-table
+evidence. It must not be produced by simply zeroing scalar weights under pattern
+tables that were trained as deltas over the scalar fallback. A scalar-zero
+configuration using existing delta tables is only a diagnostic candidate unless
+separate evidence shows it passes the normal promotion bar.
+
 Default promotion remains separate. A pattern candidate should become the
 project default only through an explicit promotion PR with durable evidence and
 a documented revert path.

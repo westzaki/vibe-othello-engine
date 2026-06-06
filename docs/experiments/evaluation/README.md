@@ -29,6 +29,7 @@ pruned from active eval configs. Current work should use `current_default.eval`,
 
 | Report | Status/category | One-line purpose | Current actionability |
 | --- | --- | --- | --- |
+| [`2026-06-07-scalar-free-pattern-feasibility.md`](2026-06-07-scalar-free-pattern-feasibility.md) | feasibility experiment | Scalar-free / pattern-only candidate comparison after PR290. | Current negative evidence; do not promote scalar-zero existing delta tables. |
 | [`2026-06-01-pattern-teacher-v0.md`](2026-06-01-pattern-teacher-v0.md) | historical pattern provenance | First sparse pattern-table baseline, trained from validated NTest residuals. | Provenance only; the loadable artifact was pruned from active eval configs. |
 | [`2026-06-01-pattern-reboot-v0.md`](2026-06-01-pattern-reboot-v0.md) | historical pattern provenance | Clean pattern-only reboot config with scalar handcrafted weights zeroed. | Provenance only; the loadable artifact was pruned from active eval configs. |
 | [`2026-06-02-ntest-pairwise-full-v2-candidate.md`](2026-06-02-ntest-pairwise-full-v2-candidate.md) | promotion candidate | Source-controlled NTest 300K regularized pairwise evaluator candidate. | Review with the linked evidence and known risks; not automatic default promotion. |
