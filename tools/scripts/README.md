@@ -55,12 +55,6 @@ script.
 | `phase_pattern_table_train.py` | deprecated | Train separate opening/midgame/late sparse pattern tables and local candidate configs. | Replaced by the canonical regularized pairwise trainer for active work; helper behavior is covered directly under `pattern_training/`. Historical phase-table reports remain provenance only. |
 | `run_experiment_matrix.py` | deprecated | Run JSON-defined match-runner matrices from `tools/scripts/examples/search_ablation_smoke.json`. | Replaced by direct `othello_match_runner`, `match_summary.py`, `base_head_match_matrix.py`, and `evidence.py` workflows; it had no current docs outside this README and its dedicated test/example. |
 
-## Removed Maintenance Wrappers
-
-| Script | Former purpose | Replacement |
-| --- | --- | --- |
-| `run_match_experiment.py` | Thin subprocess wrapper around `othello_match_runner` plus optional summary. | Run `./build/othello_match_runner` directly, then read the generated JSONL with `tools/scripts/match_summary.py`. |
-
 The deleted scripts' dedicated tests were removed with them. The committed
 historical experiment reports remain as evidence snapshots; raw/local reruns
 should be rebuilt with the current workflows above.
