@@ -46,10 +46,12 @@ engine_options_from(const SearchOptions& options) noexcept {
 
 [[nodiscard]] constexpr SearchDiagnosticsOptions
 diagnostics_options_from(const SearchOptions& options) noexcept {
+    const SearchInstrumentation& instrumentation = options.instrumentation;
     return SearchDiagnosticsOptions{
-        .iterative_depth_observer = options.iterative_depth_observer,
-        .iterative_depth_observer_user_data = options.iterative_depth_observer_user_data,
-        .root_move_ordering_snapshot = options.root_move_ordering_snapshot,
+        .iterative_depth_observer = instrumentation.iterative_depth_observer,
+        .iterative_depth_observer_user_data =
+            instrumentation.iterative_depth_observer_user_data,
+        .root_move_ordering_snapshot = instrumentation.root_move_ordering_snapshot,
     };
 }
 

@@ -873,9 +873,9 @@ TEST_CASE("Iterative depth instrumentation preserves search result", "[search]")
     std::vector<othello::RootMoveOrderingEntry> root_ordering;
     capture.root_ordering_snapshot = &root_ordering;
     othello::SearchOptions instrumented_options = baseline_options;
-    instrumented_options.iterative_depth_observer = capture_iterative_depth;
-    instrumented_options.iterative_depth_observer_user_data = &capture;
-    instrumented_options.root_move_ordering_snapshot = &root_ordering;
+    instrumented_options.instrumentation.iterative_depth_observer = capture_iterative_depth;
+    instrumented_options.instrumentation.iterative_depth_observer_user_data = &capture;
+    instrumented_options.instrumentation.root_move_ordering_snapshot = &root_ordering;
 
     const othello::SearchResult instrumented =
         othello::search_iterative(*board, instrumented_options);
@@ -1527,7 +1527,7 @@ TEST_CASE("Midgame ordering keeps PV promotion above history and killers", "[sea
     std::vector<othello::RootMoveOrderingEntry> root_ordering;
     othello::SearchOptions ordered_options = warmup_options;
     ordered_options.use_transposition_table = false;
-    ordered_options.root_move_ordering_snapshot = &root_ordering;
+    ordered_options.instrumentation.root_move_ordering_snapshot = &root_ordering;
     const othello::SearchResult ordered =
         othello::search_iterative(session, board, ordered_options);
 
@@ -1542,7 +1542,8 @@ TEST_CASE("Midgame ordering uses square index as deterministic same-score tie-br
         .max_depth = 1,
         .use_transposition_table = false,
         .exact_endgame_empty_threshold = 0,
-        .root_move_ordering_snapshot = &root_ordering,
+        .instrumentation =
+            othello::SearchInstrumentation{.root_move_ordering_snapshot = &root_ordering},
     };
 
     static_cast<void>(othello::search(Board::initial(), options));
