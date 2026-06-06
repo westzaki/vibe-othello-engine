@@ -42,22 +42,6 @@ script.
 | `teacher_dataset_build.py` | current | Build reusable position shards, manifests, splits, teacher labels, and exact overlap labels under a dataset root. | Recommended durable dataset-builder entrypoint for pattern-first work. |
 | `teacher_label_mistake_mining.py` | current | Mine evaluator move-choice mistakes against validated teacher labels. | Current pattern diagnostics for teacher-vs-engine disagreement and vocabulary gaps. |
 
-## Removed Deprecated Scripts
-
-| Script | Status | Former purpose | Why it was safe to delete |
-| --- | --- | --- | --- |
-| `eval_config_validate.py` | deprecated | Validate generated scalar `.eval` candidates on held-out exact-label JSONL. | Replaced for current work by `eval_candidate_matrix.py --labels ...` and PR evidence reports; remaining repository mentions are historical experiment commands. |
-| `eval_config_search_validate.py` | deprecated | Chain held-out scalar/config summaries into search-bench and match-smoke validation. | Replaced by `eval_candidate_matrix.py`, direct `othello_match_runner` plus `match_summary.py`, `base_head_match_matrix.py`, and `evidence.py`; remaining repository mentions are historical experiment commands. |
-| `eval_config_tuner.py` | deprecated | Perturb fully expanded `.eval` scalar weights against exact-label JSONL. | Replaced for current work by `exact_label_workflow.py`, `eval_candidate_matrix.py`, and `evidence.py`; remaining repository mentions are historical experiment commands. |
-| `eval_experiment_matrix.py` | deprecated | Run staged `.eval` config search and match matrices. | Replaced by `eval_candidate_matrix.py`, direct `othello_match_runner` plus `match_summary.py`, `base_head_match_matrix.py`, and `evidence.py`; `evidence.py --profile eval` no longer depends on it. |
-| `pattern_teacher_v0_train.py` | deprecated | Train sparse learned pattern tables and provide temporary compatibility imports for older helper names. | Replaced by `regularized_pairwise_pattern_train.py` for new pattern work; shared dataset/split/pattern-table/preference helpers are tested directly under `pattern_training/`. Historical reports keep provenance only. |
-| `phase_pattern_table_train.py` | deprecated | Train separate opening/midgame/late sparse pattern tables and local candidate configs. | Replaced by the canonical regularized pairwise trainer for active work; helper behavior is covered directly under `pattern_training/`. Historical phase-table reports remain provenance only. |
-| `run_experiment_matrix.py` | deprecated | Run JSON-defined match-runner matrices from `tools/scripts/examples/search_ablation_smoke.json`. | Replaced by direct `othello_match_runner`, `match_summary.py`, `base_head_match_matrix.py`, and `evidence.py` workflows; it had no current docs outside this README and its dedicated test/example. |
-
-The deleted scripts' dedicated tests were removed with them. The committed
-historical experiment reports remain as evidence snapshots; raw/local reruns
-should be rebuilt with the current workflows above.
-
 ## Pattern-First Evaluation Workflow
 
 For new evaluation research, start with the current role definitions in
