@@ -39,7 +39,6 @@ script.
 | `match_summary.py` | current | Summarize C++ match-runner JSONL. | Shared by current evidence, match, and base/head workflows. |
 | `ntest_teacher_smoke.py` | current | Run a local NTest teacher-label smoke and estimate 300K run feasibility. | Operational preflight before overnight NTest teacher dataset generation; does not make strength claims. |
 | `regularized_pairwise_pattern_train.py` | current / canonical | Train phase-specific tables from teacher-vs-engine and exact-aware pairwise preferences. | Canonical current pattern trainer for new experiments; owns the shared analyzer cache/dedup/parallel workflow. |
-| `run_external_engine_once.py` | current | Probe one external-engine request through the canonical adapter CLI. | Current process/timeout/protocol smoke path for adapters. |
 | `teacher_dataset_build.py` | current | Build reusable position shards, manifests, splits, teacher labels, and exact overlap labels under a dataset root. | Recommended durable dataset-builder entrypoint for pattern-first work. |
 | `teacher_label_mistake_mining.py` | current | Mine evaluator move-choice mistakes against validated teacher labels. | Current pattern diagnostics for teacher-vs-engine disagreement and vocabulary gaps. |
 
@@ -357,24 +356,9 @@ default-promotion recommendation. Keep generated labels and raw logs under
 `runs/`; do not commit them, and never commit external engine binaries or local
 engine paths.
 
-Probe the canonical external engine adapter CLI with the fake engine:
-
-```sh
-printf 'board text\n' | python3 tools/scripts/run_external_engine_once.py \
-  --stdin-board \
-  --adapter one-shot \
-  --engine-cmd -- python3 tools/scripts/external_engines/fake_engine.py --move d3
-```
-
 External engine binaries, including NTest or Edax, are not stored in this
-repository. The current adapter is only a process/timeout/error-handling
-scaffold; engine-specific protocols belong under `external_engines/`.
-Adapter options must appear before the `--engine-cmd --` boundary; everything
-after that boundary is passed to the engine command.
-
-Do not add a new per-engine probe CLI for each external engine. Keep
-`run_external_engine_once.py` as the canonical one-move probe and add adapter
-implementations under `external_engines/`.
+repository. Use the dataset and teacher-label workflows above for current
+external-engine runs, and keep adapter implementations under `external_engines/`.
 
 ## Tests
 
