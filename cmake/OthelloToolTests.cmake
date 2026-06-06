@@ -3,6 +3,7 @@ function(othello_add_tool_smoke_test name target)
         NAME ${name}
         COMMAND $<TARGET_FILE:${target}> ${ARGN}
     )
+    set_tests_properties(${name} PROPERTIES LABELS core)
 endfunction()
 
 function(othello_add_help_contains_test name target pattern)
@@ -26,4 +27,11 @@ function(othello_add_expect_failure_test name target pattern)
             "-DEXPECT_FAILURE_PATTERN=${pattern}"
             -P "${expect_failure_script}"
     )
+    set_tests_properties(${name} PROPERTIES LABELS core)
+endfunction()
+
+function(othello_label_tests label)
+    foreach(test_name IN LISTS ARGN)
+        set_tests_properties(${test_name} PROPERTIES LABELS ${label})
+    endforeach()
 endfunction()
