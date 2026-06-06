@@ -1,6 +1,7 @@
 #include "bitboard_ops.hpp"
 #include "hash_update.hpp"
 #include "search_common.hpp"
+#include "search_ordering.hpp"
 #include "search_runtime_options.hpp"
 #include "search_tt.hpp"
 
@@ -36,17 +37,14 @@ struct SearchSessionState {
     std::optional<Square> previous_best_move = std::nullopt;
     std::optional<int> previous_score = std::nullopt;
     std::optional<int> previous_score_delta = std::nullopt;
-    std::array<int, 64> history{};
-    std::array<std::array<int, 2>, 65> killer_moves{};
+    HistoryKillerState history_killers;
 
-    SearchSessionState() noexcept : transpositions{engine_options} { reset_killer_moves(); }
+    SearchSessionState() noexcept : transpositions{engine_options} {}
 
     explicit SearchSessionState(const SearchOptions& options) noexcept
         : engine_options{engine_options_from(options)},
           evaluation_config{resolve_evaluation_config(options)},
-          transpositions{engine_options} {
-        reset_killer_moves();
-    }
+          transpositions{engine_options} {}
 
     void reset() noexcept {
         engine_options = SearchEngineOptions{};
@@ -60,14 +58,7 @@ struct SearchSessionState {
         previous_best_move = std::nullopt;
         previous_score = std::nullopt;
         previous_score_delta = std::nullopt;
-        history.fill(0);
-        reset_killer_moves();
-    }
-
-    void reset_killer_moves() noexcept {
-        for (auto& moves : killer_moves) {
-            moves.fill(-1);
-        }
+        history_killers.reset();
     }
 };
 
@@ -140,10 +131,9 @@ struct MoveOrderingParams {
     int dynamic_opponent_corner_penalty = 80'000;
     int dynamic_opponent_mobility_penalty = 500;
     int dynamic_potential_mobility_penalty = 25;
-    int dynamic_static_risk_penalty = 10;
-    int dynamic_history_max_bonus = 8;
-    int dynamic_killer_first_bonus = 6;
-    int dynamic_killer_second_bonus = 3;
+    int dynamic_static_risk_penalty = 25;
+    search_detail::HistoryKillerOrderingParams history_killer =
+        search_detail::default_history_killer_ordering_params;
 
     int dynamic_min_depth = 3;
     std::size_t dynamic_min_moves = 5;
@@ -411,43 +401,16 @@ should_use_dynamic_move_ordering(bool enabled, std::size_t move_count, int depth
     return enabled && depth >= params.dynamic_min_depth && move_count >= params.dynamic_min_moves;
 }
 
-[[nodiscard]] constexpr int depth_bucket(int depth) noexcept {
-    if (depth < 0) {
-        return 0;
-    }
-    if (depth > 64) {
-        return 64;
-    }
-    return depth;
-}
-
 [[nodiscard]] int history_killer_bonus(const SearchContext& context, int index,
                                        int depth) noexcept {
-    const int history_bonus =
-        std::min(context.session.history[static_cast<std::size_t>(index)],
-                 context.move_ordering_params.dynamic_history_max_bonus);
-    const auto& killers =
-        context.session.killer_moves[static_cast<std::size_t>(depth_bucket(depth))];
-    int bonus = history_bonus;
-    if (killers[0] == index) {
-        bonus += context.move_ordering_params.dynamic_killer_first_bonus;
-    } else if (killers[1] == index) {
-        bonus += context.move_ordering_params.dynamic_killer_second_bonus;
-    }
-    return bonus;
+    return search_detail::history_killer_bonus(context.session.history_killers, index, depth,
+                                               context.move_ordering_params.history_killer);
 }
 
 void record_history_killer_cutoff(SearchContext& context, Square move, int depth) noexcept {
-    const int index = move.index();
-    int& history = context.session.history[static_cast<std::size_t>(index)];
-    history = std::min(history + std::max(depth, 1) * std::max(depth, 1), 1'000'000);
-
-    auto& killers = context.session.killer_moves[static_cast<std::size_t>(depth_bucket(depth))];
-    if (killers[0] == index) {
-        return;
-    }
-    killers[1] = killers[0];
-    killers[0] = index;
+    search_detail::record_history_killer_cutoff(context.session.history_killers, move.index(),
+                                                depth,
+                                                context.move_ordering_params.history_killer);
 }
 
 [[nodiscard]] int potential_mobility_after_move(const SearchPosition& next) noexcept {

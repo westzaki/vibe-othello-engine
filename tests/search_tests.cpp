@@ -1,6 +1,7 @@
 #include "common/stats.hpp"
 #include "test_helpers.hpp"
 
+#include "../src/search_ordering.hpp"
 #include "../src/search_tt.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -1420,6 +1421,110 @@ TEST_CASE("Search stats count dynamic move ordering work", "[search]") {
     CHECK(result.stats.dynamic_ordering_moves >= result.stats.dynamic_ordering_nodes * 5);
 }
 
+TEST_CASE("Midgame history bonus grows on beta cutoffs and stays capped", "[search]") {
+    othello::search_detail::HistoryKillerState state;
+    constexpr othello::search_detail::HistoryKillerOrderingParams params{
+        .history_cap = 40,
+        .history_max_bonus = 12,
+        .killer_first_bonus = 0,
+        .killer_second_bonus = 0,
+    };
+
+    othello::search_detail::record_history_cutoff(state, 18, 3, params);
+    CHECK(state.history[18] == 9);
+    CHECK(othello::search_detail::history_killer_bonus(state, 18, 3, params) == 9);
+
+    for (int count = 0; count < 12; ++count) {
+        othello::search_detail::record_history_cutoff(state, 18, 7, params);
+    }
+
+    CHECK(state.history[18] <= params.history_cap);
+    CHECK(othello::search_detail::history_killer_bonus(state, 18, 7, params) <=
+          params.history_max_bonus);
+}
+
+TEST_CASE("Midgame killer moves are depth-bucketed, unique, and deterministic", "[search]") {
+    othello::search_detail::HistoryKillerState state;
+
+    othello::search_detail::record_killer_cutoff(state, 10, 4);
+    othello::search_detail::record_killer_cutoff(state, 20, 5);
+    CHECK(state.killer_moves[4][0] == 10);
+    CHECK(state.killer_moves[4][1] == -1);
+    CHECK(state.killer_moves[5][0] == 20);
+    CHECK(state.killer_moves[5][1] == -1);
+
+    othello::search_detail::record_killer_cutoff(state, 11, 4);
+    CHECK(state.killer_moves[4][0] == 11);
+    CHECK(state.killer_moves[4][1] == 10);
+
+    othello::search_detail::record_killer_cutoff(state, 10, 4);
+    CHECK(state.killer_moves[4][0] == 10);
+    CHECK(state.killer_moves[4][1] == 11);
+
+    othello::search_detail::record_killer_cutoff(state, 10, 4);
+    CHECK(state.killer_moves[4][0] == 10);
+    CHECK(state.killer_moves[4][1] == 11);
+}
+
+TEST_CASE("Midgame history and killer signals reset with their session state", "[search]") {
+    othello::search_detail::HistoryKillerState state;
+    othello::search_detail::record_history_killer_cutoff(state, 42, 6);
+    REQUIRE(state.history[42] > 0);
+    REQUIRE(state.killer_moves[6][0] == 42);
+
+    state.reset();
+
+    CHECK(state.history[42] == 0);
+    CHECK(state.killer_moves[6][0] == -1);
+    CHECK(state.killer_moves[6][1] == -1);
+}
+
+TEST_CASE("Midgame ordering keeps PV promotion above history and killers", "[search]") {
+    const Board board = Board::initial();
+
+    const othello::SearchOptions warmup_options{
+        .max_depth = 4,
+        .use_transposition_table = true,
+        .exact_endgame_empty_threshold = 0,
+        .use_pvs = true,
+    };
+    othello::SearchSession session{warmup_options};
+    const othello::SearchResult warmup = othello::search_iterative(session, board, warmup_options);
+    REQUIRE(warmup.best_move.has_value());
+
+    std::vector<othello::RootMoveOrderingEntry> root_ordering;
+    othello::SearchOptions ordered_options = warmup_options;
+    ordered_options.use_transposition_table = false;
+    ordered_options.root_move_ordering_snapshot = &root_ordering;
+    const othello::SearchResult ordered =
+        othello::search_iterative(session, board, ordered_options);
+
+    REQUIRE(ordered.best_move.has_value());
+    REQUIRE_FALSE(root_ordering.empty());
+    CHECK(root_ordering.front().move == *ordered.best_move);
+}
+
+TEST_CASE("Midgame ordering uses square index as deterministic same-score tie-break", "[search]") {
+    std::vector<othello::RootMoveOrderingEntry> root_ordering;
+    const othello::SearchOptions options{
+        .max_depth = 1,
+        .use_transposition_table = false,
+        .exact_endgame_empty_threshold = 0,
+        .root_move_ordering_snapshot = &root_ordering,
+    };
+
+    static_cast<void>(othello::search(Board::initial(), options));
+
+    REQUIRE(root_ordering.size() == 4);
+    CHECK(root_ordering[0].move == othello::test::square("d3"));
+    CHECK(root_ordering[1].move == othello::test::square("c4"));
+    CHECK(root_ordering[2].move == othello::test::square("f5"));
+    CHECK(root_ordering[3].move == othello::test::square("e6"));
+    CHECK(root_ordering[0].order_score == root_ordering[1].order_score);
+    CHECK(root_ordering[1].order_score == root_ordering[2].order_score);
+    CHECK(root_ordering[2].order_score == root_ordering[3].order_score);
+}
+
 TEST_CASE("Fixed-depth search preserves representative midgame ordering snapshots", "[search]") {
     struct Case {
         Board board;
@@ -1459,7 +1564,7 @@ side=W)"),
 side=B)"),
             .best_move = othello::test::square("e8"),
             .score = 195,
-            .nodes = 3540,
+            .nodes = 3506,
             .principal_variation = {othello::test::square("e8"), othello::test::square("d8"),
                                     othello::test::square("g6"), othello::test::square("e1"),
                                     othello::test::square("c2")},
