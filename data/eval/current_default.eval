@@ -4,10 +4,11 @@
 # created_at: 2026-06-02
 # based_on: default_evaluation_config()
 # promoted_from: data/eval/ntest_pairwise_full_v2.eval
+# late_scalar_adjustment: 2026-06-06 light teacher-aggressive blend for exact-best rank and search overhead
 # promotion_report: docs/experiments/ntest_balanced300k_regularized_pairwise_full_v2_report.md
+# adjustment_report: docs/experiments/evaluation/2026-06-06-current-default-late-blend.md
 # model_shape: built-in scalar fallback + learned phase-specific pattern-table delta
-# known_risk: exact-best rank regression
-# known_risk: search overhead
+# known_risk: high-confidence exact wrong count increased on exact-overlap
 # built_in_fallback_unchanged: true
 # no_formal_elo_claim: true
 # ntest_teacher_agreement_is_not_exact_truth: true
@@ -43,16 +44,16 @@ midgame.legacy_corner_2x3_rule=6
 midgame.edge_stability_lite=4
 midgame.legacy_edge_8_rule=4
 
-late.disc_difference=4
-late.mobility=6
-late.potential_mobility=2
-late.corner_occupancy=45
-late.corner_access=20
-late.x_square_danger=20
-late.frontier=3
-late.corner_local_2x3=0
+late.disc_difference=3
+late.mobility=8
+late.potential_mobility=4
+late.corner_occupancy=56
+late.corner_access=30
+late.x_square_danger=23
+late.frontier=10
+late.corner_local_2x3=4
 late.legacy_corner_2x3_rule=4
-late.edge_stability_lite=8
+late.edge_stability_lite=15
 late.legacy_edge_8_rule=6
 
 opening_max_occupied=20
