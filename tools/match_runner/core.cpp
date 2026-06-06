@@ -132,7 +132,7 @@ MoveSelection InProcessPlayer::choose_move(const Board& board, std::mt19937_64& 
         const ExactEndgameRootDecision exact_root_decision =
             decide_exact_endgame_root(board, search_options);
         const auto started = std::chrono::steady_clock::now();
-        const SearchResult result = search_options.use_aspiration_window
+        const SearchResult result = spec_.search_options.use_iterative_search
                                         ? search_iterative(search_session_, board, search_options)
                                         : search(search_session_, board, search_options);
         const auto finished = std::chrono::steady_clock::now();

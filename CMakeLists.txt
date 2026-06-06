@@ -160,6 +160,18 @@ othello_add_help_contains_test(
 )
 
 othello_add_help_contains_test(
+    othello_nboard_engine_help_includes_preset
+    othello_nboard_engine
+    "--preset"
+)
+
+othello_add_help_contains_test(
+    othello_match_runner_help_includes_strong_v1_preset
+    othello_match_runner
+    "preset=default|strong-v1"
+)
+
+othello_add_help_contains_test(
     othello_search_bench_help_includes_exact_threshold_matrix
     othello_search_bench
     "--exact-endgame-thresholds"
