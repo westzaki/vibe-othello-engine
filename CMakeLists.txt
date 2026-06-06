@@ -82,7 +82,10 @@ add_library(othello STATIC
     src/notation.cpp
     src/player.cpp
     src/rules.cpp
+    src/search_aspiration.cpp
     src/search.cpp
+    src/search_root_policy.cpp
+    src/search_session.cpp
     src/square.cpp
 )
 
