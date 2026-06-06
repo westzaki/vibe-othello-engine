@@ -510,14 +510,39 @@ python3 tools/scripts/match_summary.py \
   --by-opening
 ```
 
-Supported search player options are `tt=on|off`, `pvs=on|off`,
-`exact=off|N|adaptive16`, `tt_entries=N`, and `tt_store_leaf=on|off`. The plain
-`search:depth=N` form keeps the same defaults as the existing fixed-depth search
-path. `exact=N` uses the fixed root threshold, while `exact=adaptive16` is an
-experimental opt-in profile that solves roots up to 14 empties and
-conservatively gates 15/16-empty roots. `tt_entries=N` only sets the
-transposition-table capacity; include `tt=on` when the match should use the
-table.
+Supported search player options are `preset=default|strong-v1`, `tt=on|off`,
+`pvs=on|off`, `exact=off|N|adaptive16`, `tt_entries=N`,
+`tt_store_leaf=on|off`, `aspiration_profile=fixed|score-delta-aware`, and
+`eval_config=PATH`. The plain `search:depth=N` form keeps the same defaults as
+the existing fixed-depth search path. `preset=strong-v1` is an explicit opt-in
+practical play preset: iterative search, TT on, PVS on, score-delta-aware
+aspiration, adaptive16 exact root endgame, and the normal project-default
+evaluator (`data/eval/current_default.eval`) unless `eval_config=PATH`
+overrides it. `exact=N` uses the fixed root threshold, while `exact=adaptive16`
+solves roots up to 14 empties and conservatively gates 15/16-empty roots.
+`tt_entries=N` only sets the transposition-table capacity; include `tt=on` when
+the match should use the table.
+
+For a small practical-preset smoke match:
+
+```sh
+./build/othello_match_runner \
+  --black search:depth=4,preset=strong-v1 \
+  --white search:depth=4,tt=on,pvs=on,exact=off \
+  --games 4 \
+  --swap-sides true \
+  --seed 20260606 \
+  --openings data/openings/smoke_openings.txt \
+  --output build/matches/strong_v1_smoke.jsonl
+
+python3 tools/scripts/match_summary.py \
+  --input build/matches/strong_v1_smoke.jsonl \
+  --by-opening
+```
+
+The NBoard adapter also accepts `--preset strong-v1`, so external-engine
+workflows can select the same practical search preset without changing the
+public core API.
 
 For match-level adaptive16 smoke tests, keep the comparison deterministic and
 swap sides across the same openings:

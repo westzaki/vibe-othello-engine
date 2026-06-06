@@ -29,6 +29,7 @@ struct SearchPlayerOptions {
     bool use_pvs = SearchOptions{}.use_pvs;
     bool use_aspiration_window = SearchOptions{}.use_aspiration_window;
     AspirationProfile aspiration_profile = SearchOptions{}.aspiration_profile;
+    bool use_iterative_search = false;
     tools::EvaluatorSelection evaluator;
 
     [[nodiscard]] friend bool operator==(const SearchPlayerOptions&,

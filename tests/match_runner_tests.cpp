@@ -78,6 +78,7 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
     CHECK_FALSE(depth_only_options.use_pvs);
     CHECK_FALSE(depth_only_options.use_aspiration_window);
     CHECK(depth_only_options.aspiration_profile == othello::AspirationProfile::Fixed);
+    CHECK_FALSE(depth_only_spec.search_options.use_iterative_search);
     CHECK(depth_only_options.store_leaf_tt_entries);
     CHECK(depth_only_options.exact_endgame_empty_threshold == 12);
     CHECK(depth_only_options.transposition_table_entries == (1U << 18));
@@ -114,6 +115,38 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
     CHECK(score_delta_aware_options.use_aspiration_window);
     CHECK(score_delta_aware_options.aspiration_profile ==
           othello::AspirationProfile::ScoreDeltaAware);
+    CHECK(require_player_spec(
+              std::string_view{"search:depth=4,aspiration_profile=score-delta-aware"})
+              .search_options.use_iterative_search);
+
+    const runner::PlayerSpec strong_v1_spec =
+        require_player_spec(std::string_view{"search:depth=4,preset=strong-v1"});
+    const othello::SearchOptions strong_v1_options =
+        runner::make_search_options(strong_v1_spec);
+    CHECK(strong_v1_spec.search_options.use_iterative_search);
+    CHECK(strong_v1_options.max_depth == 4);
+    CHECK(strong_v1_options.use_transposition_table);
+    CHECK(strong_v1_options.use_pvs);
+    CHECK(strong_v1_options.use_aspiration_window);
+    CHECK(strong_v1_options.aspiration_profile ==
+          othello::AspirationProfile::ScoreDeltaAware);
+    CHECK(strong_v1_options.exact_endgame_empty_threshold == 16);
+    CHECK(strong_v1_options.exact_endgame_root_policy ==
+          othello::ExactEndgameRootPolicy::Adaptive16);
+    CHECK(strong_v1_options.evaluation_config_override.has_value());
+    CHECK(strong_v1_options.evaluation_config_override->opening_pattern_tables != nullptr);
+
+    const runner::PlayerSpec strong_v1_override_spec =
+        require_player_spec(
+            std::string_view{"search:depth=4,preset=strong-v1,tt=off,exact=off"});
+    const othello::SearchOptions strong_v1_override_options =
+        runner::make_search_options(strong_v1_override_spec);
+    CHECK(strong_v1_override_spec.search_options.use_iterative_search);
+    CHECK_FALSE(strong_v1_override_options.use_transposition_table);
+    CHECK(strong_v1_override_options.exact_endgame_empty_threshold == 0);
+    CHECK(strong_v1_override_options.exact_endgame_root_policy ==
+          othello::ExactEndgameRootPolicy::FixedThreshold);
+
     CHECK(depth_only_options.evaluation_config_override.has_value());
     CHECK(depth_only_options.evaluation_config_override->opening_pattern_tables != nullptr);
     CHECK(depth_only_options.evaluation_config_override->midgame_pattern_tables != nullptr);
@@ -149,6 +182,10 @@ TEST_CASE("Search player specs reject invalid options", "[match-runner]") {
         runner::parse_player_spec(
             "search:depth=4,aspiration_profile=fixed,aspiration_profile=score-delta-aware")
             .has_value());
+    CHECK_FALSE(runner::parse_player_spec("search:depth=4,preset=fast").has_value());
+    CHECK_FALSE(runner::parse_player_spec("search:depth=4,preset=StrongV1").has_value());
+    CHECK_FALSE(
+        runner::parse_player_spec("search:depth=4,preset=default,preset=strong-v1").has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,eval=default").has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,eval_config=missing.eval").has_value());
     CHECK_FALSE(
@@ -279,6 +316,20 @@ TEST_CASE("Search player records nodes and time", "[match-runner]") {
     CHECK(record.time_ms_white == 0.0);
     CHECK(record.time_ms_player_a == record.time_ms_black);
     CHECK(record.time_ms_player_b == record.time_ms_white);
+}
+
+TEST_CASE("StrongV1 search player runs as an opt-in preset", "[match-runner]") {
+    const auto strong = runner::parse_player_spec("search:depth=1,preset=strong-v1");
+    const auto first = runner::parse_player_spec("first");
+    REQUIRE(strong.has_value());
+    REQUIRE(first.has_value());
+
+    const runner::GameRecord record = runner::run_game(0, *strong, *first, true, 13);
+
+    CHECK_FALSE(record.illegal_or_error);
+    CHECK(record.black_score + record.white_score == 64);
+    CHECK(record.nodes_black > 0);
+    CHECK(record.time_ms_black >= 0.0);
 }
 
 TEST_CASE("Search player keeps a session across moves in one game", "[match-runner]") {
