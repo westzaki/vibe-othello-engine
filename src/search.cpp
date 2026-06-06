@@ -1,10 +1,14 @@
 #include "bitboard_ops.hpp"
 #include "evaluation_internal.hpp"
 #include "hash_update.hpp"
+#include "search_aspiration.hpp"
+#include "search_bounds.hpp"
 #include "search_common.hpp"
-#include "search_ordering.hpp"
+#include "search_context.hpp"
+#include "search_core.hpp"
+#include "search_root_policy.hpp"
 #include "search_runtime_options.hpp"
-#include "search_tt.hpp"
+#include "search_session.hpp"
 
 #include <algorithm>
 #include <array>
@@ -23,54 +27,6 @@
 #include <vector>
 
 namespace othello {
-
-namespace search_detail {
-
-struct SearchSessionState {
-    SearchEngineOptions engine_options{};
-    EvaluationConfig evaluation_config = default_evaluation_config();
-    std::uint64_t evaluation_identity = 0;
-    std::uint32_t generation = 0;
-    SearchMode mode = SearchMode::FixedDepth;
-    TranspositionTable transpositions;
-    PrincipalVariation root_principal_variation;
-    std::optional<ZobristHash> root_hash = std::nullopt;
-    std::optional<Square> previous_best_move = std::nullopt;
-    std::optional<int> previous_score = std::nullopt;
-    std::optional<int> previous_score_delta = std::nullopt;
-    HistoryKillerState history_killers;
-
-    SearchSessionState() noexcept : transpositions{engine_options} {}
-
-    explicit SearchSessionState(const SearchOptions& options) noexcept
-        : engine_options{engine_options_from(options)},
-          evaluation_config{resolve_evaluation_config(options)},
-          transpositions{engine_options} {}
-
-    void reset() noexcept {
-        engine_options = SearchEngineOptions{};
-        evaluation_config = default_evaluation_config();
-        evaluation_identity = 0;
-        generation = 0;
-        mode = SearchMode::FixedDepth;
-        transpositions = TranspositionTable{engine_options};
-        root_principal_variation = PrincipalVariation{};
-        root_hash = std::nullopt;
-        previous_best_move = std::nullopt;
-        previous_score = std::nullopt;
-        previous_score_delta = std::nullopt;
-        history_killers.reset();
-    }
-};
-
-} // namespace search_detail
-
-EvaluationConfig resolve_evaluation_config(const SearchOptions& options) noexcept {
-    if (options.evaluation_config_override.has_value()) {
-        return *options.evaluation_config_override;
-    }
-    return default_evaluation_config();
-}
 
 namespace {
 
@@ -95,7 +51,10 @@ using search_detail::position_after_pass;
 using search_detail::principal_variation_from_vector;
 using search_detail::principal_variation_to_vector;
 using search_detail::principal_variation_with_move;
+using search_detail::MoveOrderingParams;
 using search_detail::PrincipalVariation;
+using search_detail::PrincipalVariationHint;
+using search_detail::SearchContext;
 using search_detail::SearchPosition;
 using search_detail::SearchDiagnosticsOptions;
 using search_detail::SearchEngineOptions;
@@ -103,12 +62,6 @@ using search_detail::SearchSessionState;
 using search_detail::TranspositionLookup;
 using search_detail::TranspositionScope;
 using search_detail::TranspositionTable;
-
-struct PrincipalVariationHint {
-    const PrincipalVariation* principal_variation = nullptr;
-    std::size_t index = 0;
-    bool matches_prefix = false;
-};
 
 struct OrderedMoveIndexes {
     struct Move {
@@ -121,167 +74,9 @@ struct OrderedMoveIndexes {
     std::size_t size = 0;
 };
 
-struct MoveOrderingParams {
-    int static_corner_score = 3'000;
-    int static_edge_score = 2'000;
-    int static_normal_score = 1'000;
-    int static_x_square_score = 0;
-
-    int dynamic_corner_bonus = 100'000;
-    int dynamic_edge_bonus = 1'000;
-    int dynamic_opponent_corner_penalty = 80'000;
-    int dynamic_opponent_mobility_penalty = 500;
-    int dynamic_potential_mobility_penalty = 25;
-    int dynamic_static_risk_penalty = 25;
-    search_detail::HistoryKillerOrderingParams history_killer =
-        search_detail::default_history_killer_ordering_params;
-
-    int dynamic_min_depth = 3;
-    std::size_t dynamic_min_moves = 5;
-};
-
-constexpr MoveOrderingParams default_move_ordering_params{};
-
-struct SearchContext {
-    explicit SearchContext(SearchSessionState& session_state, SearchEngineOptions engine,
-                           SearchDiagnosticsOptions diagnostics_options,
-                           bool enable_dynamic_move_ordering) noexcept
-        : session{session_state}, engine_options{engine},
-          transpositions{session_state.transpositions},
-          transposition_scope{.mode = session_state.mode,
-                              .eval_identity = session_state.evaluation_identity},
-          dynamic_move_ordering{enable_dynamic_move_ordering},
-          use_pvs{engine_options.use_pvs},
-          store_leaf_tt_entries{engine_options.store_leaf_tt_entries},
-          evaluation_config{session_state.evaluation_config}, diagnostics{diagnostics_options} {}
-
-    SearchStats stats;
-    SearchSessionState& session;
-    SearchEngineOptions engine_options;
-    TranspositionTable& transpositions;
-    TranspositionScope transposition_scope;
-    MoveOrderingParams move_ordering_params = default_move_ordering_params;
-    bool dynamic_move_ordering = false;
-    bool use_pvs = false;
-    bool store_leaf_tt_entries = true;
-    EvaluationConfig evaluation_config = default_evaluation_config();
-    SearchDiagnosticsOptions diagnostics;
-};
-
-constexpr int search_score_min = -1'000'000'000;
-constexpr int search_score_max = 1'000'000'000;
 // Keep exact root endgame scores comparable with evaluate_basic terminal scores.
 // If the terminal score weight in evaluation.cpp changes, update this scale too.
 constexpr int exact_endgame_score_scale = 1'000;
-
-struct ExactRootPolicyParams {
-    int always_exact_max_empties = 14;
-    int adaptive_max_empties = 16;
-    int max_legal_moves = 10;
-    int max_opponent_legal_moves = 10;
-};
-
-constexpr ExactRootPolicyParams adaptive16_exact_root_policy_params{};
-
-[[nodiscard]] constexpr std::uint64_t hash_mix(std::uint64_t hash,
-                                                std::uint64_t value) noexcept {
-    hash ^= value + 0x9E3779B97F4A7C15ULL + (hash << 6) + (hash >> 2);
-    return hash;
-}
-
-[[nodiscard]] constexpr std::uint64_t hash_int(std::uint64_t hash, int value) noexcept {
-    return hash_mix(hash, static_cast<std::uint64_t>(static_cast<std::int64_t>(value)));
-}
-
-[[nodiscard]] constexpr std::uint64_t
-evaluation_weights_identity(std::uint64_t hash,
-                            const EvaluationFeatureWeights& weights) noexcept {
-    hash = hash_int(hash, weights.disc_difference);
-    hash = hash_int(hash, weights.mobility);
-    hash = hash_int(hash, weights.potential_mobility);
-    hash = hash_int(hash, weights.corner_occupancy);
-    hash = hash_int(hash, weights.corner_access);
-    hash = hash_int(hash, weights.x_square_danger);
-    hash = hash_int(hash, weights.frontier);
-    hash = hash_int(hash, weights.corner_local_2x3);
-    hash = hash_int(hash, weights.corner_2x3_pattern);
-    hash = hash_int(hash, weights.edge_stability_lite);
-    hash = hash_int(hash, weights.edge_8_pattern);
-    hash = hash_int(hash, weights.pattern_table);
-    return hash;
-}
-
-template <std::size_t Size>
-[[nodiscard]] std::uint64_t table_identity(std::uint64_t hash,
-                                           const std::array<std::int16_t, Size>& values) noexcept {
-    for (std::int16_t value : values) {
-        hash = hash_int(hash, value);
-    }
-    return hash;
-}
-
-[[nodiscard]] std::uint64_t pattern_tables_identity(
-    std::uint64_t hash, const std::shared_ptr<const PatternTableBundle>& tables) noexcept {
-    if (tables == nullptr) {
-        return hash_mix(hash, 0);
-    }
-
-    hash = hash_mix(hash, 1);
-    hash = table_identity(hash, tables->corner_2x3);
-    hash = table_identity(hash, tables->corner_3x3);
-    hash = table_identity(hash, tables->edge_8);
-    hash = table_identity(hash, tables->edge_x_10);
-    hash = table_identity(hash, tables->diagonal_8);
-    hash = table_identity(hash, tables->inner_row_8);
-    return hash;
-}
-
-[[nodiscard]] std::uint64_t evaluation_config_identity(const EvaluationConfig& config) noexcept {
-    std::uint64_t hash = 0xCBF29CE484222325ULL;
-    hash = evaluation_weights_identity(hash, config.opening);
-    hash = evaluation_weights_identity(hash, config.midgame);
-    hash = evaluation_weights_identity(hash, config.late);
-    hash = hash_int(hash, config.opening_max_occupied);
-    hash = hash_int(hash, config.midgame_max_occupied);
-    hash = pattern_tables_identity(hash, config.pattern_tables);
-    hash = pattern_tables_identity(hash, config.opening_pattern_tables);
-    hash = pattern_tables_identity(hash, config.midgame_pattern_tables);
-    hash = pattern_tables_identity(hash, config.late_pattern_tables);
-    return hash;
-}
-
-[[nodiscard]] constexpr bool requires_new_transposition_table(
-    const SearchEngineOptions& current, const SearchEngineOptions& next) noexcept {
-    return current.use_transposition_table != next.use_transposition_table ||
-           current.transposition_table_entries != next.transposition_table_entries;
-}
-
-void begin_session_search(SearchSessionState& session, const SearchEngineOptions& engine_options,
-                          EvaluationConfig evaluation_config, SearchMode mode) noexcept {
-    if (requires_new_transposition_table(session.engine_options, engine_options)) {
-        session.transpositions = TranspositionTable{engine_options};
-    }
-    session.engine_options = engine_options;
-    session.evaluation_config = std::move(evaluation_config);
-    session.evaluation_identity = evaluation_config_identity(session.evaluation_config);
-    session.mode = mode;
-    ++session.generation;
-    if (session.generation == 0) {
-        session.generation = 1;
-    }
-}
-
-void finish_session_search(SearchSessionState& session, ZobristHash root_hash,
-                           const SearchResult& result) noexcept {
-    session.previous_score_delta = session.previous_score.has_value()
-                                       ? std::optional<int>{result.score - *session.previous_score}
-                                       : std::nullopt;
-    session.previous_score = result.score;
-    session.previous_best_move = result.best_move;
-    session.root_hash = root_hash;
-    session.root_principal_variation =
-        principal_variation_from_vector(result.principal_variation);
-}
 
 [[nodiscard]] int evaluate_for_search(const SearchPosition& position,
                                       SearchContext& context) noexcept {
@@ -341,22 +136,6 @@ void finish_session_search(SearchSessionState& session, ZobristHash root_hash,
     };
 }
 
-void record_aspiration_fail_low_distance(SearchContext& context, int score, int alpha) noexcept {
-    const std::uint64_t distance =
-        static_cast<std::uint64_t>(alpha > score ? alpha - score : 0);
-    context.stats.aspiration_fail_low_distance_sum += distance;
-    context.stats.aspiration_fail_low_distance_max =
-        std::max(context.stats.aspiration_fail_low_distance_max, distance);
-}
-
-void record_aspiration_fail_high_distance(SearchContext& context, int score, int beta) noexcept {
-    const std::uint64_t distance =
-        static_cast<std::uint64_t>(score > beta ? score - beta : 0);
-    context.stats.aspiration_fail_high_distance_sum += distance;
-    context.stats.aspiration_fail_high_distance_max =
-        std::max(context.stats.aspiration_fail_high_distance_max, distance);
-}
-
 void record_root_move_ordering_snapshot(SearchContext& context,
                                         const OrderedMoveIndexes& ordered_moves) noexcept {
     if (context.diagnostics.root_move_ordering_snapshot == nullptr) {
@@ -389,11 +168,6 @@ void store_leaf_transposition(SearchContext& context, ZobristHash hash, int dept
                                      beta, best_move, context.stats)) {
         ++context.stats.tt_leaf_stores;
     }
-}
-
-[[nodiscard]] bool should_solve_exact_endgame_at_root(const Board& board,
-                                                      const SearchOptions& options) noexcept {
-    return decide_exact_endgame_root(board, options).solve_exact;
 }
 
 [[nodiscard]] constexpr bool
@@ -718,10 +492,14 @@ ordered_legal_move_indexes(const SearchPosition& position, Bitboard moves, int d
     return result;
 }
 
-[[nodiscard]] SearchResult search_with_context(const Board& board, int depth,
-                                               SearchContext& context, int alpha, int beta,
-                                               std::optional<Square> root_preferred_move,
-                                               PrincipalVariationHint pv_hint) noexcept {
+} // namespace
+
+namespace search_detail {
+
+SearchResult search_with_context(const Board& board, int depth,
+                                 SearchContext& context, int alpha, int beta,
+                                 std::optional<Square> root_preferred_move,
+                                 PrincipalVariationHint pv_hint) noexcept {
     const SearchPosition position = SearchPosition::from_board(board);
     const ZobristHash root_hash = zobrist_hash(board);
     const NodeResult result = search_node(position, root_hash, depth, alpha, beta,
@@ -746,117 +524,16 @@ ordered_legal_move_indexes(const SearchPosition& position, Bitboard moves, int d
     };
 }
 
-[[nodiscard]] SearchResult search_with_context(const Board& board, int depth,
-                                               SearchContext& context,
-                                               std::optional<Square> root_preferred_move,
-                                               PrincipalVariationHint pv_hint) noexcept {
+SearchResult search_with_context(const Board& board, int depth, SearchContext& context,
+                                 std::optional<Square> root_preferred_move,
+                                 PrincipalVariationHint pv_hint) noexcept {
     return search_with_context(board, depth, context, search_score_min, search_score_max,
                                root_preferred_move, pv_hint);
 }
 
-[[nodiscard]] constexpr int positive_aspiration_window(int window) noexcept {
-    return window <= 0 ? 1 : window;
-}
+} // namespace search_detail
 
-[[nodiscard]] constexpr int non_negative_research_limit(int researches) noexcept {
-    return researches < 0 ? 0 : researches;
-}
-
-[[nodiscard]] constexpr int clamp_search_score(long long score) noexcept {
-    if (score < search_score_min) {
-        return search_score_min;
-    }
-    if (score > search_score_max) {
-        return search_score_max;
-    }
-    return static_cast<int>(score);
-}
-
-[[nodiscard]] constexpr int aspiration_alpha(int previous_score, int window) noexcept {
-    return clamp_search_score(static_cast<long long>(previous_score) - window);
-}
-
-[[nodiscard]] constexpr int aspiration_beta(int previous_score, int window) noexcept {
-    return clamp_search_score(static_cast<long long>(previous_score) + window);
-}
-
-[[nodiscard]] constexpr int widened_aspiration_window(int window) noexcept {
-    if (window >= search_score_max / 2) {
-        return search_score_max;
-    }
-    return window * 2;
-}
-
-[[nodiscard]] constexpr int aspiration_initial_window(
-    const SearchEngineOptions& options, std::optional<int> previous_score_delta) noexcept {
-    const int base_window = positive_aspiration_window(options.aspiration_window);
-    if (options.aspiration_profile == AspirationProfile::Fixed ||
-        !previous_score_delta.has_value()) {
-        return base_window;
-    }
-
-    long long delta = *previous_score_delta;
-    if (delta < 0) {
-        delta = -delta;
-    }
-    if (delta <= static_cast<long long>(base_window) * 2) {
-        return base_window;
-    }
-
-    const long long widened = delta + base_window / 2;
-    const long long max_dynamic_window = static_cast<long long>(base_window) * 2;
-    return clamp_search_score(std::min(widened, max_dynamic_window));
-}
-
-[[nodiscard]] bool failed_low(const SearchResult& result, int alpha) noexcept {
-    return result.score <= alpha;
-}
-
-[[nodiscard]] bool failed_high(const SearchResult& result, int beta) noexcept {
-    return result.score >= beta;
-}
-
-[[nodiscard]] SearchResult search_aspirated_with_context(
-    const Board& board, int depth, SearchContext& context, std::optional<Square> previous_best_move,
-    PrincipalVariationHint pv_hint, int previous_score, int initial_window,
-    const SearchEngineOptions& options) noexcept {
-    ++context.stats.aspiration_searches;
-
-    int window = positive_aspiration_window(initial_window);
-    const int max_researches = non_negative_research_limit(options.aspiration_max_researches);
-    int researches = 0;
-
-    while (true) {
-        const int alpha = aspiration_alpha(previous_score, window);
-        const int beta = aspiration_beta(previous_score, window);
-        const SearchResult result =
-            search_with_context(board, depth, context, alpha, beta, previous_best_move, pv_hint);
-
-        if (!failed_low(result, alpha) && !failed_high(result, beta)) {
-            return result;
-        }
-
-        if (failed_low(result, alpha)) {
-            ++context.stats.aspiration_fail_lows;
-            record_aspiration_fail_low_distance(context, result.score, alpha);
-        } else {
-            ++context.stats.aspiration_fail_highs;
-            record_aspiration_fail_high_distance(context, result.score, beta);
-        }
-
-        ++context.stats.aspiration_researches;
-        if (researches >= max_researches) {
-            ++context.stats.aspiration_full_window_fallbacks;
-            return search_with_context(board, depth, context, search_score_min, search_score_max,
-                                       previous_best_move, pv_hint);
-        }
-
-        ++researches;
-        // Keep the policy easy to audit: re-center on the previous iteration's score
-        // and double the symmetric half-window on each failed attempt.
-        window = widened_aspiration_window(window);
-    }
-}
+namespace {
 
 [[nodiscard]] SearchResult exact_endgame_search_result(const Board& board) noexcept {
     ExactEndgameResult exact = solve_exact_endgame(board);
@@ -925,62 +602,6 @@ std::vector<Square> SearchSession::root_principal_variation() const {
         return {};
     }
     return search_detail::principal_variation_to_vector(state_->root_principal_variation);
-}
-
-ExactEndgameRootDecision decide_exact_endgame_root(const Board& board,
-                                                   const SearchOptions& options) noexcept {
-    const SearchEngineOptions engine_options = engine_options_from(options);
-    Board opponent_board = board;
-    opponent_board.side_to_move = opponent(board.side_to_move);
-
-    ExactEndgameRootDecision decision{
-        .empty_count = empty_count(board),
-        .legal_moves_current = static_cast<int>(std::popcount(legal_moves(board))),
-        .legal_moves_opponent = static_cast<int>(std::popcount(legal_moves(opponent_board))),
-    };
-
-    if (engine_options.exact_endgame_empty_threshold <= 0) {
-        decision.skip_reason = ExactEndgameRootSkipReason::Disabled;
-        return decision;
-    }
-
-    if (engine_options.exact_endgame_root_policy == ExactEndgameRootPolicy::FixedThreshold) {
-        if (decision.empty_count > engine_options.exact_endgame_empty_threshold) {
-            decision.skip_reason = ExactEndgameRootSkipReason::AboveThreshold;
-            return decision;
-        }
-
-        decision.solve_exact = true;
-        return decision;
-    }
-
-    constexpr ExactRootPolicyParams policy = adaptive16_exact_root_policy_params;
-
-    if (decision.empty_count <= policy.always_exact_max_empties) {
-        decision.solve_exact = true;
-        return decision;
-    }
-    if (decision.empty_count > policy.adaptive_max_empties) {
-        decision.skip_reason = ExactEndgameRootSkipReason::AboveThreshold;
-        return decision;
-    }
-
-    const bool root_pass = decision.legal_moves_current == 0 && pass_turn(board).has_value();
-    if (root_pass) {
-        decision.skip_reason = ExactEndgameRootSkipReason::AdaptiveRootPass;
-        return decision;
-    }
-    if (decision.legal_moves_current > policy.max_legal_moves) {
-        decision.skip_reason = ExactEndgameRootSkipReason::AdaptiveTooManyLegalMoves;
-        return decision;
-    }
-    if (decision.legal_moves_opponent > policy.max_opponent_legal_moves) {
-        decision.skip_reason = ExactEndgameRootSkipReason::AdaptiveOpponentTooManyLegalMoves;
-        return decision;
-    }
-
-    decision.solve_exact = true;
-    return decision;
 }
 
 SearchResult search(SearchSession& session, const Board& board,
