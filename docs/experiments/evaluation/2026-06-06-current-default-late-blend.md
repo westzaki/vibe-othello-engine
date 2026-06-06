@@ -183,6 +183,181 @@ build/release/othello_match_runner \
 | avg ms adjusted | 87.62 |
 | avg ms previous | 86.03 |
 
+## High-Confidence Wrong Regression Audit
+
+The final exact-overlap check improved total wrong direction count
+(`2006 -> 1650`) and exact-best rank, but high-confidence wrong direction
+count increased (`168 -> 220`). To audit that risk, both configs were rerun
+through the existing `othello_eval_vs_exact` report with `--top 10000` and
+`--high-confidence-threshold 250`, then the high-confidence disagreement
+position sets were compared by `position_id`.
+
+Commands:
+
+```sh
+build/release/othello_eval_vs_exact \
+  --labels /Users/mnishizaki/Project/vibe-othello-datasets/teacher/ntest-balanced300k-v0-exact-overlap-v0/exact-overlap/labels.jsonl \
+  --output runs/eval-tuning/high-confidence-audit-baseline.md \
+  --eval-config data/eval/ntest_pairwise_full_v2.eval \
+  --top 10000 \
+  --high-confidence-threshold 250 \
+  --move-rank-analysis
+
+build/release/othello_eval_vs_exact \
+  --labels /Users/mnishizaki/Project/vibe-othello-datasets/teacher/ntest-balanced300k-v0-exact-overlap-v0/exact-overlap/labels.jsonl \
+  --output runs/eval-tuning/high-confidence-audit-current.md \
+  --eval-config data/eval/current_default.eval \
+  --top 10000 \
+  --high-confidence-threshold 250 \
+  --move-rank-analysis
+```
+
+| set comparison | positions |
+|---|---:|
+| previous high-confidence wrong | 168 |
+| adjusted high-confidence wrong | 220 |
+| still high-confidence wrong in both | 141 |
+| recovered below threshold | 27 |
+| newly crossed into high-confidence wrong | 79 |
+| net increase | +52 |
+
+All 79 newly high-confidence wrong rows were already wrong-direction under the
+previous default shape; they crossed the `abs(eval_score) >= 250` threshold
+after the late scalar adjustment. The 27 recovered rows likewise remained
+wrong-direction but moved below the high-confidence threshold. This means the
+regression is mostly confidence calibration around existing late mistakes, not
+a new class of pass-root failures.
+
+### Empties Bucket
+
+| set | 7-8 empties | 9-10 empties | 11-12 empties |
+|---|---:|---:|---:|
+| recovered below threshold | 10 | 5 | 12 |
+| newly high-confidence wrong | 31 | 22 | 26 |
+| persistent high-confidence wrong | 49 | 44 | 48 |
+
+### Move-Family / Tag Breakdown
+
+The table uses exact `best_moves` from the labels, not the evaluator-selected
+move. `legal corner` and `legal x-square` count whether that move family was
+available at the root.
+
+| set | best move family | count |
+|---|---|---:|
+| recovered | corner | 8 |
+| recovered | edge | 8 |
+| recovered | interior | 6 |
+| recovered | corner+edge | 3 |
+| recovered | x-square | 1 |
+| recovered | pass | 1 |
+| newly wrong | edge | 34 |
+| newly wrong | corner | 24 |
+| newly wrong | interior | 9 |
+| newly wrong | corner+edge | 5 |
+| newly wrong | edge+x-square | 3 |
+| newly wrong | edge+interior | 2 |
+| newly wrong | corner+edge+interior | 1 |
+| newly wrong | x-square | 1 |
+
+| set | legal corner roots | legal x-square roots | pass roots |
+|---|---:|---:|---:|
+| recovered | 16 | 11 | 1 |
+| newly wrong | 46 | 30 | 0 |
+| persistent | 86 | 44 | 0 |
+
+The newly high-confidence wrong rows are mostly late edge/corner roots. There
+were no newly high-confidence pass roots. X-squares were available in 30 of 79
+new rows, but only one new row had an exact-best x-square family, so this does
+not currently look like a primary X-square accident. The dominant component
+tags in new rows were corner/edge features (`corner+edge`: 41, `frontier+edge`:
+10, `corner+frontier+edge`: 9). That is consistent with the intended
+late_disc_count_greed correction: the stronger corner/edge/frontier late scalar
+blend reduces greedy disc-count choices, but it can overstate some already
+wrong edge/corner positions.
+
+### Representative Rows
+
+| set | position | empties | exact score | old eval | new eval | exact best | legal family note |
+|---|---|---:|---:|---:|---:|---|---|
+| recovered | pos-001545 | 12 | 16 | -307 | -210 | H5 D8 | edge best; x-square available |
+| recovered | pos-007045 | 8 | 12 | -299 | -221 | F7 | interior best; no corner/X root |
+| recovered | pos-005227 | 11 | 6 | -299 | -227 | H3 | edge best; x-square available |
+| recovered | pos-006742 | 10 | -20 | 276 | 244 | PASS | pass root moved below threshold |
+| recovered | pos-006232 | 12 | 8 | -292 | -238 | B1 H1 B8 | corner/edge best; corner available |
+| newly wrong | pos-006190 | 7 | 10 | -249 | -384 | F8 | edge best; corner available |
+| newly wrong | pos-008876 | 9 | 12 | -216 | -363 | A8 | corner best; corner available |
+| newly wrong | pos-007116 | 11 | 8 | -200 | -337 | H8 | corner best; corner and x-square available |
+| newly wrong | pos-001238 | 12 | 2 | -226 | -332 | A8 | corner best; x-square available |
+| newly wrong | pos-000645 | 8 | -8 | 223 | 324 | C6 C8 | edge/interior best; x-square available |
+
+## Strong-v1 Suite Smoke
+
+Because `current_default.eval` is also the normal evaluator behind the
+`strong-v1` practical play preset, one suite smoke was run with strong-v1-like
+search options: iterative search, TT on, PVS on, score-delta-aware aspiration,
+and adaptive16 exact root. This is a smoke check, not a speed claim.
+
+Commands:
+
+```sh
+build/release/othello_search_bench \
+  --mode iterative \
+  --depths 4 \
+  --positions suite \
+  --by-position \
+  --tt on \
+  --pvs on \
+  --aspiration on \
+  --aspiration-profile score-delta-aware \
+  --exact-endgame-threshold adaptive16 \
+  --eval-config data/eval/ntest_pairwise_full_v2.eval \
+  --repetitions 1 \
+  --format jsonl \
+  > runs/eval-tuning/strong-v1-suite-smoke-baseline.jsonl
+
+build/release/othello_search_bench \
+  --mode iterative \
+  --depths 4 \
+  --positions suite \
+  --by-position \
+  --tt on \
+  --pvs on \
+  --aspiration on \
+  --aspiration-profile score-delta-aware \
+  --exact-endgame-threshold adaptive16 \
+  --eval-config data/eval/current_default.eval \
+  --repetitions 1 \
+  --format jsonl \
+  > runs/eval-tuning/strong-v1-suite-smoke-current.jsonl
+```
+
+| metric | previous default shape | adjusted current_default |
+|---|---:|---:|
+| positions | 25 | 25 |
+| exact-root positions | 4 | 4 |
+| aggregate nodes | 215217 | 214972 |
+| node delta | baseline | -0.11% |
+| aggregate elapsed ms | 51.458 | 59.412 |
+| elapsed delta | baseline | +15.46% |
+| aspiration searches | 63 | 63 |
+| aspiration researches | 50 | 49 |
+| aspiration fallbacks | 0 | 0 |
+| PVS researches | 44 | 36 |
+| positions with changed best move | baseline | 1 |
+
+Changed late-position rows:
+
+| position | old best | new best | old score | new score | old nodes | new nodes |
+|---|---|---|---:|---:|---:|---:|
+| late-corner-swing | h5 | a5 | 30 | 82 | 767 | 671 |
+| late-edge-heavy | a6 | a6 | -186 | -123 | 469 | 441 |
+| late-open-corner | h1 | h1 | 402 | 593 | 700 | 605 |
+| late-wide-mobility | h8 | h8 | 364 | 619 | 644 | 618 |
+
+The only best-move change in this suite was `late-corner-swing`; all exact-root
+rows stayed exact and therefore unchanged by evaluation. Nodes were essentially
+flat, while elapsed time was noisier on this single short smoke.
+
 ## Known Risks
 
 - The exact-overlap high-confidence wrong count increased from 168 to 220.
