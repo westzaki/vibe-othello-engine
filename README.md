@@ -24,7 +24,18 @@ cmake --build build
 ```
 
 The default build includes the reusable library, developer tools, experiment
-tools, and tests. Library consumers can configure a smaller library-only build:
+tools, and tests. For normal core development, you can skip experiment tools
+while keeping the core tools and tests enabled:
+
+```sh
+cmake -S . -B build-core \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DOTHELLO_BUILD_EXPERIMENT_TOOLS=OFF
+cmake --build build-core
+ctest --test-dir build-core --output-on-failure
+```
+
+Library consumers can configure a smaller library-only build:
 
 ```sh
 cmake -S . -B build-lib \
@@ -44,14 +55,22 @@ workflow:
   sampling.
 
 The current test suite covers tool cores, so configure
-`OTHELLO_BUILD_TESTS=OFF` when disabling `OTHELLO_BUILD_TOOLS` or
-`OTHELLO_BUILD_EXPERIMENT_TOOLS`. Experiment tools are built only when tools are
-also enabled.
+`OTHELLO_BUILD_TESTS=OFF` when disabling `OTHELLO_BUILD_TOOLS`. Experiment tool
+tests are registered only when `OTHELLO_BUILD_EXPERIMENT_TOOLS=ON`, so
+core-only test builds can leave tests enabled. Experiment tools are built only
+when tools are also enabled.
 
 ## Test
 
 ```sh
 ctest --test-dir build --output-on-failure
+```
+
+CTest labels split the suite into `core` and `experiment` groups:
+
+```sh
+ctest --test-dir build -L core --output-on-failure
+ctest --test-dir build -L experiment --output-on-failure
 ```
 
 ## Development Notes
