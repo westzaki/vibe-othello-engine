@@ -237,7 +237,7 @@ void print_usage(std::string_view program_name) {
               << " [--mode fixed|iterative|both] [--depths 1,2,3,4,5]"
                  " [--repetitions N] [--positions smoke|suite|evaluation|threshold]"
                  " [--describe-positions] [--by-position] [--emit-iterative-depth-rows]"
-                 " [--tt on|off] [--tt-entries N]"
+                 " [--tt on|off] [--tt-entries N] [--exact-tt-entries N]"
                  " [--tt-store-leaf on|off] [--pvs on|off] [--aspiration on|off]"
                  " [--aspiration-window N]"
                  " [--aspiration-max-researches N]"
@@ -260,6 +260,9 @@ void print_usage(std::string_view program_name) {
                  "completed iterative depth\n"
               << "  --tt on|off         override the SearchOptions TT default\n"
               << "  --tt-entries N      requested transposition table entry count\n"
+              << "  --exact-tt-entries N\n"
+              << "                      requested private exact-endgame TT entries; 0 disables "
+                 "only exact TT\n"
               << "  --tt-store-leaf on|off\n"
               << "                      store depth-0 midgame heuristic leaves in TT\n"
               << "  --pvs on|off        override the SearchOptions PVS default\n"
@@ -897,8 +900,10 @@ make_search_options(const BenchmarkOptions& options, int depth,
     return othello::tools::apply_evaluator_selection(search_options, options.evaluator);
 }
 
-[[nodiscard]] othello::SearchResult exact_endgame_search_result(const othello::Board& board) {
-    othello::ExactEndgameResult exact = othello::solve_exact_endgame(board);
+[[nodiscard]] othello::SearchResult
+exact_endgame_search_result(const othello::Board& board,
+                            const othello::ExactEndgameOptions& options) {
+    othello::ExactEndgameResult exact = othello::solve_exact_endgame(board, options);
     const othello::SearchStats stats{
         .nodes = exact.nodes,
         .tt_lookups = exact.stats.tt_lookups,
@@ -1025,7 +1030,9 @@ best_move_initial_order_rank(std::span<const othello::RootMoveOrderingEntry> mov
                                                const ExactRootProfile& exact_root_profile) {
     if (!profile_uses_engine_gate(exact_root_profile) &&
         benchmark_exact_root_decision(board, options, exact_root_profile).solve_exact) {
-        return exact_endgame_search_result(board);
+        return exact_endgame_search_result(
+            board, othello::ExactEndgameOptions{.transposition_table_entries =
+                                                    options.exact_endgame_tt_entries});
     }
 
     switch (mode) {

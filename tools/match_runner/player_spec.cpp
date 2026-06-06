@@ -92,6 +92,7 @@ std::optional<PlayerSpec> parse_player_spec(std::string_view text) {
         bool seen_pvs = false;
         bool seen_aspiration_profile = false;
         bool seen_exact = false;
+        bool seen_exact_tt_entries = false;
         bool seen_tt_entries = false;
         bool seen_eval_config = false;
         bool seen_preset = false;
@@ -120,6 +121,8 @@ std::optional<PlayerSpec> parse_player_spec(std::string_view text) {
                 preset_options.search_options.exact_endgame_empty_threshold;
             search_options.exact_endgame_root_policy =
                 preset_options.search_options.exact_endgame_root_policy;
+            search_options.exact_endgame_tt_entries =
+                preset_options.search_options.exact_endgame_tt_entries;
             search_options.use_pvs = preset_options.search_options.use_pvs;
             search_options.use_aspiration_window =
                 preset_options.search_options.use_aspiration_window;
@@ -196,6 +199,17 @@ std::optional<PlayerSpec> parse_player_spec(std::string_view text) {
                         ExactEndgameRootPolicy::FixedThreshold;
                 }
                 seen_exact = true;
+            } else if (key == "exact_tt_entries") {
+                if (seen_exact_tt_entries) {
+                    return std::nullopt;
+                }
+                const std::optional<std::uint64_t> parsed = parse_u64(value);
+                if (!parsed.has_value() ||
+                    *parsed > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())) {
+                    return std::nullopt;
+                }
+                search_options.exact_endgame_tt_entries = static_cast<std::size_t>(*parsed);
+                seen_exact_tt_entries = true;
             } else if (key == "tt_entries") {
                 if (seen_tt_entries) {
                     return std::nullopt;
@@ -243,6 +257,7 @@ SearchOptions make_search_options(const PlayerSpec& spec) noexcept {
     options.store_leaf_tt_entries = spec.search_options.store_leaf_tt_entries;
     options.exact_endgame_empty_threshold = spec.search_options.exact_endgame_empty_threshold;
     options.exact_endgame_root_policy = spec.search_options.exact_endgame_root_policy;
+    options.exact_endgame_tt_entries = spec.search_options.exact_endgame_tt_entries;
     options.use_pvs = spec.search_options.use_pvs;
     options.use_aspiration_window = spec.search_options.use_aspiration_window;
     options.aspiration_profile = spec.search_options.aspiration_profile;

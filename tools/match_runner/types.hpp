@@ -26,6 +26,8 @@ struct SearchPlayerOptions {
     bool store_leaf_tt_entries = SearchOptions{}.store_leaf_tt_entries;
     int exact_endgame_empty_threshold = SearchOptions{}.exact_endgame_empty_threshold;
     ExactEndgameRootPolicy exact_endgame_root_policy = SearchOptions{}.exact_endgame_root_policy;
+    std::optional<std::size_t> exact_endgame_tt_entries =
+        SearchOptions{}.exact_endgame_tt_entries;
     bool use_pvs = SearchOptions{}.use_pvs;
     bool use_aspiration_window = SearchOptions{}.use_aspiration_window;
     AspirationProfile aspiration_profile = SearchOptions{}.aspiration_profile;

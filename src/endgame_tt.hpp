@@ -119,7 +119,7 @@ public:
     }
 
 private:
-    static constexpr std::size_t bucket_width = 4;
+    static constexpr std::size_t bucket_width = 8;
     static constexpr std::size_t max_diagnostic_entry_count = std::size_t{1} << 22;
 
     struct Bucket {
@@ -136,7 +136,7 @@ private:
         if (empties <= 12) {
             return 1 << 16;
         }
-        return 1 << 20;
+        return 1 << 21;
     }
 
     [[nodiscard]] static constexpr std::size_t

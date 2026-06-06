@@ -133,6 +133,22 @@ SearchCliParseResult parse_search_cli_option(std::span<char* const> args, std::s
         return SearchCliParseResult::Parsed;
     }
 
+    if (option == "--exact-tt-entries") {
+        ++index;
+        if (index >= args.size()) {
+            error = "--exact-tt-entries requires a non-negative integer";
+            return SearchCliParseResult::Error;
+        }
+
+        const auto entry_count = parse_entry_count(args[index]);
+        if (!entry_count.has_value()) {
+            error = "--exact-tt-entries must be a non-negative integer";
+            return SearchCliParseResult::Error;
+        }
+        options.exact_endgame_tt_entries = *entry_count;
+        return SearchCliParseResult::Parsed;
+    }
+
     return SearchCliParseResult::NotSearchOption;
 }
 
@@ -182,6 +198,7 @@ SearchOptions apply_search_cli_options(SearchOptions options,
         options.use_aspiration_window = *cli_options.use_aspiration_window;
     }
     options.transposition_table_entries = cli_options.transposition_table_entries;
+    options.exact_endgame_tt_entries = cli_options.exact_endgame_tt_entries;
     options.aspiration_window = cli_options.aspiration_window;
     options.aspiration_max_researches = cli_options.aspiration_max_researches;
     options.aspiration_profile = cli_options.aspiration_profile;

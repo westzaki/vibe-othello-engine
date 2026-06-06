@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <optional>
 #include <othello/search.hpp>
 #include <vector>
 
@@ -12,6 +13,7 @@ struct SearchEngineOptions {
     bool store_leaf_tt_entries = true;
     int exact_endgame_empty_threshold = 12;
     ExactEndgameRootPolicy exact_endgame_root_policy = ExactEndgameRootPolicy::FixedThreshold;
+    std::optional<std::size_t> exact_endgame_tt_entries = std::nullopt;
     bool use_pvs = false;
     bool use_aspiration_window = false;
     int aspiration_window = 50;
@@ -33,6 +35,7 @@ engine_options_from(const SearchOptions& options) noexcept {
         .store_leaf_tt_entries = options.store_leaf_tt_entries,
         .exact_endgame_empty_threshold = options.exact_endgame_empty_threshold,
         .exact_endgame_root_policy = options.exact_endgame_root_policy,
+        .exact_endgame_tt_entries = options.exact_endgame_tt_entries,
         .use_pvs = options.use_pvs,
         .use_aspiration_window = options.use_aspiration_window,
         .aspiration_window = options.aspiration_window,
