@@ -84,6 +84,9 @@ add_library(othello STATIC
     src/rules.cpp
     src/search_aspiration.cpp
     src/search.cpp
+    src/search_move_ordering.cpp
+    src/search_node.cpp
+    src/search_result_adapter.cpp
     src/search_root_policy.cpp
     src/search_session.cpp
     src/square.cpp
