@@ -11,59 +11,63 @@
 
 namespace othello::endgame_detail {
 
-using search_detail::board_after_move;
-using search_detail::board_after_pass;
 using search_detail::empty_count;
+using search_detail::flips_for_move;
 using search_detail::is_better_best_move;
+using search_detail::legal_moves;
 using search_detail::NodeResult;
+using search_detail::position_after_move;
+using search_detail::position_after_pass;
 using search_detail::principal_variation_with_move;
 using search_detail::PrincipalVariation;
+using search_detail::score_for_player;
+using search_detail::SearchPosition;
 
 // The final 0-3 empties avoid TT lookup/store and full move ordering overhead.
 // Four-empty specialization was benchmarked separately and rejected because it helped 20-empty
 // tail latency a bit more but made 14-empty tail behavior noisier.
 constexpr int last_n_specialized_empties = 3;
 
-[[nodiscard]] inline NodeResult solve_last_0(const Board& board,
+[[nodiscard]] inline NodeResult solve_last_0(const SearchPosition& position,
                                              ExactEndgameContext& context) noexcept {
     ++context.stats.nodes;
-    return NodeResult{.score = score(board, board.side_to_move)};
+    return NodeResult{.score = score_for_player(position)};
 }
 
-[[nodiscard]] inline NodeResult solve_last_n_node(const Board& board, int alpha, int beta,
-                                                  ExactEndgameContext& context) noexcept;
+[[nodiscard]] inline NodeResult solve_last_n_node(const SearchPosition& position, int alpha,
+                                                  int beta, ExactEndgameContext& context) noexcept;
 
 // NOLINTNEXTLINE(misc-no-recursion)
-[[nodiscard]] inline NodeResult solve_last_n_dispatch(const Board& board, int alpha, int beta,
-                                                      ExactEndgameContext& context,
+[[nodiscard]] inline NodeResult solve_last_n_dispatch(const SearchPosition& position, int alpha,
+                                                      int beta, ExactEndgameContext& context,
                                                       int empties) noexcept {
     switch (empties) {
     case 0:
-        return solve_last_0(board, context);
+        return solve_last_0(position, context);
     case 1:
     case 2:
     case 3:
-        return solve_last_n_node(board, alpha, beta, context);
+        return solve_last_n_node(position, alpha, beta, context);
     default:
         assert(false);
-        return NodeResult{.score = score(board, board.side_to_move)};
+        return NodeResult{.score = score_for_player(position)};
     }
 }
 
 // NOLINTNEXTLINE(misc-no-recursion)
-[[nodiscard]] inline NodeResult solve_last_n_node(const Board& board, int alpha, int beta,
-                                                  ExactEndgameContext& context) noexcept {
+[[nodiscard]] inline NodeResult solve_last_n_node(const SearchPosition& position, int alpha,
+                                                  int beta, ExactEndgameContext& context) noexcept {
     ++context.stats.nodes;
-    const int empties = empty_count(board);
+    const int empties = empty_count(position);
     if (empties == 0) {
-        return NodeResult{.score = score(board, board.side_to_move)};
+        return NodeResult{.score = score_for_player(position)};
     }
 
-    const Bitboard moves = legal_moves(board);
+    const Bitboard moves = legal_moves(position);
     if (moves == 0) {
-        const Board next = board_after_pass(board);
+        const SearchPosition next = position_after_pass(position);
         if (legal_moves(next) == 0) {
-            return NodeResult{.score = score(board, board.side_to_move)};
+            return NodeResult{.score = score_for_player(position)};
         }
 
         const NodeResult child = solve_last_n_dispatch(next, -beta, -alpha, context, empties);
@@ -87,12 +91,12 @@ constexpr int last_n_specialized_empties = 3;
             continue;
         }
 
-        const Bitboard flips = flips_for_move(board, *square);
+        const Bitboard flips = flips_for_move(position, *square);
         if (flips == 0) {
             continue;
         }
 
-        const Board next = board_after_move(board, *square, flips);
+        const SearchPosition next = position_after_move(position, *square, flips);
         const NodeResult child = solve_last_n_dispatch(next, -beta, -alpha, context, empties - 1);
         const int candidate_score = -child.score;
         if (is_better_best_move(candidate_score, *square, best_score, best_move)) {
@@ -110,7 +114,7 @@ constexpr int last_n_specialized_empties = 3;
 
     return NodeResult{
         .best_move = best_move,
-        .score = best_score.value_or(score(board, board.side_to_move)),
+        .score = best_score.value_or(score_for_player(position)),
         .principal_variation = best_principal_variation,
     };
 }

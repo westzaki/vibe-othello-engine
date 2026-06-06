@@ -22,14 +22,18 @@ using bitboard_detail::is_edge;
 using bitboard_detail::is_x_square_next_to_empty_corner;
 using bitboard_detail::orthogonal_neighbors;
 using hash_detail::hash_after_move;
-using search_detail::board_after_move;
+using search_detail::flips_for_move;
+using search_detail::legal_moves;
+using search_detail::position_after_move;
+using search_detail::position_after_pass;
+using search_detail::SearchPosition;
 
 struct OrderedMoveIndexes {
     struct Move {
         int index = 0;
         int order_score = 0;
         ZobristHash hash = 0;
-        Board next;
+        SearchPosition next;
     };
 
     std::array<Move, 64> moves{};
@@ -59,14 +63,13 @@ struct EmptyRegionSizes {
     std::array<int, 64> by_square{};
 };
 
-[[nodiscard]] inline bool has_legal_move_after_forced_pass(const Board& board,
+[[nodiscard]] inline bool has_legal_move_after_forced_pass(const SearchPosition& position,
                                                            Bitboard moves) noexcept {
     if (moves != 0) {
         return false;
     }
 
-    Board after_pass = board;
-    after_pass.side_to_move = opponent(board.side_to_move);
+    const SearchPosition after_pass = position_after_pass(position);
     return legal_moves(after_pass) != 0;
 }
 
@@ -154,7 +157,8 @@ empty_region_parity_order_score(int region_size,
     return score;
 }
 
-[[nodiscard]] inline int move_order_score(const Board& board, int index, const Board& next,
+[[nodiscard]] inline int move_order_score(const SearchPosition& position, int index,
+                                          const SearchPosition& next,
                                           const EndgameMoveOrderingParams& params,
                                           const EmptyRegionSizes* empty_regions) noexcept {
     int score = 0;
@@ -164,7 +168,7 @@ empty_region_parity_order_score(int region_size,
     if (is_edge(index)) {
         score += params.edge_bonus;
     }
-    if (is_x_square_next_to_empty_corner(index, board.occupied())) {
+    if (is_x_square_next_to_empty_corner(index, position.occupied())) {
         score -= params.x_square_empty_corner_penalty;
     }
     if (empty_regions != nullptr) {
@@ -199,11 +203,11 @@ inline void sort_ordered_moves(OrderedMoveIndexes& candidates) noexcept {
 }
 
 [[nodiscard]] inline OrderedMoveIndexes
-ordered_legal_move_indexes(const Board& board, ZobristHash hash, Bitboard moves,
+ordered_legal_move_indexes(const SearchPosition& position, ZobristHash hash, Bitboard moves,
                            const EndgameMoveOrderingPolicy& policy) noexcept {
     OrderedMoveIndexes result;
     const EmptyRegionSizes empty_regions = policy.use_empty_region_parity
-                                               ? empty_region_sizes(board.empty())
+                                               ? empty_region_sizes(position.empty())
                                                : EmptyRegionSizes{};
     const EmptyRegionSizes* empty_regions_ptr =
         policy.use_empty_region_parity ? &empty_regions : nullptr;
@@ -217,19 +221,20 @@ ordered_legal_move_indexes(const Board& board, ZobristHash hash, Bitboard moves,
             continue;
         }
 
-        const Bitboard flips = flips_for_move(board, *square);
+        const Bitboard flips = flips_for_move(position, *square);
         if (flips == 0) {
             continue;
         }
-        const Board next = board_after_move(board, *square, flips);
-        const ZobristHash next_hash = hash_after_move(hash, board, *square, flips);
+        const SearchPosition next = position_after_move(position, *square, flips);
+        const ZobristHash next_hash =
+            hash_after_move(hash, position.side_to_move, *square, flips);
 #ifndef NDEBUG
-        assert(next_hash == zobrist_hash(next));
+        assert(next_hash == zobrist_hash(next.to_board()));
 #endif
 
         result.moves[result.size] = OrderedMoveIndexes::Move{
             .index = index,
-            .order_score = move_order_score(board, index, next, policy.params,
+            .order_score = move_order_score(position, index, next, policy.params,
                                             empty_regions_ptr),
             .hash = next_hash,
             .next = next,
@@ -262,11 +267,11 @@ ordered_legal_move_indexes(const Board& board, ZobristHash hash, Bitboard moves,
 }
 
 [[nodiscard]] inline OrderedMoveIndexes
-ordered_legal_move_indexes(const Board& board, ZobristHash hash, Bitboard moves,
+ordered_legal_move_indexes(const SearchPosition& position, ZobristHash hash, Bitboard moves,
                            std::optional<Square> tt_preferred_move,
                            ExactEndgameStats& stats,
                            const EndgameMoveOrderingPolicy& policy) noexcept {
-    OrderedMoveIndexes ordered_moves = ordered_legal_move_indexes(board, hash, moves, policy);
+    OrderedMoveIndexes ordered_moves = ordered_legal_move_indexes(position, hash, moves, policy);
 
     if (tt_preferred_move.has_value() && (moves & tt_preferred_move->bit()) != 0 &&
         promote_preferred_move(ordered_moves, *tt_preferred_move)) {

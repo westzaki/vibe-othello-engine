@@ -1,5 +1,7 @@
 #pragma once
 
+#include "bitboard_ops.hpp"
+
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -10,6 +12,43 @@
 #include <vector>
 
 namespace othello::search_detail {
+
+struct SearchPosition {
+    Bitboard player = 0;
+    Bitboard opponent_discs = 0;
+    Side side_to_move = Side::Black;
+
+    [[nodiscard]] static constexpr SearchPosition from_board(const Board& board) noexcept {
+        return SearchPosition{
+            .player = board.discs(board.side_to_move),
+            .opponent_discs = board.discs(opponent(board.side_to_move)),
+            .side_to_move = board.side_to_move,
+        };
+    }
+
+    [[nodiscard]] constexpr Board to_board() const noexcept {
+        if (side_to_move == Side::Black) {
+            return Board{
+                .black = player,
+                .white = opponent_discs,
+                .side_to_move = side_to_move,
+            };
+        }
+        return Board{
+            .black = opponent_discs,
+            .white = player,
+            .side_to_move = side_to_move,
+        };
+    }
+
+    [[nodiscard]] constexpr Bitboard occupied() const noexcept {
+        return player | opponent_discs;
+    }
+
+    [[nodiscard]] constexpr Bitboard empty() const noexcept {
+        return ~occupied();
+    }
+};
 
 struct PrincipalVariation {
     std::array<int, 64> indexes{};
@@ -26,27 +65,128 @@ struct NodeResult {
     return std::popcount(board.empty());
 }
 
-[[nodiscard]] inline Board board_after_move(const Board& board, Square square,
-                                            Bitboard flips) noexcept {
-    const Bitboard move_bit = square.bit();
-
-    Board next = board;
-    if (board.side_to_move == Side::Black) {
-        next.black = board.black | move_bit | flips;
-        next.white = board.white & ~flips;
-    } else {
-        next.white = board.white | move_bit | flips;
-        next.black = board.black & ~flips;
-    }
-    next.side_to_move = opponent(board.side_to_move);
-
-    return next;
+[[nodiscard]] inline int empty_count(const SearchPosition& position) noexcept {
+    return std::popcount(position.empty());
 }
 
-[[nodiscard]] inline Board board_after_pass(const Board& board) noexcept {
-    Board next = board;
-    next.side_to_move = opponent(board.side_to_move);
-    return next;
+template <Bitboard (*Shift)(Bitboard) noexcept>
+[[nodiscard]] inline Bitboard legal_moves_in_direction(Bitboard player, Bitboard opponent_discs,
+                                                       Bitboard empty_squares) noexcept {
+    Bitboard captured = Shift(player) & opponent_discs;
+
+    for (int step = 0; step < 5; ++step) {
+        captured |= Shift(captured) & opponent_discs;
+    }
+
+    return Shift(captured) & empty_squares;
+}
+
+[[nodiscard]] inline Bitboard legal_moves(const SearchPosition& position) noexcept {
+    using bitboard_detail::shift_east;
+    using bitboard_detail::shift_north;
+    using bitboard_detail::shift_northeast;
+    using bitboard_detail::shift_northwest;
+    using bitboard_detail::shift_south;
+    using bitboard_detail::shift_southeast;
+    using bitboard_detail::shift_southwest;
+    using bitboard_detail::shift_west;
+
+    const Bitboard empty_squares = position.empty();
+    return legal_moves_in_direction<shift_east>(position.player, position.opponent_discs,
+                                                empty_squares) |
+           legal_moves_in_direction<shift_west>(position.player, position.opponent_discs,
+                                                empty_squares) |
+           legal_moves_in_direction<shift_north>(position.player, position.opponent_discs,
+                                                 empty_squares) |
+           legal_moves_in_direction<shift_south>(position.player, position.opponent_discs,
+                                                 empty_squares) |
+           legal_moves_in_direction<shift_northeast>(position.player, position.opponent_discs,
+                                                     empty_squares) |
+           legal_moves_in_direction<shift_northwest>(position.player, position.opponent_discs,
+                                                     empty_squares) |
+           legal_moves_in_direction<shift_southeast>(position.player, position.opponent_discs,
+                                                     empty_squares) |
+           legal_moves_in_direction<shift_southwest>(position.player, position.opponent_discs,
+                                                     empty_squares);
+}
+
+template <Bitboard (*Shift)(Bitboard) noexcept>
+[[nodiscard]] inline Bitboard flips_in_direction(Bitboard move_bit, Bitboard player,
+                                                 Bitboard opponent_discs) noexcept {
+    Bitboard flips = 0;
+    Bitboard captured = Shift(move_bit) & opponent_discs;
+
+    while (captured != 0) {
+        flips |= captured;
+        const Bitboard next = Shift(captured);
+        if ((next & player) != 0) {
+            return flips;
+        }
+
+        captured = next & opponent_discs;
+    }
+
+    return 0;
+}
+
+[[nodiscard]] inline Bitboard flips_for_move(const SearchPosition& position,
+                                             Square square) noexcept {
+    using bitboard_detail::shift_east;
+    using bitboard_detail::shift_north;
+    using bitboard_detail::shift_northeast;
+    using bitboard_detail::shift_northwest;
+    using bitboard_detail::shift_south;
+    using bitboard_detail::shift_southeast;
+    using bitboard_detail::shift_southwest;
+    using bitboard_detail::shift_west;
+
+    const Bitboard move_bit = square.bit();
+    if ((position.occupied() & move_bit) != 0) {
+        return 0;
+    }
+
+    return flips_in_direction<shift_east>(move_bit, position.player,
+                                          position.opponent_discs) |
+           flips_in_direction<shift_west>(move_bit, position.player,
+                                          position.opponent_discs) |
+           flips_in_direction<shift_north>(move_bit, position.player,
+                                           position.opponent_discs) |
+           flips_in_direction<shift_south>(move_bit, position.player,
+                                           position.opponent_discs) |
+           flips_in_direction<shift_northeast>(move_bit, position.player,
+                                               position.opponent_discs) |
+           flips_in_direction<shift_northwest>(move_bit, position.player,
+                                               position.opponent_discs) |
+           flips_in_direction<shift_southeast>(move_bit, position.player,
+                                               position.opponent_discs) |
+           flips_in_direction<shift_southwest>(move_bit, position.player,
+                                               position.opponent_discs);
+}
+
+[[nodiscard]] inline SearchPosition position_after_move(const SearchPosition& position,
+                                                        Square square,
+                                                        Bitboard flips) noexcept {
+    const Bitboard move_bit = square.bit();
+    const Bitboard next_opponent = position.player | move_bit | flips;
+    const Bitboard next_player = position.opponent_discs & ~flips;
+    return SearchPosition{
+        .player = next_player,
+        .opponent_discs = next_opponent,
+        .side_to_move = opponent(position.side_to_move),
+    };
+}
+
+[[nodiscard]] inline SearchPosition
+position_after_pass(const SearchPosition& position) noexcept {
+    return SearchPosition{
+        .player = position.opponent_discs,
+        .opponent_discs = position.player,
+        .side_to_move = opponent(position.side_to_move),
+    };
+}
+
+[[nodiscard]] inline int score_for_player(const SearchPosition& position) noexcept {
+    return std::popcount(position.player) - std::popcount(position.opponent_discs);
 }
 
 [[nodiscard]] inline bool is_better_best_move(int candidate_score, Square candidate,
