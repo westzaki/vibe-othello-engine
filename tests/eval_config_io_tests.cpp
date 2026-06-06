@@ -42,21 +42,6 @@ TEST_CASE("Sample eval configs round-trip to expected evaluator configs", "[eval
     CHECK(current_default.config.midgame.pattern_table == 1);
     CHECK(current_default.config.late.pattern_table == 1);
 
-    const othello::tools::EvaluationConfigLoadResult legacy_scalar =
-        othello::tools::load_evaluation_config_file(
-            sample_eval_config_path("current_default_legacy_scalar_2026_06_02.eval"));
-    REQUIRE(legacy_scalar.ok());
-    REQUIRE(legacy_scalar.name.has_value());
-    CHECK(*legacy_scalar.name == "current_default_legacy_scalar_2026_06_02");
-    CHECK(legacy_scalar.config == othello::default_evaluation_config());
-    CHECK(legacy_scalar.config.pattern_tables == nullptr);
-    CHECK(legacy_scalar.config.opening_pattern_tables == nullptr);
-    CHECK(legacy_scalar.config.midgame_pattern_tables == nullptr);
-    CHECK(legacy_scalar.config.late_pattern_tables == nullptr);
-    CHECK(legacy_scalar.config.opening.pattern_table == 0);
-    CHECK(legacy_scalar.config.midgame.pattern_table == 0);
-    CHECK(legacy_scalar.config.late.pattern_table == 0);
-
     const othello::tools::EvaluationConfigLoadResult minimal_pattern =
         othello::tools::load_evaluation_config_file(
             test_eval_config_fixture_path("minimal_pattern_eval.eval"));
@@ -167,11 +152,22 @@ TEST_CASE("Sample eval configs round-trip to expected evaluator configs", "[eval
     CHECK(pattern_only_smoke.config.midgame_max_occupied == 44);
 }
 
+TEST_CASE("Built-in fallback evaluator remains file-free scalar config", "[evaluation]") {
+    const othello::EvaluationConfig fallback = othello::default_evaluation_config();
+
+    CHECK(fallback.pattern_tables == nullptr);
+    CHECK(fallback.opening_pattern_tables == nullptr);
+    CHECK(fallback.midgame_pattern_tables == nullptr);
+    CHECK(fallback.late_pattern_tables == nullptr);
+    CHECK(fallback.opening.pattern_table == 0);
+    CHECK(fallback.midgame.pattern_table == 0);
+    CHECK(fallback.late.pattern_table == 0);
+}
+
 TEST_CASE("Committed eval artifact surface contains only active fixtures",
           "[evaluation]") {
     std::vector<std::string> allowed_eval_configs{
         std::string{"current_default.eval"},
-        std::string{"current_default_legacy_scalar_2026_06_02.eval"},
         std::string{"ntest_pairwise_full_v2.eval"},
     };
     std::vector<std::string> allowed_pattern_tables{
@@ -192,7 +188,6 @@ TEST_CASE("Active committed eval config fixtures parse and preserve intended ide
           "[evaluation]") {
     const std::vector<std::filesystem::path> paths{
         sample_eval_config_path("current_default.eval"),
-        sample_eval_config_path("current_default_legacy_scalar_2026_06_02.eval"),
         sample_eval_config_path("ntest_pairwise_full_v2.eval"),
     };
 
@@ -206,12 +201,7 @@ TEST_CASE("Active committed eval config fixtures parse and preserve intended ide
         REQUIRE(loaded.ok());
         REQUIRE(loaded.name.has_value());
 
-        const std::string file_name = path.filename().string();
-        if (file_name == "current_default_legacy_scalar_2026_06_02.eval") {
-            CHECK(loaded.config == default_config);
-        } else {
-            CHECK(loaded.config != default_config);
-        }
+        CHECK(loaded.config != default_config);
     }
 }
 

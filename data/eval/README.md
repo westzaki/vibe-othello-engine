@@ -1,8 +1,8 @@
 # Evaluation Configs
 
 This directory contains the small source-controlled set of `.eval` v1 files
-that should work on the latest `main`: the project default, revert snapshot,
-and promoted source preset. These files are selected explicitly with
+that should work on the latest `main`: the project default and promoted source
+preset. These files are selected explicitly with
 `--eval-config PATH` or `eval_config=PATH`, and repo tools also load
 `current_default.eval` as the project default when `--eval-config` is omitted.
 Use `.eval` configs for new evaluation experiments.
@@ -48,9 +48,9 @@ comparison, reproduction, and reversible evaluator candidates.
 
 `ntest_pairwise_full_v2.eval` is the explicit source preset for the promoted
 project default. It was trained from the NTest 300K regularized pairwise loop,
-keeps the legacy scalar evaluator snapshot, and adds phase-specific learned
-pattern-table deltas. `current_default.eval` now resolves to an equivalent
-evaluation config for repo tools that omit `--eval-config`.
+uses the built-in scalar fallback as its scalar anchor, and adds phase-specific
+learned pattern-table deltas. `current_default.eval` now resolves to an
+equivalent evaluation config for repo tools that omit `--eval-config`.
 
 The validation report is
 [`docs/experiments/ntest_balanced300k_regularized_pairwise_full_v2_report.md`](../../docs/experiments/ntest_balanced300k_regularized_pairwise_full_v2_report.md).
@@ -63,20 +63,10 @@ search overhead increases by nodes +34.73% and elapsed +16.70%.
 This promotion is not a formal Elo claim, and NTest teacher agreement is not
 exact truth.
 
-### Legacy Scalar Project Default
-
-`current_default_legacy_scalar_2026_06_02.eval` preserves the old scalar
-project default for comparison and revert. It matches the C++ built-in fallback
-and does not load learned pattern tables. To revert the project default, copy
-the legacy scalar preset contents back into `current_default.eval`, update docs
-and tests, and rerun eval config plus search smoke checks.
-
 ## Active Artifact Audit
 
 This audit records the intended status of each source-controlled eval artifact
-after the NTest pairwise full v2 project-default promotion. It is a concrete
-keep/prune/promote plan, not a deletion step. Do not delete files from this
-directory until a follow-up PR updates the references and tests listed here.
+after the NTest pairwise full v2 project-default promotion.
 
 Historical experiment reports may mention older meanings of `current_default`.
 Treat those references as timestamped evidence, not current policy.
@@ -95,20 +85,10 @@ not active source-controlled eval artifacts and should not be used for new work.
 | Artifact | Classification | Current references | Next action |
 | --- | --- | --- | --- |
 | `current_default.eval` | current default snapshot | Loaded by repo tools when `--eval-config` is omitted through `tools/common/evaluator_selection.cpp`; used by CMake tool smoke tests, eval config tests, match-runner tests, and current docs. | Keep. This is the project-default pointer. Future default changes should update this file and the default-selection tests in the same PR. |
-| `current_default_legacy_scalar_2026_06_02.eval` | historical baseline; required test fixture; future prune candidate | Used by eval config tests to prove the C++ built-in fallback remains file-free and unchanged; referenced here and in `docs/evaluation.md` as the revert preset. | Keep for now. Future prune candidate only after the project-default promotion has a newer durable revert path. Replacement would be `default_evaluation_config()` plus a regenerated scalar snapshot if a revert is needed. |
 | `ntest_pairwise_full_v2.eval` | current default snapshot source; required test fixture | Explicit source preset for `current_default.eval`; loaded by eval config tests; referenced by the full-v2 experiment reports and promotion docs. | Keep. It is the named source artifact that makes the promoted default reproducible and reviewable. |
 | `patterns/ntest_pairwise_full_v2_opening.tsv` | current default snapshot table; required runtime/test fixture | Referenced by `current_default.eval`, `ntest_pairwise_full_v2.eval`, eval config tests, and full-v2 experiment docs. | Keep. Required for the current project default and source preset. |
 | `patterns/ntest_pairwise_full_v2_midgame.tsv` | current default snapshot table; required runtime/test fixture | Referenced by `current_default.eval`, `ntest_pairwise_full_v2.eval`, eval config tests, and full-v2 experiment docs. | Keep. Required for the current project default and source preset. |
 | `patterns/ntest_pairwise_full_v2_late.tsv` | current default snapshot table; required runtime/test fixture | Referenced by `current_default.eval`, `ntest_pairwise_full_v2.eval`, eval config tests, and full-v2 experiment docs. | Keep. Required for the current project default and source preset. |
-
-### Future Prune Plan
-
-No pattern-teacher artifact remains in `data/eval`. The only current short-term
-prune candidate is the scalar revert snapshot, which is still kept deliberately.
-
-| Prune candidate | Current references to clear first | Tests to update | Replacement artifact or command | Delete or keep only docs/report |
-| --- | --- | --- | --- | --- |
-| `current_default_legacy_scalar_2026_06_02.eval` | Eval config tests and revert-plan docs. | Keep one test proving built-in fallback remains file-free; it can compare against `default_evaluation_config()` directly or a generated scalar snapshot. | `default_evaluation_config()` plus the current revert plan; regenerate a scalar `.eval` only if a revert PR needs it. | Keep short-term as revert preset; later delete from active configs if the project accepts docs-only revert instructions. |
 
 ## Rejected or Superseded Configs
 
@@ -131,6 +111,9 @@ Reports such as
 `docs/experiments/evaluation/2026-05-31-teacher-aggressive-v3.md` preserve the
 commands, fingerprints, and comparison results that motivated the pattern-first
 pivot without keeping scalar experiment anchors loadable as current configs.
+If a scalar project-default revert is needed, regenerate a scalar `.eval`
+snapshot from `default_evaluation_config()` in that revert PR, update the
+project-default file and tests, and rerun eval config plus search smoke checks.
 
 ## Format
 
