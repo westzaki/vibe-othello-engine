@@ -1,8 +1,12 @@
 #include "common/stats.hpp"
 #include "test_helpers.hpp"
 
+#include "../src/search_tt.hpp"
+
 #include <catch2/catch_test_macros.hpp>
+#include <array>
 #include <cstdint>
+#include <limits>
 #include <othello/othello.hpp>
 #include <vector>
 
@@ -141,6 +145,22 @@ struct IterativeDepthCapture {
     const std::vector<othello::RootMoveOrderingEntry>* root_ordering_snapshot = nullptr;
     std::vector<std::vector<othello::RootMoveOrderingEntry>> root_ordering_by_depth;
 };
+
+[[nodiscard]] othello::search_detail::TranspositionEntry
+tt_entry(othello::ZobristHash hash, othello::search_detail::TranspositionScope scope,
+         std::uint32_t generation, int depth) {
+    return othello::search_detail::TranspositionEntry{
+        .hash = hash,
+        .eval_identity = scope.eval_identity,
+        .generation = generation,
+        .depth = depth,
+        .score = 0,
+        .best_move_index = -1,
+        .mode = scope.mode,
+        .bound = othello::search_detail::BoundKind::Exact,
+        .occupied = true,
+    };
+}
 
 void capture_iterative_depth(const othello::IterativeSearchDepthInfo& info, void* user_data) {
     auto* capture = static_cast<IterativeDepthCapture*>(user_data);
@@ -980,6 +1000,153 @@ TEST_CASE("Search session scopes transposition entries by search mode", "[search
     check_same_result(session_iterative, fresh_iterative);
     CHECK(session.mode() == othello::SearchMode::Iterative);
     CHECK(session.previous_best_move() == session_iterative.best_move);
+}
+
+TEST_CASE("Midgame transposition table lookup keeps mode and evaluation scopes separate",
+          "[search]") {
+    othello::search_detail::TranspositionTable table{
+        othello::search_detail::SearchEngineOptions{
+            .use_transposition_table = true,
+            .transposition_table_entries = 4,
+        }};
+    othello::SearchStats stats;
+    constexpr othello::ZobristHash hash = 0x1234;
+    constexpr othello::search_detail::TranspositionScope fixed_scope{
+        .mode = othello::SearchMode::FixedDepth,
+        .eval_identity = 17,
+    };
+    constexpr othello::search_detail::TranspositionScope iterative_scope{
+        .mode = othello::SearchMode::Iterative,
+        .eval_identity = 17,
+    };
+    constexpr othello::search_detail::TranspositionScope other_eval_scope{
+        .mode = othello::SearchMode::FixedDepth,
+        .eval_identity = 99,
+    };
+
+    REQUIRE(table.store(hash, fixed_scope, 4, 3, 42, -100, 100, std::nullopt, stats));
+
+    CHECK_FALSE(table.lookup(hash, iterative_scope, 3, -100, 100, false, stats)
+                    .cutoff.has_value());
+    CHECK_FALSE(table.lookup(hash, other_eval_scope, 3, -100, 100, false, stats)
+                    .cutoff.has_value());
+    const auto scoped = table.lookup(hash, fixed_scope, 3, -100, 100, false, stats);
+    REQUIRE(scoped.cutoff.has_value());
+    CHECK(scoped.cutoff->score == 42);
+}
+
+TEST_CASE("Midgame transposition table updates same scoped hash regardless of generation",
+          "[search]") {
+    othello::search_detail::TranspositionTable table{
+        othello::search_detail::SearchEngineOptions{
+            .use_transposition_table = true,
+            .transposition_table_entries = 4,
+        }};
+    othello::SearchStats stats;
+    constexpr othello::ZobristHash hash = 0x1234;
+    constexpr othello::search_detail::TranspositionScope scope{
+        .mode = othello::SearchMode::FixedDepth,
+        .eval_identity = 17,
+    };
+
+    REQUIRE(table.store(hash, scope, 20, 4, 42, -100, 100, std::nullopt, stats));
+    REQUIRE(table.store(hash, scope, 1, 1, 7, -100, 100, std::nullopt, stats));
+
+    const auto scoped = table.lookup(hash, scope, 1, -100, 100, false, stats);
+    REQUIRE(scoped.cutoff.has_value());
+    CHECK(scoped.cutoff->score == 7);
+    CHECK(stats.tt_overwrites == 1);
+    CHECK(stats.tt_collisions == 0);
+}
+
+TEST_CASE("Midgame transposition replacement updates same scoped hash first", "[search]") {
+    using othello::search_detail::select_replacement_entry;
+    constexpr othello::search_detail::TranspositionScope scope{
+        .mode = othello::SearchMode::FixedDepth,
+        .eval_identity = 7,
+    };
+    std::array<othello::search_detail::TranspositionEntry, 4> entries{
+        tt_entry(11, scope, 1, 1),
+        tt_entry(12, scope, 20, 5),
+        tt_entry(13, scope, 20, 5),
+        tt_entry(14, scope, 20, 5),
+    };
+
+    CHECK(select_replacement_entry(entries, 11, scope, 20, 0) == &entries[0]);
+}
+
+TEST_CASE("Midgame transposition replacement uses an empty slot before overwriting",
+          "[search]") {
+    using othello::search_detail::select_replacement_entry;
+    constexpr othello::search_detail::TranspositionScope scope{
+        .mode = othello::SearchMode::FixedDepth,
+        .eval_identity = 7,
+    };
+    std::array<othello::search_detail::TranspositionEntry, 4> entries{
+        tt_entry(11, scope, 10, 2),
+        othello::search_detail::TranspositionEntry{},
+        tt_entry(13, scope, 10, 1),
+        tt_entry(14, scope, 10, 1),
+    };
+
+    CHECK(select_replacement_entry(entries, 99, scope, 10, 0) == &entries[1]);
+}
+
+TEST_CASE("Midgame transposition replacement prefers old shallow entries under pressure",
+          "[search]") {
+    using othello::search_detail::select_replacement_entry;
+    constexpr othello::search_detail::TranspositionScope scope{
+        .mode = othello::SearchMode::FixedDepth,
+        .eval_identity = 7,
+    };
+    std::array<othello::search_detail::TranspositionEntry, 4> entries{
+        tt_entry(11, scope, 20, 4),
+        tt_entry(12, scope, 8, 1),
+        tt_entry(13, scope, 20, 2),
+        tt_entry(14, scope, 20, 3),
+    };
+
+    CHECK(select_replacement_entry(entries, 99, scope, 20, 1) == &entries[1]);
+}
+
+TEST_CASE("Midgame transposition replacement rejects weak incoming stores", "[search]") {
+    using othello::search_detail::select_replacement_entry;
+    constexpr othello::search_detail::TranspositionScope scope{
+        .mode = othello::SearchMode::FixedDepth,
+        .eval_identity = 7,
+    };
+    std::array<othello::search_detail::TranspositionEntry, 4> entries{
+        tt_entry(11, scope, 20, 4),
+        tt_entry(12, scope, 20, 5),
+        tt_entry(13, scope, 20, 6),
+        tt_entry(14, scope, 20, 7),
+    };
+
+    CHECK(select_replacement_entry(entries, 99, scope, 20, 2) == nullptr);
+}
+
+TEST_CASE("Midgame transposition replacement handles generation wraparound", "[search]") {
+    using othello::search_detail::generation_age;
+    using othello::search_detail::select_replacement_entry;
+    constexpr std::uint32_t max_generation = std::numeric_limits<std::uint32_t>::max();
+    constexpr othello::search_detail::TranspositionScope scope{
+        .mode = othello::SearchMode::FixedDepth,
+        .eval_identity = 7,
+    };
+
+    CHECK(generation_age(1, max_generation) == 1);
+    CHECK(generation_age(2, max_generation) == 2);
+    CHECK(generation_age(1, max_generation - 1) == 2);
+    CHECK(generation_age(max_generation, max_generation - 1) == 1);
+
+    std::array<othello::search_detail::TranspositionEntry, 4> entries{
+        tt_entry(11, scope, 1, 1),
+        tt_entry(12, scope, max_generation, 1),
+        tt_entry(13, scope, 1, 2),
+        tt_entry(14, scope, 1, 2),
+    };
+
+    CHECK(select_replacement_entry(entries, 99, scope, 1, 1) == &entries[1]);
 }
 
 TEST_CASE("Search options can skip depth-zero transposition table stores", "[search]") {
