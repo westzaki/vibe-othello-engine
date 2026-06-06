@@ -9,6 +9,7 @@ add_library(othello_tools_common OBJECT
     common/jsonl.cpp
     common/output_format.cpp
     common/pattern_table_io.cpp
+    common/search_cli_options.cpp
     common/search_preset.cpp
     common/stats.cpp
 )

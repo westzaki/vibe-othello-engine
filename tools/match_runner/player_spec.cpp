@@ -2,6 +2,7 @@
 
 #include "common/cli.hpp"
 #include "common/evaluator_selection.hpp"
+#include "common/search_cli_options.hpp"
 #include "common/search_preset.hpp"
 
 #include <limits>
@@ -21,16 +22,6 @@ std::optional<std::uint64_t> parse_u64(std::string_view text) noexcept {
 
 std::optional<bool> parse_on_off(std::string_view text) noexcept {
     return tools::parse_on_off(text);
-}
-
-std::optional<AspirationProfile> parse_aspiration_profile(std::string_view text) noexcept {
-    if (text == "fixed") {
-        return AspirationProfile::Fixed;
-    }
-    if (text == "score-delta-aware") {
-        return AspirationProfile::ScoreDeltaAware;
-    }
-    return std::nullopt;
 }
 
 std::optional<PlayerSpec> parse_player_spec(std::string_view text) {
@@ -113,13 +104,11 @@ std::optional<PlayerSpec> parse_player_spec(std::string_view text) {
             if (seen_preset) {
                 return std::nullopt;
             }
-            const std::optional<tools::SearchPreset> preset =
-                tools::parse_search_preset(value);
+            const std::optional<tools::SearchPreset> preset = tools::parse_search_preset(value);
             if (!preset.has_value()) {
                 return std::nullopt;
             }
-            const tools::SearchPresetOptions preset_options =
-                tools::search_preset_options(*preset);
+            const tools::SearchPresetOptions preset_options = tools::search_preset_options(*preset);
             search_options.max_depth = *depth;
             search_options.use_transposition_table =
                 preset_options.search_options.use_transposition_table;
@@ -134,8 +123,7 @@ std::optional<PlayerSpec> parse_player_spec(std::string_view text) {
             search_options.use_pvs = preset_options.search_options.use_pvs;
             search_options.use_aspiration_window =
                 preset_options.search_options.use_aspiration_window;
-            search_options.aspiration_profile =
-                preset_options.search_options.aspiration_profile;
+            search_options.aspiration_profile = preset_options.search_options.aspiration_profile;
             search_options.use_iterative_search = preset_options.use_iterative_search;
             seen_preset = true;
         }
@@ -179,7 +167,7 @@ std::optional<PlayerSpec> parse_player_spec(std::string_view text) {
                     return std::nullopt;
                 }
                 const std::optional<AspirationProfile> parsed =
-                    parse_aspiration_profile(value);
+                    tools::parse_aspiration_profile(value);
                 if (!parsed.has_value()) {
                     return std::nullopt;
                 }
@@ -197,8 +185,7 @@ std::optional<PlayerSpec> parse_player_spec(std::string_view text) {
                         ExactEndgameRootPolicy::FixedThreshold;
                 } else if (value == "adaptive16") {
                     search_options.exact_endgame_empty_threshold = 16;
-                    search_options.exact_endgame_root_policy =
-                        ExactEndgameRootPolicy::Adaptive16;
+                    search_options.exact_endgame_root_policy = ExactEndgameRootPolicy::Adaptive16;
                 } else {
                     const std::optional<int> parsed = parse_non_negative_int(value);
                     if (!parsed.has_value()) {
@@ -215,8 +202,7 @@ std::optional<PlayerSpec> parse_player_spec(std::string_view text) {
                 }
                 const std::optional<std::uint64_t> parsed = parse_u64(value);
                 if (!parsed.has_value() ||
-                    *parsed >
-                        static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())) {
+                    *parsed > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())) {
                     return std::nullopt;
                 }
                 search_options.transposition_table_entries = static_cast<std::size_t>(*parsed);
