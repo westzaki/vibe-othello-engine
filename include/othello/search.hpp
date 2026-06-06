@@ -1,5 +1,7 @@
 #pragma once
 
+#include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -52,12 +54,83 @@ struct SearchStats {
     std::uint64_t aspiration_full_window_fallbacks = 0;
     std::uint64_t aspiration_fail_low_distance_sum = 0;
     std::uint64_t aspiration_fail_high_distance_sum = 0;
+    // Cumulative record distances for failed aspiration searches. Aggregating
+    // stats keeps the maximum; a delta reports the new cumulative maximum only
+    // when the interval raised the previous record.
     std::uint64_t aspiration_fail_low_distance_max = 0;
     std::uint64_t aspiration_fail_high_distance_max = 0;
 
     std::uint64_t dynamic_ordering_nodes = 0;
     std::uint64_t dynamic_ordering_moves = 0;
 };
+
+namespace search_stats_detail {
+
+inline constexpr auto additive_members = std::to_array<std::uint64_t SearchStats::*>({
+    &SearchStats::nodes,
+    &SearchStats::beta_cutoffs,
+    &SearchStats::beta_cutoffs_first_move,
+    &SearchStats::searched_moves,
+    &SearchStats::legal_move_nodes,
+    &SearchStats::eval_calls,
+    &SearchStats::pass_nodes,
+    &SearchStats::game_over_nodes,
+    &SearchStats::tt_lookups,
+    &SearchStats::tt_hits,
+    &SearchStats::tt_exact_hits,
+    &SearchStats::tt_lower_hits,
+    &SearchStats::tt_upper_hits,
+    &SearchStats::tt_stores,
+    &SearchStats::tt_leaf_stores,
+    &SearchStats::tt_overwrites,
+    &SearchStats::tt_collisions,
+    &SearchStats::tt_rejected_stores,
+    &SearchStats::tt_move_ordering_probes,
+    &SearchStats::tt_move_ordering_hits,
+    &SearchStats::tt_move_ordering_used,
+    &SearchStats::pvs_scouts,
+    &SearchStats::pvs_researches,
+    &SearchStats::pvs_scout_cutoffs,
+    &SearchStats::aspiration_searches,
+    &SearchStats::aspiration_researches,
+    &SearchStats::aspiration_fail_lows,
+    &SearchStats::aspiration_fail_highs,
+    &SearchStats::aspiration_full_window_fallbacks,
+    &SearchStats::aspiration_fail_low_distance_sum,
+    &SearchStats::aspiration_fail_high_distance_sum,
+    &SearchStats::dynamic_ordering_nodes,
+    &SearchStats::dynamic_ordering_moves,
+});
+
+inline constexpr auto max_members = std::to_array<std::uint64_t SearchStats::*>({
+    &SearchStats::aspiration_fail_low_distance_max,
+    &SearchStats::aspiration_fail_high_distance_max,
+});
+
+inline constexpr std::size_t tracked_member_count = additive_members.size() + max_members.size();
+
+} // namespace search_stats_detail
+
+inline void accumulate_search_stats(SearchStats& total, const SearchStats& stats) noexcept {
+    for (const auto member : search_stats_detail::additive_members) {
+        total.*member += stats.*member;
+    }
+    for (const auto member : search_stats_detail::max_members) {
+        total.*member = std::max(total.*member, stats.*member);
+    }
+}
+
+[[nodiscard]] inline SearchStats search_stats_delta(const SearchStats& after,
+                                                    const SearchStats& before) noexcept {
+    SearchStats delta;
+    for (const auto member : search_stats_detail::additive_members) {
+        delta.*member = after.*member - before.*member;
+    }
+    for (const auto member : search_stats_detail::max_members) {
+        delta.*member = after.*member > before.*member ? after.*member : 0;
+    }
+    return delta;
+}
 
 enum class ExactEndgameRootPolicy {
     FixedThreshold,
