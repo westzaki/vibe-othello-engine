@@ -117,6 +117,9 @@ target_include_directories(othello_rule_core_bench PRIVATE ${CMAKE_CURRENT_SOURC
 
 othello_add_executable(othello_search_bench
     benchmarks/search_main.cpp
+    benchmarks/search_bench_options.cpp
+    benchmarks/search_bench_reporter.cpp
+    benchmarks/search_bench_runner.cpp
     benchmarks/reporters.cpp
     $<TARGET_OBJECTS:othello_tools_common>
     $<TARGET_OBJECTS:othello_tools_positions>
