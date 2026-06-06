@@ -495,6 +495,28 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
         self.assertEqual(stats["analysis_cache_mode"], "off")
         self.assertEqual(stats["analysis_jobs"], 1)
 
+    def test_best_vs_engine_reuses_label_engine_move_without_analysis(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(
+                temp_path / "labels.jsonl",
+                [teacher_row(selected_move=None) | {"engine_move": "b1"}],
+            )
+            config = make_config(temp_path, labels)
+
+            def failing_analyzer(
+                inner_config: trainer.TrainerConfig,
+                board_text: str,
+            ) -> trainer.AnalyzeResult:
+                del inner_config, board_text
+                raise AssertionError("precomputed engine_move should avoid analysis")
+
+            pairs, _, stats = trainer.collect_pairs(config, analyzer=failing_analyzer)
+
+        self.assertEqual(len(pairs), 1)
+        self.assertEqual(pairs[0].engine_move, "b1")
+        self.assertEqual(stats["analysis_cache_misses"], 0)
+
     def test_analysis_cache_read_write_writes_then_hits(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             temp_path = Path(temp)
@@ -1365,6 +1387,90 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
         self.assertIn("opening.pattern_table=3", candidate)
         self.assertIn("midgame.pattern_table=3", candidate)
         self.assertIn("late.pattern_table=3", candidate)
+
+    def test_pattern_only_candidate_eval_omits_base_scalar_weights(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            eval_config = write_current_default_like_eval_config(temp_path / "current_default.eval")
+            args = [
+                "--teacher-labels",
+                str(labels),
+                "--eval-config",
+                str(eval_config),
+                "--out-dir",
+                str(temp_path / "runs" / "candidate"),
+                "--candidate-pattern-table-weight",
+                "3",
+                "--candidate-eval-shape",
+                "pattern-only",
+                "--no-base-margin",
+            ]
+            config = trainer.config_from_args(trainer.parse_args(args))
+
+            candidate = trainer.render_candidate_eval(config)
+
+        self.assertIn("schema_version=eval.v1", candidate)
+        self.assertIn("mode=pattern_only", candidate)
+        self.assertIn("name=regularized_pairwise_pattern_candidate", candidate)
+        self.assertIn("# model_margin: pattern_only", candidate)
+        self.assertIn("pattern_table.opening=tables/opening.tsv", candidate)
+        self.assertIn("pattern_table.midgame=tables/midgame.tsv", candidate)
+        self.assertIn("pattern_table.late=tables/late.tsv", candidate)
+        self.assertIn("opening.pattern_table=3", candidate)
+        self.assertIn("midgame.pattern_table=3", candidate)
+        self.assertIn("late.pattern_table=3", candidate)
+        self.assertIn("opening_max_occupied=20", candidate)
+        self.assertIn("midgame_max_occupied=44", candidate)
+        self.assertNotIn("opening.mobility", candidate)
+        self.assertNotIn("midgame.mobility", candidate)
+        self.assertNotIn("late.mobility", candidate)
+
+    def test_pattern_only_report_uses_candidate_margin_shape(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            config = make_config(
+                temp_path,
+                labels,
+                extra_args=["--candidate-eval-shape", "pattern-only", "--no-base-margin"],
+            )
+            summary = {
+                "rows": {},
+                "training": {
+                    "initial_metrics": {
+                        "weighted_loss": 0.0,
+                        "unweighted_loss": 0.0,
+                        "accuracy": 0.0,
+                        "weighted_accuracy": 0.0,
+                        "avg_margin": 0.0,
+                    },
+                    "final_metrics": {
+                        "pairs": 0,
+                        "weighted_loss": 0.0,
+                        "unweighted_loss": 0.0,
+                        "accuracy": 0.0,
+                        "weighted_accuracy": 0.0,
+                        "avg_margin": 0.0,
+                        "total_pair_weight": 0.0,
+                    },
+                },
+                "analysis_cache_mode": "off",
+                "analysis_cache_dir": "",
+                "analysis_jobs": 1,
+            }
+
+            report = trainer.render_report(
+                config=config,
+                summary=summary,
+                table_paths={phase: temp_path / f"{phase}.tsv" for phase in trainer.PHASES},
+                candidate_eval_path=temp_path / "candidate.eval",
+                validation_path=temp_path / "validation.tsv",
+            )
+
+        self.assertIn("- candidate_eval_shape: `pattern-only`", report)
+        self.assertIn("- model_margin: `pattern_only`", report)
+        self.assertNotIn("- model_margin: `delta_only`", report)
 
     def test_table_data_lines_are_integer_values(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
