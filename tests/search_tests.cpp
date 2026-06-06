@@ -166,6 +166,16 @@ void capture_iterative_depth(const othello::IterativeSearchDepthInfo& info, void
     return true;
 }
 
+void check_same_result(const othello::SearchResult& left, const othello::SearchResult& right) {
+    CHECK(left.best_move == right.best_move);
+    CHECK(left.score == right.score);
+    CHECK(left.depth == right.depth);
+    CHECK(left.principal_variation == right.principal_variation);
+    CHECK(left.score_kind == right.score_kind);
+    CHECK(left.used_exact_endgame == right.used_exact_endgame);
+    CHECK(left.exact_disc_margin == right.exact_disc_margin);
+}
+
 } // namespace
 
 TEST_CASE("Fixed-depth search at depth zero returns an evaluation-only result", "[search]") {
@@ -872,6 +882,106 @@ TEST_CASE("Search options can enable the transposition table", "[search]") {
     CHECK(default_without_tt.depth == with_tt.depth);
 }
 
+TEST_CASE("Search session preserves one-shot fixed-depth search results", "[search]") {
+    const auto board = othello::apply_move(Board::initial(), othello::test::square("d3"));
+    REQUIRE(board.has_value());
+
+    const othello::SearchOptions options{
+        .max_depth = 4,
+        .use_transposition_table = true,
+        .exact_endgame_empty_threshold = 0,
+        .use_pvs = true,
+    };
+
+    othello::SearchSession session{options};
+    const othello::SearchResult session_result = othello::search(session, *board, options);
+    const othello::SearchResult temporary_result = othello::search(*board, options);
+
+    check_same_result(session_result, temporary_result);
+    CHECK(session.generation() == 1);
+    CHECK(session.mode() == othello::SearchMode::FixedDepth);
+    CHECK(session.previous_best_move() == session_result.best_move);
+    CHECK(session.root_principal_variation() == session_result.principal_variation);
+}
+
+TEST_CASE("Search session keeps a persistent midgame transposition table", "[search]") {
+    const auto board = othello::apply_move(Board::initial(), othello::test::square("d3"));
+    REQUIRE(board.has_value());
+
+    const othello::SearchOptions options{
+        .max_depth = 4,
+        .use_transposition_table = true,
+        .exact_endgame_empty_threshold = 0,
+    };
+
+    othello::SearchSession session{options};
+    const othello::SearchResult first = othello::search(session, *board, options);
+    const othello::SearchResult second = othello::search(session, *board, options);
+
+    check_same_result(first, second);
+    CHECK(session.generation() == 2);
+    CHECK(second.stats.tt_hits > 0);
+    CHECK(second.nodes <= first.nodes);
+}
+
+TEST_CASE("Search session scopes transposition entries by evaluation config", "[search]") {
+    const auto board = othello::apply_move(Board::initial(), othello::test::square("d3"));
+    REQUIRE(board.has_value());
+
+    othello::EvaluationConfig first_config;
+    first_config.opening = othello::EvaluationFeatureWeights{.disc_difference = 1};
+    first_config.midgame = othello::EvaluationFeatureWeights{.disc_difference = 1};
+    first_config.late = othello::EvaluationFeatureWeights{.disc_difference = 1};
+
+    othello::EvaluationConfig second_config;
+    second_config.opening = othello::EvaluationFeatureWeights{.disc_difference = 9};
+    second_config.midgame = othello::EvaluationFeatureWeights{.disc_difference = 9};
+    second_config.late = othello::EvaluationFeatureWeights{.disc_difference = 9};
+
+    const othello::SearchOptions first_options{
+        .max_depth = 0,
+        .use_transposition_table = true,
+        .exact_endgame_empty_threshold = 0,
+        .evaluation_config_override = first_config,
+    };
+    const othello::SearchOptions second_options{
+        .max_depth = 0,
+        .use_transposition_table = true,
+        .exact_endgame_empty_threshold = 0,
+        .evaluation_config_override = second_config,
+    };
+
+    othello::SearchSession session{first_options};
+    static_cast<void>(othello::search(session, *board, first_options));
+    const othello::SearchResult scoped = othello::search(session, *board, second_options);
+    const othello::SearchResult fresh = othello::search(*board, second_options);
+
+    check_same_result(scoped, fresh);
+    CHECK(scoped.stats.tt_lookups == 1);
+    CHECK(scoped.stats.tt_hits == 0);
+}
+
+TEST_CASE("Search session scopes transposition entries by search mode", "[search]") {
+    const auto board = othello::apply_move(Board::initial(), othello::test::square("d3"));
+    REQUIRE(board.has_value());
+
+    const othello::SearchOptions options{
+        .max_depth = 3,
+        .use_transposition_table = true,
+        .exact_endgame_empty_threshold = 0,
+    };
+
+    othello::SearchSession session{options};
+    static_cast<void>(othello::search(session, *board, options));
+    const othello::SearchResult session_iterative =
+        othello::search_iterative(session, *board, options);
+    const othello::SearchResult fresh_iterative = othello::search_iterative(*board, options);
+
+    check_same_result(session_iterative, fresh_iterative);
+    CHECK(session.mode() == othello::SearchMode::Iterative);
+    CHECK(session.previous_best_move() == session_iterative.best_move);
+}
+
 TEST_CASE("Search options can skip depth-zero transposition table stores", "[search]") {
     const Board board = Board::initial();
 
@@ -1165,7 +1275,7 @@ TEST_CASE("Fixed-depth search preserves representative midgame ordering snapshot
 side=W)"),
             .best_move = othello::test::square("d6"),
             .score = 69,
-            .nodes = 2631,
+            .nodes = 2535,
             .principal_variation = {othello::test::square("d6"), othello::test::square("a5"),
                                     othello::test::square("b6"), othello::test::square("b5"),
                                     othello::test::square("a4")},
@@ -1182,7 +1292,7 @@ side=W)"),
 side=B)"),
             .best_move = othello::test::square("e8"),
             .score = 195,
-            .nodes = 4033,
+            .nodes = 3540,
             .principal_variation = {othello::test::square("e8"), othello::test::square("d8"),
                                     othello::test::square("g6"), othello::test::square("e1"),
                                     othello::test::square("c2")},

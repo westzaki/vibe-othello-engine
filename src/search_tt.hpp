@@ -6,6 +6,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <memory>
 #include <new>
@@ -22,11 +23,19 @@ using tt_detail::proves_cutoff;
 
 struct TranspositionEntry {
     ZobristHash hash = 0;
+    std::uint64_t eval_identity = 0;
+    std::uint32_t generation = 0;
     int depth = -1;
     int score = 0;
     int best_move_index = -1;
+    SearchMode mode = SearchMode::FixedDepth;
     BoundKind bound = BoundKind::Exact;
     bool occupied = false;
+};
+
+struct TranspositionScope {
+    SearchMode mode = SearchMode::FixedDepth;
+    std::uint64_t eval_identity = 0;
 };
 
 struct TranspositionLookup {
@@ -40,8 +49,8 @@ public:
         : bucket_count_{normalized_bucket_count(options)},
           buckets_{bucket_count_ == 0 ? nullptr : new (std::nothrow) Bucket[bucket_count_]} {}
 
-    [[nodiscard]] TranspositionLookup lookup(ZobristHash hash, int depth, int alpha, int beta,
-                                             bool collect_best_move_hint,
+    [[nodiscard]] TranspositionLookup lookup(ZobristHash hash, TranspositionScope scope, int depth,
+                                             int alpha, int beta, bool collect_best_move_hint,
                                              SearchStats& stats) const noexcept {
         if (buckets_ == nullptr) {
             return {};
@@ -51,7 +60,8 @@ public:
         const Bucket& bucket = buckets_[bucket_index(hash)];
         const TranspositionEntry* matching_entry = nullptr;
         for (const TranspositionEntry& entry : bucket.entries) {
-            if (entry.occupied && entry.hash == hash) {
+            if (entry.occupied && entry.hash == hash && entry.mode == scope.mode &&
+                entry.eval_identity == scope.eval_identity) {
                 matching_entry = &entry;
                 break;
             }
@@ -80,13 +90,15 @@ public:
         return TranspositionLookup{.best_move_hint = best_move_hint_from_entry(entry, stats)};
     }
 
-    bool store(ZobristHash hash, int depth, int score, int original_alpha, int beta,
-               const std::optional<Square>& best_move, SearchStats& stats) noexcept {
+    bool store(ZobristHash hash, TranspositionScope scope, std::uint32_t generation, int depth,
+               int score, int original_alpha, int beta, const std::optional<Square>& best_move,
+               SearchStats& stats) noexcept {
         if (buckets_ == nullptr) {
             return false;
         }
 
-        TranspositionEntry* entry = replacement_entry(buckets_[bucket_index(hash)], hash, depth);
+        TranspositionEntry* entry =
+            replacement_entry(buckets_[bucket_index(hash)], hash, scope, depth);
         if (entry == nullptr) {
             ++stats.tt_rejected_stores;
             return false;
@@ -104,9 +116,12 @@ public:
 
         *entry = TranspositionEntry{
             .hash = hash,
+            .eval_identity = scope.eval_identity,
+            .generation = generation,
             .depth = depth,
             .score = score,
             .best_move_index = best_move.has_value() ? best_move->index() : -1,
+            .mode = scope.mode,
             .bound = bound,
             .occupied = true,
         };
@@ -149,11 +164,13 @@ private:
     }
 
     [[nodiscard]] static TranspositionEntry* replacement_entry(Bucket& bucket, ZobristHash hash,
+                                                               TranspositionScope scope,
                                                                int depth) noexcept {
         TranspositionEntry* empty_slot = nullptr;
         TranspositionEntry* shallowest = &bucket.entries.front();
         for (TranspositionEntry& entry : bucket.entries) {
-            if (entry.occupied && entry.hash == hash) {
+            if (entry.occupied && entry.hash == hash && entry.mode == scope.mode &&
+                entry.eval_identity == scope.eval_identity) {
                 return &entry;
             }
             if (!entry.occupied) {
