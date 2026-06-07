@@ -1736,7 +1736,7 @@ TEST_CASE("Midgame ordering uses square index as deterministic same-score tie-br
     CHECK(root_ordering[2].order_score == root_ordering[3].order_score);
 }
 
-TEST_CASE("Fixed-depth search preserves representative midgame result snapshots", "[search]") {
+TEST_CASE("Fixed-depth search preserves representative midgame ordering snapshots", "[search]") {
     struct Case {
         Board board;
         othello::Square best_move;
@@ -1759,7 +1759,9 @@ side=W)"),
             .best_move = othello::test::square("d6"),
             .score = 69,
             .nodes = 2535,
-            .principal_variation = {othello::test::square("d6")},
+            .principal_variation = {othello::test::square("d6"), othello::test::square("a5"),
+                                    othello::test::square("b6"), othello::test::square("b5"),
+                                    othello::test::square("a4")},
         },
         Case{
             .board = othello::test::board_from_text(R"(.....W..
@@ -1774,7 +1776,9 @@ side=B)"),
             .best_move = othello::test::square("e8"),
             .score = 195,
             .nodes = 3506,
-            .principal_variation = {othello::test::square("e8")},
+            .principal_variation = {othello::test::square("e8"), othello::test::square("d8"),
+                                    othello::test::square("g6"), othello::test::square("e1"),
+                                    othello::test::square("c2")},
         },
     };
 
@@ -1793,6 +1797,8 @@ side=B)"),
         CHECK(result.score == test_case.score);
         CHECK(result.nodes == test_case.nodes);
         CHECK(result.principal_variation == test_case.principal_variation);
+        CHECK(result.principal_variation.size() <=
+              static_cast<std::size_t>(options.max_depth));
         CHECK(result.stats.dynamic_ordering_nodes > 0);
         CHECK(result.stats.dynamic_ordering_moves >= result.stats.dynamic_ordering_nodes * 5);
     }
@@ -1863,10 +1869,17 @@ TEST_CASE("TT and PVS combinations preserve deterministic fixed-depth result", "
             };
 
             const othello::SearchResult result = othello::search(*board, options);
+            const othello::SearchResult repeated = othello::search(*board, options);
 
             CHECK(result.best_move == baseline.best_move);
             CHECK(result.score == baseline.score);
             CHECK(result.depth == baseline.depth);
+            CHECK(repeated.best_move == result.best_move);
+            CHECK(repeated.score == result.score);
+            CHECK(repeated.depth == result.depth);
+            CHECK(repeated.principal_variation == result.principal_variation);
+            CHECK(result.principal_variation.size() <=
+                  static_cast<std::size_t>(options.max_depth));
         }
     }
 }

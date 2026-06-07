@@ -84,47 +84,6 @@ preferred_move_for_node(std::optional<Square> principal_variation_move,
     return lhs.has_value() && rhs.has_value() && *lhs == *rhs;
 }
 
-[[nodiscard]] PrincipalVariation
-reconstruct_principal_variation_from_tt(const SearchPosition& root_position, ZobristHash root_hash,
-                                        int depth, const SearchContext& context) noexcept {
-    PrincipalVariation principal_variation;
-    SearchPosition position = root_position;
-    ZobristHash hash = root_hash;
-
-    for (int ply = 0; ply < depth && principal_variation.size < principal_variation.indexes.size();
-         ++ply) {
-        const Bitboard moves = legal_moves(position);
-        if (moves == 0) {
-            const SearchPosition next = position_after_pass(position);
-            if (legal_moves(next) == 0) {
-                break;
-            }
-            hash = hash_after_pass(hash, position.side_to_move);
-            position = next;
-            continue;
-        }
-
-        const std::optional<Square> move =
-            context.transpositions.best_move_hint(hash, context.transposition_scope);
-        if (!move.has_value() || (moves & move->bit()) == 0) {
-            break;
-        }
-
-        const Bitboard flips = flips_for_move(position, *move);
-        if (flips == 0) {
-            break;
-        }
-
-        principal_variation.indexes[principal_variation.size] = move->index();
-        ++principal_variation.size;
-        const SearchPosition next = position_after_move(position, *move, flips);
-        hash = hash_after_move(hash, position.side_to_move, *move, flips);
-        position = next;
-    }
-
-    return principal_variation;
-}
-
 } // namespace
 
 // Fixed-depth negamax is easiest to audit as direct recursion at this stage.
@@ -132,7 +91,8 @@ reconstruct_principal_variation_from_tt(const SearchPosition& root_position, Zob
 SearchNodeResult search_node(const SearchPosition& position, ZobristHash hash, int depth,
                              int alpha, int beta, SearchContext& context,
                              std::optional<Square> root_preferred_move,
-                             PrincipalVariationHint pv_hint, bool is_root) noexcept {
+                             PrincipalVariationHint pv_hint, bool is_root,
+                             MidgamePvTable& pv_table, std::size_t ply) noexcept {
     ++context.stats.nodes;
 
     const int original_alpha = alpha;
@@ -144,10 +104,16 @@ SearchNodeResult search_node(const SearchPosition& position, ZobristHash hash, i
     const TranspositionLookup cached =
         probe_transposition(context, hash, depth, alpha, beta, collect_tt_best_move_hint);
     if (cached.cutoff.has_value()) {
+        if (cached.cutoff->best_move.has_value()) {
+            pv_table.set_single_move(ply, *cached.cutoff->best_move);
+        } else {
+            pv_table.clear(ply);
+        }
         return *cached.cutoff;
     }
 
     if (depth <= 0) {
+        pv_table.clear(ply);
         const SearchNodeResult result{.score = evaluate_for_search(position, context)};
         store_leaf_transposition(context, hash, depth, result.score, original_alpha, beta,
                                  result.best_move);
@@ -159,6 +125,7 @@ SearchNodeResult search_node(const SearchPosition& position, ZobristHash hash, i
         const SearchPosition next = position_after_pass(position);
         if (legal_moves(next) == 0) {
             ++context.stats.game_over_nodes;
+            pv_table.clear(ply);
             const SearchNodeResult result{.score = evaluate_for_search(position, context)};
             store_transposition(context, hash, depth, result.score, original_alpha, beta,
                                 result.best_move);
@@ -173,10 +140,11 @@ SearchNodeResult search_node(const SearchPosition& position, ZobristHash hash, i
 
         const SearchNodeResult child = search_node(next, next_hash, depth - 1, -beta, -alpha,
                                                    context, std::nullopt,
-                                                   child_hint_after_pass(pv_hint), false);
+                                                   child_hint_after_pass(pv_hint), false, pv_table,
+                                                   ply + 1);
+        pv_table.copy_from_child(ply);
         const SearchNodeResult result{
             .score = -child.score,
-            .principal_variation_first_move = child.principal_variation_first_move,
         };
         store_transposition(context, hash, depth, result.score, original_alpha, beta,
                             result.best_move);
@@ -186,7 +154,7 @@ SearchNodeResult search_node(const SearchPosition& position, ZobristHash hash, i
     ++context.stats.legal_move_nodes;
     std::optional<int> best_score;
     std::optional<Square> best_move;
-    std::optional<Square> principal_variation_first_move;
+    pv_table.clear(ply);
 
     const bool use_dynamic_ordering = context.dynamic_move_ordering && !is_root;
     const auto move_count = static_cast<std::size_t>(std::popcount(moves));
@@ -228,11 +196,12 @@ SearchNodeResult search_node(const SearchPosition& position, ZobristHash hash, i
             const PrincipalVariationHint child_hint =
                 child_hint_after_move(pv_hint, *lazy_preferred_move);
             const SearchNodeResult child = search_node(next, next_hash, depth - 1, -beta, -alpha,
-                                                       context, std::nullopt, child_hint, false);
+                                                       context, std::nullopt, child_hint, false,
+                                                       pv_table, ply + 1);
             const int candidate_score = -child.score;
             best_score = candidate_score;
             best_move = lazy_preferred_move;
-            principal_variation_first_move = lazy_preferred_move;
+            pv_table.update_with_move(ply, *lazy_preferred_move);
 
             ++searched_move_count;
             alpha = std::max(alpha, candidate_score);
@@ -249,7 +218,6 @@ SearchNodeResult search_node(const SearchPosition& position, ZobristHash hash, i
                 return SearchNodeResult{
                     .best_move = best_move,
                     .score = candidate_score,
-                    .principal_variation_first_move = principal_variation_first_move,
                 };
             }
         }
@@ -259,7 +227,6 @@ SearchNodeResult search_node(const SearchPosition& position, ZobristHash hash, i
         const SearchNodeResult result{
             .best_move = best_move,
             .score = best_score.value_or(evaluate_for_search(position, context)),
-            .principal_variation_first_move = principal_variation_first_move,
         };
         store_transposition(context, hash, depth, result.score, original_alpha, beta,
                             result.best_move);
@@ -314,16 +281,16 @@ SearchNodeResult search_node(const SearchPosition& position, ZobristHash hash, i
         SearchNodeResult child;
         if (!use_pvs_at_node || searched_move_count == 0) {
             child = search_node(next, next_hash, depth - 1, -beta, -alpha, context, std::nullopt,
-                                child_hint, false);
+                                child_hint, false, pv_table, ply + 1);
         } else {
             ++context.stats.pvs_scouts;
             child = search_node(next, next_hash, depth - 1, -(alpha + 1), -alpha, context,
-                                std::nullopt, child_hint, false);
+                                std::nullopt, child_hint, false, pv_table, ply + 1);
             const int scout_score = -child.score;
             if (scout_score > alpha && scout_score < beta) {
                 ++context.stats.pvs_researches;
                 child = search_node(next, next_hash, depth - 1, -beta, -alpha, context,
-                                    std::nullopt, child_hint, false);
+                                    std::nullopt, child_hint, false, pv_table, ply + 1);
             } else {
                 // Counts null-window searches that did not need full-window re-search,
                 // including both fail-low scouts and scout beta cutoffs.
@@ -334,7 +301,7 @@ SearchNodeResult search_node(const SearchPosition& position, ZobristHash hash, i
         if (is_better_best_move(candidate_score, *square, best_score, best_move)) {
             best_score = candidate_score;
             best_move = square;
-            principal_variation_first_move = square;
+            pv_table.update_with_move(ply, *square);
         }
 
         alpha = std::max(alpha, candidate_score);
@@ -352,7 +319,6 @@ SearchNodeResult search_node(const SearchPosition& position, ZobristHash hash, i
     const SearchNodeResult result{
         .best_move = best_move,
         .score = best_score.value_or(evaluate_for_search(position, context)),
-        .principal_variation_first_move = principal_variation_first_move,
     };
     store_transposition(context, hash, depth, result.score, original_alpha, beta, result.best_move);
     return result;
@@ -363,20 +329,10 @@ SearchResult search_with_context(const Board& board, int depth, SearchContext& c
                                  PrincipalVariationHint pv_hint) noexcept {
     const SearchPosition position = SearchPosition::from_board(board);
     const ZobristHash root_hash = zobrist_hash(board);
+    MidgamePvTable pv_table;
     const SearchNodeResult result = search_node(position, root_hash, depth, alpha, beta, context,
-                                                root_preferred_move, pv_hint, true);
-    PrincipalVariation principal_variation;
-    if (result.principal_variation_first_move.has_value()) {
-        principal_variation.indexes[0] = result.principal_variation_first_move->index();
-        principal_variation.size = 1;
-    }
-    if (context.engine_options.use_transposition_table) {
-        const PrincipalVariation reconstructed =
-            reconstruct_principal_variation_from_tt(position, root_hash, depth, context);
-        if (reconstructed.size > principal_variation.size) {
-            principal_variation = reconstructed;
-        }
-    }
+                                                root_preferred_move, pv_hint, true, pv_table, 0);
+    PrincipalVariation principal_variation = pv_table.lines[0];
     if (principal_variation.size < context.session.root_principal_variation.size &&
         context.session.root_hash == root_hash && context.session.previous_score == result.score &&
         context.session.previous_best_move == result.best_move) {

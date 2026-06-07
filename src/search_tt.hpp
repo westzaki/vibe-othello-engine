@@ -206,22 +206,6 @@ public:
         return true;
     }
 
-    [[nodiscard]] std::optional<Square> best_move_hint(ZobristHash hash,
-                                                       TranspositionScope scope) const noexcept {
-        if (buckets_ == nullptr) {
-            return std::nullopt;
-        }
-
-        const Bucket& bucket = buckets_[bucket_index(hash)];
-        for (const TranspositionEntry& entry : bucket.entries) {
-            if (entry.occupied && entry.hash == hash && entry.mode == scope.mode &&
-                entry.eval_identity == scope.eval_identity) {
-                return best_move_from_index(entry.best_move_index);
-            }
-        }
-        return std::nullopt;
-    }
-
 private:
     static constexpr std::size_t bucket_width = 4;
     static constexpr std::size_t default_entry_count = 1 << 18;
