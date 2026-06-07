@@ -4,6 +4,30 @@
 #include <othello/rules.hpp>
 
 namespace othello {
+namespace {
+
+[[nodiscard]] Bitboard flips_for_empty_move(Bitboard player, Bitboard opponent,
+                                            Bitboard move_bit) noexcept {
+    using bitboard_detail::shift_east;
+    using bitboard_detail::shift_north;
+    using bitboard_detail::shift_northeast;
+    using bitboard_detail::shift_northwest;
+    using bitboard_detail::shift_south;
+    using bitboard_detail::shift_southeast;
+    using bitboard_detail::shift_southwest;
+    using bitboard_detail::shift_west;
+
+    return rules_detail::flips_in_direction<shift_east>(move_bit, player, opponent) |
+           rules_detail::flips_in_direction<shift_west>(move_bit, player, opponent) |
+           rules_detail::flips_in_direction<shift_north>(move_bit, player, opponent) |
+           rules_detail::flips_in_direction<shift_south>(move_bit, player, opponent) |
+           rules_detail::flips_in_direction<shift_northeast>(move_bit, player, opponent) |
+           rules_detail::flips_in_direction<shift_northwest>(move_bit, player, opponent) |
+           rules_detail::flips_in_direction<shift_southeast>(move_bit, player, opponent) |
+           rules_detail::flips_in_direction<shift_southwest>(move_bit, player, opponent);
+}
+
+} // namespace
 
 Bitboard legal_moves(const Board& board) noexcept {
     const Bitboard own_discs = board.discs(board.side_to_move);
@@ -22,12 +46,18 @@ Bitboard flips_for_move(const Board& board, Square square) noexcept {
 }
 
 std::optional<Board> apply_move(const Board& board, Square square) noexcept {
-    const Bitboard flips = flips_for_move(board, square);
+    const Bitboard move_bit = square.bit();
+    if ((board.occupied() & move_bit) != 0) {
+        return std::nullopt;
+    }
+
+    const Bitboard own_discs = board.discs(board.side_to_move);
+    const Bitboard opponent_discs = board.discs(opponent(board.side_to_move));
+    const Bitboard flips = flips_for_empty_move(own_discs, opponent_discs, move_bit);
     if (flips == 0) {
         return std::nullopt;
     }
 
-    const Bitboard move_bit = square.bit();
     Board next = board;
 
     if (board.side_to_move == Side::Black) {
