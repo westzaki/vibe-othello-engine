@@ -112,19 +112,20 @@ baseline.
 
 ## Decision
 
-Keep defaults unchanged and do not change `strong-v1`.
+Keep defaults unchanged. Promote `shallow-tt+lazy` into the opt-in `strong-v1` practical preset.
 
 `shallow-tt+lazy` is the best preset candidate from this small suite: it preserved checksums, kept
 the same lazy cut counts as lazy-only for the `tt_min_probe_depth=1` setting, and was the fastest
 variant in 4 of 7 measured depth rows. The effects are not cleanly additive, especially at fixed
-depth 6 and iterative depth 6 where baseline stayed fastest.
+depth 6 and iterative depth 6 where baseline stayed fastest, so this is intentionally limited to
+`strong-v1` rather than the default search path.
 
 The aggressive combined variant demonstrates the expected interference: TT lookups drop further,
 but lazy hits/cuts also drop sharply because TT best-move hints become less available. It should
 remain an experiment setting.
 
-Next steps before any preset change:
+Next steps after the `strong-v1` preset change:
 
 - Repeat on broader regression/tactical position sets.
 - Add longer repetitions or median reporting if wall-clock noise remains high.
-- Include match-runner trace comparison, but not full Elo, before promoting a preset.
+- Include match-runner trace comparison, but not full Elo, before any default promotion.
