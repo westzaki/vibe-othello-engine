@@ -253,6 +253,38 @@ def assert_history_close(
                 testcase.assertEqual(actual_value, expected_value)
 
 
+def synthetic_pair(
+    *,
+    phase: str,
+    feature: trainer.FeatureKey,
+    feature_delta: int = 1,
+    preferred_move: str = "d1",
+    other_move: str = "b1",
+) -> trainer.PreferencePair:
+    return trainer.PreferencePair(
+        position_id=f"synthetic-{phase}-{feature[0]}-{feature[1]}",
+        source_path=Path("synthetic.jsonl"),
+        source_line=1,
+        split="train",
+        phase=phase,
+        board_text=INITIAL_BOARD,
+        teacher_move=preferred_move,
+        engine_move=other_move,
+        preferred_move=preferred_move,
+        other_move=other_move,
+        pair_kind="synthetic",
+        pair_weight=1.0,
+        bucket="__missing__",
+        bucket_weight=1.0,
+        features={feature: feature_delta},
+        exact_best_moves=(),
+        preferred_score=0,
+        other_score=0,
+        rank_margin=1,
+        score_margin=0,
+    )
+
+
 def pair_list_for_training_comparison(
     config: trainer.TrainerConfig,
 ) -> list[trainer.PreferencePair]:
@@ -475,6 +507,37 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
         }
 
         self.assertEqual(features, expected)
+
+    def test_teacher_child_other_child_delta_sign_matches_root_move_preference(self) -> None:
+        preferred_child = trainer.apply_move_to_board(TEACHER_BOARD, "d1")
+        other_child = trainer.apply_move_to_board(TEACHER_BOARD, "b1")
+        features = trainer.preference_features(
+            root_board_text=TEACHER_BOARD,
+            teacher_child_board=preferred_child,
+            engine_child_board=other_child,
+            families=("edge_8",),
+        )
+        weights: trainer.WeightsByPhase = {
+            phase: {} for phase in trainer.PHASES
+        }
+        phase = trainer.phase_for_board(preferred_child, trainer.PhaseCutoffs(20, 44))
+        weights[phase] = {("edge_8", 2131): 5.0}
+        pair = synthetic_pair(
+            phase=phase,
+            feature=("edge_8", 2131),
+            preferred_move="d1",
+            other_move="b1",
+        )
+        pair = replace(
+            pair,
+            board_text=TEACHER_BOARD,
+            features=features,
+        )
+
+        # A positive child-side value on the other child should increase the
+        # preferred root margin because root scores negate child scores.
+        self.assertEqual(features[("edge_8", 2131)], 1)
+        self.assertGreater(trainer.pair_margin(weights, pair), 0.0)
 
     def test_best_vs_engine_pair_generation_preserves_original_behavior(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -1339,6 +1402,73 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
 
         self.assertEqual(trainer.model_margin(config, empty_weights, pair), 0.0)
 
+    def test_one_pair_one_feature_overfits_loss_down_and_margin_up(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            config = make_config(
+                temp_path,
+                labels,
+                extra_args=[
+                    "--no-base-margin",
+                    "--epochs",
+                    "12",
+                    "--learning-rate",
+                    "0.5",
+                    "--l2",
+                    "0",
+                    "--max-abs-weight",
+                    "20",
+                ],
+            )
+            pair = synthetic_pair(phase="midgame", feature=("edge_8", 2131))
+            initial_weights: trainer.WeightsByPhase = {phase: {} for phase in trainer.PHASES}
+
+            weights, history = trainer.train_weights(config, [pair])
+
+        self.assertLess(history[-1]["loss"], trainer.evaluate_pairs(config, initial_weights, [pair])["loss"])
+        self.assertGreater(trainer.model_margin(config, weights, pair), 0.0)
+        self.assertGreater(
+            trainer.model_margin(config, weights, pair),
+            trainer.model_margin(config, initial_weights, pair),
+        )
+        self.assertEqual(set(weights["midgame"]), {("edge_8", 2131)})
+
+    def test_tiny_dataset_overfits_opening_midgame_late_one_feature_pairs(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            config = make_config(
+                temp_path,
+                labels,
+                extra_args=[
+                    "--no-base-margin",
+                    "--epochs",
+                    "18",
+                    "--learning-rate",
+                    "0.4",
+                    "--l2",
+                    "0",
+                    "--max-abs-weight",
+                    "20",
+                ],
+            )
+            pairs = [
+                synthetic_pair(phase="opening", feature=("edge_8", 2131)),
+                synthetic_pair(phase="midgame", feature=("corner_2x3", 673)),
+                synthetic_pair(phase="late", feature=("row_8", 42)),
+            ]
+            initial_weights: trainer.WeightsByPhase = {phase: {} for phase in trainer.PHASES}
+
+            weights, history = trainer.train_weights(config, pairs)
+
+        self.assertLess(history[-1]["loss"], trainer.evaluate_pairs(config, initial_weights, pairs)["loss"])
+        for pair in pairs:
+            self.assertGreater(trainer.model_margin(config, weights, pair), 0.0)
+            preferred_root_score = trainer.model_margin(config, weights, pair)
+            other_root_score = 0.0
+            self.assertGreater(preferred_root_score, other_root_score)
+
     def test_same_seed_is_deterministic_for_generated_tables(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             temp_path = Path(temp)
@@ -1524,6 +1654,43 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
                     self.assertRegex(line, data_line)
                     value = int(line.rsplit("\t", 1)[1])
                     self.assertLessEqual(abs(value), 4)
+
+    def test_quantized_tsv_roundtrip_preserves_python_margin_within_scale(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            config = make_config(
+                temp_path,
+                labels,
+                extra_args=[
+                    "--no-base-margin",
+                    "--output-scale",
+                    "10",
+                    "--max-abs-output-weight",
+                    "1000",
+                ],
+            )
+            pair = synthetic_pair(phase="late", feature=("edge_8", 2131))
+            weights: trainer.WeightsByPhase = {
+                phase: {} for phase in trainer.PHASES
+            }
+            weights["late"] = {("edge_8", 2131): 0.5}
+
+            rendered = trainer.render_phase_table(
+                config=config,
+                phase="late",
+                entries=trainer.phase_entries(weights, "late"),
+                stats={"fixture": "quantization_roundtrip"},
+            )
+
+        data_lines = [
+            line for line in rendered.splitlines() if line and not line.startswith("#")
+        ]
+        self.assertEqual(data_lines, ["edge_8\t2131\t5"])
+        python_margin = trainer.model_margin(config, weights, pair)
+        quantized_margin = int(data_lines[0].split("\t")[2]) / config.output_scale
+        self.assertEqual(python_margin, 0.5)
+        self.assertLessEqual(abs(quantized_margin - python_margin), 0.5 / config.output_scale)
 
     def test_exact_disagreement_filters_teacher_row(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

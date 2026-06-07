@@ -13,6 +13,7 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string_view>
 #include <vector>
 
@@ -65,6 +66,67 @@ midgame_max_occupied=40
     CHECK(loaded.config.late.pattern_table == 4);
     CHECK(loaded.config.opening_max_occupied == 16);
     CHECK(loaded.config.midgame_max_occupied == 40);
+}
+
+TEST_CASE("Trainer golden TSV keeps root preference sign after C++ load",
+          "[evaluation]") {
+    const std::filesystem::path temp_dir = unique_temp_dir("trainer-golden-runtime-sign");
+    constexpr std::string_view golden_table =
+        "# schema_version: pattern_table.v1\n"
+        "# generated_by: tools/scripts/regularized_pairwise_pattern_train.py\n"
+        "# fixture: quantization_roundtrip\n"
+        "edge_8\t2131\t5\n";
+    write_text_file(temp_dir / "tables" / "opening.tsv", golden_table);
+    write_text_file(temp_dir / "tables" / "midgame.tsv", golden_table);
+    write_text_file(temp_dir / "tables" / "late.tsv", golden_table);
+    const std::filesystem::path eval_path = temp_dir / "candidate.eval";
+    write_text_file(eval_path, R"(schema_version=eval.v1
+mode=pattern_only
+name=regularized_pairwise_pattern_candidate_golden
+pattern_table.opening=tables/opening.tsv
+pattern_table.midgame=tables/midgame.tsv
+pattern_table.late=tables/late.tsv
+opening.pattern_table=1
+midgame.pattern_table=1
+late.pattern_table=1
+opening_max_occupied=20
+midgame_max_occupied=44
+)");
+
+    const othello::tools::EvaluationConfigLoadResult loaded =
+        othello::tools::load_evaluation_config_file(eval_path);
+    REQUIRE(loaded.ok());
+    REQUIRE(loaded.config.late_pattern_tables != nullptr);
+    CHECK(loaded.config.late_pattern_tables->edge_8[2131] == 5);
+    CHECK(loaded.config.late_pattern_tables->active_families.edge_8);
+
+    const Board root = othello::test::board_from_text(R"(.BBBBBB.
+.BBWWB..
+BWWWWWWW
+BWWBBBBB
+WWBWBBBB
+WWWBBBB.
+.WWWBWWW
+W.B.BBB.
+side=B)");
+    const std::optional<Board> preferred_child =
+        othello::apply_move(root, othello::test::square("d1"));
+    const std::optional<Board> other_child =
+        othello::apply_move(root, othello::test::square("b1"));
+    REQUIRE(preferred_child.has_value());
+    REQUIRE(other_child.has_value());
+
+    const int preferred_child_eval =
+        othello::evaluate_with_config(*preferred_child, Side::White, loaded.config);
+    const int other_child_eval =
+        othello::evaluate_with_config(*other_child, Side::White, loaded.config);
+    const int preferred_root_score = -preferred_child_eval;
+    const int other_root_score = -other_child_eval;
+
+    CHECK(preferred_child_eval == 0);
+    CHECK(other_child_eval == 5);
+    CHECK(preferred_root_score - other_root_score == 5);
+    CHECK(preferred_root_score > other_root_score);
 }
 
 TEST_CASE("Eval config loader rejects missing and malformed pattern tables",
