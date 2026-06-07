@@ -1138,6 +1138,55 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
         self.assertEqual(stats["teacher_exact_disagreements_used_by_exact_aware"], 1)
         self.assertEqual(stats["teacher_exact_disagreements_skipped"], 0)
 
+    def test_exact_aware_only_when_available_skips_teacher_fallback_pairs(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            config = make_config(
+                temp_path,
+                labels,
+                extra_args=[
+                    "--pair-mode",
+                    "exact-aware",
+                    "--exact-aware-only-when-available",
+                ],
+            )
+
+            pairs, records, stats = trainer.collect_pairs(config, analyzer=wide_fake_analyzer)
+
+        self.assertEqual(pairs, [])
+        self.assertEqual(stats["exact_unavailable_fallback_positions"], 1)
+        self.assertEqual(stats["no_pair_generated_skipped"], 1)
+        self.assertTrue(any(record.status == "no_pair_generated" for record in records))
+
+    def test_max_top_group_size_filter_skips_noisy_exact_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            exact = write_jsonl(
+                temp_path / "exact.jsonl",
+                [
+                    {
+                        "schema": "exact_label.v1",
+                        "board": TEACHER_BOARD,
+                        "best_move": "d1",
+                        "best_moves": ["a2", "b1", "d1"],
+                    }
+                ],
+            )
+            config = make_config(
+                temp_path,
+                labels,
+                exact_labels=exact,
+                extra_args=["--max-top-group-size-for-training", "2"],
+            )
+
+            pairs, records, stats = trainer.collect_pairs(config, analyzer=wide_fake_analyzer)
+
+        self.assertEqual(pairs, [])
+        self.assertEqual(stats["large_exact_top_group_skipped"], 1)
+        self.assertTrue(any(record.status == "large_exact_top_group" for record in records))
+
     def test_max_pairs_per_position_caps_generated_pairs(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             temp_path = Path(temp)
@@ -1705,6 +1754,32 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
         self.assertEqual(result.summary["rows"]["preference_pairs"], 0)
         self.assertEqual(result.summary["rows"]["teacher_exact_disagreements_skipped"], 1)
         self.assertIn("teacher_exact_disagreement", validation)
+
+    def test_diagnose_dataset_writes_report_without_candidate(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(
+                temp_path / "labels.jsonl",
+                [
+                    teacher_row(position_id="ok", source_bucket="balanced"),
+                    teacher_row(move="z9", position_id="illegal", source_bucket="bad"),
+                ],
+            )
+            config = make_config(
+                temp_path,
+                labels,
+                extra_args=["--diagnose-dataset", "--pair-mode", "best-vs-all"],
+            )
+
+            result = trainer.diagnose_dataset(config, analyzer=wide_fake_analyzer)
+            self.assertTrue(result.report_path.exists())
+            self.assertFalse((config.out_dir / "candidate.eval").exists())
+            self.assertTrue((config.out_dir / "diagnostic_validation.tsv").exists())
+            self.assertEqual(result.summary["training_performed"], False)
+            diagnostics = result.summary["rows"]["dataset_diagnostics"]
+            self.assertEqual(diagnostics["by_source_bucket"]["balanced"]["accepted_rows"], 1)
+            self.assertEqual(diagnostics["by_source_bucket"]["bad"]["illegal_skipped_rows"], 1)
+            self.assertIn("By Source Bucket", result.report_path.read_text(encoding="utf-8"))
 
     def test_split_filter_uses_file_hint_and_can_train_validation(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
