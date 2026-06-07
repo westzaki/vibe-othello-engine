@@ -12,6 +12,7 @@ sys.path.insert(0, str(SCRIPT_DIR))
 
 from common import ScriptError  # noqa: E402
 from pattern_training import dataset, pattern_tables, preference_features, splits  # noqa: E402
+from pattern_training.analyzer import AnalyzerConfig, batch_analyze_command, root_analysis_from_batch_row  # noqa: E402
 
 
 BOARD = (
@@ -194,6 +195,40 @@ class PatternTrainingHelperTests(unittest.TestCase):
 
         total_delta = sum(abs(value) for counter in counts.values() for value in counter.values())
         self.assertGreater(total_delta, 0)
+
+    def test_batch_analyze_command_uses_jsonl_stdin_mode(self) -> None:
+        command = batch_analyze_command(
+            AnalyzerConfig(
+                analyze_position=Path("build/release/othello_analyze_position"),
+                eval_config=Path("data/eval/current_default.eval"),
+                depth=1,
+            )
+        )
+
+        self.assertIn("--batch-jsonl", command)
+        self.assertIn("--stdin", command)
+        self.assertIn("--root-candidates", command)
+        self.assertEqual(command[command.index("--depth") + 1], "1")
+
+    def test_batch_analysis_output_parses_root_scores(self) -> None:
+        position_id, analysis = root_analysis_from_batch_row(
+            {
+                "position_id": "cache-key",
+                "status": "ok",
+                "best_move": "D3",
+                "root_scores": {"D3": 12, "C4": -3},
+            }
+        )
+
+        self.assertEqual(position_id, "cache-key")
+        self.assertEqual(analysis.best_move, "d3")
+        self.assertEqual(analysis.root_scores, {"d3": 12, "c4": -3})
+
+    def test_batch_analysis_output_rejects_error_rows(self) -> None:
+        with self.assertRaisesRegex(ScriptError, "batch analysis failed"):
+            root_analysis_from_batch_row(
+                {"position_id": "cache-key", "status": "error", "error": "bad board"}
+            )
 
 
 if __name__ == "__main__":

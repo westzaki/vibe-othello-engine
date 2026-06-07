@@ -7,6 +7,7 @@ import json
 import subprocess
 import time
 from dataclasses import dataclass
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Callable
 
@@ -45,6 +46,7 @@ class AnalysisRunnerConfig:
 
 
 Analyzer = Callable[[str], RootAnalysis]
+BatchAnalyzer = Callable[[list[AnalysisRequest]], Iterable[tuple[AnalysisRequest, RootAnalysis]]]
 
 
 def analysis_cache_key(*, board_hash: str, eval_config_hash: str, analysis_depth: int) -> str:
@@ -217,6 +219,7 @@ def analyze_requests(
     analyzer: Analyzer,
     stats: collections.Counter[str],
     eval_config_hash: str | None = None,
+    batch_analyzer: BatchAnalyzer | None = None,
 ) -> dict[int, RootAnalysis]:
     start = time.perf_counter()
     try:
@@ -227,6 +230,7 @@ def analyze_requests(
             stats=stats,
             eval_config_hash=eval_config_hash or sha256_file(config.eval_config),
             analyzer_hash=analyze_position_hash(config.analyze_position),
+            batch_analyzer=batch_analyzer,
         )
     finally:
         stats["analysis_elapsed_seconds"] = round(time.perf_counter() - start, 6)
@@ -240,6 +244,7 @@ def _analyze_requests(
     stats: collections.Counter[str],
     eval_config_hash: str,
     analyzer_hash: str | None,
+    batch_analyzer: BatchAnalyzer | None = None,
 ) -> dict[int, RootAnalysis]:
     if not requests:
         return {}
@@ -300,20 +305,7 @@ def _analyze_requests(
     def run_one(request: AnalysisRequest) -> RootAnalysis:
         return analyzer(request.board_text)
 
-    results_by_key: dict[str, RootAnalysis] = {}
-    if config.analysis_jobs == 1 or len(unique_missing) == 1:
-        for request in unique_missing:
-            results_by_key[request.cache_key] = run_one(request)
-    else:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=config.analysis_jobs) as executor:
-            future_by_key = {
-                executor.submit(run_one, request): request.cache_key for request in unique_missing
-            }
-            for future in concurrent.futures.as_completed(future_by_key):
-                results_by_key[future_by_key[future]] = future.result()
-
-    for request in unique_missing:
-        result = results_by_key[request.cache_key]
+    def store_result(request: AnalysisRequest, result: RootAnalysis) -> None:
         for source_index in source_indices_by_key[request.cache_key]:
             results_by_source[source_index] = result
         if should_write and cache_dir is not None:
@@ -327,4 +319,37 @@ def _analyze_requests(
                 git_sha=git_sha,
             )
             stats["analysis_cache_writes"] += 1
-    return results_by_source
+
+    results_by_key: dict[str, RootAnalysis] = {}
+    if batch_analyzer is not None:
+        seen_keys: set[str] = set()
+        for request, result in batch_analyzer(unique_missing):
+            if request.cache_key not in missing_by_key:
+                raise ScriptError(f"batch analysis returned unexpected key: {request.cache_key}")
+            if request.cache_key in seen_keys:
+                raise ScriptError(f"batch analysis returned duplicate key: {request.cache_key}")
+            seen_keys.add(request.cache_key)
+            results_by_key[request.cache_key] = result
+            store_result(request, result)
+        missing_keys = set(missing_by_key) - seen_keys
+        if missing_keys:
+            raise ScriptError(
+                "batch analysis did not return all requested rows; missing "
+                f"{len(missing_keys)} rows"
+            )
+    elif config.analysis_jobs == 1 or len(unique_missing) == 1:
+        for request in unique_missing:
+            result = run_one(request)
+            results_by_key[request.cache_key] = result
+            store_result(request, result)
+    else:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=config.analysis_jobs) as executor:
+            future_by_key = {
+                executor.submit(run_one, request): request for request in unique_missing
+            }
+            for future in concurrent.futures.as_completed(future_by_key):
+                request = future_by_key[future]
+                result = future.result()
+                results_by_key[request.cache_key] = result
+                store_result(request, result)
+    return dict(sorted(results_by_source.items()))
