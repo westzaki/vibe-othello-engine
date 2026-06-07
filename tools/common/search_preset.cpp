@@ -27,6 +27,9 @@ std::optional<SearchPreset> parse_search_preset(std::string_view text) noexcept 
 
 SearchOptions apply_strong_v1_search_options(SearchOptions options) noexcept {
     options.use_transposition_table = true;
+    options.tt_min_probe_depth = 1;
+    options.tt_min_store_depth = 1;
+    options.use_lazy_first_move_ordering = true;
     options.use_pvs = true;
     options.use_aspiration_window = true;
     options.aspiration_profile = AspirationProfile::ScoreDeltaAware;
