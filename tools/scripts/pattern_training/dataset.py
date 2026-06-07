@@ -6,8 +6,7 @@ from typing import Any
 
 from common import ScriptError, parse_csv_values
 from dataset_paths import resolve_path_references
-from pattern_training.board9 import board_key
-from pattern_training.preference_features import parse_board
+from pattern_training.board9 import board_key, parse_board
 
 
 def normalize_move(value: Any) -> str | None:

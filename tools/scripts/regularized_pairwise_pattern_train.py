@@ -38,6 +38,18 @@ from pattern_specs import (
     board9_rows_to_square_index_rows,
     pattern_index,
 )
+from pattern_training.board9 import (
+    apply_move_to_board,
+    board_key,
+    board_to_text,
+    empty_count,
+    legal_moves_for_board,
+    normalize_move,
+    occupied_count,
+    opponent,
+    parse_board,
+)
+from pattern_training.features import pattern_counts, preference_delta, root_move_features
 from pattern_symmetry_diagnostics import (
     SYMMETRIZE_MODES,
     SymmetrizeSummary,
@@ -1174,10 +1186,6 @@ def split_hint_from_path(path: Path) -> str | None:
     return None
 
 
-def board_key(board_text: str) -> str:
-    return "\n".join(line.rstrip() for line in board_text.strip().splitlines())
-
-
 def split_for_source(source: LabelSource, seed: int) -> str:
     explicit = source.record.get("position_split") or source.record.get("split")
     if explicit in {"train", "validation", "holdout"}:
@@ -1383,17 +1391,6 @@ def teacher_move_from_record(record: dict[str, Any]) -> Any:
     return None
 
 
-def normalize_move(value: Any) -> str | None:
-    if value is None:
-        return None
-    text = str(value).strip().lower()
-    if not text:
-        return None
-    if text in {"pass", "pa", "--", "-"}:
-        return "pass"
-    return text
-
-
 def accepted_teacher_record(record: dict[str, Any]) -> bool:
     if record.get("status") not in (None, "ok"):
         return False
@@ -1415,172 +1412,8 @@ def position_id_for_source(source: LabelSource) -> str:
     return f"{source.path.name}:{source.line_number}"
 
 
-def parse_board(board_text: str) -> tuple[list[list[str]], str]:
-    lines = [line.strip() for line in board_text.strip().splitlines() if line.strip()]
-    if len(lines) != 9:
-        raise ScriptError("expected board9 text with 8 rows plus side")
-    rows = [list(line) for line in lines[:8]]
-    for row in rows:
-        if len(row) != 8 or any(cell not in {"B", "W", "."} for cell in row):
-            raise ScriptError("expected 8 board rows containing only B, W, or .")
-    side_line = lines[8]
-    if not side_line.startswith("side=") or len(side_line) != 6 or side_line[-1] not in {"B", "W"}:
-        raise ScriptError("expected board9 side line")
-    return rows, side_line[-1]
-
-
-def board_to_text(rows: list[list[str]], side: str) -> str:
-    return "\n".join("".join(row) for row in rows) + f"\nside={side}"
-
-
-def opponent(side: str) -> str:
-    return "W" if side == "B" else "B"
-
-
-def occupied_count(board_text: str) -> int:
-    rows, _ = parse_board(board_text)
-    return sum(1 for row in rows for cell in row if cell in {"B", "W"})
-
-
-def empty_count(board_text: str) -> int:
-    rows, _ = parse_board(board_text)
-    return sum(row.count(".") for row in rows)
-
-
 def phase_for_board(board_text: str, cutoffs: PhaseCutoffs) -> str:
     return phase_for_occupied(occupied_count(board_text), cutoffs)
-
-
-def _inside(row: int, col: int) -> bool:
-    return 0 <= row < 8 and 0 <= col < 8
-
-
-def _move_to_coord(move: str) -> tuple[int, int] | None:
-    if len(move) != 2 or move[0] < "a" or move[0] > "h" or move[1] < "1" or move[1] > "8":
-        return None
-    return 8 - int(move[1]), ord(move[0]) - ord("a")
-
-
-def _coord_to_move(row: int, col: int) -> str:
-    return f"{chr(ord('a') + col)}{8 - row}"
-
-
-DIRECTIONS = (
-    (-1, -1),
-    (-1, 0),
-    (-1, 1),
-    (0, -1),
-    (0, 1),
-    (1, -1),
-    (1, 0),
-    (1, 1),
-)
-
-
-def _flips_for_move(rows: list[list[str]], side: str, row: int, col: int) -> list[tuple[int, int]]:
-    if not _inside(row, col) or rows[row][col] != ".":
-        return []
-    other = opponent(side)
-    flips: list[tuple[int, int]] = []
-    for dr, dc in DIRECTIONS:
-        current: list[tuple[int, int]] = []
-        r = row + dr
-        c = col + dc
-        while _inside(r, c) and rows[r][c] == other:
-            current.append((r, c))
-            r += dr
-            c += dc
-        if current and _inside(r, c) and rows[r][c] == side:
-            flips.extend(current)
-    return flips
-
-
-def legal_moves_for_board(board_text: str) -> set[str]:
-    rows, side = parse_board(board_text)
-    moves: set[str] = set()
-    for row in range(8):
-        for col in range(8):
-            if _flips_for_move(rows, side, row, col):
-                moves.add(_coord_to_move(row, col))
-    if not moves:
-        moves.add("pass")
-    return moves
-
-
-def apply_move_to_board(board_text: str, move: str) -> str:
-    rows, side = parse_board(board_text)
-    normalized = normalize_move(move)
-    if normalized == "pass":
-        if any(_flips_for_move(rows, side, row, col) for row in range(8) for col in range(8)):
-            raise ScriptError("pass is not legal while a board move exists")
-        return board_to_text(rows, opponent(side))
-    if normalized is None:
-        raise ScriptError("move cannot be empty")
-    coord = _move_to_coord(normalized)
-    if coord is None:
-        raise ScriptError(f"invalid move coordinate: {move}")
-    row, col = coord
-    flips = _flips_for_move(rows, side, row, col)
-    if not flips:
-        raise ScriptError(f"illegal move for board: {move}")
-    rows[row][col] = side
-    for r, c in flips:
-        rows[r][c] = side
-    return board_to_text(rows, opponent(side))
-
-
-def pattern_counts(board_text: str, root_side: str, families: tuple[str, ...]) -> collections.Counter[FeatureKey]:
-    rows, _ = parse_board(board_text)
-    square_index_rows = board9_rows_to_square_index_rows(rows)
-    counts: collections.Counter[FeatureKey] = collections.Counter()
-    for family in families:
-        for spec in PATTERN_SPECS[family]:
-            counts[(family, pattern_index(square_index_rows, root_side, spec))] += 1
-    return counts
-
-
-def preference_features(
-    *,
-    root_board_text: str,
-    teacher_child_board: str,
-    engine_child_board: str,
-    families: tuple[str, ...],
-    feature_cache: FeatureCache | None = None,
-) -> dict[FeatureKey, int]:
-    _, root_side = parse_board(root_board_text)
-    child_side = opponent(root_side)
-    # Root move scores are the negated child-position search scores. For a
-    # preferred root move, increasing its root score therefore means decreasing
-    # the child-side evaluation relative to the compared child.
-    if feature_cache is None:
-        teacher_counts = pattern_counts(teacher_child_board, child_side, families)
-        engine_counts = pattern_counts(engine_child_board, child_side, families)
-    else:
-        teacher_counts = feature_cache.counts(teacher_child_board, child_side)
-        engine_counts = feature_cache.counts(engine_child_board, child_side)
-    delta: dict[FeatureKey, int] = {}
-    for key in set(teacher_counts) | set(engine_counts):
-        value = engine_counts[key] - teacher_counts[key]
-        if value:
-            delta[key] = value
-    return delta
-
-
-def root_move_features(
-    *,
-    root_board_text: str,
-    child_board_text: str,
-    families: tuple[str, ...],
-    feature_cache: FeatureCache | None = None,
-) -> dict[FeatureKey, int]:
-    _, root_side = parse_board(root_board_text)
-    child_side = opponent(root_side)
-    counts = (
-        pattern_counts(child_board_text, child_side, families)
-        if feature_cache is None
-        else feature_cache.counts(child_board_text, child_side)
-    )
-    return {key: -value for key, value in counts.items() if value}
 
 
 def exact_score_soft_target_probabilities(
@@ -1941,10 +1774,10 @@ def make_preference_pair(
     except ScriptError:
         return None
     phase = phase_for_board(preferred_child, config.phase_cutoffs)
-    features = preference_features(
+    features = preference_delta(
         root_board_text=board_text,
-        teacher_child_board=preferred_child,
-        engine_child_board=other_child,
+        preferred_child_board=preferred_child,
+        compared_child_board=other_child,
         families=config.families,
         feature_cache=feature_cache,
     )
