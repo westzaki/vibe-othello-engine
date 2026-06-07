@@ -30,6 +30,53 @@ using bitboard_detail::is_x_square_next_to_empty_corner;
     return is_x_square_next_to_empty_corner(index, position.occupied()) ? 1 : 0;
 }
 
+[[nodiscard]] bool can_use_static_bucket_ordering(const MoveOrderingParams& params) noexcept {
+    return params.static_corner_score > params.static_edge_score &&
+           params.static_edge_score > params.static_normal_score &&
+           params.static_normal_score > params.static_x_square_score;
+}
+
+enum class StaticMoveBucket {
+    Corner,
+    Edge,
+    Normal,
+    XSquare,
+};
+
+[[nodiscard]] StaticMoveBucket static_move_bucket(int index) noexcept {
+    if (is_corner(index)) {
+        return StaticMoveBucket::Corner;
+    }
+    if (is_edge(index)) {
+        return StaticMoveBucket::Edge;
+    }
+    if (is_x_square(index)) {
+        return StaticMoveBucket::XSquare;
+    }
+    return StaticMoveBucket::Normal;
+}
+
+void append_static_bucket(OrderedMoveIndexes& candidates, const SearchPosition& position,
+                          Bitboard moves, int order_score) noexcept {
+    while (moves != 0) {
+        const int index = std::countr_zero(moves);
+        const Bitboard move_bit = Bitboard{1} << index;
+        moves &= moves - 1;
+
+        const Bitboard flips = flips_for_known_empty_move(position, move_bit);
+        if (flips == 0) {
+            continue;
+        }
+
+        candidates.moves[candidates.size] = OrderedMoveIndexes::Move{
+            .index = index,
+            .flips = flips,
+            .order_score = order_score,
+        };
+        ++candidates.size;
+    }
+}
+
 } // namespace
 
 int move_order_score(const SearchPosition& position, int index, Bitboard move_bit, Bitboard flips,
@@ -72,8 +119,47 @@ int move_order_score(const SearchPosition& position, int index, Bitboard move_bi
 OrderedMoveIndexes ordered_legal_move_indexes(const SearchPosition& position, Bitboard moves,
                                               int depth, bool dynamic_move_ordering,
                                               SearchContext& context) noexcept {
-    OrderedMoveIndexes candidates;
     const auto move_count = static_cast<std::size_t>(std::popcount(moves));
+    const bool use_dynamic_ordering = should_use_dynamic_move_ordering(
+        dynamic_move_ordering, move_count, depth, context.move_ordering_params);
+    OrderedMoveIndexes candidates;
+
+    if (!use_dynamic_ordering && can_use_static_bucket_ordering(context.move_ordering_params)) {
+        Bitboard corner_moves = 0;
+        Bitboard edge_moves = 0;
+        Bitboard normal_moves = 0;
+        Bitboard x_square_moves = 0;
+        while (moves != 0) {
+            const int index = std::countr_zero(moves);
+            const Bitboard move_bit = Bitboard{1} << index;
+            moves &= moves - 1;
+
+            switch (static_move_bucket(index)) {
+            case StaticMoveBucket::Corner:
+                corner_moves |= move_bit;
+                break;
+            case StaticMoveBucket::Edge:
+                edge_moves |= move_bit;
+                break;
+            case StaticMoveBucket::Normal:
+                normal_moves |= move_bit;
+                break;
+            case StaticMoveBucket::XSquare:
+                x_square_moves |= move_bit;
+                break;
+            }
+        }
+
+        append_static_bucket(candidates, position, corner_moves,
+                             context.move_ordering_params.static_corner_score);
+        append_static_bucket(candidates, position, edge_moves,
+                             context.move_ordering_params.static_edge_score);
+        append_static_bucket(candidates, position, normal_moves,
+                             context.move_ordering_params.static_normal_score);
+        append_static_bucket(candidates, position, x_square_moves,
+                             context.move_ordering_params.static_x_square_score);
+        return candidates;
+    }
 
     while (moves != 0) {
         const int index = std::countr_zero(moves);
