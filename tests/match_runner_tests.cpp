@@ -120,11 +120,17 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
               .use_lazy_first_move_ordering);
     CHECK_FALSE(require_search_options("search:depth=4,lazy_first_move_ordering=off")
                     .use_lazy_first_move_ordering);
+    CHECK(require_search_options("search:depth=4,shallow_tt_move_ordering_hint=on")
+              .use_shallow_tt_move_ordering_hint);
+    CHECK_FALSE(require_search_options("search:depth=4,shallow_tt_move_ordering_hint=off")
+                    .use_shallow_tt_move_ordering_hint);
     const othello::SearchOptions combined_tt_lazy_options = require_search_options(
-        "search:depth=4,tt_min_probe_depth=1,tt_min_store_depth=1,lazy_first_move_ordering=on");
+        "search:depth=4,tt_min_probe_depth=1,tt_min_store_depth=1,lazy_first_move_ordering=on,"
+        "shallow_tt_move_ordering_hint=on");
     CHECK(combined_tt_lazy_options.tt_min_probe_depth == 1);
     CHECK(combined_tt_lazy_options.tt_min_store_depth == 1);
     CHECK(combined_tt_lazy_options.use_lazy_first_move_ordering);
+    CHECK(combined_tt_lazy_options.use_shallow_tt_move_ordering_hint);
     const othello::SearchOptions fixed_aspiration_options =
         require_search_options("search:depth=4,aspiration_profile=fixed");
     CHECK(fixed_aspiration_options.use_aspiration_window);
@@ -202,6 +208,12 @@ TEST_CASE("Search player specs reject invalid options", "[match-runner]") {
         runner::parse_player_spec("search:depth=4,lazy_first_move_ordering=maybe").has_value());
     CHECK_FALSE(runner::parse_player_spec(
                     "search:depth=4,lazy_first_move_ordering=on,lazy_first_move_ordering=off")
+                    .has_value());
+    CHECK_FALSE(
+        runner::parse_player_spec("search:depth=4,shallow_tt_move_ordering_hint=maybe")
+            .has_value());
+    CHECK_FALSE(runner::parse_player_spec("search:depth=4,shallow_tt_move_ordering_hint=on,"
+                                          "shallow_tt_move_ordering_hint=off")
                     .has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,pvs=on,pvs=off").has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,exact=1,exact=off").has_value());

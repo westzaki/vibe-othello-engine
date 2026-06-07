@@ -28,6 +28,7 @@ struct AnalysisOptions {
     int tt_min_probe_depth = SearchOptions{}.tt_min_probe_depth;
     int tt_min_store_depth = SearchOptions{}.tt_min_store_depth;
     bool use_lazy_first_move_ordering = SearchOptions{}.use_lazy_first_move_ordering;
+    bool use_shallow_tt_move_ordering_hint = SearchOptions{}.use_shallow_tt_move_ordering_hint;
     int exact_endgame_empty_threshold = SearchOptions{}.exact_endgame_empty_threshold;
     bool use_pvs = SearchOptions{}.use_pvs;
     bool use_aspiration_window = SearchOptions{}.use_aspiration_window;

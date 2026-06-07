@@ -36,6 +36,7 @@ void print_usage(std::string_view program_name) {
                  " [--tt on|off] [--tt-entries N] [--exact-tt-entries N]"
                  " [--tt-store-leaf on|off] [--tt-min-probe-depth N]"
                  " [--tt-min-store-depth N] [--lazy-first-move-ordering on|off]"
+                 " [--shallow-tt-move-ordering-hint on|off]"
                  " [--pvs on|off]"
                  " [--aspiration on|off] [--aspiration-window N]"
                  " [--aspiration-max-researches N] [--exact-endgame-threshold N]"
@@ -62,6 +63,8 @@ void print_usage(std::string_view program_name) {
               << "                    skip midgame TT stores below remaining depth N\n"
               << "  --lazy-first-move-ordering on|off\n"
               << "                    try a legal PV/root/TT preferred move before full ordering\n"
+              << "  --shallow-tt-move-ordering-hint on|off\n"
+              << "                    allow shallower matching TT best moves as ordering-only hints\n"
               << "  --pvs on|off       enable or disable PVS (default: off)\n"
               << "  --aspiration on|off\n"
               << "                    enable iterative-search aspiration windows (default: off)\n"
@@ -418,6 +421,15 @@ void write_batch_result(
                 return std::nullopt;
             }
             options.use_lazy_first_move_ordering = *lazy;
+        } else if (arg == "--shallow-tt-move-ordering-hint") {
+            const auto value = othello::tools::next_argument(args, index, arg);
+            const auto shallow_hint =
+                value.has_value() ? othello::tools::parse_on_off(*value) : std::nullopt;
+            if (!shallow_hint.has_value()) {
+                std::cerr << "invalid --shallow-tt-move-ordering-hint value\n";
+                return std::nullopt;
+            }
+            options.use_shallow_tt_move_ordering_hint = *shallow_hint;
         } else if (arg == "--pvs") {
             const auto value = othello::tools::next_argument(args, index, arg);
             const auto pvs =

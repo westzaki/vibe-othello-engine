@@ -35,7 +35,10 @@ using hash_detail::hash_after_pass;
         return {};
     }
     return context.transpositions.lookup(hash, context.transposition_scope, depth, alpha, beta,
-                                         collect_best_move_hint, context.stats);
+                                         collect_best_move_hint,
+                                         context.engine_options
+                                             .use_shallow_tt_move_ordering_hint,
+                                         context.stats);
 }
 
 bool store_transposition(SearchContext& context, ZobristHash hash, int depth, int score,
@@ -166,6 +169,9 @@ NodeResult search_node(const SearchPosition& position, ZobristHash hash, int dep
             ++context.stats.ordering_lazy_first_hits;
             if (same_move(lazy_preferred_move, cached.best_move_hint)) {
                 ++context.stats.tt_move_ordering_used;
+                if (cached.best_move_hint_from_shallow_entry) {
+                    ++context.stats.shallow_tt_move_ordering_used;
+                }
             }
 
             const SearchPosition next = position_after_move(position, *lazy_preferred_move, flips);
@@ -231,9 +237,13 @@ NodeResult search_node(const SearchPosition& position, ZobristHash hash, int dep
         searched_move_count > 0 && same_move(lazy_preferred_move, cached.best_move_hint)
             ? std::nullopt
             : cached.best_move_hint;
+    const bool remaining_tt_preferred_move_from_shallow =
+        remaining_tt_preferred_move.has_value() && cached.best_move_hint_from_shallow_entry;
     const OrderedMoveIndexes ordered_moves =
         ordered_legal_move_indexes(position, remaining_moves, depth, remaining_preferred_move,
-                                   remaining_tt_preferred_move, use_dynamic_ordering, context);
+                                   remaining_tt_preferred_move,
+                                   remaining_tt_preferred_move_from_shallow, use_dynamic_ordering,
+                                   context);
     if (is_root) {
         record_root_move_ordering_snapshot(context, ordered_moves);
     }

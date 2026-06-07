@@ -171,6 +171,12 @@ SearchCliParseResult parse_search_cli_option(std::span<char* const> args, std::s
                    : SearchCliParseResult::Error;
     }
 
+    if (option == "--shallow-tt-move-ordering-hint") {
+        return parse_on_off_option(options.use_shallow_tt_move_ordering_hint)
+                   ? SearchCliParseResult::Parsed
+                   : SearchCliParseResult::Error;
+    }
+
     if (option == "--exact-tt-entries") {
         ++index;
         if (index >= args.size()) {
@@ -240,6 +246,10 @@ SearchOptions apply_search_cli_options(SearchOptions options,
     options.tt_min_store_depth = cli_options.tt_min_store_depth;
     if (cli_options.use_lazy_first_move_ordering.has_value()) {
         options.use_lazy_first_move_ordering = *cli_options.use_lazy_first_move_ordering;
+    }
+    if (cli_options.use_shallow_tt_move_ordering_hint.has_value()) {
+        options.use_shallow_tt_move_ordering_hint =
+            *cli_options.use_shallow_tt_move_ordering_hint;
     }
     options.exact_endgame_tt_entries = cli_options.exact_endgame_tt_entries;
     options.aspiration_window = cli_options.aspiration_window;

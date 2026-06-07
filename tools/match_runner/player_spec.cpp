@@ -97,6 +97,7 @@ std::optional<PlayerSpec> parse_player_spec(std::string_view text) {
         bool seen_tt_min_probe_depth = false;
         bool seen_tt_min_store_depth = false;
         bool seen_lazy_first_move_ordering = false;
+        bool seen_shallow_tt_move_ordering_hint = false;
         bool seen_eval_config = false;
         bool seen_preset = false;
         tools::EvaluatorSelectionInput evaluator_input;
@@ -124,6 +125,8 @@ std::optional<PlayerSpec> parse_player_spec(std::string_view text) {
             search_options.tt_min_store_depth = preset_options.search_options.tt_min_store_depth;
             search_options.use_lazy_first_move_ordering =
                 preset_options.search_options.use_lazy_first_move_ordering;
+            search_options.use_shallow_tt_move_ordering_hint =
+                preset_options.search_options.use_shallow_tt_move_ordering_hint;
             search_options.exact_endgame_empty_threshold =
                 preset_options.search_options.exact_endgame_empty_threshold;
             search_options.exact_endgame_root_policy =
@@ -258,6 +261,16 @@ std::optional<PlayerSpec> parse_player_spec(std::string_view text) {
                 }
                 search_options.use_lazy_first_move_ordering = *parsed;
                 seen_lazy_first_move_ordering = true;
+            } else if (key == "shallow_tt_move_ordering_hint") {
+                if (seen_shallow_tt_move_ordering_hint) {
+                    return std::nullopt;
+                }
+                const std::optional<bool> parsed = parse_on_off(value);
+                if (!parsed.has_value()) {
+                    return std::nullopt;
+                }
+                search_options.use_shallow_tt_move_ordering_hint = *parsed;
+                seen_shallow_tt_move_ordering_hint = true;
             } else if (key == "eval_config") {
                 if (seen_eval_config || value.empty()) {
                     return std::nullopt;
@@ -295,6 +308,8 @@ SearchOptions make_search_options(const PlayerSpec& spec) noexcept {
     options.tt_min_probe_depth = spec.search_options.tt_min_probe_depth;
     options.tt_min_store_depth = spec.search_options.tt_min_store_depth;
     options.use_lazy_first_move_ordering = spec.search_options.use_lazy_first_move_ordering;
+    options.use_shallow_tt_move_ordering_hint =
+        spec.search_options.use_shallow_tt_move_ordering_hint;
     options.exact_endgame_empty_threshold = spec.search_options.exact_endgame_empty_threshold;
     options.exact_endgame_root_policy = spec.search_options.exact_endgame_root_policy;
     options.exact_endgame_tt_entries = spec.search_options.exact_endgame_tt_entries;
