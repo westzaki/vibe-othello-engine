@@ -244,6 +244,12 @@ othello_add_help_contains_test(
 )
 
 othello_add_help_contains_test(
+    othello_analyze_position_help_includes_aspiration_profile
+    othello_analyze_position
+    "--aspiration-profile"
+)
+
+othello_add_help_contains_test(
     othello_match_runner_help_includes_tt_store_leaf
     othello_match_runner
     "tt_store_leaf=on|off"
@@ -378,6 +384,14 @@ othello_add_expect_failure_test(
     "unknown option: --unknown-option"
     --stdin
     --unknown-option
+)
+
+othello_add_expect_failure_test(
+    othello_analyze_position_rejects_invalid_aspiration_profile
+    othello_analyze_position
+    "invalid --aspiration-profile value"
+    --stdin
+    --aspiration-profile wide
 )
 
 othello_add_expect_failure_test(
