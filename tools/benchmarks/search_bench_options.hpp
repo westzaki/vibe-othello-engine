@@ -57,6 +57,7 @@ struct BenchmarkOptions {
     bool describe_positions = false;
     bool by_position = false;
     bool emit_iterative_depth_rows = false;
+    othello::tools::SearchPreset preset = othello::tools::SearchPreset::Default;
     othello::tools::SearchCliOptions search_cli;
     std::vector<ExactRootProfile> exact_root_profiles;
     othello::tools::OutputFormat output_format = othello::tools::OutputFormat::Text;

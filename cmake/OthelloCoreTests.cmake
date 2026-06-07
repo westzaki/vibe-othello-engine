@@ -50,9 +50,27 @@ othello_add_help_contains_test(
 )
 
 othello_add_help_contains_test(
-    othello_match_runner_help_includes_strong_v1_preset
+    othello_nboard_engine_help_includes_strong_v2_preset
+    othello_nboard_engine
+    "strong-v2"
+)
+
+othello_add_help_contains_test(
+    othello_match_runner_help_includes_search_presets
     othello_match_runner
-    "preset=default|strong-v1"
+    "preset=default|strong-v1|strong-v2"
+)
+
+othello_add_help_contains_test(
+    othello_search_bench_help_includes_preset
+    othello_search_bench
+    "--preset"
+)
+
+othello_add_help_contains_test(
+    othello_search_bench_help_includes_strong_v2_preset
+    othello_search_bench
+    "strong-v2"
 )
 
 othello_add_help_contains_test(
@@ -144,6 +162,21 @@ othello_add_tool_smoke_test(
 set_tests_properties(
     othello_search_bench_jsonl_score_delta_aware_aspiration_profile
     PROPERTIES PASS_REGULAR_EXPRESSION "\"tt_min_probe_depth\":1.*\"tt_min_store_depth\":1.*\"lazy_first_move_ordering\":true.*\"aspiration_profile\":\"score-delta-aware\".*\"tt_probe_skipped_by_depth\".*\"ordering_full_builds\""
+)
+
+othello_add_tool_smoke_test(
+    othello_search_bench_accepts_strong_v2_preset
+    othello_search_bench
+    --preset strong-v2
+    --depths 1
+    --positions smoke
+    --repetitions 1
+    --exact-endgame-threshold 0
+    --format jsonl
+)
+set_tests_properties(
+    othello_search_bench_accepts_strong_v2_preset
+    PROPERTIES PASS_REGULAR_EXPRESSION "\"mode\":\"iterative\".*\"tt_min_probe_depth\":1.*\"tt_min_store_depth\":1.*\"lazy_first_move_ordering\":true.*\"shallow_tt_move_ordering_hint\":true.*\"aspiration_profile\":\"score-delta-aware\""
 )
 
 othello_add_tool_smoke_test(
@@ -376,6 +409,13 @@ othello_add_expect_failure_test(
     othello_search_bench
     "--aspiration-profile must be fixed or score-delta-aware"
     --aspiration-profile wide
+)
+
+othello_add_expect_failure_test(
+    othello_search_bench_rejects_unknown_preset
+    othello_search_bench
+    "--preset must be default, strong-v1, or strong-v2"
+    --preset fast
 )
 
 othello_add_expect_failure_test(

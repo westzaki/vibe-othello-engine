@@ -24,19 +24,23 @@ struct Options {
 
 void print_usage(std::string_view program) {
     std::cout << "usage: " << program << " [--depth N] " << othello::tools::evaluator_cli_usage()
-              << " [--preset default|strong-v1]"
+              << " [--preset default|strong-v1|strong-v2]"
               << " [--exact-endgame-threshold N]"
                  " [--verbose] [--help]\n"
               << '\n'
               << "Options:\n"
               << "  --depth N          positive search depth (default: 4)\n"
               << othello::tools::evaluator_cli_help()
-              << "  --preset PRESET    search preset: default or strong-v1 (default: default)\n"
+              << "  --preset PRESET    search preset: default, strong-v1, or strong-v2 "
+                 "(default: default)\n"
               << "                     strong-v1 uses iterative search, TT shallow gates, lazy "
                  "ordering,\n"
               << "                     PVS, score-delta-aware aspiration, adaptive16 exact "
                  "endgame,\n"
               << "                     and the normal evaluator default\n"
+              << "                     strong-v2 is the same candidate profile plus shallow TT "
+                 "best-move hints;\n"
+              << "                     best move, PV, and checksums may change\n"
               << "  --exact-endgame-threshold N\n"
               << "                     solve root positions with at most N empties exactly; N <= 0 "
                  "disables (default: 12; overrides preset exact policy when passed)\n"

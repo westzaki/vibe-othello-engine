@@ -2,6 +2,7 @@
 
 #include "common/cli.hpp"
 #include "common/evaluator_cli.hpp"
+#include "common/search_preset.hpp"
 
 #include <iostream>
 #include <optional>
@@ -59,6 +60,7 @@ BenchmarkOptions::BenchmarkOptions()
 void print_usage(std::string_view program_name) {
     std::cout << "usage: " << program_name
               << " [--mode fixed|iterative|both] [--depths 1,2,3,4,5]"
+                 " [--preset default|strong-v1|strong-v2]"
                  " [--repetitions N] [--positions smoke|suite|evaluation|threshold]"
                  " [--describe-positions] [--by-position] [--emit-iterative-depth-rows]"
                  " [--tt on|off] [--tt-entries N] [--exact-tt-entries N]"
@@ -78,6 +80,9 @@ void print_usage(std::string_view program_name) {
               << "  --depths LIST       comma-separated positive search depths\n"
               << "  --repetitions N     positive repetition count per depth\n"
               << "  --mode MODE         fixed, iterative, or both (default: fixed)\n"
+              << "  --preset PRESET     search preset: default, strong-v1, or strong-v2\n"
+              << "                      strong-v2 is a behavior-changing candidate with "
+                 "shallow TT hints\n"
               << "  --positions SET     smoke, suite, evaluation, or threshold (default: smoke)\n"
               << "  --describe-positions\n"
               << "                      print selected position metadata and metrics only\n"
@@ -297,6 +302,8 @@ parse_exact_root_profiles(std::string_view text) {
 [[nodiscard]] std::optional<BenchmarkOptions> parse_options(std::span<char* const> args) {
     BenchmarkOptions options;
     othello::tools::EvaluatorCliParseState evaluator_cli;
+    bool mode_explicit = false;
+    bool exact_root_explicit = false;
     constexpr othello::tools::EvaluatorCliParseOptions evaluator_cli_options{
         .missing_eval_config_message = "--eval-config requires a .eval config path",
         .reject_empty_eval_config = false,
@@ -353,6 +360,62 @@ parse_exact_root_profiles(std::string_view text) {
                 return std::nullopt;
             }
             options.mode = *mode;
+            mode_explicit = true;
+            continue;
+        }
+
+        if (option == "--preset") {
+            ++index;
+            if (index >= args.size()) {
+                std::cerr << "--preset requires default, strong-v1, or strong-v2\n";
+                return std::nullopt;
+            }
+
+            const auto preset = othello::tools::parse_search_preset(args[index]);
+            if (!preset.has_value()) {
+                std::cerr << "--preset must be default, strong-v1, or strong-v2\n";
+                return std::nullopt;
+            }
+            const othello::tools::SearchPresetOptions preset_options =
+                othello::tools::search_preset_options(*preset);
+            options.preset = *preset;
+            options.search_cli.use_transposition_table =
+                preset_options.search_options.use_transposition_table;
+            options.search_cli.store_leaf_tt_entries =
+                preset_options.search_options.store_leaf_tt_entries;
+            options.search_cli.use_pvs = preset_options.search_options.use_pvs;
+            options.search_cli.use_aspiration_window =
+                preset_options.search_options.use_aspiration_window;
+            options.search_cli.transposition_table_entries =
+                preset_options.search_options.transposition_table_entries;
+            options.search_cli.tt_min_probe_depth =
+                preset_options.search_options.tt_min_probe_depth;
+            options.search_cli.tt_min_store_depth =
+                preset_options.search_options.tt_min_store_depth;
+            options.search_cli.use_lazy_first_move_ordering =
+                preset_options.search_options.use_lazy_first_move_ordering;
+            options.search_cli.use_shallow_tt_move_ordering_hint =
+                preset_options.search_options.use_shallow_tt_move_ordering_hint;
+            options.search_cli.exact_endgame_tt_entries =
+                preset_options.search_options.exact_endgame_tt_entries;
+            options.search_cli.aspiration_window = preset_options.search_options.aspiration_window;
+            options.search_cli.aspiration_max_researches =
+                preset_options.search_options.aspiration_max_researches;
+            options.search_cli.aspiration_profile =
+                preset_options.search_options.aspiration_profile;
+            if (preset_options.use_iterative_search && !mode_explicit) {
+                options.mode = SearchBenchmarkMode::Iterative;
+            }
+            if (!exact_root_explicit) {
+                if (preset_options.search_options.exact_endgame_root_policy ==
+                    othello::ExactEndgameRootPolicy::Adaptive16) {
+                    options.exact_root_profiles = {adaptive16_exact_root_profile()};
+                } else {
+                    options.exact_root_profiles = {
+                        fixed_exact_root_profile(
+                            preset_options.search_options.exact_endgame_empty_threshold)};
+                }
+            }
             continue;
         }
 
@@ -397,6 +460,7 @@ parse_exact_root_profiles(std::string_view text) {
                 return std::nullopt;
             }
             options.exact_root_profiles = {*profile};
+            exact_root_explicit = true;
             continue;
         }
 
@@ -414,6 +478,7 @@ parse_exact_root_profiles(std::string_view text) {
                 return std::nullopt;
             }
             options.exact_root_profiles = *profiles;
+            exact_root_explicit = true;
             continue;
         }
 
