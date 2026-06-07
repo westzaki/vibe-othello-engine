@@ -38,6 +38,13 @@ from pattern_specs import (
     board9_rows_to_square_index_rows,
     pattern_index,
 )
+from pattern_symmetry_diagnostics import (
+    SYMMETRIZE_MODES,
+    SymmetrizeSummary,
+    TableViolationSummary,
+    parse_symmetrize_modes,
+    symmetrize_pattern_table,
+)
 from pattern_training.analysis_cache import (
     AnalysisCacheConfig,
     AnalysisRequest,
@@ -167,6 +174,7 @@ class TrainerConfig:
     soft_sign_anchor_weight: float
     soft_sign_anchor_margin: float
     soft_sign_anchor_mode: str
+    post_training_symmetrize_modes: tuple[str, ...]
     max_top_group_size_for_training: int
     tie_penalty: float
     target_top_group_size: int
@@ -710,6 +718,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--post-training-symmetrize",
+        default="",
+        help=(
+            "comma-separated same-family TSV symmetrization modes applied after "
+            "training writes generated phase tables. Supported modes: "
+            f"{','.join(SYMMETRIZE_MODES)}. Default: off"
+        ),
+    )
+    parser.add_argument(
         "--max-top-group-size-for-training",
         type=parse_non_negative_int,
         default=0,
@@ -998,6 +1015,7 @@ def config_from_args(
         reject_source_data_dir(listwise_feature_cache_dir, option_name="--listwise-feature-cache-dir")
     bucket_weights_path = Path(args.bucket_weights) if args.bucket_weights else None
     bucket_weights = load_bucket_weights(bucket_weights_path) if bucket_weights_path is not None else {}
+    post_training_symmetrize_modes = parse_symmetrize_modes(args.post_training_symmetrize)
     return TrainerConfig(
         teacher_labels=teacher_labels,
         exact_labels=exact_labels,
@@ -1043,6 +1061,7 @@ def config_from_args(
         soft_sign_anchor_weight=args.soft_sign_anchor_weight,
         soft_sign_anchor_margin=args.soft_sign_anchor_margin,
         soft_sign_anchor_mode=args.soft_sign_anchor_mode,
+        post_training_symmetrize_modes=post_training_symmetrize_modes,
         max_top_group_size_for_training=args.max_top_group_size_for_training,
         tie_penalty=args.tie_penalty,
         target_top_group_size=args.target_top_group_size,
@@ -4341,6 +4360,109 @@ def render_phase_table(
     return "\n".join(lines) + "\n"
 
 
+def table_violation_summary_json(summary: TableViolationSummary) -> dict[str, Any]:
+    return {
+        "label": summary.label,
+        "checked_pairs": summary.checked_pairs,
+        "violations": summary.violations,
+        "max_abs_delta": summary.max_abs_delta,
+        "examples": [
+            {
+                "family": example[0],
+                "index": example[1],
+                "other_family": example[2],
+                "other_index": example[3],
+                "weight": example[4],
+                "other_weight": example[5],
+            }
+            for example in summary.examples
+        ],
+    }
+
+
+def post_training_symmetrize_summary_json(summary: SymmetrizeSummary) -> dict[str, Any]:
+    return {
+        "modes": list(summary.modes),
+        "output_path": str(summary.output_path),
+        "families_processed": list(summary.families_processed),
+        "entries_read": summary.entries_read,
+        "entries_written": summary.entries_written,
+        "changed_entries": summary.changed_entries,
+        "zero_entries_introduced": summary.zero_entries_introduced,
+        "zero_entries_removed": summary.zero_entries_removed,
+        "max_abs_delta_before": summary.max_abs_delta_before,
+        "max_abs_delta_after": max(summary.max_abs_delta_after_by_check.values(), default=0),
+        "violations_before": summary.violations_before,
+        "violations_after": summary.violations_after,
+        "max_abs_delta_before_by_check": summary.max_abs_delta_before_by_check,
+        "max_abs_delta_after_by_check": summary.max_abs_delta_after_by_check,
+    }
+
+
+def ensure_generated_phase_table_output(path: Path, *, config: TrainerConfig) -> None:
+    reject_source_data_dir(path, option_name="post-training symmetrize output")
+    resolved_path = path.resolve(strict=False)
+    resolved_out_dir = config.out_dir.resolve(strict=False)
+    try:
+        resolved_path.relative_to(resolved_out_dir)
+    except ValueError as exc:
+        raise ScriptError("post-training symmetrize output must stay under --out-dir") from exc
+
+
+def pattern_table_has_data_entry(text: str) -> bool:
+    return any(line.strip() and not line.lstrip().startswith("#") for line in text.splitlines())
+
+
+def ensure_nonempty_generated_pattern_table(path: Path) -> bool:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ScriptError(f"failed to read generated pattern table {path}: {exc}") from exc
+    if pattern_table_has_data_entry(text):
+        return False
+    sentinel_line = f"{SENTINEL_FAMILY}\t{SENTINEL_ENTRY[0]}\t{SENTINEL_ENTRY[1]}"
+    try:
+        path.write_text(text.rstrip() + "\n\n" + sentinel_line + "\n", encoding="utf-8")
+    except OSError as exc:
+        raise ScriptError(f"failed to write generated pattern table {path}: {exc}") from exc
+    return True
+
+
+def apply_post_training_symmetrize(
+    config: TrainerConfig,
+    table_paths: dict[str, Path],
+) -> dict[str, Any]:
+    modes = config.post_training_symmetrize_modes
+    summary: dict[str, Any] = {
+        "modes": list(modes),
+        "enabled": bool(modes),
+        "phases": {},
+    }
+    if not modes:
+        return summary
+
+    for phase in PHASES:
+        path = table_paths[phase]
+        ensure_generated_phase_table_output(path, config=config)
+        _, phase_summary, before, after = symmetrize_pattern_table(
+            input_path=path,
+            output_path=path,
+            modes=modes,
+        )
+        sentinel_entry_written = ensure_nonempty_generated_pattern_table(path)
+        phase_json = post_training_symmetrize_summary_json(phase_summary)
+        if sentinel_entry_written:
+            phase_json["entries_written"] += 1
+            phase_json["zero_entries_introduced"] += 1
+        phase_json["sentinel_entry_written"] = sentinel_entry_written
+        summary["phases"][phase] = {
+            **phase_json,
+            "before": [table_violation_summary_json(row) for row in before],
+            "after": [table_violation_summary_json(row) for row in after],
+        }
+    return summary
+
+
 def model_margin_shape(config: TrainerConfig) -> str:
     if config.candidate_eval_shape == "pattern-only":
         return "pattern_only" if not config.include_base_margin else "pattern_only_with_base_anchor"
@@ -4601,6 +4723,7 @@ def render_report(
         f"- soft_sign_anchor_weight: `{config.soft_sign_anchor_weight}`",
         f"- soft_sign_anchor_margin: `{config.soft_sign_anchor_margin}`",
         f"- soft_sign_anchor_mode: `{config.soft_sign_anchor_mode}`",
+        f"- post_training_symmetrize: `{','.join(config.post_training_symmetrize_modes) or 'off'}`",
         f"- max_top_group_size_for_training: `{config.max_top_group_size_for_training}`",
         f"- tie_penalty: `{config.tie_penalty}`",
         f"- target_top_group_size: `{config.target_top_group_size}`",
@@ -4735,6 +4858,47 @@ def render_report(
         if calibration.get("reason"):
             lines.append(f"- reason: `{calibration['reason']}`")
         lines.append("")
+    post_sym = summary.get("post_training_symmetrize", {})
+    lines.extend(
+        [
+            "## Post-Training Symmetrize",
+            "",
+            f"- enabled: `{bool(post_sym.get('enabled', False))}`",
+            f"- modes: `{','.join(post_sym.get('modes', [])) or 'off'}`",
+        ]
+    )
+    phases = post_sym.get("phases", {})
+    if phases:
+        lines.extend(
+            [
+                "",
+                "| phase | entries read | entries written | changed entries | zero introduced | zero removed | violations before | violations after | max abs delta before | max abs delta after |",
+                "| --- | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- |",
+            ]
+        )
+        for phase in PHASES:
+            row = phases.get(phase)
+            if not row:
+                continue
+            lines.append(
+                "| "
+                + " | ".join(
+                    [
+                        phase,
+                        str(row.get("entries_read", 0)),
+                        str(row.get("entries_written", 0)),
+                        str(row.get("changed_entries", 0)),
+                        str(row.get("zero_entries_introduced", 0)),
+                        str(row.get("zero_entries_removed", 0)),
+                        json.dumps(row.get("violations_before", {}), sort_keys=True),
+                        json.dumps(row.get("violations_after", {}), sort_keys=True),
+                        json.dumps(row.get("max_abs_delta_before_by_check", {}), sort_keys=True),
+                        json.dumps(row.get("max_abs_delta_after_by_check", {}), sort_keys=True),
+                    ]
+                )
+                + " |"
+            )
+    lines.append("")
     lines.extend(
         [
             "## Outputs",
@@ -5245,6 +5409,8 @@ def train_pairwise_tables(
             encoding="utf-8",
         )
 
+    post_training_symmetrize_summary = apply_post_training_symmetrize(config, table_paths)
+
     candidate_eval_path = config.out_dir / "candidate.eval"
     candidate_eval_path.write_text(render_candidate_eval(config), encoding="utf-8")
 
@@ -5314,6 +5480,7 @@ def train_pairwise_tables(
         "min_score_margin": config.min_score_margin,
         "drop_teacher_exact_disagreement": config.drop_teacher_exact_disagreement,
         "exact_aware_only_when_available": config.exact_aware_only_when_available,
+        "post_training_symmetrize": post_training_symmetrize_summary,
         "max_top_group_size_for_training": config.max_top_group_size_for_training,
         "tie_penalty": config.tie_penalty,
         "target_top_group_size": config.target_top_group_size,

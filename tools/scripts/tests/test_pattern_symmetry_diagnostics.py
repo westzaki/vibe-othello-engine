@@ -112,6 +112,27 @@ class PatternSymmetryDiagnosticsTests(unittest.TestCase):
             self.assertGreater(before_by_label["index_vs_color_inverted_index"].violations, 0)
             self.assertEqual(after_by_label["index_vs_color_inverted_index"].violations, 0)
 
+    def test_symmetrize_weights_multiple_modes_are_order_independent(self) -> None:
+        weights = {
+            "edge_8": {
+                1: 5,
+                2: 1,
+                2187: -3,
+                4374: 4,
+            }
+        }
+
+        first = diagnostics.symmetrize_weights(
+            weights,
+            modes=("reversed-index", "color-inversion"),
+        )
+        second = diagnostics.symmetrize_weights(
+            weights,
+            modes=("color-inversion", "reversed-index"),
+        )
+
+        self.assertEqual(first, second)
+
     def test_json_mode_smoke_writes_report_and_symmetrized_output(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             temp_path = Path(temp)
