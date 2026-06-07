@@ -1714,6 +1714,58 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
             trainer.move_choice_metrics(config, weights, [example]),
             trainer.move_choice_metrics(config, weights, compact),
         )
+        diagnostics = trainer.move_choice_metrics(config, weights, compact)
+        self.assertEqual(diagnostics["avg_exact_best_margin"], 1.0)
+        self.assertEqual(diagnostics["avg_exact_best_rank_loss"], 0.0)
+        self.assertEqual(
+            diagnostics["wrong_direction_by_phase"],
+            {"opening": 0, "midgame": 0, "late": 0},
+        )
+
+    def test_exact_best_rank_penalty_increases_synthetic_margin(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            base_config = make_config(
+                temp_path,
+                labels,
+                extra_args=[
+                    "--objective",
+                    "exact-aware-listwise",
+                    "--no-base-margin",
+                    "--epochs",
+                    "1",
+                    "--learning-rate",
+                    "0.1",
+                    "--l2",
+                    "0",
+                    "--sign-penalty",
+                    "0",
+                    "--exact-best-rank-penalty",
+                    "0",
+                ],
+            )
+            rank_config = replace(
+                base_config,
+                exact_best_rank_penalty=2.0,
+                exact_best_margin=2.0,
+            )
+            example = synthetic_listwise_example()
+
+            base_weights, _ = trainer.train_weights(base_config, [], [example])
+            rank_weights, _ = trainer.train_weights(rank_config, [], [example])
+
+        base_margin = trainer.move_choice_metrics(base_config, base_weights, [example])[
+            "avg_exact_best_margin"
+        ]
+        rank_margin = trainer.move_choice_metrics(rank_config, rank_weights, [example])[
+            "avg_exact_best_margin"
+        ]
+        self.assertIsNotNone(base_margin)
+        self.assertIsNotNone(rank_margin)
+        assert base_margin is not None
+        assert rank_margin is not None
+        self.assertGreater(rank_margin, base_margin)
 
     def test_listwise_feature_cache_reuses_child_pattern_features(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

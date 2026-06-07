@@ -155,6 +155,8 @@ class TrainerConfig:
     tie_penalty: float
     target_top_group_size: int
     top_group_margin: float
+    exact_best_rank_penalty: float
+    exact_best_margin: float
     sign_penalty: float
     high_confidence_margin: float
     calibrate_output_scale: bool
@@ -239,6 +241,7 @@ class CompactListwiseDataset:
     candidate_exact_best_mask: tuple[bool, ...]
     example_teacher_moves: tuple[str, ...]
     example_exact_root_scores: tuple[int | None, ...]
+    example_phase_ids: tuple[int, ...]
     example_weights: tuple[float, ...]
     example_splits: tuple[str, ...]
     feature_keys: tuple[FeatureKey, ...]
@@ -541,6 +544,21 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="score band treated as the top group for tie-aware training and diagnostics",
     )
     parser.add_argument(
+        "--exact-best-rank-penalty",
+        type=parse_non_negative_float,
+        default=0.0,
+        help=(
+            "extra exact-aware-listwise penalty weight that pushes the best exact-best "
+            "candidate above the best non-exact candidate"
+        ),
+    )
+    parser.add_argument(
+        "--exact-best-margin",
+        type=parse_non_negative_float,
+        default=1.0,
+        help="target model-score margin between the best exact-best move and best non-exact move",
+    )
+    parser.add_argument(
         "--sign-penalty",
         type=parse_non_negative_float,
         default=1.0,
@@ -811,6 +829,8 @@ def config_from_args(
         tie_penalty=args.tie_penalty,
         target_top_group_size=args.target_top_group_size,
         top_group_margin=args.top_group_margin,
+        exact_best_rank_penalty=args.exact_best_rank_penalty,
+        exact_best_margin=args.exact_best_margin,
         sign_penalty=args.sign_penalty,
         high_confidence_margin=args.high_confidence_margin,
         calibrate_output_scale=args.calibrate_output_scale,
@@ -2721,6 +2741,7 @@ def compact_listwise_dataset(examples: list[ListwiseExample]) -> CompactListwise
     candidate_exact_best_mask: list[bool] = []
     example_teacher_moves: list[str] = []
     example_exact_root_scores: list[int | None] = []
+    example_phase_ids: list[int] = []
     example_weights: list[float] = []
     example_splits: list[str] = []
     feature_keys: list[FeatureKey] = []
@@ -2749,6 +2770,7 @@ def compact_listwise_dataset(examples: list[ListwiseExample]) -> CompactListwise
         example_offsets.append(len(candidate_moves))
         example_teacher_moves.append(example.teacher_move)
         example_exact_root_scores.append(example.exact_root_score)
+        example_phase_ids.append(PHASE_TO_ID[example.candidates[0].phase])
         example_weights.append(example.example_weight)
         example_splits.append(example.split)
     return CompactListwiseDataset(
@@ -2762,6 +2784,7 @@ def compact_listwise_dataset(examples: list[ListwiseExample]) -> CompactListwise
         candidate_exact_best_mask=tuple(candidate_exact_best_mask),
         example_teacher_moves=tuple(example_teacher_moves),
         example_exact_root_scores=tuple(example_exact_root_scores),
+        example_phase_ids=tuple(example_phase_ids),
         example_weights=tuple(example_weights),
         example_splits=tuple(example_splits),
         feature_keys=tuple(feature_keys),
@@ -2790,6 +2813,7 @@ def compact_listwise_dataset_subset(
     candidate_exact_best_mask: list[bool] = []
     example_teacher_moves: list[str] = []
     example_exact_root_scores: list[int | None] = []
+    example_phase_ids: list[int] = []
     example_weights: list[float] = []
     example_splits: list[str] = []
     feature_ids: list[int] = []
@@ -2812,6 +2836,7 @@ def compact_listwise_dataset_subset(
         example_offsets.append(len(candidate_moves))
         example_teacher_moves.append(dataset.example_teacher_moves[example_index])
         example_exact_root_scores.append(dataset.example_exact_root_scores[example_index])
+        example_phase_ids.append(dataset.example_phase_ids[example_index])
         example_weights.append(dataset.example_weights[example_index])
         example_splits.append(dataset.example_splits[example_index])
     return CompactListwiseDataset(
@@ -2825,6 +2850,7 @@ def compact_listwise_dataset_subset(
         candidate_exact_best_mask=tuple(candidate_exact_best_mask),
         example_teacher_moves=tuple(example_teacher_moves),
         example_exact_root_scores=tuple(example_exact_root_scores),
+        example_phase_ids=tuple(example_phase_ids),
         example_weights=tuple(example_weights),
         example_splits=tuple(example_splits),
         feature_keys=dataset.feature_keys,
@@ -3001,6 +3027,60 @@ def train_listwise_weights(
                                 config.max_abs_weight,
                             )
                             update_count += 2
+
+            if (
+                config.objective == "exact-aware-listwise"
+                and config.exact_best_rank_penalty > 0.0
+            ):
+                exact_best_indexes = [
+                    candidate_index
+                    for candidate_index in range(candidate_start, candidate_end)
+                    if dataset.candidate_exact_best_mask[candidate_index]
+                ]
+                non_exact_indexes = [
+                    candidate_index
+                    for candidate_index in range(candidate_start, candidate_end)
+                    if not dataset.candidate_exact_best_mask[candidate_index]
+                ]
+                if exact_best_indexes and non_exact_indexes:
+                    best_exact = max(
+                        exact_best_indexes,
+                        key=lambda candidate_index: compact_lazy_candidate_score(
+                            config,
+                            lazy_weights,
+                            dataset,
+                            candidate_index,
+                        ),
+                    )
+                    best_non_exact = max(
+                        non_exact_indexes,
+                        key=lambda candidate_index: compact_lazy_candidate_score(
+                            config,
+                            lazy_weights,
+                            dataset,
+                            candidate_index,
+                        ),
+                    )
+                    margin = (
+                        compact_lazy_candidate_score(config, lazy_weights, dataset, best_exact)
+                        - compact_lazy_candidate_score(config, lazy_weights, dataset, best_non_exact)
+                    )
+                    factor = stable_sigmoid_negative_margin(margin - config.exact_best_margin)
+                    coefficient = (
+                        config.learning_rate
+                        * dataset.example_weights[example_index]
+                        * config.exact_best_rank_penalty
+                        * factor
+                    )
+                    add_compact_candidate_delta_update(
+                        lazy_weights,
+                        dataset,
+                        best_exact,
+                        best_non_exact,
+                        coefficient,
+                        config.max_abs_weight,
+                    )
+                    update_count += 2
 
             if config.objective == "exact-aware-listwise" and config.sign_penalty > 0.0:
                 exact_scored = [
@@ -3294,6 +3374,10 @@ def move_choice_metrics(
             "exact_sign_agreement_rate": None,
             "wrong_direction": 0,
             "high_confidence_wrong_direction": 0,
+            "avg_exact_best_margin": None,
+            "avg_exact_best_rank_loss": None,
+            "exact_best_miss_high_confidence": 0,
+            "wrong_direction_by_phase": {phase: 0 for phase in PHASES},
         }
     selected_teacher = 0
     teacher_rank_sum = 0
@@ -3307,6 +3391,11 @@ def move_choice_metrics(
     sign_agree = 0
     wrong_direction = 0
     high_conf_wrong = 0
+    exact_best_margin_sum = 0.0
+    exact_best_margin_rows = 0
+    exact_best_rank_loss_sum = 0.0
+    exact_best_miss_high_confidence = 0
+    wrong_direction_by_phase: collections.Counter[str] = collections.Counter()
     for example_index in range(dataset.example_count):
         scores = compact_listwise_scores(config, weights, dataset, example_index)
         if not scores:
@@ -3333,14 +3422,32 @@ def move_choice_metrics(
             for candidate_index in range(candidate_start, candidate_end)
             if dataset.candidate_exact_best_mask[candidate_index]
         }
+        exact_best_scores = [
+            scores[dataset.candidate_moves[candidate_index]]
+            for candidate_index in range(candidate_start, candidate_end)
+            if dataset.candidate_exact_best_mask[candidate_index]
+        ]
+        non_exact_scores = [
+            scores[dataset.candidate_moves[candidate_index]]
+            for candidate_index in range(candidate_start, candidate_end)
+            if not dataset.candidate_exact_best_mask[candidate_index]
+        ]
         if exact_best:
             exact_rows += 1
             if top_group & exact_best:
                 exact_best_top_group += 1
+            elif exact_best_scores and non_exact_scores:
+                if max(non_exact_scores) - max(exact_best_scores) >= config.high_confidence_margin:
+                    exact_best_miss_high_confidence += 1
             ranks = [rank_from_scores(scores, move) for move in exact_best if rank_from_scores(scores, move) is not None]
             if ranks:
                 exact_best_rank_sum += min(ranks)
                 exact_best_rank_rows += 1
+            if exact_best_scores and non_exact_scores:
+                exact_best_margin = max(exact_best_scores) - max(non_exact_scores)
+                exact_best_margin_sum += exact_best_margin
+                exact_best_margin_rows += 1
+                exact_best_rank_loss_sum += max(0.0, config.exact_best_margin - exact_best_margin)
         exact_sign = sign(dataset.example_exact_root_scores[example_index])
         model_sign = sign(best_score)
         if exact_sign != 0 and model_sign != 0:
@@ -3349,6 +3456,7 @@ def move_choice_metrics(
                 sign_agree += 1
             else:
                 wrong_direction += 1
+                wrong_direction_by_phase[ID_TO_PHASE[dataset.example_phase_ids[example_index]]] += 1
                 if abs(best_score) >= config.high_confidence_margin:
                     high_conf_wrong += 1
     return {
@@ -3365,6 +3473,20 @@ def move_choice_metrics(
         "exact_sign_agreement_rate": sign_agree / sign_rows if sign_rows else None,
         "wrong_direction": wrong_direction,
         "high_confidence_wrong_direction": high_conf_wrong,
+        "avg_exact_best_margin": (
+            exact_best_margin_sum / exact_best_margin_rows
+            if exact_best_margin_rows
+            else None
+        ),
+        "avg_exact_best_rank_loss": (
+            exact_best_rank_loss_sum / exact_best_margin_rows
+            if exact_best_margin_rows
+            else None
+        ),
+        "exact_best_miss_high_confidence": exact_best_miss_high_confidence,
+        "wrong_direction_by_phase": {
+            phase: int(wrong_direction_by_phase[phase]) for phase in PHASES
+        },
     }
 
 
@@ -3753,6 +3875,8 @@ def render_report(
         f"- tie_penalty: `{config.tie_penalty}`",
         f"- target_top_group_size: `{config.target_top_group_size}`",
         f"- top_group_margin: `{config.top_group_margin}`",
+        f"- exact_best_rank_penalty: `{config.exact_best_rank_penalty}`",
+        f"- exact_best_margin: `{config.exact_best_margin}`",
         f"- sign_penalty: `{config.sign_penalty}`",
         f"- high_confidence_margin: `{config.high_confidence_margin}`",
         f"- l2: `{config.l2}`",
@@ -3853,9 +3977,13 @@ def render_report(
                 f"- exact_best_top_group: `{row['exact_best_top_group']}`",
                 f"- exact_best_top_group_rate: `{row['exact_best_top_group_rate'] if row['exact_best_top_group_rate'] is not None else 'n/a'}`",
                 f"- avg_exact_best_rank: `{row['avg_exact_best_rank'] if row['avg_exact_best_rank'] is not None else 'n/a'}`",
+                f"- avg_exact_best_margin: `{row.get('avg_exact_best_margin') if row.get('avg_exact_best_margin') is not None else 'n/a'}`",
+                f"- avg_exact_best_rank_loss: `{row.get('avg_exact_best_rank_loss') if row.get('avg_exact_best_rank_loss') is not None else 'n/a'}`",
+                f"- exact_best_miss_high_confidence: `{row.get('exact_best_miss_high_confidence', 0)}`",
                 f"- exact_sign_agreement: `{row.get('exact_sign_agreement', 0)} / {row.get('exact_sign_rows', 0)}`",
                 f"- exact_sign_agreement_rate: `{row['exact_sign_agreement_rate'] if row['exact_sign_agreement_rate'] is not None else 'n/a'}`",
                 f"- wrong_direction: `{row['wrong_direction']}`",
+                f"- wrong_direction_by_phase: `{json.dumps(row.get('wrong_direction_by_phase', {}), sort_keys=True)}`",
                 f"- high_confidence_wrong_direction: `{row['high_confidence_wrong_direction']}`",
                 "",
             ]
@@ -4234,6 +4362,8 @@ def train_pairwise_tables(
         "tie_penalty": config.tie_penalty,
         "target_top_group_size": config.target_top_group_size,
         "top_group_margin": config.top_group_margin,
+        "exact_best_rank_penalty": config.exact_best_rank_penalty,
+        "exact_best_margin": config.exact_best_margin,
         "sign_penalty": config.sign_penalty,
         "high_confidence_margin": config.high_confidence_margin,
         "l2": config.l2,
