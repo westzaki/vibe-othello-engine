@@ -7,18 +7,20 @@ in repository docs, source code, active `.eval` files, and the current task or
 PR context.
 Archived commands may use interfaces or helper workflows that no longer exist;
 preserve them as provenance, but do not copy them as current instructions.
+Removed CLI interfaces should not be restored just because an archived report
+contains an old command. Removed interfaces are documented only in historical
+reports.
 
 Use this index to decide how actionable a report is before following any
 experiment notes. In particular, do not resurrect a rejected or superseded
 candidate just because an old report describes next steps.
 
-For new pattern-training experiments, use
-`tools/scripts/regularized_pairwise_pattern_train.py` as the canonical entry
-point and pass `--eval-config` explicitly. Older reports that used
-`pattern_teacher_v0_train.py` or `phase_pattern_table_train.py` remain useful
-for provenance and dataset migration evidence, but those scripts have been
-removed from active tooling. Do not copy those historical command blocks into
-new work.
+For new PatternOnly training experiments, use
+`tools/scripts/pattern_only_train.py` as the canonical entry point. The standard
+objective path is exact-aware-listwise training with a soft exact-score target,
+plus explicit baseline selection for any root-analysis comparison. Older
+reports remain useful for provenance and dataset migration evidence, but old
+CLI blocks are archived evidence, not current workflow instructions.
 
 Reports may also mention removed `data/eval/pattern_teacher_v0.eval`,
 `data/eval/pattern_reboot_v0.eval`, or

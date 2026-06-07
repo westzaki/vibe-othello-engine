@@ -166,15 +166,18 @@ scalar anchor. If a scalar project-default revert is needed, regenerate a scalar
 the project-default file and tests, and rerun eval config plus search smoke
 checks.
 
-Pattern-first research should usually start from the canonical pairwise trainer
-with an explicitly selected base evaluator such as `current_default.eval`, or
-from a new focused pattern-only/pattern-first config when the experiment needs
-one. Historical `pattern_reboot_v0` and `pattern_teacher_v0` reports remain
-useful provenance for old pattern-only evidence, but their loadable `data/eval`
-artifacts and old entry points were removed from active tooling. They are not
-the default starting point for new work. Temporary strength regression is
-acceptable when the experiment is building pattern-table ownership, dataset,
-trainer objective, regularization, or validation foundations.
+Pattern-first research should usually start from the canonical PatternOnly
+trainer, `tools/scripts/pattern_only_train.py`, with exact-aware-listwise
+training and a soft exact-score target. Select a baseline evaluator such as
+`current_default.eval` explicitly for any root-analysis comparison, or create a
+new focused pattern-only/pattern-first config when the experiment needs one.
+Historical `pattern_reboot_v0` and `pattern_teacher_v0` reports remain useful
+provenance for old pattern-only evidence, but their loadable `data/eval`
+artifacts and old entry points were removed from active tooling. Removed CLI
+interfaces are documented only in historical reports and should not be restored
+as active workflow options. Temporary strength regression is acceptable when
+the experiment is building pattern-table ownership, dataset, trainer objective,
+regularization, or validation foundations.
 
 The scalar feature code remains part of the engine for default compatibility and
 for comparison anchors. That does not make old scalar experiments active
