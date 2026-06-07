@@ -1,6 +1,7 @@
 #include "analyze/analysis.hpp"
 
 #include "common/formatting.hpp"
+#include "common/search_cli_options.hpp"
 #include "common/stats.hpp"
 
 #include <algorithm>
@@ -302,9 +303,13 @@ void print_report(const Board& board, const AnalysisOptions& options, const Sear
               << "tt_min_store_depth: " << options.tt_min_store_depth << '\n'
               << "lazy_first_move_ordering: "
               << (options.use_lazy_first_move_ordering ? "on" : "off") << '\n'
+              << "shallow_tt_move_ordering_hint: "
+              << (options.use_shallow_tt_move_ordering_hint ? "on" : "off") << '\n'
               << "pvs: " << (options.use_pvs ? "on" : "off") << '\n'
               << "aspiration: " << (options.use_aspiration_window ? "on" : "off") << '\n'
               << "aspiration_window: " << options.aspiration_window << '\n'
+              << "aspiration_profile: " << aspiration_profile_name(options.aspiration_profile)
+              << '\n'
               << "aspiration_max_researches: " << options.aspiration_max_researches << '\n'
               << "exact_endgame_threshold: " << options.exact_endgame_empty_threshold << '\n'
               << "eval_config: "

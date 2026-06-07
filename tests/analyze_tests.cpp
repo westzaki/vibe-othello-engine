@@ -413,6 +413,33 @@ TEST_CASE("Position analysis print includes search score semantics", "[analyze]"
     CHECK(output.find("exact_disc_margin: none") != std::string::npos);
 }
 
+TEST_CASE("Position analysis print includes diagnostic search options", "[analyze]") {
+    const Board board = Board::initial();
+    othello::tools::analyze::AnalysisOptions options{
+        .depth = 1,
+        .mode = othello::tools::analyze::AnalysisMode::Iterative,
+        .use_transposition_table = true,
+        .use_lazy_first_move_ordering = true,
+        .use_shallow_tt_move_ordering_hint = true,
+        .exact_endgame_empty_threshold = 0,
+        .use_pvs = true,
+        .use_aspiration_window = true,
+        .aspiration_profile = othello::AspirationProfile::ScoreDeltaAware,
+    };
+    const othello::SearchResult result = othello::tools::analyze::run_search(board, options);
+
+    std::ostringstream captured;
+    std::streambuf* const previous_buffer = std::cout.rdbuf(captured.rdbuf());
+    othello::tools::analyze::print_report(board, options, result, std::chrono::nanoseconds{0});
+    std::cout.rdbuf(previous_buffer);
+
+    const std::string output = captured.str();
+    CHECK(output.find("lazy_first_move_ordering: on") != std::string::npos);
+    CHECK(output.find("shallow_tt_move_ordering_hint: on") != std::string::npos);
+    CHECK(output.find("aspiration: on") != std::string::npos);
+    CHECK(output.find("aspiration_profile: score-delta-aware") != std::string::npos);
+}
+
 TEST_CASE("Position analysis print includes exact root search score semantics", "[analyze]") {
     const Board board = exact_analysis_board();
     const othello::ExactEndgameResult exact = othello::solve_exact_endgame(board);
