@@ -30,6 +30,30 @@ TEACHER_BOARD = (
     "side=B"
 )
 
+ROOT_OCCUPIED_20_BOARD = (
+    "........\n"
+    "......B.\n"
+    "..WWW.B.\n"
+    ".WWWWBB.\n"
+    ".W.BBW..\n"
+    "W...BBB.\n"
+    "......W.\n"
+    "........\n"
+    "side=B"
+)
+
+ROOT_OCCUPIED_44_BOARD = (
+    "WWWBBBBB\n"
+    "WWWBBBBB\n"
+    "WBWWBBWB\n"
+    "WBWWWW..\n"
+    "WWBWW...\n"
+    "W.WBBW..\n"
+    "....B.W.\n"
+    "....WB..\n"
+    "side=B"
+)
+
 
 def write_jsonl(path: Path, rows: list[dict[str, object]]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -74,8 +98,11 @@ def teacher_row(
     move: str = "d1",
     split: str = "train",
     position_id: str = "fixture",
+    source_bucket: str | None = None,
+    training_bucket: str | None = None,
+    root_scores: dict[str, int] | None = None,
 ) -> dict[str, object]:
-    return {
+    row: dict[str, object] = {
         "schema": "teacher_label.v1",
         "status": "ok",
         "legal_move_valid": True,
@@ -85,6 +112,13 @@ def teacher_row(
         "position_split": split,
         "position_id": position_id,
     }
+    if source_bucket is not None:
+        row["source_bucket"] = source_bucket
+    if training_bucket is not None:
+        row["training_bucket"] = training_bucket
+    if root_scores is not None:
+        row["root_scores"] = root_scores
+    return row
 
 
 def exact_row(
@@ -245,6 +279,142 @@ class CanonicalPatternOnlyListwiseTrainerTests(unittest.TestCase):
         )
         self.assertGreater(probabilities["b1"], probabilities["d1"])
         self.assertEqual(stats["soft_target_examples"], 1)
+
+    def test_qc_summary_reports_root_child_phase_boundary_coverage_and_buckets(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            board20_move = "a5"
+            board44_move = "b2"
+            board20_teacher_scores = all_legal_move_scores(ROOT_OCCUPIED_20_BOARD, board20_move)
+            board44_teacher_scores = all_legal_move_scores(ROOT_OCCUPIED_44_BOARD, board44_move)
+            labels = write_jsonl(
+                temp_path / "labels.jsonl",
+                [
+                    teacher_row(
+                        board=ROOT_OCCUPIED_20_BOARD,
+                        move=board20_move,
+                        position_id="root-20",
+                        source_bucket="opening-boundary",
+                        root_scores=board20_teacher_scores,
+                    ),
+                    teacher_row(
+                        board=ROOT_OCCUPIED_44_BOARD,
+                        move=board44_move,
+                        position_id="root-44",
+                        source_bucket="late-boundary",
+                        root_scores=board44_teacher_scores,
+                    ),
+                ],
+            )
+            exact = write_jsonl(
+                temp_path / "exact.jsonl",
+                [
+                    exact_row(
+                        ROOT_OCCUPIED_20_BOARD,
+                        best_move=board20_move,
+                        move_scores=all_legal_move_scores(ROOT_OCCUPIED_20_BOARD, board20_move),
+                    ),
+                    exact_row(
+                        ROOT_OCCUPIED_44_BOARD,
+                        best_move=board44_move,
+                        move_scores=all_legal_move_scores(ROOT_OCCUPIED_44_BOARD, board44_move),
+                    ),
+                ],
+            )
+            config = make_config(temp_path, labels, exact_labels=exact)
+
+            examples, _, stats = trainer.collect_training_data(config, analyzer=fake_analyzer)
+
+        legal20 = len(trainer.legal_moves_for_board(ROOT_OCCUPIED_20_BOARD))
+        legal44 = len(trainer.legal_moves_for_board(ROOT_OCCUPIED_44_BOARD))
+        self.assertEqual(trainer.occupied_count(ROOT_OCCUPIED_20_BOARD), 20)
+        self.assertEqual(
+            trainer.occupied_count(trainer.apply_move_to_board(ROOT_OCCUPIED_20_BOARD, board20_move)),
+            21,
+        )
+        self.assertEqual(trainer.occupied_count(ROOT_OCCUPIED_44_BOARD), 44)
+        self.assertEqual(
+            trainer.occupied_count(trainer.apply_move_to_board(ROOT_OCCUPIED_44_BOARD, board44_move)),
+            45,
+        )
+        self.assertEqual(len(examples), 2)
+        qc = stats["qc_summary"]
+        self.assertEqual(qc["root_phase_counts"]["overall"]["opening"], 1)
+        self.assertEqual(qc["root_phase_counts"]["overall"]["midgame"], 1)
+        self.assertEqual(qc["root_phase_counts"]["by_split"]["train"]["opening"], 1)
+        self.assertEqual(qc["root_phase_counts"]["by_source_bucket"]["late-boundary"]["midgame"], 1)
+        self.assertEqual(qc["child_phase_counts"]["overall"]["midgame"], legal20)
+        self.assertEqual(qc["child_phase_counts"]["overall"]["late"], legal44)
+        self.assertEqual(qc["root_to_child_phase_counts"]["opening"]["midgame"], legal20)
+        self.assertEqual(qc["root_to_child_phase_counts"]["midgame"]["late"], legal44)
+        self.assertGreater(sum(qc["training_pattern_family_counts"]["overall"].values()), 0)
+        self.assertGreater(sum(qc["training_pattern_family_counts"]["by_phase"]["midgame"].values()), 0)
+        self.assertGreater(sum(qc["training_pattern_family_counts"]["by_phase"]["late"].values()), 0)
+        expected_legal_distribution: dict[str, int] = {}
+        expected_legal_distribution[str(legal20)] = expected_legal_distribution.get(str(legal20), 0) + 1
+        expected_legal_distribution[str(legal44)] = expected_legal_distribution.get(str(legal44), 0) + 1
+        self.assertEqual(qc["legal_move_count_distribution"], expected_legal_distribution)
+        self.assertEqual(qc["source_bucket_counts"]["opening-boundary"], 1)
+        self.assertEqual(qc["source_bucket_counts"]["late-boundary"], 1)
+        self.assertEqual(qc["training_bucket_counts"]["opening-boundary"], 1)
+        self.assertEqual(qc["training_bucket_counts"]["late-boundary"], 1)
+        self.assertEqual(qc["complete_exact_move_scores"]["overall"]["complete_rows"], 2)
+        self.assertEqual(qc["complete_teacher_move_scores"]["overall"]["complete_rows"], 2)
+        self.assertEqual(qc["complete_exact_move_scores"]["by_phase"]["opening"]["complete_rows"], 1)
+        self.assertEqual(qc["complete_exact_move_scores"]["by_phase"]["midgame"]["complete_rows"], 1)
+
+    def test_qc_summary_reports_duplicate_group_split_leakage(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(
+                temp_path / "labels.jsonl",
+                [
+                    teacher_row(split="train", position_id="duplicate-train"),
+                    teacher_row(split="validation", position_id="duplicate-validation"),
+                ],
+            )
+            config = make_config(temp_path, labels)
+
+            _, _, stats = trainer.collect_training_data(config, analyzer=fake_analyzer)
+
+        leakage = stats["qc_summary"]["duplicate_group_split_leakage_check"]
+        self.assertEqual(leakage["duplicate_groups"], 1)
+        self.assertEqual(leakage["duplicate_rows"], 2)
+        self.assertEqual(leakage["leaking_groups"], 1)
+        self.assertEqual(leakage["leaking_rows"], 2)
+        self.assertEqual(leakage["examples"][0]["split_counts"], {"train": 1, "validation": 1})
+
+    def test_qc_summary_separates_source_bucket_from_training_bucket_field(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(
+                temp_path / "labels.jsonl",
+                [
+                    teacher_row(
+                        source_bucket="provenance-bucket",
+                        training_bucket="weight-bucket",
+                    )
+                ],
+            )
+            config = make_config(
+                temp_path,
+                labels,
+                extra_args=["--bucket-field", "training_bucket"],
+            )
+
+            examples, _, stats = trainer.collect_training_data(config, analyzer=fake_analyzer)
+
+        self.assertEqual(len(examples), 1)
+        self.assertEqual(examples[0].bucket, "weight-bucket")
+        qc = stats["qc_summary"]
+        self.assertEqual(qc["source_bucket_counts"], {"provenance-bucket": 1})
+        self.assertEqual(qc["training_bucket_counts"], {"weight-bucket": 1})
+        self.assertEqual(
+            qc["root_phase_counts"]["by_source_bucket"]["provenance-bucket"]["late"],
+            1,
+        )
+        self.assertIn("provenance-bucket", stats["dataset_diagnostics"]["by_source_bucket"])
+        self.assertNotIn("weight-bucket", stats["dataset_diagnostics"]["by_source_bucket"])
 
     def test_exact_best_without_move_scores_uses_uniform_exact_target(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
