@@ -43,6 +43,9 @@ SYMMETRY_ROOT_SCORES = {"d1": 10, "b1": 4}
 SYMMETRY_EXACT_BEST = ("d1",)
 
 Weights = dict[str, dict[int, int]]
+SYMMETRIZE_MODES = ("reversed-index", "color-inversion", "diagonal-reversal")
+DIAGONAL_FAMILIES = ("diagonal_4", "diagonal_5", "diagonal_6", "diagonal_7", "diagonal_8")
+REVERSIBLE_LINE_FAMILIES = ("edge_8", "inner_row_8", *DIAGONAL_FAMILIES)
 
 
 @dataclass(frozen=True)
@@ -52,6 +55,23 @@ class TableViolationSummary:
     violations: int
     max_abs_delta: int
     examples: tuple[tuple[str, int, str, int, int, int], ...]
+
+
+@dataclass(frozen=True)
+class SymmetrizeSummary:
+    modes: tuple[str, ...]
+    output_path: str
+    families_processed: tuple[str, ...]
+    entries_read: int
+    entries_written: int
+    changed_entries: int
+    zero_entries_introduced: int
+    zero_entries_removed: int
+    max_abs_delta_before: int
+    violations_before: dict[str, int]
+    violations_after: dict[str, int]
+    max_abs_delta_before_by_check: dict[str, int]
+    max_abs_delta_after_by_check: dict[str, int]
 
 
 def pattern_table_size(family: str) -> int:
@@ -78,6 +98,8 @@ def read_pattern_table(path: Path) -> Weights:
                     raise ScriptError(f"{path}:{line_number}: index and weight must be integers") from exc
                 if index < 0 or index >= pattern_table_size(family):
                     raise ScriptError(f"{path}:{line_number}: index out of range for {family}")
+                if index in weights[family]:
+                    raise ScriptError(f"{path}:{line_number}: duplicate entry for {family}:{index}")
                 weights[family][index] = value
     except OSError as exc:
         raise ScriptError(f"failed to read {path}: {exc}") from exc
@@ -260,6 +282,15 @@ def table_symmetry_violation_report(weights: Weights) -> list[TableViolationSumm
         summaries.append(
             compare_weight_maps(weights, label="row_8_vs_column_8_rotational", pairs=row_column_pairs())
         )
+    for family in ("edge_8", "inner_row_8"):
+        if weights.get(family):
+            summaries.append(
+                compare_weight_maps(
+                    weights,
+                    label=f"{family}_reversal",
+                    pairs=reversed_index_pairs((family,)),
+                )
+            )
     for family in ("diagonal_4", "diagonal_5", "diagonal_6", "diagonal_7", "diagonal_8"):
         if weights.get(family):
             summaries.append(
@@ -270,6 +301,206 @@ def table_symmetry_violation_report(weights: Weights) -> list[TableViolationSumm
                 )
             )
     return summaries
+
+
+def parse_symmetrize_modes(text: str | None) -> tuple[str, ...]:
+    if text is None or not text.strip():
+        return ()
+    modes: list[str] = []
+    for raw_part in text.split(","):
+        mode = raw_part.strip()
+        if not mode:
+            continue
+        if mode not in SYMMETRIZE_MODES:
+            raise ScriptError(
+                f"unknown symmetrize mode {mode!r}; expected one of {', '.join(SYMMETRIZE_MODES)}"
+            )
+        if mode not in modes:
+            modes.append(mode)
+    return tuple(modes)
+
+
+class SignedDisjointSet:
+    def __init__(self, size: int) -> None:
+        self.parent = list(range(size))
+        self.sign_to_parent = [1] * size
+        self.forced_zero = [False] * size
+
+    def find(self, value: int) -> tuple[int, int]:
+        parent = self.parent[value]
+        if parent == value:
+            return value, 1
+        root, sign_to_root = self.find(parent)
+        self.parent[value] = root
+        self.sign_to_parent[value] *= sign_to_root
+        return self.parent[value], self.sign_to_parent[value]
+
+    def union(self, left: int, right: int, sign: int) -> None:
+        left_root, left_sign = self.find(left)
+        right_root, right_sign = self.find(right)
+        if left_root == right_root:
+            if left_sign != sign * right_sign:
+                self.forced_zero[left_root] = True
+            return
+        self.parent[right_root] = left_root
+        # Enforce left_value == sign * right_value.
+        self.sign_to_parent[right_root] = left_sign * sign * right_sign
+        self.forced_zero[left_root] = self.forced_zero[left_root] or self.forced_zero[right_root]
+
+
+def symmetrize_pairs_for_family(family: str, modes: tuple[str, ...]) -> list[tuple[int, int, int]]:
+    cells = len(PATTERN_SPECS[family][0])
+    size = pattern_table_size(family)
+    pairs: list[tuple[int, int, int]] = []
+    if "reversed-index" in modes and family in REVERSIBLE_LINE_FAMILIES:
+        for index in range(size):
+            pairs.append((index, reverse_pattern_index(index, cells), 1))
+    if "diagonal-reversal" in modes and family in DIAGONAL_FAMILIES:
+        for index in range(size):
+            pairs.append((index, reverse_pattern_index(index, cells), 1))
+    if "color-inversion" in modes:
+        for index in range(size):
+            pairs.append((index, color_inverted_pattern_index(index, cells), -1))
+    return pairs
+
+
+def symmetrize_family_weights(
+    family: str,
+    family_weights: dict[int, int],
+    modes: tuple[str, ...],
+) -> dict[int, int]:
+    pairs = symmetrize_pairs_for_family(family, modes)
+    if not pairs:
+        return dict(family_weights)
+
+    size = pattern_table_size(family)
+    groups = SignedDisjointSet(size)
+    for left, right, sign in pairs:
+        groups.union(left, right, sign)
+
+    members_by_root: dict[int, list[tuple[int, int]]] = collections.defaultdict(list)
+    forced_zero_roots: set[int] = set()
+    for index in range(size):
+        root, sign_to_root = groups.find(index)
+        members_by_root[root].append((index, sign_to_root))
+        if groups.forced_zero[groups.find(root)[0]]:
+            forced_zero_roots.add(root)
+
+    symmetrized: dict[int, int] = {}
+    for root, members in members_by_root.items():
+        if root in forced_zero_roots:
+            root_value = 0
+        else:
+            projected_sum = sum(sign * family_weights.get(index, 0) for index, sign in members)
+            root_value = round(projected_sum / len(members))
+        for index, sign in members:
+            value = sign * root_value
+            if value:
+                symmetrized[index] = value
+    return symmetrized
+
+
+def symmetrize_weights(weights: Weights, modes: tuple[str, ...]) -> Weights:
+    if not modes:
+        return {family: dict(values) for family, values in weights.items()}
+    return {
+        family: symmetrize_family_weights(family, values, modes) if values else {}
+        for family, values in weights.items()
+    }
+
+
+def _summary_by_label(summaries: list[TableViolationSummary]) -> dict[str, TableViolationSummary]:
+    return {summary.label: summary for summary in summaries}
+
+
+def relevant_summary_labels(modes: tuple[str, ...], weights: Weights) -> tuple[str, ...]:
+    labels: list[str] = []
+    if "reversed-index" in modes:
+        labels.append("index_vs_reversed_index")
+        for family in ("edge_8", "inner_row_8", *DIAGONAL_FAMILIES):
+            if weights.get(family):
+                suffix = "diagonal_reversal" if family.startswith("diagonal_") else "reversal"
+                labels.append(f"{family}_{suffix}")
+    if "color-inversion" in modes:
+        labels.append("index_vs_color_inverted_index")
+    if "diagonal-reversal" in modes:
+        for family in DIAGONAL_FAMILIES:
+            if weights.get(family):
+                labels.append(f"{family}_diagonal_reversal")
+    return tuple(dict.fromkeys(labels))
+
+
+def write_pattern_table(path: Path, weights: Weights) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as output_file:
+        output_file.write("# schema_version: pattern_table.v1\n")
+        output_file.write("# generated_by: tools/scripts/pattern_symmetry_diagnostics.py\n")
+        output_file.write("# no_strength_claim: true\n")
+        output_file.write("# not_default_promotion: true\n")
+        writer = csv.writer(output_file, delimiter="\t", lineterminator="\n")
+        for family in FAMILY_ORDER:
+            for index, value in sorted(weights.get(family, {}).items()):
+                writer.writerow((family, index, value))
+
+
+def symmetrize_pattern_table(
+    *,
+    input_path: Path,
+    output_path: Path,
+    modes: tuple[str, ...],
+) -> tuple[Weights, SymmetrizeSummary, list[TableViolationSummary], list[TableViolationSummary]]:
+    if not modes:
+        raise ScriptError("--symmetrize-output requires at least one --symmetrize mode")
+    weights = read_pattern_table(input_path)
+    before = table_symmetry_violation_report(weights)
+    symmetrized = symmetrize_weights(weights, modes)
+    after = table_symmetry_violation_report(symmetrized)
+    write_pattern_table(output_path, symmetrized)
+
+    before_by_label = _summary_by_label(before)
+    after_by_label = _summary_by_label(after)
+    labels = relevant_summary_labels(modes, weights)
+    processed = tuple(family for family in FAMILY_ORDER if weights.get(family) and symmetrize_pairs_for_family(family, modes))
+    all_keys = {
+        (family, index)
+        for family in FAMILY_ORDER
+        for index in set(weights.get(family, {})) | set(symmetrized.get(family, {}))
+    }
+    changed_entries = sum(
+        1
+        for family, index in all_keys
+        if weights.get(family, {}).get(index, 0) != symmetrized.get(family, {}).get(index, 0)
+    )
+    zero_entries_introduced = sum(
+        1
+        for family, index in all_keys
+        if weights.get(family, {}).get(index, 0) != 0 and symmetrized.get(family, {}).get(index, 0) == 0
+    )
+    zero_entries_removed = sum(
+        1
+        for family, index in all_keys
+        if weights.get(family, {}).get(index, 0) == 0 and symmetrized.get(family, {}).get(index, 0) != 0
+    )
+    summary = SymmetrizeSummary(
+        modes=modes,
+        output_path=str(output_path),
+        families_processed=processed,
+        entries_read=sum(len(values) for values in weights.values()),
+        entries_written=sum(len(values) for values in symmetrized.values()),
+        changed_entries=changed_entries,
+        zero_entries_introduced=zero_entries_introduced,
+        zero_entries_removed=zero_entries_removed,
+        max_abs_delta_before=max((before_by_label[label].max_abs_delta for label in labels if label in before_by_label), default=0),
+        violations_before={label: before_by_label[label].violations for label in labels if label in before_by_label},
+        violations_after={label: after_by_label[label].violations for label in labels if label in after_by_label},
+        max_abs_delta_before_by_check={
+            label: before_by_label[label].max_abs_delta for label in labels if label in before_by_label
+        },
+        max_abs_delta_after_by_check={
+            label: after_by_label[label].max_abs_delta for label in labels if label in after_by_label
+        },
+    )
+    return symmetrized, summary, before, after
 
 
 def run_synthetic_transform_diagnostic() -> dict[str, Any]:
@@ -347,6 +578,8 @@ def render_markdown_report(
     synthetic_report: dict[str, Any],
     tsv_path: Path | None,
     table_summaries: list[TableViolationSummary],
+    symmetrize_summary: SymmetrizeSummary | None = None,
+    symmetrized_table_summaries: list[TableViolationSummary] | None = None,
 ) -> str:
     lines = [
         "# Pattern Symmetry Diagnostic",
@@ -408,6 +641,36 @@ def render_markdown_report(
                     f"  - `{left_family}:{left_index}`=`{left_value}` vs "
                     f"`{right_family}:{right_index}`=`{right_value}`"
                 )
+    if symmetrize_summary is not None:
+        lines.extend(
+            [
+                "",
+                "## TSV Symmetrization",
+                "",
+                f"- modes: `{','.join(symmetrize_summary.modes)}`",
+                f"- output: `{symmetrize_summary.output_path}`",
+                f"- families_processed: `{', '.join(symmetrize_summary.families_processed) or 'none'}`",
+                f"- entries_read: `{symmetrize_summary.entries_read}`",
+                f"- entries_written: `{symmetrize_summary.entries_written}`",
+                f"- changed_entries: `{symmetrize_summary.changed_entries}`",
+                f"- zero_entries_introduced: `{symmetrize_summary.zero_entries_introduced}`",
+                f"- zero_entries_removed: `{symmetrize_summary.zero_entries_removed}`",
+                f"- max_abs_delta_before: `{symmetrize_summary.max_abs_delta_before}`",
+            ]
+        )
+        for label in symmetrize_summary.violations_before:
+            lines.append(
+                f"- {label}: before=`{symmetrize_summary.violations_before[label]}`, "
+                f"after=`{symmetrize_summary.violations_after.get(label, 0)}`, "
+                f"max_abs_delta_after=`{symmetrize_summary.max_abs_delta_after_by_check.get(label, 0)}`"
+            )
+        if symmetrized_table_summaries is not None:
+            lines.extend(["", "## Symmetrized TSV Violations", ""])
+            for summary in symmetrized_table_summaries:
+                lines.append(
+                    f"- {summary.label}: checked=`{summary.checked_pairs}`, "
+                    f"violations=`{summary.violations}`, max_abs_delta=`{summary.max_abs_delta}`"
+                )
     lines.extend(
         [
             "",
@@ -427,22 +690,45 @@ def render_markdown_report(
     return "\n".join(lines) + "\n"
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pattern-table", type=Path, help="optional learned pattern TSV to inspect")
+    parser.add_argument(
+        "--symmetrize",
+        help=f"comma-separated optional post-training modes: {','.join(SYMMETRIZE_MODES)}",
+    )
+    parser.add_argument(
+        "--symmetrize-output",
+        type=Path,
+        help="write a symmetrized TSV to this path; intended for runs/ experiment outputs",
+    )
     parser.add_argument("--json", action="store_true", help="write machine-readable JSON instead of Markdown")
     parser.add_argument("--out", type=Path, help="optional report output path")
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
-def main() -> int:
-    args = parse_args()
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    modes = parse_symmetrize_modes(args.symmetrize)
+    if args.symmetrize_output is not None and args.pattern_table is None:
+        raise ScriptError("--symmetrize-output requires --pattern-table")
+    if modes and args.symmetrize_output is None:
+        raise ScriptError("--symmetrize requires --symmetrize-output")
     spec_report = d4_spec_sharing_report()
     cross_report = cross_family_sharing_report()
     synthetic_report = run_synthetic_transform_diagnostic()
     table_summaries: list[TableViolationSummary] = []
+    symmetrized_table_summaries: list[TableViolationSummary] = []
+    symmetrize_summary: SymmetrizeSummary | None = None
     if args.pattern_table is not None:
-        table_summaries = table_symmetry_violation_report(read_pattern_table(args.pattern_table))
+        if args.symmetrize_output is not None:
+            _, symmetrize_summary, table_summaries, symmetrized_table_summaries = symmetrize_pattern_table(
+                input_path=args.pattern_table,
+                output_path=args.symmetrize_output,
+                modes=modes,
+            )
+        else:
+            table_summaries = table_symmetry_violation_report(read_pattern_table(args.pattern_table))
 
     if args.json:
         payload = {
@@ -451,6 +737,10 @@ def main() -> int:
             "synthetic_report": synthetic_report,
             "pattern_table": str(args.pattern_table) if args.pattern_table else None,
             "table_summaries": [summary.__dict__ for summary in table_summaries],
+            "symmetrize_summary": symmetrize_summary.__dict__ if symmetrize_summary is not None else None,
+            "symmetrized_table_summaries": [
+                summary.__dict__ for summary in symmetrized_table_summaries
+            ],
         }
         text = json.dumps(payload, indent=2, sort_keys=True) + "\n"
     else:
@@ -460,6 +750,8 @@ def main() -> int:
             synthetic_report=synthetic_report,
             tsv_path=args.pattern_table,
             table_summaries=table_summaries,
+            symmetrize_summary=symmetrize_summary,
+            symmetrized_table_summaries=symmetrized_table_summaries,
         )
 
     if args.out is not None:

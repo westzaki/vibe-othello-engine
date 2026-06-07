@@ -134,6 +134,57 @@ the unit tests confirm color inversion plus side inversion preserves indexes.
 Learned tables can still assign asymmetric weights to color-inverted states
 because the trainer currently does not tie or augment those entries.
 
+## Optional Post-Training Symmetrization Tool
+
+Follow-up implementation added an optional TSV rewrite mode to the diagnostic
+script. This remains an experiment tool, not default training behavior:
+
+- `regularized_pairwise_pattern_train.py` still emits unsymmetrized tables by
+  default.
+- `data/eval/current_default.eval` is unchanged.
+- No retained preset was added.
+- Source-controlled learned TSVs are not rewritten in place.
+
+Example smoke command:
+
+```sh
+python3 tools/scripts/pattern_symmetry_diagnostics.py \
+  --pattern-table data/eval/patterns/ntest_pairwise_full_v2_opening.tsv \
+  --symmetrize-output runs/symmetry/ntest_pairwise_full_v2_opening.sym.tsv \
+  --symmetrize reversed-index \
+  --json \
+  --out runs/symmetry/opening.symmetry.json
+```
+
+Supported modes:
+
+- `reversed-index`: average same-family reversed ternary indexes for line-like
+  families currently treated as safe (`edge_8`, `inner_row_8`,
+  `diagonal_4..8`).
+- `diagonal-reversal`: same as the diagonal portion of `reversed-index`; useful
+  for narrower diagonal-only experiments.
+- `color-inversion`: enforce side-relative antisymmetry with
+  `w[color_inv(index)] = -w[index]`.
+
+The implementation builds signed same-family orbits and averages each orbit in
+one pass, so combining modes does not depend on the order in the command line.
+Color-inversion self-orbits are forced to zero.
+
+`row_8 <-> column_8` cross-family averaging is intentionally not included yet:
+it ties parameters across families and is broad-v2-specific. D4 data
+augmentation is also left for a later PR.
+
+Local smoke on the opening `ntest_pairwise_full_v2` table:
+
+| mode | processed families | entries read | entries written | changed entries | before -> after |
+|---|---|---:|---:|---:|---|
+| `reversed-index` | `edge_8`, `diagonal_8`, `inner_row_8` | 3,232 | 2,281 | 632 | global reversed `1120 -> 668`; `edge_8`, `diagonal_8`, `inner_row_8` reversal all `-> 0` |
+| `reversed-index,color-inversion,diagonal-reversal` | `corner_3x3`, `edge_8`, `edge_x_10`, `diagonal_8`, `inner_row_8` | 3,232 | 1,014 | 1,583 | color inversion `1068 -> 0`; target reversals `-> 0`; global reversed `1120 -> 424` |
+
+The remaining global reversed-index violations after symmetrization are
+expected for families where simple reversed ternary order is not the D4
+equivalent geometry (`corner_3x3`, `edge_x_10`).
+
 ## Conclusion
 
 Pattern index correctness is consistent between Python and C++ and
@@ -149,6 +200,6 @@ PatternOnly is not fully exploiting Othello symmetry at the parameter level:
   reversed entries.
 
 This supports a follow-up PR that compares `--symmetry-augment` with
-post-training table symmetrization. The most targeted first experiment is to
-tie or augment reversed indexes for same-family lines/edges/diagonals, then
-evaluate whether row/column cross-family sharing is worth adding.
+post-training table symmetrization. The next PR can now swap a symmetrized TSV
+into a local `candidate.eval` and compare eval-vs-exact, search smoke, and a
+small deterministic match without changing default training artifacts.
