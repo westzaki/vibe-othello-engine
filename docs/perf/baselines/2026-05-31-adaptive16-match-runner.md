@@ -36,7 +36,7 @@ python3 -m unittest tools/scripts/tests/test_match_summary.py
   --swap-sides true \
   --seed 20260531 \
   --openings data/openings/smoke_openings.txt \
-  --output /private/tmp/exact12_vs_adaptive16_match.jsonl
+  --output /tmp/exact12_vs_adaptive16_match.jsonl
 
 ./build/release/othello_match_runner \
   --black search:depth=5,tt=on,pvs=on,exact=14 \
@@ -45,7 +45,7 @@ python3 -m unittest tools/scripts/tests/test_match_summary.py
   --swap-sides true \
   --seed 20260531 \
   --openings data/openings/smoke_openings.txt \
-  --output /private/tmp/exact14_vs_adaptive16_match.jsonl
+  --output /tmp/exact14_vs_adaptive16_match.jsonl
 ```
 
 `ctest` passed: 179/179. `match_summary.py` unit tests passed: 10/10.

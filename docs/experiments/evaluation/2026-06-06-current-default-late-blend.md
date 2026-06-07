@@ -37,7 +37,7 @@ Command:
 ```sh
 python3 tools/scripts/eval_candidate_matrix.py \
   --build-dir build/release \
-  --labels /Users/mnishizaki/Project/vibe-othello-datasets/teacher/ntest-balanced300k-v0-exact-overlap-v0/exact-overlap/labels.jsonl \
+  --labels /path/to/vibe-othello-datasets/teacher/ntest-balanced300k-v0-exact-overlap-v0/exact-overlap/labels.jsonl \
   --baseline-config data/eval/current_default.eval \
   --candidates runs/eval-tuning/late_aggressive_light.eval \
   --out runs/eval-tuning/matrix-blends \
@@ -79,7 +79,7 @@ Command:
 ```sh
 python3 tools/scripts/teacher_label_mistake_mining.py \
   --teacher-labels runs/eval-tuning/validation-3000.jsonl \
-  --exact-labels /Users/mnishizaki/Project/vibe-othello-datasets/teacher/ntest-balanced300k-v0-exact-overlap-v0/exact-overlap/labels.jsonl \
+  --exact-labels /path/to/vibe-othello-datasets/teacher/ntest-balanced300k-v0-exact-overlap-v0/exact-overlap/labels.jsonl \
   --config current_default=data/eval/current_default.eval \
   --config late_aggressive_light=runs/eval-tuning/late_aggressive_light.eval \
   --out runs/eval-tuning/teacher-mine-500-blends \
@@ -117,7 +117,7 @@ Command:
 ```sh
 python3 tools/scripts/eval_candidate_matrix.py \
   --build-dir build/release \
-  --labels /Users/mnishizaki/Project/vibe-othello-datasets/teacher/ntest-balanced300k-v0-exact-overlap-v0/exact-overlap/labels.jsonl \
+  --labels /path/to/vibe-othello-datasets/teacher/ntest-balanced300k-v0-exact-overlap-v0/exact-overlap/labels.jsonl \
   --baseline-config data/eval/ntest_pairwise_full_v2.eval \
   --candidates data/eval/current_default.eval \
   --out runs/eval-tuning/matrix-final-light \
@@ -196,7 +196,7 @@ Commands:
 
 ```sh
 build/release/othello_eval_vs_exact \
-  --labels /Users/mnishizaki/Project/vibe-othello-datasets/teacher/ntest-balanced300k-v0-exact-overlap-v0/exact-overlap/labels.jsonl \
+  --labels /path/to/vibe-othello-datasets/teacher/ntest-balanced300k-v0-exact-overlap-v0/exact-overlap/labels.jsonl \
   --output runs/eval-tuning/high-confidence-audit-baseline.md \
   --eval-config data/eval/ntest_pairwise_full_v2.eval \
   --top 10000 \
@@ -204,7 +204,7 @@ build/release/othello_eval_vs_exact \
   --move-rank-analysis
 
 build/release/othello_eval_vs_exact \
-  --labels /Users/mnishizaki/Project/vibe-othello-datasets/teacher/ntest-balanced300k-v0-exact-overlap-v0/exact-overlap/labels.jsonl \
+  --labels /path/to/vibe-othello-datasets/teacher/ntest-balanced300k-v0-exact-overlap-v0/exact-overlap/labels.jsonl \
   --output runs/eval-tuning/high-confidence-audit-current.md \
   --eval-config data/eval/current_default.eval \
   --top 10000 \

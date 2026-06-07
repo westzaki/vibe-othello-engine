@@ -71,7 +71,7 @@ printf '<divergence_board>' | ./build/othello_analyze_position \
 ```
 
 The same root-candidate diagnostic was also run at depth 10 as a stability
-check. Raw analyze output was kept under `/private/tmp` and is not committed.
+check. Raw analyze output was kept under `/tmp` and is not committed.
 
 ## Extraction Result
 
