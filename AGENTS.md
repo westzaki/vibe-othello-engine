@@ -89,6 +89,33 @@ current task, current docs and the current task win.
 Task-specific hypotheses, temporary diagnostics, and stale experimental
 conclusions should not be promoted into permanent docs.
 
+## Local Path and Privacy Rule
+
+Do not commit personal local paths, usernames, home-directory paths, machine-
+specific temp paths, tokens, secrets, or other private environment details.
+
+Examples to avoid in tracked files include:
+
+- `/Users/<name>/...`
+- `/home/<name>/...`
+- `/private/var/folders/...`
+- `/private/tmp/...`
+- machine-specific absolute build, dataset, cache, or tool paths
+
+Use repository-relative paths when possible. For external datasets or tools,
+use placeholders such as `/path/to/vibe-othello-datasets`, environment
+variables, or ignored local config files such as `config/datasets.local.toml`.
+
+Experiment reports may record commands for reproducibility, but those commands
+must be sanitized before commit. Keep private raw outputs and local-only command
+variants out of tracked files.
+
+Before opening a PR that touches documentation, scripts, configs, experiment
+reports, or command examples, scan the tracked changes for accidental private
+paths or secrets. At minimum, check for obvious local path markers such as
+`/Users/`, `/home/`, `/private/var/folders/`, `/private/tmp/`, and known local
+usernames.
+
 ## Coding Style
 
 Use modern C++ for learning and maintainability.
