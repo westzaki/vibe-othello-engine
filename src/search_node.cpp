@@ -153,7 +153,7 @@ SearchNodeResult search_node(const SearchPosition& position, ZobristHash hash, i
 
     ++context.stats.legal_move_nodes;
     std::optional<int> best_score;
-    std::optional<Square> best_move;
+    std::optional<int> best_move_index;
     pv_table.clear(ply);
 
     const bool use_dynamic_ordering = context.dynamic_move_ordering && !is_root;
@@ -174,7 +174,8 @@ SearchNodeResult search_node(const SearchPosition& position, ZobristHash hash, i
     const bool use_pvs_at_node = context.use_pvs && move_count > 1 && depth >= 3;
 
     if (lazy_first_enabled) {
-        const Bitboard flips = flips_for_move(position, *lazy_preferred_move);
+        const Bitboard lazy_move_bit = lazy_preferred_move->bit();
+        const Bitboard flips = flips_for_known_empty_move(position, lazy_move_bit);
         if (flips != 0) {
             ++context.stats.preferred_move_legal_count;
             ++context.stats.ordering_lazy_first_hits;
@@ -185,7 +186,7 @@ SearchNodeResult search_node(const SearchPosition& position, ZobristHash hash, i
                 }
             }
 
-            const SearchPosition next = position_after_move(position, *lazy_preferred_move, flips);
+            const SearchPosition next = position_after_move_bit(position, lazy_move_bit, flips);
             const ZobristHash next_hash =
                 hash_after_move(hash, position.side_to_move, *lazy_preferred_move, flips);
 #ifndef NDEBUG
@@ -200,12 +201,12 @@ SearchNodeResult search_node(const SearchPosition& position, ZobristHash hash, i
                                                        pv_table, ply + 1);
             const int candidate_score = -child.score;
             best_score = candidate_score;
-            best_move = lazy_preferred_move;
-            pv_table.update_with_move(ply, *lazy_preferred_move);
+            best_move_index = lazy_preferred_move->index();
+            pv_table.update_with_move_index(ply, *best_move_index);
 
             ++searched_move_count;
             alpha = std::max(alpha, candidate_score);
-            remaining_moves &= ~lazy_preferred_move->bit();
+            remaining_moves &= ~lazy_move_bit;
             if (alpha >= beta) {
                 ++context.stats.beta_cutoffs;
                 ++context.stats.beta_cutoffs_first_move;
@@ -213,6 +214,8 @@ SearchNodeResult search_node(const SearchPosition& position, ZobristHash hash, i
                 ++context.stats.ordering_lazy_cut_before_full_sort;
                 context.stats.ordering_scored_moves_saved += move_count - 1;
                 record_history_killer_cutoff(context, *lazy_preferred_move, depth);
+                const std::optional<Square> best_move =
+                    square_from_transposition_index(*best_move_index);
                 store_transposition(context, hash, depth, candidate_score, original_alpha, beta,
                                     best_move);
                 return SearchNodeResult{
@@ -224,6 +227,9 @@ SearchNodeResult search_node(const SearchPosition& position, ZobristHash hash, i
     }
 
     if (remaining_moves == 0) {
+        const std::optional<Square> best_move =
+            best_move_index.has_value() ? square_from_transposition_index(*best_move_index)
+                                        : std::nullopt;
         const SearchNodeResult result{
             .best_move = best_move,
             .score = best_score.value_or(evaluate_for_search(position, context)),
@@ -260,24 +266,24 @@ SearchNodeResult search_node(const SearchPosition& position, ZobristHash hash, i
     // to add overhead while giving little pruning back.
     for (std::size_t move = 0; move < ordered_moves.size; ++move) {
         const auto& ordered_move = ordered_moves.moves[move];
-        const std::optional<Square> square = Square::from_index(ordered_move.index);
-        if (!square.has_value()) {
-            continue;
-        }
 
         const Bitboard flips = ordered_move.flips;
         if (flips == 0) {
             continue;
         }
 
-        const SearchPosition next = position_after_move(position, *square, flips);
-        const ZobristHash next_hash = hash_after_move(hash, position.side_to_move, *square, flips);
+        const Bitboard move_bit = Bitboard{1} << ordered_move.index;
+        const SearchPosition next =
+            position_after_move_bit(position, move_bit, flips);
+        const ZobristHash next_hash =
+            hash_after_move(hash, position.side_to_move, ordered_move.index, flips);
 #ifndef NDEBUG
         assert(next_hash == zobrist_hash(next.to_board()));
 #endif
         ++context.stats.searched_moves;
 
-        const PrincipalVariationHint child_hint = child_hint_after_move(pv_hint, *square);
+        const PrincipalVariationHint child_hint =
+            child_hint_after_move_index(pv_hint, ordered_move.index);
         SearchNodeResult child;
         if (!use_pvs_at_node || searched_move_count == 0) {
             child = search_node(next, next_hash, depth - 1, -beta, -alpha, context, std::nullopt,
@@ -298,10 +304,11 @@ SearchNodeResult search_node(const SearchPosition& position, ZobristHash hash, i
             }
         }
         const int candidate_score = -child.score;
-        if (is_better_best_move(candidate_score, *square, best_score, best_move)) {
+        if (is_better_best_move_index(candidate_score, ordered_move.index, best_score,
+                                      best_move_index)) {
             best_score = candidate_score;
-            best_move = square;
-            pv_table.update_with_move(ply, *square);
+            best_move_index = ordered_move.index;
+            pv_table.update_with_move_index(ply, ordered_move.index);
         }
 
         alpha = std::max(alpha, candidate_score);
@@ -310,12 +317,15 @@ SearchNodeResult search_node(const SearchPosition& position, ZobristHash hash, i
             if (searched_move_count == 0) {
                 ++context.stats.beta_cutoffs_first_move;
             }
-            record_history_killer_cutoff(context, *square, depth);
+            record_history_killer_cutoff_index(context, ordered_move.index, depth);
             break;
         }
         ++searched_move_count;
     }
 
+    const std::optional<Square> best_move =
+        best_move_index.has_value() ? square_from_transposition_index(*best_move_index)
+                                    : std::nullopt;
     const SearchNodeResult result{
         .best_move = best_move,
         .score = best_score.value_or(evaluate_for_search(position, context)),

@@ -59,8 +59,8 @@ template <Bitboard (*Shift)(Bitboard) noexcept>
     return 0;
 }
 
-[[nodiscard]] inline Bitboard flips_for_move_for(Bitboard player, Bitboard opponent,
-                                                 Square square) noexcept {
+[[nodiscard]] inline Bitboard flips_for_known_empty_move(Bitboard player, Bitboard opponent,
+                                                        Bitboard move_bit) noexcept {
     using bitboard_detail::shift_east;
     using bitboard_detail::shift_north;
     using bitboard_detail::shift_northeast;
@@ -70,11 +70,6 @@ template <Bitboard (*Shift)(Bitboard) noexcept>
     using bitboard_detail::shift_southwest;
     using bitboard_detail::shift_west;
 
-    const Bitboard move_bit = square.bit();
-    if (((player | opponent) & move_bit) != 0) {
-        return 0;
-    }
-
     return flips_in_direction<shift_east>(move_bit, player, opponent) |
            flips_in_direction<shift_west>(move_bit, player, opponent) |
            flips_in_direction<shift_north>(move_bit, player, opponent) |
@@ -83,6 +78,25 @@ template <Bitboard (*Shift)(Bitboard) noexcept>
            flips_in_direction<shift_northwest>(move_bit, player, opponent) |
            flips_in_direction<shift_southeast>(move_bit, player, opponent) |
            flips_in_direction<shift_southwest>(move_bit, player, opponent);
+}
+
+[[nodiscard]] inline Bitboard flips_for_move_for(Bitboard player, Bitboard opponent,
+                                                 Square square) noexcept {
+    const Bitboard move_bit = square.bit();
+    if (((player | opponent) & move_bit) != 0) {
+        return 0;
+    }
+
+    return flips_for_known_empty_move(player, opponent, move_bit);
+}
+
+[[nodiscard]] inline Bitboard flips_for_move_bit(Bitboard player, Bitboard opponent,
+                                                 Bitboard move_bit) noexcept {
+    if (((player | opponent) & move_bit) != 0) {
+        return 0;
+    }
+
+    return flips_for_known_empty_move(player, opponent, move_bit);
 }
 
 } // namespace othello::rules_detail

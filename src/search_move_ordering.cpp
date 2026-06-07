@@ -32,11 +32,10 @@ using bitboard_detail::is_x_square_next_to_empty_corner;
 
 } // namespace
 
-int move_order_score(const SearchPosition& position, Square square, Bitboard flips,
+int move_order_score(const SearchPosition& position, int index, Bitboard move_bit, Bitboard flips,
                      std::size_t move_count, int depth, bool dynamic_move_ordering,
                      SearchContext& context) noexcept {
     const MoveOrderingParams& params = context.move_ordering_params;
-    const int index = square.index();
     if (!should_use_dynamic_move_ordering(dynamic_move_ordering, move_count, depth, params)) {
         if (is_corner(index)) {
             return params.static_corner_score;
@@ -57,7 +56,7 @@ int move_order_score(const SearchPosition& position, Square square, Bitboard fli
     if (is_edge(index)) {
         score += params.dynamic_edge_bonus;
     }
-    const SearchPosition next = position_after_move(position, square, flips);
+    const SearchPosition next = position_after_move_bit(position, move_bit, flips);
     const Bitboard opponent_moves = legal_moves(next);
     if ((opponent_moves & corner_squares) != 0) {
         score -= params.dynamic_opponent_corner_penalty;
@@ -78,14 +77,10 @@ OrderedMoveIndexes ordered_legal_move_indexes(const SearchPosition& position, Bi
 
     while (moves != 0) {
         const int index = std::countr_zero(moves);
+        const Bitboard move_bit = Bitboard{1} << index;
         moves &= moves - 1;
 
-        const std::optional<Square> square = Square::from_index(index);
-        if (!square.has_value()) {
-            continue;
-        }
-
-        const Bitboard flips = flips_for_move(position, *square);
+        const Bitboard flips = flips_for_known_empty_move(position, move_bit);
         if (flips == 0) {
             continue;
         }
@@ -93,7 +88,7 @@ OrderedMoveIndexes ordered_legal_move_indexes(const SearchPosition& position, Bi
         candidates.moves[candidates.size] = OrderedMoveIndexes::Move{
             .index = index,
             .flips = flips,
-            .order_score = move_order_score(position, *square, flips, move_count, depth,
+            .order_score = move_order_score(position, index, move_bit, flips, move_count, depth,
                                             dynamic_move_ordering, context),
         };
         ++candidates.size;
@@ -182,8 +177,13 @@ std::optional<Square> preferred_move_from_hint(PrincipalVariationHint hint) noex
 }
 
 PrincipalVariationHint child_hint_after_move(PrincipalVariationHint hint, Square move) noexcept {
+    return child_hint_after_move_index(hint, move.index());
+}
+
+PrincipalVariationHint child_hint_after_move_index(PrincipalVariationHint hint,
+                                                   int move_index) noexcept {
     const std::optional<Square> preferred_move = preferred_move_from_hint(hint);
-    if (preferred_move.has_value() && *preferred_move == move) {
+    if (preferred_move.has_value() && preferred_move->index() == move_index) {
         return PrincipalVariationHint{
             .principal_variation = hint.principal_variation,
             .index = hint.index + 1,
@@ -199,7 +199,12 @@ PrincipalVariationHint child_hint_after_pass(PrincipalVariationHint hint) noexce
 }
 
 void record_history_killer_cutoff(SearchContext& context, Square move, int depth) noexcept {
-    search_detail::record_history_killer_cutoff(context.session.history_killers, move.index(),
+    record_history_killer_cutoff_index(context, move.index(), depth);
+}
+
+void record_history_killer_cutoff_index(SearchContext& context, int move_index,
+                                        int depth) noexcept {
+    search_detail::record_history_killer_cutoff(context.session.history_killers, move_index,
                                                 depth, context.move_ordering_params.history_killer);
 }
 
