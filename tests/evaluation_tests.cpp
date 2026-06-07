@@ -13,8 +13,11 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cstdint>
 #include <memory>
+#include <random>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -102,6 +105,92 @@ void check_direct_bitboard_evaluation_matches_board(
     CHECK(bitboard_scratch.game_over == board_scratch.game_over);
     CHECK(othello::evaluation_detail::evaluate_with_config(player, opponent, config) ==
           othello::evaluate_with_config(board, side, config));
+}
+
+[[nodiscard]] std::shared_ptr<othello::PatternTableBundle>
+filled_pattern_tables(std::int16_t value) {
+    auto tables = std::make_shared<othello::PatternTableBundle>();
+    std::ranges::fill(tables->corner_2x3, value);
+    std::ranges::fill(tables->edge_8, value);
+    std::ranges::fill(tables->diagonal_8, value);
+    return tables;
+}
+
+[[nodiscard]] Board occupied_count_board(int occupied_count) noexcept {
+    Bitboard black = 0;
+    Bitboard white = 0;
+    for (int index = 0; index < occupied_count; ++index) {
+        if (index % 2 == 0) {
+            black |= Bitboard{1} << index;
+        } else {
+            white |= Bitboard{1} << index;
+        }
+    }
+    return Board{.black = black, .white = white, .side_to_move = Side::Black};
+}
+
+[[nodiscard]] std::vector<Board> random_legal_playout_boards() {
+    std::mt19937_64 rng{20260608};
+    Board board = Board::initial();
+    std::vector<Board> boards{board};
+
+    for (int ply = 0; ply < 60 && !othello::is_game_over(board); ++ply) {
+        Bitboard legal = othello::legal_moves(board);
+        if (legal == 0) {
+            auto passed = othello::pass_turn(board);
+            REQUIRE(passed.has_value());
+            board = *passed;
+            boards.push_back(board);
+            continue;
+        }
+
+        std::vector<othello::Square> moves;
+        while (legal != 0) {
+            const int index = std::countr_zero(legal);
+            auto square = othello::Square::from_index(index);
+            REQUIRE(square.has_value());
+            moves.push_back(*square);
+            legal &= legal - 1;
+        }
+
+        const std::size_t choice =
+            static_cast<std::size_t>(rng() % static_cast<std::uint64_t>(moves.size()));
+        auto next = othello::apply_move(board, moves[choice]);
+        REQUIRE(next.has_value());
+        board = *next;
+        boards.push_back(board);
+    }
+
+    return boards;
+}
+
+[[nodiscard]] std::vector<Board> random_bitboard_like_boards() {
+    std::mt19937_64 rng{0x7061747465726eULL};
+    std::vector<Board> boards;
+    boards.reserve(32);
+
+    for (int index = 0; index < 32; ++index) {
+        const Bitboard black = rng();
+        const Bitboard white = rng() & ~black;
+        boards.push_back(Board{.black = black,
+                               .white = white,
+                               .side_to_move = index % 2 == 0 ? Side::Black
+                                                               : Side::White});
+    }
+
+    return boards;
+}
+
+void check_score_only_matches_breakdown(const Board& board, Side side,
+                                        const othello::EvaluationConfig& config) {
+    const othello::EvaluationBreakdown breakdown =
+        othello::evaluate_basic_breakdown(board, side, config);
+    const int board_score = othello::evaluate_with_config(board, side, config);
+    const int bitboard_score = othello::evaluation_detail::evaluate_with_config(
+        board.discs(side), board.discs(othello::opponent(side)), config);
+
+    CHECK(board_score == breakdown.total);
+    CHECK(bitboard_score == breakdown.total);
 }
 
 } // namespace
@@ -316,6 +405,86 @@ TEST_CASE("Score-only evaluator matches breakdown totals across configs and phas
                 CHECK(breakdown.terminal == fixture.terminal);
                 CHECK(othello::evaluate_with_config(fixture.board, side, config) ==
                       breakdown.total);
+            }
+        }
+    }
+}
+
+TEST_CASE("Pattern-table score-only fast path matches full breakdown totals",
+          "[evaluation]") {
+    auto fallback_tables = filled_pattern_tables(1);
+    auto opening_tables = filled_pattern_tables(2);
+    auto late_tables = filled_pattern_tables(3);
+
+    othello::EvaluationConfig missing_tables_config{
+        .opening = othello::EvaluationFeatureWeights{.pattern_table = 5},
+        .midgame = othello::EvaluationFeatureWeights{.pattern_table = 5},
+        .late = othello::EvaluationFeatureWeights{.pattern_table = 5},
+    };
+
+    othello::EvaluationConfig phase_specific_config{
+        .opening = othello::EvaluationFeatureWeights{.pattern_table = 1},
+        .midgame = othello::EvaluationFeatureWeights{.pattern_table = 1},
+        .late = othello::EvaluationFeatureWeights{.pattern_table = 1},
+    };
+    phase_specific_config.pattern_tables = fallback_tables;
+    phase_specific_config.opening_pattern_tables = opening_tables;
+    phase_specific_config.late_pattern_tables = late_tables;
+
+    othello::EvaluationConfig phase_mixed_config =
+        pattern_table_only_config(1, fallback_tables);
+    phase_mixed_config.midgame.mobility = 1;
+
+    CHECK(othello::evaluation_detail::can_use_pattern_table_score_only_fast_path(
+        pattern_table_only_config(1, fallback_tables), othello::EvaluationPhase::Opening));
+    CHECK(othello::evaluation_detail::can_use_pattern_table_score_only_fast_path(
+        missing_tables_config, othello::EvaluationPhase::Midgame));
+    CHECK_FALSE(othello::evaluation_detail::can_use_pattern_table_score_only_fast_path(
+        othello::default_evaluation_config(), othello::EvaluationPhase::Opening));
+    CHECK(othello::evaluation_detail::can_use_pattern_table_score_only_fast_path(
+        phase_mixed_config, othello::EvaluationPhase::Opening));
+    CHECK_FALSE(othello::evaluation_detail::can_use_pattern_table_score_only_fast_path(
+        phase_mixed_config, othello::EvaluationPhase::Midgame));
+
+    const std::vector<std::pair<std::string_view, othello::EvaluationConfig>> configs{
+        {"fallback_tables", pattern_table_only_config(2, fallback_tables)},
+        {"missing_tables", missing_tables_config},
+        {"phase_specific_tables", phase_specific_config},
+        {"phase_mixed_opening_fast_midgame_full", phase_mixed_config},
+    };
+
+    std::vector<std::pair<std::string_view, Board>> boards{
+        {"initial", Board::initial()},
+        {"opening_boundary", occupied_count_board(20)},
+        {"midgame_start_boundary", occupied_count_board(21)},
+        {"midgame_boundary", occupied_count_board(44)},
+        {"late_start_boundary", occupied_count_board(45)},
+        {"midgame_fixture", phase_midgame_board()},
+        {"late_fixture", phase_late_board()},
+        {"terminal_full", terminal_black_win_board()},
+        {"terminal_with_empty_squares",
+         Board{.black = ~Bitboard{1}, .white = 0, .side_to_move = Side::Black}},
+    };
+
+    const std::vector<Board> legal_playout = random_legal_playout_boards();
+    for (std::size_t index = 0; index < legal_playout.size(); ++index) {
+        boards.push_back({"random_legal_playout", legal_playout[index]});
+    }
+
+    const std::vector<Board> bitboard_like = random_bitboard_like_boards();
+    for (std::size_t index = 0; index < bitboard_like.size(); ++index) {
+        boards.push_back({"random_bitboard_like", bitboard_like[index]});
+    }
+
+    for (const auto& [config_name, config] : configs) {
+        for (std::size_t index = 0; index < boards.size(); ++index) {
+            const auto& [board_name, board] = boards[index];
+            for (const Side side : {Side::Black, Side::White}) {
+                CAPTURE(std::string{config_name});
+                CAPTURE(std::string{board_name});
+                CAPTURE(index);
+                CAPTURE(side == Side::Black ? "black" : "white");
+                check_score_only_matches_breakdown(board, side, config);
             }
         }
     }

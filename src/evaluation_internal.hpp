@@ -24,6 +24,16 @@ struct EvaluationScratch {
     bool game_over = false;
 };
 
+struct PatternTableScoreOnlyFastPathPhases {
+    bool opening = false;
+    bool midgame = false;
+    bool late = false;
+
+    [[nodiscard]] constexpr bool any() const noexcept {
+        return opening || midgame || late;
+    }
+};
+
 [[nodiscard]] constexpr Bitboard square_bit(int index) noexcept {
     return Bitboard{1} << index;
 }
@@ -32,8 +42,19 @@ struct EvaluationScratch {
                                                         Side side) noexcept;
 [[nodiscard]] EvaluationScratch make_evaluation_scratch(Bitboard player,
                                                         Bitboard opponent) noexcept;
+[[nodiscard]] bool game_over_for_bitboards(Bitboard player, Bitboard opponent) noexcept;
 [[nodiscard]] int evaluate_with_config(Bitboard player, Bitboard opponent,
                                        const EvaluationConfig& config) noexcept;
+[[nodiscard]] int evaluate_with_config(Bitboard player, Bitboard opponent,
+                                       const EvaluationConfig& config,
+                                       PatternTableScoreOnlyFastPathPhases fast_path_phases) noexcept;
+[[nodiscard]] bool can_use_pattern_table_score_only_fast_path(
+    const EvaluationConfig& config, EvaluationPhase phase) noexcept;
+[[nodiscard]] PatternTableScoreOnlyFastPathPhases pattern_table_score_only_fast_path_phases(
+    const EvaluationConfig& config) noexcept;
+[[nodiscard]] int evaluate_pattern_table_score_only_fast_path(
+    Bitboard player, Bitboard opponent, const EvaluationConfig& config,
+    EvaluationPhase phase) noexcept;
 [[nodiscard]] int disc_difference_score(const EvaluationScratch& scratch) noexcept;
 [[nodiscard]] int mobility_score(const EvaluationScratch& scratch) noexcept;
 [[nodiscard]] int corner_occupancy_score(const EvaluationScratch& scratch) noexcept;

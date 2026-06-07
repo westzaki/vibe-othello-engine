@@ -4,6 +4,7 @@
 #include <othello/evaluation_feature_specs.hpp>
 
 #include <array>
+#include <bit>
 
 namespace othello {
 namespace {
@@ -55,6 +56,28 @@ pattern_tables_for_phase(const EvaluationConfig& config, EvaluationPhase phase) 
         break;
     }
     return config.pattern_tables.get();
+}
+
+[[nodiscard]] bool has_pattern_table_feature_surface(const EvaluationConfig& config) noexcept {
+    return config.opening.pattern_table != 0 || config.midgame.pattern_table != 0 ||
+           config.late.pattern_table != 0 || config.pattern_tables != nullptr ||
+           config.opening_pattern_tables != nullptr || config.midgame_pattern_tables != nullptr ||
+           config.late_pattern_tables != nullptr;
+}
+
+[[nodiscard]] constexpr bool phase_fast_path_enabled(
+    evaluation_detail::PatternTableScoreOnlyFastPathPhases phases,
+    EvaluationPhase phase) noexcept {
+    switch (phase) {
+    case EvaluationPhase::Opening:
+        return phases.opening;
+    case EvaluationPhase::Midgame:
+        return phases.midgame;
+    case EvaluationPhase::Late:
+        return phases.late;
+    }
+
+    return false;
 }
 
 struct NonTerminalEvaluation {
@@ -161,8 +184,19 @@ void assign_breakdown_feature_values(
     }
 }
 
-[[nodiscard]] int evaluate_score_only(Bitboard player, Bitboard opponent,
-                                      const EvaluationConfig& config) noexcept {
+[[nodiscard]] int evaluate_score_only(
+    Bitboard player, Bitboard opponent, const EvaluationConfig& config,
+    evaluation_detail::PatternTableScoreOnlyFastPathPhases fast_path_phases) noexcept {
+    if (fast_path_phases.any()) {
+        const int occupied_count = std::popcount(player | opponent);
+        const EvaluationPhase phase = phase_for_occupied_count(occupied_count, config);
+
+        if (phase_fast_path_enabled(fast_path_phases, phase)) {
+            return evaluation_detail::evaluate_pattern_table_score_only_fast_path(
+                player, opponent, config, phase);
+        }
+    }
+
     const evaluation_detail::EvaluationScratch scratch =
         evaluation_detail::make_evaluation_scratch(player, opponent);
     const EvaluationPhase phase = phase_for_occupied_count(scratch.occupied_count, config);
@@ -225,9 +259,67 @@ int evaluate_basic(const Board& board, Side side) noexcept {
 
 namespace evaluation_detail {
 
+bool can_use_pattern_table_score_only_fast_path(
+    const EvaluationConfig& config, EvaluationPhase phase) noexcept {
+    const EvaluationFeatureWeights& weights = weights_for_phase(config, phase);
+    for (const EvaluationFeatureSpec& spec : evaluation_feature_specs) {
+        if (spec.computation == EvaluationFeatureComputation::PatternTable) {
+            continue;
+        }
+        if (weights.*spec.weight != 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+PatternTableScoreOnlyFastPathPhases pattern_table_score_only_fast_path_phases(
+    const EvaluationConfig& config) noexcept {
+    return PatternTableScoreOnlyFastPathPhases{
+        .opening = can_use_pattern_table_score_only_fast_path(config,
+                                                              EvaluationPhase::Opening),
+        .midgame = can_use_pattern_table_score_only_fast_path(config,
+                                                              EvaluationPhase::Midgame),
+        .late = can_use_pattern_table_score_only_fast_path(config, EvaluationPhase::Late),
+    };
+}
+
+int evaluate_pattern_table_score_only_fast_path(
+    Bitboard player, Bitboard opponent, const EvaluationConfig& config,
+    EvaluationPhase phase) noexcept {
+    if (game_over_for_bitboards(player, opponent)) {
+        return (std::popcount(player) - std::popcount(opponent)) *
+               terminal_score_weight;
+    }
+
+    const EvaluationFeatureWeights& weights = weights_for_phase(config, phase);
+    if (weights.pattern_table == 0) {
+        return 0;
+    }
+
+    const PatternTableBundle* pattern_tables = pattern_tables_for_phase(config, phase);
+    if (pattern_tables == nullptr) {
+        return 0;
+    }
+
+    return evaluation_pattern_table_score(player, opponent, *pattern_tables) *
+           weights.pattern_table;
+}
+
 int evaluate_with_config(Bitboard player, Bitboard opponent,
                          const EvaluationConfig& config) noexcept {
-    return evaluate_score_only(player, opponent, config);
+    if (!has_pattern_table_feature_surface(config)) {
+        return evaluate_score_only(player, opponent, config,
+                                   PatternTableScoreOnlyFastPathPhases{});
+    }
+    return evaluate_score_only(player, opponent, config,
+                               pattern_table_score_only_fast_path_phases(config));
+}
+
+int evaluate_with_config(
+    Bitboard player, Bitboard opponent, const EvaluationConfig& config,
+    PatternTableScoreOnlyFastPathPhases fast_path_phases) noexcept {
+    return evaluate_score_only(player, opponent, config, fast_path_phases);
 }
 
 } // namespace evaluation_detail

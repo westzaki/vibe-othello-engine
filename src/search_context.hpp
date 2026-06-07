@@ -1,5 +1,6 @@
 #pragma once
 
+#include "evaluation_internal.hpp"
 #include "search_common.hpp"
 #include "search_ordering.hpp"
 #include "search_runtime_options.hpp"
@@ -53,7 +54,10 @@ struct SearchContext {
           tt_min_probe_depth{engine_options.tt_min_probe_depth},
           tt_min_store_depth{engine_options.tt_min_store_depth},
           use_lazy_first_move_ordering{engine_options.use_lazy_first_move_ordering},
-          evaluation_config{session_state.evaluation_config}, diagnostics{diagnostics_options} {}
+          evaluation_config{session_state.evaluation_config},
+          evaluation_fast_path_phases{
+              evaluation_detail::pattern_table_score_only_fast_path_phases(evaluation_config)},
+          diagnostics{diagnostics_options} {}
 
     SearchStats stats;
     SearchSessionState& session;
@@ -68,6 +72,7 @@ struct SearchContext {
     int tt_min_store_depth = 0;
     bool use_lazy_first_move_ordering = false;
     EvaluationConfig evaluation_config = default_evaluation_config();
+    evaluation_detail::PatternTableScoreOnlyFastPathPhases evaluation_fast_path_phases;
     SearchDiagnosticsOptions diagnostics;
 };
 
