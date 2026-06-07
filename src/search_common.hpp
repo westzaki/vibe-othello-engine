@@ -61,6 +61,59 @@ struct NodeResult {
     PrincipalVariation principal_variation;
 };
 
+struct SearchNodeResult {
+    std::optional<Square> best_move;
+    int score = 0;
+};
+
+struct MidgamePvTable {
+    std::array<PrincipalVariation, 65> lines{};
+
+    void clear(std::size_t ply) noexcept {
+        if (ply < lines.size()) {
+            lines[ply] = PrincipalVariation{};
+        }
+    }
+
+    void copy_from_child(std::size_t ply) noexcept {
+        if (ply + 1 < lines.size()) {
+            lines[ply] = lines[ply + 1];
+            return;
+        }
+        clear(ply);
+    }
+
+    void set_single_move(std::size_t ply, Square move) noexcept {
+        if (ply >= lines.size()) {
+            return;
+        }
+        lines[ply] = PrincipalVariation{};
+        lines[ply].indexes[0] = move.index();
+        lines[ply].size = 1;
+    }
+
+    void update_with_move(std::size_t ply, Square move) noexcept {
+        if (ply >= lines.size()) {
+            return;
+        }
+
+        PrincipalVariation& line = lines[ply];
+        line.indexes[0] = move.index();
+        line.size = 1;
+
+        if (ply + 1 >= lines.size()) {
+            return;
+        }
+
+        const PrincipalVariation& child_line = lines[ply + 1];
+        const std::size_t child_size = std::min(child_line.size, line.indexes.size() - 1);
+        for (std::size_t index = 0; index < child_size; ++index) {
+            line.indexes[index + 1] = child_line.indexes[index];
+        }
+        line.size += child_size;
+    }
+};
+
 [[nodiscard]] inline int empty_count(const Board& board) noexcept {
     return std::popcount(board.empty());
 }
@@ -184,6 +237,15 @@ principal_variation_from_vector(const std::vector<Square>& principal_variation) 
         result.principal_variation.size = 1;
     }
     return result;
+}
+
+[[nodiscard]] inline SearchNodeResult
+search_node_result_from_transposition_entry(int score, int best_move_index) noexcept {
+    const std::optional<Square> best_move = square_from_transposition_index(best_move_index);
+    return SearchNodeResult{
+        .best_move = best_move,
+        .score = score,
+    };
 }
 
 } // namespace othello::search_detail

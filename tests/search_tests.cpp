@@ -1797,6 +1797,8 @@ side=B)"),
         CHECK(result.score == test_case.score);
         CHECK(result.nodes == test_case.nodes);
         CHECK(result.principal_variation == test_case.principal_variation);
+        CHECK(result.principal_variation.size() <=
+              static_cast<std::size_t>(options.max_depth));
         CHECK(result.stats.dynamic_ordering_nodes > 0);
         CHECK(result.stats.dynamic_ordering_moves >= result.stats.dynamic_ordering_nodes * 5);
     }
@@ -1867,10 +1869,17 @@ TEST_CASE("TT and PVS combinations preserve deterministic fixed-depth result", "
             };
 
             const othello::SearchResult result = othello::search(*board, options);
+            const othello::SearchResult repeated = othello::search(*board, options);
 
             CHECK(result.best_move == baseline.best_move);
             CHECK(result.score == baseline.score);
             CHECK(result.depth == baseline.depth);
+            CHECK(repeated.best_move == result.best_move);
+            CHECK(repeated.score == result.score);
+            CHECK(repeated.depth == result.depth);
+            CHECK(repeated.principal_variation == result.principal_variation);
+            CHECK(result.principal_variation.size() <=
+                  static_cast<std::size_t>(options.max_depth));
         }
     }
 }
