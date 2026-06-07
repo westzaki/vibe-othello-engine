@@ -32,7 +32,7 @@ instructions. Removed interfaces are documented only in historical reports.
 | `dataset_paths.py` | current | Resolve `dataset:...` references and shared dataset roots. | Required by reusable teacher/exact dataset workflows. |
 | `eval_candidate_matrix.py` | current | Gather comparable `.eval` candidate smoke evidence from labels and search bench. | Current replacement for ad hoc candidate validation wrappers; also registered in CTest as a dry-run smoke. |
 | `evidence.py` | current | Collect reproducible build/test/benchmark/match evidence for PRs. | Shared evidence workflow for reviewers; wraps C++ tools without making strength claims. |
-| `exact_label_workflow.py` | current | Sample positions, dump exact labels, and optionally run eval-vs-exact analysis. | Current exact-label smoke helper for evaluation investigations. |
+| `exact_label_workflow.py` | current | Sample positions, dump exact labels, optionally run eval-vs-exact analysis, and build phase-aware exact overlap diagnostics under `runs/`. | Current exact-label smoke and phase-aware exact-overlap helper for evaluation investigations. |
 | `external_teacher_label_workflow.py` | current | Generate teacher-label JSONL from external engines. | Current teacher-label entrypoint and a dependency of `teacher_dataset_build.py`. |
 | `match_summary.py` | current | Summarize C++ match-runner JSONL. | Shared by current evidence, match, and base/head workflows. |
 | `ntest_teacher_smoke.py` | current | Run a local NTest teacher-label smoke and estimate 300K run feasibility. | Operational preflight before overnight NTest teacher dataset generation; does not make strength claims. |
@@ -129,6 +129,29 @@ where a partial subset is intentional. Use `--phase-exact-target` and
 `--prefer-exact-coverage` when those rows should be selected before the normal
 stratum round-robin fill. It does not change the trainer objective, score rows,
 generated candidate eval behavior, or retained defaults.
+
+When the missing input is exact overlap labels with complete root
+`move_scores`, use `exact_label_workflow.py` in phase-aware mode first. It reads
+teacher labels, dedupes by board, applies the same eval-config phase cutoffs,
+selects requested opening/midgame/late rows with a stable seed, and then invokes
+the existing C++ `othello_exact_label_dump` tool:
+
+```sh
+python3 tools/scripts/exact_label_workflow.py \
+  --exact-phase-targets opening=100,midgame=100,late=100 \
+  --exact-source-teacher-labels dataset:teacher.ntest_depth26_2027:train \
+  --exact-require-complete-move-scores \
+  --exact-phase-balanced-out-dir runs/pattern-training/exact-phase-smoke \
+  --eval-config data/eval/current_default.eval \
+  --exact-label-dump build/othello_exact_label_dump
+```
+
+The phase-aware exact workflow writes `exact_phase_balanced.jsonl`,
+`teacher_selected_for_exact.jsonl`, `summary.json`, and `report.md` under
+repository-local `runs/` only. Shortage fails by default; pass
+`--allow-shortage` only when a partial evidence probe is intentional. The
+summary/report explicitly mark `no_strength_claim: true` and
+`default_promotion: false`.
 
 The canonical PatternOnly trainer should select its comparison evaluator
 explicitly when invoking root analysis, analyzer candidate discovery, or
