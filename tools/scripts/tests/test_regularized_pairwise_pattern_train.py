@@ -1552,6 +1552,88 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
         )
         self.assertIn("## Pair Metrics", lazy_report)
 
+    def test_pair_cache_hit_skips_pair_generation_analysis(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            config = make_config(
+                temp_path,
+                labels,
+                extra_args=["--pair-mode", "best-vs-all", "--epochs", "1", "--l2", "0"],
+            )
+
+            first = trainer.train_pairwise_tables(config, analyzer=wide_fake_analyzer)
+
+            def failing_analyzer(
+                inner_config: trainer.TrainerConfig,
+                board_text: str,
+            ) -> trainer.AnalyzeResult:
+                del inner_config, board_text
+                raise AssertionError("pair cache hit should skip analysis and pair generation")
+
+            second = trainer.train_pairwise_tables(config, analyzer=failing_analyzer)
+
+        self.assertEqual(first.summary["rows"]["pair_cache_status"], "miss")
+        self.assertEqual(second.summary["rows"]["pair_cache_status"], "hit")
+        self.assertEqual(second.summary["pair_cache"]["status"], "hit")
+        self.assertEqual(
+            first.summary["training"]["initial_metrics"],
+            second.summary["training"]["initial_metrics"],
+        )
+
+    def test_compact_checkpoint_resume_matches_fresh_training(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            partial_config = make_config(
+                temp_path,
+                labels,
+                extra_args=[
+                    "--out-dir",
+                    str(temp_path / "runs" / "resume"),
+                    "--pair-mode",
+                    "best-vs-all",
+                    "--epochs",
+                    "1",
+                    "--learning-rate",
+                    "0.07",
+                    "--l2",
+                    "0.03",
+                ],
+            )
+            resume_config = replace(partial_config, epochs=3, resume_checkpoint=True)
+            fresh_config = make_config(
+                temp_path,
+                labels,
+                extra_args=[
+                    "--out-dir",
+                    str(temp_path / "runs" / "fresh"),
+                    "--pair-mode",
+                    "best-vs-all",
+                    "--epochs",
+                    "3",
+                    "--learning-rate",
+                    "0.07",
+                    "--l2",
+                    "0.03",
+                ],
+            )
+
+            trainer.train_pairwise_tables(partial_config, analyzer=wide_fake_analyzer)
+            resumed = trainer.train_pairwise_tables(resume_config, analyzer=wide_fake_analyzer)
+            fresh = trainer.train_pairwise_tables(fresh_config, analyzer=wide_fake_analyzer)
+
+        self.assertEqual(resumed.summary["checkpoint"]["resumed_from_epoch"], 1)
+        assert_history_close(
+            self,
+            resumed.summary["training"]["history"],
+            fresh.summary["training"]["history"],
+        )
+        self.assertEqual(
+            resumed.summary["training"]["weights"],
+            fresh.summary["training"]["weights"],
+        )
+
     def test_model_margin_includes_base_score_margin_by_default(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             temp_path = Path(temp)
