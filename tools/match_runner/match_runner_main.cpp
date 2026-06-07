@@ -38,7 +38,7 @@ void print_usage(std::string_view program_name) {
               << "  random\n"
               << "  eval\n"
               << "  search:depth=N[,tt=on|off][,pvs=on|off]"
-                 "[,preset=default|strong-v1]"
+                 "[,preset=default|strong-v1|experimental-shallow-tt]"
                  "[,exact=off|N|adaptive16][,exact_tt_entries=N]"
                  "[,tt_entries=N][,tt_store_leaf=on|off]"
                  "[,tt_min_probe_depth=N][,tt_min_store_depth=N]"
