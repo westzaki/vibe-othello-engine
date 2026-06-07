@@ -27,6 +27,9 @@ objective modes before considering a larger evaluator change.
 - listwise softmax over root legal candidates.
 - exact-aware targets using `exact_best_moves` when exact labels are available,
   with teacher-move fallback when exact labels are unavailable.
+- `--exact-aware-only-when-available` is a pairwise exact-aware pair-generation
+  filter; it does not disable listwise teacher fallback for rows without
+  exact-best targets.
 - `--tie-penalty`, `--target-top-group-size`, and `--top-group-margin` to
   penalize overly broad top groups.
 - `--sign-penalty` for exact-overlap rows where model ordering contradicts
