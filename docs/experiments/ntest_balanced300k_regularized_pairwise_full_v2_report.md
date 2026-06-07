@@ -30,7 +30,7 @@ phase-specific learned pattern tables with `pattern_table` phase weights set to
 
 | field | value |
 | --- | --- |
-| script | `tools/scripts/pattern_only_train.py` |
+| script | `tools/scripts/regularized_pairwise_pattern_train.py` |
 | train split | `train` |
 | families | `broad_all` |
 | pair mode | `teacher-vs-ranked-above` |
