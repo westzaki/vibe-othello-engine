@@ -509,10 +509,10 @@ def run_synthetic_transform_diagnostic() -> dict[str, Any]:
     legal_moves = trainer.legal_moves_for_board(SYMMETRY_DIAGNOSTIC_BOARD)
     preferred_child = trainer.apply_move_to_board(SYMMETRY_DIAGNOSTIC_BOARD, SYMMETRY_TEACHER_MOVE)
     other_child = trainer.apply_move_to_board(SYMMETRY_DIAGNOSTIC_BOARD, SYMMETRY_OTHER_MOVE)
-    base_features = trainer.preference_features(
+    base_features = trainer.preference_delta(
         root_board_text=SYMMETRY_DIAGNOSTIC_BOARD,
-        teacher_child_board=preferred_child,
-        engine_child_board=other_child,
+        preferred_child_board=preferred_child,
+        compared_child_board=other_child,
         families=("corner_2x3", "edge_8", "row_8", "column_8", "diagonal_8"),
     )
     rows = parse_board9_square_index_rows(SYMMETRY_DIAGNOSTIC_BOARD)
@@ -542,10 +542,10 @@ def run_synthetic_transform_diagnostic() -> dict[str, Any]:
         transformed_other_child = trainer.apply_move_to_board(board, other_move)
         expected_preferred_child = transform_board9_text(preferred_child, transform)
         expected_other_child = transform_board9_text(other_child, transform)
-        features = trainer.preference_features(
+        features = trainer.preference_delta(
             root_board_text=board,
-            teacher_child_board=transformed_preferred_child,
-            engine_child_board=transformed_other_child,
+            preferred_child_board=transformed_preferred_child,
+            compared_child_board=transformed_other_child,
             families=("corner_2x3", "edge_8", "row_8", "column_8", "diagonal_8"),
         )
         transform_rows.append(
