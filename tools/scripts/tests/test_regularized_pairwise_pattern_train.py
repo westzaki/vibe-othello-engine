@@ -1046,6 +1046,39 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
         self.assertEqual(stats["bucket_pair_counts"], {"__missing__": 1})
         self.assertEqual(stats["bucket_pair_weight_mass"], {"__missing__": 1.0})
 
+    def test_teacher_top1_weight_multiplies_teacher_pairs(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            config = make_config(
+                temp_path,
+                labels,
+                extra_args=["--teacher-top1-weight", "2.25"],
+            )
+
+            pairs, _, _ = trainer.collect_pairs(config, analyzer=fake_analyzer)
+
+        self.assertEqual(len(pairs), 1)
+        self.assertEqual(pairs[0].pair_kind, "teacher")
+        self.assertEqual(pairs[0].pair_weight, 2.25)
+
+    def test_anti_tie_margin_requires_extra_objective_margin(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            config = make_config(
+                temp_path,
+                labels,
+                extra_args=["--no-base-margin", "--anti-tie-margin", "0.75"],
+            )
+
+            pairs, _, _ = trainer.collect_pairs(config, analyzer=fake_analyzer)
+            metrics = trainer.evaluate_pairs(config, {phase: {} for phase in trainer.PHASES}, pairs)
+
+        self.assertEqual(len(pairs), 1)
+        self.assertAlmostEqual(metrics["avg_margin"], -0.75)
+        self.assertEqual(metrics["accuracy"], 0.0)
+
     def test_exact_aware_pair_generation_prefers_exact_best_moves(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             temp_path = Path(temp)
@@ -1454,6 +1487,39 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
         self.assertIn("late.pattern_table=3", candidate)
         self.assertIn("opening_max_occupied=20", candidate)
         self.assertIn("midgame_max_occupied=44", candidate)
+        self.assertNotIn("opening.mobility", candidate)
+        self.assertNotIn("midgame.mobility", candidate)
+        self.assertNotIn("late.mobility", candidate)
+
+    def test_pattern_only_candidate_eval_records_calibration_without_scalars(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            eval_config = write_current_default_like_eval_config(temp_path / "current_default.eval")
+            args = [
+                "--teacher-labels",
+                str(labels),
+                "--eval-config",
+                str(eval_config),
+                "--out-dir",
+                str(temp_path / "runs" / "candidate"),
+                "--candidate-eval-shape",
+                "pattern-only",
+                "--anti-tie-margin",
+                "0.5",
+                "--teacher-top1-weight",
+                "1.5",
+                "--exact-rank-weight",
+                "2",
+            ]
+            config = trainer.config_from_args(trainer.parse_args(args))
+
+            candidate = trainer.render_candidate_eval(config)
+
+        self.assertIn("mode=pattern_only", candidate)
+        self.assertIn("# anti_tie_margin: 0.5", candidate)
+        self.assertIn("# teacher_top1_weight: 1.5", candidate)
+        self.assertIn("# exact_rank_weight: 2.0", candidate)
         self.assertNotIn("opening.mobility", candidate)
         self.assertNotIn("midgame.mobility", candidate)
         self.assertNotIn("late.mobility", candidate)

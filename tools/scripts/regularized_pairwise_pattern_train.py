@@ -137,7 +137,10 @@ class TrainerConfig:
     max_pairs_per_position: int
     exact_best_weight: float
     teacher_weight: float
+    exact_rank_weight: float
+    teacher_top1_weight: float
     min_score_margin: int
+    anti_tie_margin: float
     l2: float
     epochs: int
     learning_rate: float
@@ -375,10 +378,31 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="base weight for teacher fallback pairs when exact-boost weighting is used",
     )
     parser.add_argument(
+        "--exact-rank-weight",
+        type=parse_positive_float,
+        default=1.0,
+        help="additional multiplier for exact-aware preference pairs",
+    )
+    parser.add_argument(
+        "--teacher-top1-weight",
+        type=parse_positive_float,
+        default=1.0,
+        help="additional multiplier for teacher top-1 preference pairs",
+    )
+    parser.add_argument(
         "--min-score-margin",
         type=parse_non_negative_int,
         default=0,
         help="drop pairs with smaller root score margins when both candidate scores are available",
+    )
+    parser.add_argument(
+        "--anti-tie-margin",
+        type=parse_non_negative_float,
+        default=0.0,
+        help=(
+            "required positive margin subtracted from pair margins during training; "
+            "useful for scalar-free candidates that need to reduce quantized top ties"
+        ),
     )
     parser.add_argument("--l2", type=parse_non_negative_float, default=0.001)
     parser.add_argument("--epochs", type=parse_positive_int, default=5)
@@ -593,7 +617,10 @@ def config_from_args(
         max_pairs_per_position=args.max_pairs_per_position,
         exact_best_weight=args.exact_best_weight,
         teacher_weight=args.teacher_weight,
+        exact_rank_weight=args.exact_rank_weight,
+        teacher_top1_weight=args.teacher_top1_weight,
         min_score_margin=args.min_score_margin,
+        anti_tie_margin=args.anti_tie_margin,
         l2=args.l2,
         epochs=args.epochs,
         learning_rate=args.learning_rate,
@@ -1000,8 +1027,14 @@ def rank_margin_for_pair(
 
 def base_pair_weight(config: TrainerConfig, pair_kind: str) -> float:
     if config.pair_weighting == "exact-boost":
-        return config.exact_best_weight if pair_kind == "exact" else config.teacher_weight
-    return 1.0
+        base = config.exact_best_weight if pair_kind == "exact" else config.teacher_weight
+    else:
+        base = 1.0
+    if pair_kind == "exact":
+        base *= config.exact_rank_weight
+    elif pair_kind == "teacher":
+        base *= config.teacher_top1_weight
+    return base
 
 
 def pair_objective_weight(
@@ -1677,6 +1710,21 @@ def model_margin(config: TrainerConfig, weights: WeightsByPhase, pair: Preferenc
     return margin
 
 
+def objective_margin(config: TrainerConfig, weights: WeightsByPhase, pair: PreferencePair) -> float:
+    return model_margin(config, weights, pair) - config.anti_tie_margin
+
+
+def lazy_objective_margin(
+    config: TrainerConfig,
+    lazy_weights: dict[str, LazyPhaseWeights],
+    pair: PreferencePair,
+) -> float:
+    margin = lazy_pair_margin(lazy_weights, pair)
+    if config.include_base_margin:
+        margin += base_score_margin(pair)
+    return margin - config.anti_tie_margin
+
+
 def pair_loss(loss_name: str, margin: float) -> float:
     if loss_name == "hinge":
         return max(0.0, 1.0 - margin)
@@ -1767,9 +1815,7 @@ def train_weights(config: TrainerConfig, pairs: list[PreferencePair]) -> tuple[W
             phase_weights = lazy_weights[pair.phase]
             if config.l2 != 0.0:
                 phase_weights.shrink(shrink_factor)
-            margin = lazy_pair_margin(lazy_weights, pair)
-            if config.include_base_margin:
-                margin += base_score_margin(pair)
+            margin = lazy_objective_margin(config, lazy_weights, pair)
             if config.loss == "hinge":
                 factor = 1.0 if margin < 1.0 else 0.0
             else:
@@ -1809,7 +1855,7 @@ def evaluate_pairs(
     margins = []
     total_weight = 0.0
     for pair in pairs:
-        margin = model_margin(config, weights, pair)
+        margin = objective_margin(config, weights, pair)
         margins.append(margin)
         loss = pair_loss(config.loss, margin)
         losses.append(loss)
@@ -1873,6 +1919,9 @@ def render_phase_table(
         f"# loss: {config.loss}",
         f"# pair_mode: {config.pair_mode}",
         f"# pair_weighting: {config.pair_weighting}",
+        f"# anti_tie_margin: {config.anti_tie_margin}",
+        f"# teacher_top1_weight: {config.teacher_top1_weight}",
+        f"# exact_rank_weight: {config.exact_rank_weight}",
         f"# l2: {config.l2}",
         f"# epochs: {config.epochs}",
         f"# learning_rate: {config.learning_rate}",
@@ -1906,6 +1955,10 @@ def render_candidate_eval(config: TrainerConfig) -> str:
                 "# not_default_promotion: true",
                 "# trainer_foundation: true",
                 f"# model_margin: {model_margin_shape(config)}",
+                f"# candidate_eval_shape: {config.candidate_eval_shape}",
+                f"# anti_tie_margin: {config.anti_tie_margin}",
+                f"# teacher_top1_weight: {config.teacher_top1_weight}",
+                f"# exact_rank_weight: {config.exact_rank_weight}",
                 f"# candidate_pattern_table_weight: {config.candidate_pattern_table_weight}",
                 "schema_version=eval.v1",
                 "mode=pattern_only",
@@ -1984,7 +2037,7 @@ def validation_rows_with_margins(
         if pair is None:
             updated.append(record)
             continue
-        margin = model_margin(config, weights, pair)
+        margin = objective_margin(config, weights, pair)
         updated.append(
             ValidationRecord(
                 position_id=record.position_id,
@@ -2133,7 +2186,10 @@ def render_report(
         f"- max_pairs_per_position: `{config.max_pairs_per_position}`",
         f"- exact_best_weight: `{config.exact_best_weight}`",
         f"- teacher_weight: `{config.teacher_weight}`",
+        f"- exact_rank_weight: `{config.exact_rank_weight}`",
+        f"- teacher_top1_weight: `{config.teacher_top1_weight}`",
         f"- min_score_margin: `{config.min_score_margin}`",
+        f"- anti_tie_margin: `{config.anti_tie_margin}`",
         f"- l2: `{config.l2}`",
         f"- epochs: `{config.epochs}`",
         f"- learning_rate: `{config.learning_rate}`",
@@ -2293,7 +2349,10 @@ def train_pairwise_tables(
         "max_pairs_per_position": config.max_pairs_per_position,
         "exact_best_weight": config.exact_best_weight,
         "teacher_weight": config.teacher_weight,
+        "exact_rank_weight": config.exact_rank_weight,
+        "teacher_top1_weight": config.teacher_top1_weight,
         "min_score_margin": config.min_score_margin,
+        "anti_tie_margin": config.anti_tie_margin,
         "l2": config.l2,
         "epochs": config.epochs,
         "learning_rate": config.learning_rate,
