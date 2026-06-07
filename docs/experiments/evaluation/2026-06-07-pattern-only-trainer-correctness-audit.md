@@ -56,7 +56,7 @@ ctest --test-dir build --output-on-failure
 Results:
 
 - Trainer unittest: 56 tests passed.
-- CTest: 350 tests passed.
+- CTest: 352 tests passed.
 - `pytest` was not available in this local Python environment (`pytest not found`).
 
 ## Outcome
