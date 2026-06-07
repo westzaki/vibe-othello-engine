@@ -786,22 +786,41 @@ TEST_CASE("Edge 8 pattern index is deterministic across edges", "[evaluation]") 
 TEST_CASE("Classic broad pattern indexes are deterministic across symmetric lines",
           "[evaluation]") {
     using Corner3 = othello::Corner3x3PatternCorner;
+    using Column = othello::Column8PatternColumn;
     using Diagonal = othello::Diagonal8PatternDiagonal;
     using EdgeX = othello::EdgeX10PatternEdge;
     using Inner = othello::InnerRow8PatternLine;
+    using Row = othello::Row8PatternRow;
 
     CHECK(othello::corner_3x3_pattern_table_size == 19683);
     CHECK(othello::edge_x_10_pattern_table_size == 59049);
+    CHECK(othello::row_8_pattern_table_size == 6561);
+    CHECK(othello::column_8_pattern_table_size == 6561);
+    CHECK(othello::diagonal_4_pattern_table_size == 81);
+    CHECK(othello::diagonal_5_pattern_table_size == 243);
+    CHECK(othello::diagonal_6_pattern_table_size == 729);
+    CHECK(othello::diagonal_7_pattern_table_size == 2187);
     CHECK(othello::diagonal_8_pattern_table_size == 6561);
     CHECK(othello::inner_row_8_pattern_table_size == 6561);
+    CHECK(othello::corner_2x4_pattern_table_size == 6561);
     CHECK(othello::corner_3x3_pattern_index(pattern_disc_board(0), Side::Black,
                                             Corner3::A1) == 0);
     CHECK(othello::edge_x_10_pattern_index(pattern_disc_board(0), Side::Black,
                                            EdgeX::Top) == 0);
+    CHECK(othello::row_8_pattern_index(pattern_disc_board(0), Side::Black,
+                                       Row::Rank1) == 0);
+    CHECK(othello::column_8_pattern_index(pattern_disc_board(0), Side::Black,
+                                          Column::FileA) == 0);
+    CHECK(othello::diagonal_4_pattern_index(pattern_disc_board(0), Side::Black, 0) == 0);
+    CHECK(othello::diagonal_5_pattern_index(pattern_disc_board(0), Side::Black, 0) == 0);
+    CHECK(othello::diagonal_6_pattern_index(pattern_disc_board(0), Side::Black, 0) == 0);
+    CHECK(othello::diagonal_7_pattern_index(pattern_disc_board(0), Side::Black, 0) == 0);
     CHECK(othello::diagonal_8_pattern_index(pattern_disc_board(0), Side::Black,
                                             Diagonal::A1H8) == 0);
     CHECK(othello::inner_row_8_pattern_index(pattern_disc_board(0), Side::Black,
                                              Inner::Top) == 0);
+    CHECK(othello::corner_2x4_pattern_index(pattern_disc_board(0), Side::Black,
+                                            othello::Corner2x4PatternCorner::A1) == 0);
 
     const Board corner_mixed =
         pattern_disc_board(othello::test::bit("a1") | othello::test::bit("c1") |
@@ -852,6 +871,20 @@ TEST_CASE("Classic broad pattern indexes are deterministic across symmetric line
                            othello::test::bit("g2"));
     CHECK(othello::diagonal_8_pattern_index(anti_diagonal, Side::Black,
                                             Diagonal::H1A8) == 16);
+
+    const Board broad_lines =
+        pattern_disc_board(othello::test::bit("a1") | othello::test::bit("c1"),
+                           othello::test::bit("b1"));
+    CHECK(othello::row_8_pattern_index(broad_lines, Side::Black, Row::Rank1) == 16);
+    CHECK(othello::column_8_pattern_index(broad_lines, Side::Black, Column::FileA) == 1);
+    CHECK(othello::corner_2x4_pattern_index(
+              broad_lines, Side::Black, othello::Corner2x4PatternCorner::A1) == 16);
+
+    const Board short_diagonal =
+        pattern_disc_board(othello::test::bit("e1") | othello::test::bit("g3"),
+                           othello::test::bit("f2"));
+    CHECK(othello::diagonal_4_pattern_index(short_diagonal, Side::Black, 0) == 16);
+    CHECK(othello::diagonal_5_pattern_index(short_diagonal, Side::Black, 2) == 1);
 
     for (const auto [line, first, second, third] : {
              std::tuple{Inner::Top, "a2", "b2", "c2"},

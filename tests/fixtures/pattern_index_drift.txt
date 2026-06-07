@@ -18,11 +18,25 @@ expect B corner_2x3 A1=151 H1=524 A8=524 H8=583
 expect B corner_3x3 A1=13273 H1=524 A8=524 H8=13705
 expect B edge_8 Top=4795 Bottom=3953 Left=5110 Right=2192
 expect B edge_x_10 Top=11356 Bottom=23636 Left=11671 Right=21875
+expect B row_8 Rank1=4795 Rank2=2759 Rank3=99 Rank4=189 Rank5=135 Rank6=513 Rank7=1234 Rank8=3953
+expect B column_8 FileA=5110 FileB=5 FileC=3664 FileD=4806 FileE=149 FileF=4138 FileG=5103 FileH=2192
+expect B diagonal_4 D0=8 D1=72 D2=0 D3=18
+expect B diagonal_5 D0=3 D1=0 D2=20 D3=180
+expect B diagonal_6 D0=10 D1=270 D2=4 D3=243
+expect B diagonal_7 D0=56 D1=2000 D2=771 D3=595
 expect B diagonal_8 A1H8=3532 H1A8=4592
 expect B inner_row_8 Top=2759 Bottom=1234 Left=5 Right=5103
+expect B corner_2x4 A1=421 H1=3791 A8=1604 H8=1717
 expect W corner_2x3 A1=212 H1=316 A8=316 H8=428
 expect W corner_3x3 A1=6773 H1=316 A8=316 H8=6989
 expect W edge_8 Top=2777 Bottom=5635 Left=3650 Right=4381
 expect W edge_x_10 Top=15899 Bottom=45001 Left=16772 Right=43747
+expect W row_8 Rank1=2777 Rank2=4786 Rank3=171 Rank4=135 Rank5=189 Rank6=297 Rank7=1712 Rank8=5635
+expect W column_8 FileA=3650 FileB=7 FileC=5114 FileD=2808 FileE=214 FileF=5351 FileG=3645 FileH=4381
+expect W diagonal_4 D0=4 D1=36 D2=0 D3=9
+expect W diagonal_5 D0=6 D1=0 D2=10 D3=90
+expect W diagonal_6 D0=20 D1=540 D2=8 D3=486
+expect W diagonal_7 D0=28 D1=1000 D2=1533 D3=461
 expect W diagonal_8 A1H8=6308 H1A8=2296
 expect W inner_row_8 Top=4786 Bottom=1712 Left=7 Right=3645
+expect W corner_2x4 A1=590 H1=5311 A8=937 H8=1238
