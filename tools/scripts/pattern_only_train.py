@@ -196,6 +196,13 @@ class ListwiseExample:
 
 
 @dataclass(frozen=True)
+class MoveScoreCoverage:
+    status: str
+    present_count: int
+    legal_count: int
+
+
+@dataclass(frozen=True)
 class CompactListwiseDataset:
     """Flattened listwise examples used by the hot training/evaluation loops."""
 
@@ -890,8 +897,30 @@ def exact_root_score(record: dict[str, Any] | None) -> int | None:
 
 
 def exact_move_scores(record: dict[str, Any] | None) -> dict[str, int]:
+    return move_scores_from_record(record, score_keys=("exact_score_side_to_move", "score"))
+
+
+def teacher_move_scores(record: dict[str, Any] | None) -> dict[str, int]:
+    return move_scores_from_record(record, score_keys=("score", "teacher_score", "eval_score", "root_score"))
+
+
+def move_scores_from_record(
+    record: dict[str, Any] | None,
+    *,
+    score_keys: tuple[str, ...],
+) -> dict[str, int]:
     if record is None:
         return {}
+    root_scores = record.get("root_scores")
+    if isinstance(root_scores, dict):
+        parsed_from_root: dict[str, int] = {}
+        for raw_move, raw_score in root_scores.items():
+            move = normalize_move(raw_move)
+            if move is None or isinstance(raw_score, bool) or not isinstance(raw_score, int):
+                continue
+            parsed_from_root[move] = raw_score
+        if parsed_from_root:
+            return parsed_from_root
     scores = record.get("move_scores")
     if not isinstance(scores, list):
         return {}
@@ -900,11 +929,30 @@ def exact_move_scores(record: dict[str, Any] | None) -> dict[str, int]:
         if not isinstance(item, dict):
             continue
         move = normalize_move(item.get("move"))
-        score = item.get("exact_score_side_to_move")
+        score = None
+        for key in score_keys:
+            raw_score = item.get(key)
+            if not isinstance(raw_score, bool) and isinstance(raw_score, int):
+                score = raw_score
+                break
         if move is None or isinstance(score, bool) or not isinstance(score, int):
             continue
         parsed[move] = score
     return parsed
+
+
+def move_score_coverage(scores: dict[str, int], legal_moves: set[str]) -> MoveScoreCoverage:
+    legal_count = len(legal_moves)
+    present_count = sum(1 for move in legal_moves if move in scores)
+    if legal_count == 0:
+        status = "complete"
+    elif present_count == legal_count:
+        status = "complete"
+    elif present_count == 0:
+        status = "missing"
+    else:
+        status = "partial"
+    return MoveScoreCoverage(status=status, present_count=present_count, legal_count=legal_count)
 
 
 def _path_hash_manifest(paths: tuple[Path, ...]) -> list[dict[str, str]]:
@@ -1408,6 +1456,185 @@ def serialize_dataset_diagnostics(diagnostics: dict[str, Any]) -> dict[str, Any]
     }
 
 
+def _new_qc_summary() -> dict[str, Any]:
+    return {
+        "root_phase_counts": _new_phase_count_summary(),
+        "child_phase_counts": _new_phase_count_summary(),
+        "root_to_child_phase_counts": collections.defaultdict(collections.Counter),
+        "training_pattern_family_counts": {
+            "overall": collections.Counter(),
+            "by_phase": collections.defaultdict(collections.Counter),
+        },
+        "legal_move_count_distribution": collections.Counter(),
+        "complete_exact_move_scores": _new_coverage_summary(),
+        "complete_teacher_move_scores": _new_coverage_summary(),
+        "source_bucket_counts": collections.Counter(),
+        "training_bucket_counts": collections.Counter(),
+        "duplicate_groups": collections.defaultdict(lambda: {"rows": 0, "splits": collections.Counter()}),
+    }
+
+
+def _new_phase_count_summary() -> dict[str, Any]:
+    return {
+        "overall": collections.Counter(),
+        "by_split": collections.defaultdict(collections.Counter),
+        "by_source_bucket": collections.defaultdict(collections.Counter),
+    }
+
+
+def _new_coverage_summary() -> dict[str, Any]:
+    return {
+        "overall": collections.Counter(),
+        "by_split": collections.defaultdict(collections.Counter),
+        "by_phase": collections.defaultdict(collections.Counter),
+        "by_source_bucket": collections.defaultdict(collections.Counter),
+    }
+
+
+def _bump_phase_count(
+    summary: dict[str, Any],
+    *,
+    phase: str,
+    split: str,
+    bucket: str,
+) -> None:
+    summary["overall"][phase] += 1
+    summary["by_split"][split][phase] += 1
+    summary["by_source_bucket"][bucket][phase] += 1
+
+
+def _bump_coverage_summary(
+    summary: dict[str, Any],
+    *,
+    coverage: MoveScoreCoverage,
+    split: str,
+    phase: str,
+    bucket: str,
+) -> None:
+    for counter in (
+        summary["overall"],
+        summary["by_split"][split],
+        summary["by_phase"][phase],
+        summary["by_source_bucket"][bucket],
+    ):
+        counter["rows"] += 1
+        counter[f"{coverage.status}_rows"] += 1
+        counter["present_scores"] += coverage.present_count
+        counter["legal_moves"] += coverage.legal_count
+
+
+def _serialize_counter(counter: collections.Counter[Any]) -> dict[str, int]:
+    return {str(key): int(value) for key, value in sorted(counter.items())}
+
+
+def _serialize_coverage_group(counter: collections.Counter[str]) -> dict[str, Any]:
+    rows = int(counter["rows"])
+    complete_rows = int(counter["complete_rows"])
+    legal_moves = int(counter["legal_moves"])
+    present_scores = int(counter["present_scores"])
+    return {
+        "rows": rows,
+        "complete_rows": complete_rows,
+        "partial_rows": int(counter["partial_rows"]),
+        "missing_rows": int(counter["missing_rows"]),
+        "complete_rate": (complete_rows / rows) if rows else None,
+        "present_scores": present_scores,
+        "legal_moves": legal_moves,
+        "score_coverage_rate": (present_scores / legal_moves) if legal_moves else None,
+    }
+
+
+def _serialize_coverage_summary(summary: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "overall": _serialize_coverage_group(summary["overall"]),
+        "by_split": {
+            key: _serialize_coverage_group(counter)
+            for key, counter in sorted(summary["by_split"].items())
+        },
+        "by_phase": {
+            key: _serialize_coverage_group(counter)
+            for key, counter in sorted(summary["by_phase"].items())
+        },
+        "by_source_bucket": {
+            key: _serialize_coverage_group(counter)
+            for key, counter in sorted(summary["by_source_bucket"].items())
+        },
+    }
+
+
+def _serialize_phase_count_summary(summary: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "overall": _serialize_counter(summary["overall"]),
+        "by_split": {
+            key: _serialize_counter(counter)
+            for key, counter in sorted(summary["by_split"].items())
+        },
+        "by_source_bucket": {
+            key: _serialize_counter(counter)
+            for key, counter in sorted(summary["by_source_bucket"].items())
+        },
+    }
+
+
+def _serialize_pattern_family_counts(summary: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "overall": _serialize_counter(summary["overall"]),
+        "by_phase": {
+            phase: _serialize_counter(counter)
+            for phase, counter in sorted(summary["by_phase"].items())
+        },
+    }
+
+
+def _serialize_duplicate_group_check(groups: dict[str, Any], *, limit: int = 20) -> dict[str, Any]:
+    duplicate_count = 0
+    duplicate_rows = 0
+    leaking: list[dict[str, Any]] = []
+    for group_key, group in groups.items():
+        rows = int(group["rows"])
+        if rows < 2:
+            continue
+        duplicate_count += 1
+        duplicate_rows += rows
+        split_counts = _serialize_counter(group["splits"])
+        if len(split_counts) > 1:
+            leaking.append(
+                {
+                    "group_key_sha256": sha256_text(group_key),
+                    "rows": rows,
+                    "split_counts": split_counts,
+                }
+            )
+    leaking.sort(key=lambda item: (-int(item["rows"]), item["group_key_sha256"]))
+    return {
+        "duplicate_groups": duplicate_count,
+        "duplicate_rows": duplicate_rows,
+        "leaking_groups": len(leaking),
+        "leaking_rows": sum(int(item["rows"]) for item in leaking),
+        "examples": leaking[:limit],
+    }
+
+
+def serialize_qc_summary(qc: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "root_phase_counts": _serialize_phase_count_summary(qc["root_phase_counts"]),
+        "child_phase_counts": _serialize_phase_count_summary(qc["child_phase_counts"]),
+        "root_to_child_phase_counts": {
+            root_phase: _serialize_counter(children)
+            for root_phase, children in sorted(qc["root_to_child_phase_counts"].items())
+        },
+        "training_pattern_family_counts": _serialize_pattern_family_counts(
+            qc["training_pattern_family_counts"]
+        ),
+        "legal_move_count_distribution": _serialize_counter(qc["legal_move_count_distribution"]),
+        "complete_exact_move_scores": _serialize_coverage_summary(qc["complete_exact_move_scores"]),
+        "complete_teacher_move_scores": _serialize_coverage_summary(qc["complete_teacher_move_scores"]),
+        "source_bucket_counts": _serialize_counter(qc["source_bucket_counts"]),
+        "training_bucket_counts": _serialize_counter(qc["training_bucket_counts"]),
+        "duplicate_group_split_leakage_check": _serialize_duplicate_group_check(qc["duplicate_groups"]),
+    }
+
+
 def collect_training_data(
     config: TrainerConfig,
     analyzer: Analyzer = run_analysis,
@@ -1425,6 +1652,7 @@ def collect_training_data(
     bucket_example_counts: collections.Counter[str] = collections.Counter()
     bucket_example_weight_mass: collections.Counter[str] = collections.Counter()
     dataset_diagnostics = _new_dataset_diagnostics()
+    qc_summary = _new_qc_summary()
     stats["teacher_rows"] = len(sources)
     stats["analysis_cache_hits"] = 0
     stats["analysis_cache_misses"] = 0
@@ -1446,6 +1674,7 @@ def collect_training_data(
         record = source.record
         split = split_for_source(source, config.seed)
         bucket = bucket_for_source(config, source)
+        qc_summary["source_bucket_counts"][bucket] += 1
         board_text_for_phase = board_text_from_record(record)
         phase = (
             phase_for_board(board_text_for_phase, config.phase_cutoffs)
@@ -1482,6 +1711,7 @@ def collect_training_data(
         board_text = board_text_from_record(record)
         assert board_text is not None
         phase = phase_for_board(board_text, config.phase_cutoffs)
+        _bump_phase_count(qc_summary["root_phase_counts"], phase=phase, split=split, bucket=bucket)
         teacher_move = normalize_move(teacher_move_from_record(record))
         if teacher_move is None:
             stats["missing_teacher_move_skipped"] += 1
@@ -1494,6 +1724,7 @@ def collect_training_data(
             )
             continue
         legal_moves = legal_moves_for_board(board_text)
+        qc_summary["legal_move_count_distribution"][str(len(legal_moves))] += 1
         for group in _diagnostic_groups(dataset_diagnostics, split=split, phase=phase, bucket=bucket):
             group["legal_move_count_distribution"][len(legal_moves)] += 1
         if teacher_move not in legal_moves:
@@ -1520,6 +1751,23 @@ def collect_training_data(
 
         exact_record = exact_by_board.get(board_key(board_text))
         exact_best = exact_best_moves(exact_record)
+        _bump_coverage_summary(
+            qc_summary["complete_exact_move_scores"],
+            coverage=move_score_coverage(exact_move_scores(exact_record), legal_moves),
+            split=split,
+            phase=phase,
+            bucket=bucket,
+        )
+        _bump_coverage_summary(
+            qc_summary["complete_teacher_move_scores"],
+            coverage=move_score_coverage(teacher_move_scores(record), legal_moves),
+            split=split,
+            phase=phase,
+            bucket=bucket,
+        )
+        duplicate_group = qc_summary["duplicate_groups"][board_key(board_text)]
+        duplicate_group["rows"] += 1
+        duplicate_group["splits"][split] += 1
         if exact_best:
             for group in _diagnostic_groups(dataset_diagnostics, split=split, phase=phase, bucket=bucket):
                 group["exact_best_top_group_size_distribution"][len(exact_best)] += 1
@@ -1735,6 +1983,18 @@ def collect_training_data(
             stats["teacher_fallback_examples"] += 1
         bucket_example_counts[listwise_example.bucket] += 1
         bucket_example_weight_mass[listwise_example.bucket] += listwise_example.example_weight
+        qc_summary["training_bucket_counts"][listwise_example.bucket] += 1
+        for candidate in listwise_example.candidates:
+            _bump_phase_count(
+                qc_summary["child_phase_counts"],
+                phase=candidate.phase,
+                split=split,
+                bucket=bucket,
+            )
+            qc_summary["root_to_child_phase_counts"][phase][candidate.phase] += 1
+            for family, _ in candidate.features:
+                qc_summary["training_pattern_family_counts"]["overall"][family] += 1
+                qc_summary["training_pattern_family_counts"]["by_phase"][candidate.phase][family] += 1
         for group in _diagnostic_groups(dataset_diagnostics, split=split, phase=phase, bucket=bucket):
             group["example_count_distribution"][1] += 1
             group["example_weight_mass"] += listwise_example.example_weight
@@ -1826,6 +2086,7 @@ def collect_training_data(
         bucket: float(bucket_example_weight_mass[bucket]) for bucket in sorted(bucket_example_weight_mass)
     }
     row_stats["dataset_diagnostics"] = serialize_dataset_diagnostics(dataset_diagnostics)
+    row_stats["qc_summary"] = serialize_qc_summary(qc_summary)
     row_stats["timing"] = {
         "label_load_seconds": round(label_load_seconds, 6),
         "exact_load_seconds": round(exact_load_seconds, 6),
@@ -3097,9 +3358,25 @@ def _diagnostic_table_lines(title: str, groups: dict[str, Any], *, limit: int = 
     return lines
 
 
+def _coverage_report_lines(title: str, summary: dict[str, Any]) -> list[str]:
+    overall = summary.get("overall", {})
+    return [
+        f"## {title}",
+        "",
+        f"- rows: `{overall.get('rows', 0)}`",
+        f"- complete_rows: `{overall.get('complete_rows', 0)}`",
+        f"- partial_rows: `{overall.get('partial_rows', 0)}`",
+        f"- missing_rows: `{overall.get('missing_rows', 0)}`",
+        f"- complete_rate: `{overall.get('complete_rate') if overall.get('complete_rate') is not None else 'n/a'}`",
+        f"- score_coverage_rate: `{overall.get('score_coverage_rate') if overall.get('score_coverage_rate') is not None else 'n/a'}`",
+        "",
+    ]
+
+
 def render_dataset_diagnostic_report(config: TrainerConfig, summary: dict[str, Any]) -> str:
     rows = summary["rows"]
     diagnostics = rows.get("dataset_diagnostics", {})
+    qc = rows.get("qc_summary", {})
     lines = [
         "# NTest Teacher Dataset Diagnostic",
         "",
@@ -3127,9 +3404,31 @@ def render_dataset_diagnostic_report(config: TrainerConfig, summary: dict[str, A
         "",
     ]
     for key in sorted(rows):
-        if key in ("bucket_example_counts", "bucket_example_weight_mass", "dataset_diagnostics"):
+        if key in ("bucket_example_counts", "bucket_example_weight_mass", "dataset_diagnostics", "qc_summary"):
             continue
         lines.append(f"- {key}: `{rows[key]}`")
+    if qc:
+        lines.extend(["", "## QC Summary", ""])
+        for key in (
+            "root_phase_counts",
+            "child_phase_counts",
+            "root_to_child_phase_counts",
+            "training_pattern_family_counts",
+            "legal_move_count_distribution",
+            "source_bucket_counts",
+            "training_bucket_counts",
+        ):
+            lines.append(f"- {key}: `{json.dumps(qc.get(key, {}), sort_keys=True)}`")
+        leakage = qc.get("duplicate_group_split_leakage_check", {})
+        lines.append(
+            "- duplicate_group_split_leakage_check: "
+            f"`groups={leakage.get('duplicate_groups', 0)}, "
+            f"leaking_groups={leakage.get('leaking_groups', 0)}, "
+            f"leaking_rows={leakage.get('leaking_rows', 0)}`"
+        )
+        lines.extend([""])
+        lines.extend(_coverage_report_lines("Complete Exact Move Scores", qc.get("complete_exact_move_scores", {})))
+        lines.extend(_coverage_report_lines("Complete Teacher Move Scores", qc.get("complete_teacher_move_scores", {})))
     if rows.get("bucket_example_counts") or rows.get("bucket_example_weight_mass"):
         lines.extend(["", "## Bucket Example Weight Mass", ""])
         counts = rows.get("bucket_example_counts", {})
