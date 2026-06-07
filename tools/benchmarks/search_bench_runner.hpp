@@ -28,6 +28,8 @@ struct IterativeDepthBenchmarkResult {
     SearchRunMode mode;
     bool use_transposition_table;
     bool store_leaf_tt_entries;
+    int tt_min_probe_depth;
+    int tt_min_store_depth;
     bool use_pvs;
     bool use_aspiration_window;
     int aspiration_window;
@@ -57,6 +59,8 @@ struct SearchBenchmarkResult {
     SearchRunMode mode;
     bool use_transposition_table;
     bool store_leaf_tt_entries;
+    int tt_min_probe_depth;
+    int tt_min_store_depth;
     bool use_pvs;
     bool use_aspiration_window;
     int aspiration_window;
@@ -90,6 +94,8 @@ struct PositionBenchmarkResult {
     SearchRunMode mode;
     bool use_transposition_table;
     bool store_leaf_tt_entries;
+    int tt_min_probe_depth;
+    int tt_min_store_depth;
     bool use_pvs;
     bool use_aspiration_window;
     int aspiration_window;

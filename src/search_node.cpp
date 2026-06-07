@@ -27,15 +27,39 @@ using hash_detail::hash_after_pass;
                                                    context.evaluation_config);
 }
 
+[[nodiscard]] TranspositionLookup probe_transposition(SearchContext& context, ZobristHash hash,
+                                                      int depth, int alpha, int beta,
+                                                      bool collect_best_move_hint) noexcept {
+    if (context.engine_options.use_transposition_table && depth < context.tt_min_probe_depth) {
+        ++context.stats.tt_probe_skipped_by_depth;
+        return {};
+    }
+    return context.transpositions.lookup(hash, context.transposition_scope, depth, alpha, beta,
+                                         collect_best_move_hint, context.stats);
+}
+
+bool store_transposition(SearchContext& context, ZobristHash hash, int depth, int score,
+                         int original_alpha, int beta,
+                         const std::optional<Square>& best_move) noexcept {
+    if (context.engine_options.use_transposition_table && depth < context.tt_min_store_depth) {
+        ++context.stats.tt_store_skipped_by_depth;
+        return false;
+    }
+    return context.transpositions.store(hash, context.transposition_scope,
+                                        context.session.generation, depth, score, original_alpha,
+                                        beta, best_move, context.stats);
+}
+
 void store_leaf_transposition(SearchContext& context, ZobristHash hash, int depth, int score,
                               int original_alpha, int beta,
                               const std::optional<Square>& best_move) noexcept {
     if (!context.store_leaf_tt_entries) {
+        if (context.engine_options.use_transposition_table) {
+            ++context.stats.tt_leaf_store_skipped;
+        }
         return;
     }
-    if (context.transpositions.store(hash, context.transposition_scope, context.session.generation,
-                                     depth, score, original_alpha, beta, best_move,
-                                     context.stats)) {
+    if (store_transposition(context, hash, depth, score, original_alpha, beta, best_move)) {
         ++context.stats.tt_leaf_stores;
     }
 }
@@ -54,8 +78,7 @@ NodeResult search_node(const SearchPosition& position, ZobristHash hash, int dep
     const bool collect_tt_best_move_hint = context.dynamic_move_ordering && !is_root &&
                                            depth >= context.move_ordering_params.dynamic_min_depth;
     const TranspositionLookup cached =
-        context.transpositions.lookup(hash, context.transposition_scope, depth, alpha, beta,
-                                      collect_tt_best_move_hint, context.stats);
+        probe_transposition(context, hash, depth, alpha, beta, collect_tt_best_move_hint);
     if (cached.cutoff.has_value()) {
         return *cached.cutoff;
     }
@@ -73,9 +96,8 @@ NodeResult search_node(const SearchPosition& position, ZobristHash hash, int dep
         if (legal_moves(next) == 0) {
             ++context.stats.game_over_nodes;
             const NodeResult result{.score = evaluate_for_search(position, context)};
-            context.transpositions.store(hash, context.transposition_scope,
-                                         context.session.generation, depth, result.score,
-                                         original_alpha, beta, result.best_move, context.stats);
+            store_transposition(context, hash, depth, result.score, original_alpha, beta,
+                                result.best_move);
             return result;
         }
 
@@ -91,9 +113,8 @@ NodeResult search_node(const SearchPosition& position, ZobristHash hash, int dep
             .score = -child.score,
             .principal_variation = child.principal_variation,
         };
-        context.transpositions.store(hash, context.transposition_scope, context.session.generation,
-                                     depth, result.score, original_alpha, beta, result.best_move,
-                                     context.stats);
+        store_transposition(context, hash, depth, result.score, original_alpha, beta,
+                            result.best_move);
         return result;
     }
 
@@ -186,9 +207,7 @@ NodeResult search_node(const SearchPosition& position, ZobristHash hash, int dep
         .score = best_score.value_or(evaluate_for_search(position, context)),
         .principal_variation = best_principal_variation,
     };
-    context.transpositions.store(hash, context.transposition_scope, context.session.generation,
-                                 depth, result.score, original_alpha, beta, result.best_move,
-                                 context.stats);
+    store_transposition(context, hash, depth, result.score, original_alpha, beta, result.best_move);
     return result;
 }
 

@@ -17,8 +17,9 @@ struct SearchCliOptions {
     std::optional<bool> use_pvs;
     std::optional<bool> use_aspiration_window;
     std::size_t transposition_table_entries = SearchOptions{}.transposition_table_entries;
-    std::optional<std::size_t> exact_endgame_tt_entries =
-        SearchOptions{}.exact_endgame_tt_entries;
+    int tt_min_probe_depth = SearchOptions{}.tt_min_probe_depth;
+    int tt_min_store_depth = SearchOptions{}.tt_min_store_depth;
+    std::optional<std::size_t> exact_endgame_tt_entries = SearchOptions{}.exact_endgame_tt_entries;
     int aspiration_window = SearchOptions{}.aspiration_window;
     int aspiration_max_researches = SearchOptions{}.aspiration_max_researches;
     AspirationProfile aspiration_profile = SearchOptions{}.aspiration_profile;

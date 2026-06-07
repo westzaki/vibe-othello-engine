@@ -34,12 +34,12 @@ void print_usage(std::string_view program_name) {
     std::cout << "usage: " << program_name
               << " (--board-file PATH | --stdin) [--depth N] [--mode fixed|iterative]"
                  " [--tt on|off] [--tt-entries N] [--exact-tt-entries N]"
-                 " [--tt-store-leaf on|off] [--pvs on|off]"
+                 " [--tt-store-leaf on|off] [--tt-min-probe-depth N]"
+                 " [--tt-min-store-depth N] [--pvs on|off]"
                  " [--aspiration on|off] [--aspiration-window N]"
                  " [--aspiration-max-researches N] [--exact-endgame-threshold N]"
                  " "
-              << othello::tools::evaluator_cli_usage()
-              << " [--root-candidates] [--batch-jsonl]\n"
+              << othello::tools::evaluator_cli_usage() << " [--root-candidates] [--batch-jsonl]\n"
               << '\n'
               << "Options:\n"
               << "  --board-file PATH  read a board in board_from_string format\n"
@@ -55,6 +55,10 @@ void print_usage(std::string_view program_name) {
                  "only exact TT\n"
               << "  --tt-store-leaf on|off\n"
               << "                    store depth-0 midgame heuristic leaves in TT (default: on)\n"
+              << "  --tt-min-probe-depth N\n"
+              << "                    skip midgame TT probes below remaining depth N\n"
+              << "  --tt-min-store-depth N\n"
+              << "                    skip midgame TT stores below remaining depth N\n"
               << "  --pvs on|off       enable or disable PVS (default: off)\n"
               << "  --aspiration on|off\n"
               << "                    enable iterative-search aspiration windows (default: off)\n"
@@ -102,8 +106,8 @@ void print_usage(std::string_view program_name) {
     }
 }
 
-[[nodiscard]] bool parse_json_string(std::string_view text, std::size_t& index,
-                                     std::string& output, std::string& error) {
+[[nodiscard]] bool parse_json_string(std::string_view text, std::size_t& index, std::string& output,
+                                     std::string& error) {
     output.clear();
     if (index >= text.size() || text[index] != '"') {
         error = "expected JSON string";
@@ -147,8 +151,7 @@ void skip_json_space(std::string_view text, std::size_t& index) {
     }
 }
 
-[[nodiscard]] bool skip_json_value(std::string_view text, std::size_t& index,
-                                   std::string& error) {
+[[nodiscard]] bool skip_json_value(std::string_view text, std::size_t& index, std::string& error) {
     skip_json_space(text, index);
     if (index >= text.size()) {
         error = "missing JSON value";
@@ -252,8 +255,8 @@ void skip_json_space(std::string_view text, std::size_t& index) {
     return record;
 }
 
-void write_root_scores_json(const std::vector<othello::tools::analyze::RootCandidateAnalysis>&
-                                candidates) {
+void write_root_scores_json(
+    const std::vector<othello::tools::analyze::RootCandidateAnalysis>& candidates) {
     std::cout << '{';
     bool first = true;
     for (const auto& candidate : candidates) {
@@ -284,19 +287,18 @@ void write_batch_error(std::string_view position_id, std::string_view error) {
     if (result.best_move.has_value()) {
         return othello::tools::format_square(result.best_move);
     }
-    const auto pass_candidate = std::find_if(
-        candidates.begin(), candidates.end(),
-        [](const othello::tools::analyze::RootCandidateAnalysis& candidate) {
-            return candidate.pass;
-        });
+    const auto pass_candidate =
+        std::find_if(candidates.begin(), candidates.end(),
+                     [](const othello::tools::analyze::RootCandidateAnalysis& candidate) {
+                         return candidate.pass;
+                     });
     return pass_candidate != candidates.end() ? "pass" : "-";
 }
 
-void write_batch_result(const BatchRecord& record, const AnalysisOptions& options,
-                        const othello::SearchResult& result,
-                        const std::vector<othello::tools::analyze::RootCandidateAnalysis>&
-                            candidates,
-                        std::chrono::nanoseconds elapsed) {
+void write_batch_result(
+    const BatchRecord& record, const AnalysisOptions& options, const othello::SearchResult& result,
+    const std::vector<othello::tools::analyze::RootCandidateAnalysis>& candidates,
+    std::chrono::nanoseconds elapsed) {
     othello::tools::JsonObjectWriter writer{std::cout};
     writer.begin_object();
     writer.string_field("position_id", record.position_id);
@@ -386,6 +388,24 @@ void write_batch_result(const BatchRecord& record, const AnalysisOptions& option
                 return std::nullopt;
             }
             options.store_leaf_tt_entries = *store_leaf;
+        } else if (arg == "--tt-min-probe-depth") {
+            const auto value = othello::tools::next_argument(args, index, arg);
+            const auto depth =
+                value.has_value() ? othello::tools::parse_non_negative_int(*value) : std::nullopt;
+            if (!depth.has_value()) {
+                std::cerr << "invalid --tt-min-probe-depth value\n";
+                return std::nullopt;
+            }
+            options.tt_min_probe_depth = *depth;
+        } else if (arg == "--tt-min-store-depth") {
+            const auto value = othello::tools::next_argument(args, index, arg);
+            const auto depth =
+                value.has_value() ? othello::tools::parse_non_negative_int(*value) : std::nullopt;
+            if (!depth.has_value()) {
+                std::cerr << "invalid --tt-min-store-depth value\n";
+                return std::nullopt;
+            }
+            options.tt_min_store_depth = *depth;
         } else if (arg == "--pvs") {
             const auto value = othello::tools::next_argument(args, index, arg);
             const auto pvs =
@@ -493,12 +513,12 @@ int run_batch_analysis(const AnalysisOptions& options, std::string_view input_te
             write_batch_error("line-" + std::to_string(line_number), error);
             continue;
         }
-        const std::optional<othello::Board> board =
-            othello::board_from_string(record->board_text);
+        const std::optional<othello::Board> board = othello::board_from_string(record->board_text);
         if (!board.has_value()) {
             ++failures;
-            write_batch_error(record->position_id,
-                              "invalid board input: expected 8 board rows followed by side=B or side=W");
+            write_batch_error(
+                record->position_id,
+                "invalid board input: expected 8 board rows followed by side=B or side=W");
             continue;
         }
 

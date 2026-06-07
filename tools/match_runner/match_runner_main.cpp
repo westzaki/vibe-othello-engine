@@ -41,6 +41,7 @@ void print_usage(std::string_view program_name) {
                  "[,preset=default|strong-v1]"
                  "[,exact=off|N|adaptive16][,exact_tt_entries=N]"
                  "[,tt_entries=N][,tt_store_leaf=on|off]"
+                 "[,tt_min_probe_depth=N][,tt_min_store_depth=N]"
                  "[,aspiration_profile=fixed|score-delta-aware]"
                  "[,eval_config=PATH]\n"
               << "  external:NAME\n"

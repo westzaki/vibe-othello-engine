@@ -1,11 +1,10 @@
+#include "../src/search_ordering.hpp"
+#include "../src/search_tt.hpp"
 #include "common/stats.hpp"
 #include "test_helpers.hpp"
 
-#include "../src/search_ordering.hpp"
-#include "../src/search_tt.hpp"
-
-#include <catch2/catch_test_macros.hpp>
 #include <array>
+#include <catch2/catch_test_macros.hpp>
 #include <cstdint>
 #include <limits>
 #include <othello/othello.hpp>
@@ -172,9 +171,8 @@ void capture_iterative_depth(const othello::IterativeSearchDepthInfo& info, void
     }
 }
 
-[[nodiscard]] bool root_orderings_equal(
-    const std::vector<othello::RootMoveOrderingEntry>& left,
-    const std::vector<othello::RootMoveOrderingEntry>& right) {
+[[nodiscard]] bool root_orderings_equal(const std::vector<othello::RootMoveOrderingEntry>& left,
+                                        const std::vector<othello::RootMoveOrderingEntry>& right) {
     if (left.size() != right.size()) {
         return false;
     }
@@ -416,8 +414,7 @@ TEST_CASE("Search stats aggregation includes search observability counters", "[s
 }
 
 TEST_CASE("Search stats add and delta cover every counter field", "[search]") {
-    constexpr std::size_t field_count =
-        sizeof(othello::SearchStats) / sizeof(std::uint64_t);
+    constexpr std::size_t field_count = sizeof(othello::SearchStats) / sizeof(std::uint64_t);
     CHECK(othello::search_stats_detail::tracked_member_count == field_count);
 
     const othello::SearchStats before{
@@ -1037,11 +1034,10 @@ TEST_CASE("Search session scopes transposition entries by search mode", "[search
 
 TEST_CASE("Midgame transposition table lookup keeps mode and evaluation scopes separate",
           "[search]") {
-    othello::search_detail::TranspositionTable table{
-        othello::search_detail::SearchEngineOptions{
-            .use_transposition_table = true,
-            .transposition_table_entries = 4,
-        }};
+    othello::search_detail::TranspositionTable table{othello::search_detail::SearchEngineOptions{
+        .use_transposition_table = true,
+        .transposition_table_entries = 4,
+    }};
     othello::SearchStats stats;
     constexpr othello::ZobristHash hash = 0x1234;
     constexpr othello::search_detail::TranspositionScope fixed_scope{
@@ -1059,10 +1055,9 @@ TEST_CASE("Midgame transposition table lookup keeps mode and evaluation scopes s
 
     REQUIRE(table.store(hash, fixed_scope, 4, 3, 42, -100, 100, std::nullopt, stats));
 
-    CHECK_FALSE(table.lookup(hash, iterative_scope, 3, -100, 100, false, stats)
-                    .cutoff.has_value());
-    CHECK_FALSE(table.lookup(hash, other_eval_scope, 3, -100, 100, false, stats)
-                    .cutoff.has_value());
+    CHECK_FALSE(table.lookup(hash, iterative_scope, 3, -100, 100, false, stats).cutoff.has_value());
+    CHECK_FALSE(
+        table.lookup(hash, other_eval_scope, 3, -100, 100, false, stats).cutoff.has_value());
     const auto scoped = table.lookup(hash, fixed_scope, 3, -100, 100, false, stats);
     REQUIRE(scoped.cutoff.has_value());
     CHECK(scoped.cutoff->score == 42);
@@ -1070,11 +1065,10 @@ TEST_CASE("Midgame transposition table lookup keeps mode and evaluation scopes s
 
 TEST_CASE("Midgame transposition table updates same scoped hash regardless of generation",
           "[search]") {
-    othello::search_detail::TranspositionTable table{
-        othello::search_detail::SearchEngineOptions{
-            .use_transposition_table = true,
-            .transposition_table_entries = 4,
-        }};
+    othello::search_detail::TranspositionTable table{othello::search_detail::SearchEngineOptions{
+        .use_transposition_table = true,
+        .transposition_table_entries = 4,
+    }};
     othello::SearchStats stats;
     constexpr othello::ZobristHash hash = 0x1234;
     constexpr othello::search_detail::TranspositionScope scope{
@@ -1108,8 +1102,7 @@ TEST_CASE("Midgame transposition replacement updates same scoped hash first", "[
     CHECK(select_replacement_entry(entries, 11, scope, 20, 0) == &entries[0]);
 }
 
-TEST_CASE("Midgame transposition replacement uses an empty slot before overwriting",
-          "[search]") {
+TEST_CASE("Midgame transposition replacement uses an empty slot before overwriting", "[search]") {
     using othello::search_detail::select_replacement_entry;
     constexpr othello::search_detail::TranspositionScope scope{
         .mode = othello::SearchMode::FixedDepth,
@@ -1207,6 +1200,7 @@ TEST_CASE("Search options can skip depth-zero transposition table stores", "[sea
     CHECK(with_leaf.stats.tt_leaf_stores == 1);
     CHECK(without_leaf.stats.tt_stores == 0);
     CHECK(without_leaf.stats.tt_leaf_stores == 0);
+    CHECK(without_leaf.stats.tt_leaf_store_skipped == 1);
     CHECK(without_leaf.stats.tt_lookups == 1);
 }
 
@@ -1235,8 +1229,38 @@ TEST_CASE("Skipping leaf transposition table stores preserves fixed-depth result
     CHECK(with_leaf.depth == without_leaf.depth);
     CHECK(with_leaf.stats.tt_leaf_stores > 0);
     CHECK(without_leaf.stats.tt_leaf_stores == 0);
+    CHECK(without_leaf.stats.tt_leaf_store_skipped > 0);
     CHECK(with_leaf.stats.tt_stores > without_leaf.stats.tt_stores);
     CHECK(without_leaf.stats.tt_stores > 0);
+}
+
+TEST_CASE("Search options can skip shallow transposition probes and stores by depth", "[search]") {
+    const auto board = othello::apply_move(Board::initial(), othello::test::square("d3"));
+    REQUIRE(board.has_value());
+
+    const othello::SearchOptions baseline{
+        .max_depth = 3,
+        .use_transposition_table = true,
+        .exact_endgame_empty_threshold = 0,
+    };
+    const othello::SearchOptions shallow_skip{
+        .max_depth = 3,
+        .use_transposition_table = true,
+        .tt_min_probe_depth = 1,
+        .tt_min_store_depth = 1,
+        .exact_endgame_empty_threshold = 0,
+    };
+
+    const othello::SearchResult baseline_result = othello::search(*board, baseline);
+    const othello::SearchResult skipped_result = othello::search(*board, shallow_skip);
+
+    CHECK(skipped_result.best_move == baseline_result.best_move);
+    CHECK(skipped_result.score == baseline_result.score);
+    CHECK(skipped_result.depth == baseline_result.depth);
+    CHECK(skipped_result.stats.tt_probe_skipped_by_depth > 0);
+    CHECK(skipped_result.stats.tt_store_skipped_by_depth > 0);
+    CHECK(skipped_result.stats.tt_leaf_stores == 0);
+    CHECK(skipped_result.stats.tt_stores < baseline_result.stats.tt_stores);
 }
 
 TEST_CASE("Search stats leave transposition table counters zero when disabled", "[search]") {
@@ -1254,6 +1278,9 @@ TEST_CASE("Search stats leave transposition table counters zero when disabled", 
     CHECK(result.stats.tt_upper_hits == 0);
     CHECK(result.stats.tt_stores == 0);
     CHECK(result.stats.tt_leaf_stores == 0);
+    CHECK(result.stats.tt_leaf_store_skipped == 0);
+    CHECK(result.stats.tt_probe_skipped_by_depth == 0);
+    CHECK(result.stats.tt_store_skipped_by_depth == 0);
     CHECK(result.stats.tt_overwrites == 0);
     CHECK(result.stats.tt_collisions == 0);
     CHECK(result.stats.tt_rejected_stores == 0);
@@ -1282,6 +1309,9 @@ TEST_CASE("Search stats count transposition table work when enabled", "[search]"
     CHECK(result.stats.tt_lookups > 0);
     CHECK(result.stats.tt_stores > 0);
     CHECK(result.stats.tt_leaf_stores > 0);
+    CHECK(result.stats.tt_leaf_store_skipped == 0);
+    CHECK(result.stats.tt_probe_skipped_by_depth == 0);
+    CHECK(result.stats.tt_store_skipped_by_depth == 0);
     CHECK(result.stats.tt_leaf_stores <= result.stats.tt_stores);
     CHECK(result.stats.tt_hits <= result.stats.tt_lookups);
     CHECK(result.stats.tt_exact_hits + result.stats.tt_lower_hits + result.stats.tt_upper_hits ==
@@ -1883,8 +1913,7 @@ side=W)");
         .aspiration_profile = othello::AspirationProfile::ScoreDeltaAware,
     };
 
-    const othello::SearchResult full_window =
-        othello::search_iterative(board, full_window_options);
+    const othello::SearchResult full_window = othello::search_iterative(board, full_window_options);
     const othello::SearchResult fixed = othello::search_iterative(board, fixed_options);
     const othello::SearchResult score_delta_aware =
         othello::search_iterative(board, score_delta_aware_options);

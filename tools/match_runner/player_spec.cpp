@@ -94,6 +94,8 @@ std::optional<PlayerSpec> parse_player_spec(std::string_view text) {
         bool seen_exact = false;
         bool seen_exact_tt_entries = false;
         bool seen_tt_entries = false;
+        bool seen_tt_min_probe_depth = false;
+        bool seen_tt_min_store_depth = false;
         bool seen_eval_config = false;
         bool seen_preset = false;
         tools::EvaluatorSelectionInput evaluator_input;
@@ -117,6 +119,8 @@ std::optional<PlayerSpec> parse_player_spec(std::string_view text) {
                 preset_options.search_options.transposition_table_entries;
             search_options.store_leaf_tt_entries =
                 preset_options.search_options.store_leaf_tt_entries;
+            search_options.tt_min_probe_depth = preset_options.search_options.tt_min_probe_depth;
+            search_options.tt_min_store_depth = preset_options.search_options.tt_min_store_depth;
             search_options.exact_endgame_empty_threshold =
                 preset_options.search_options.exact_endgame_empty_threshold;
             search_options.exact_endgame_root_policy =
@@ -221,6 +225,26 @@ std::optional<PlayerSpec> parse_player_spec(std::string_view text) {
                 }
                 search_options.transposition_table_entries = static_cast<std::size_t>(*parsed);
                 seen_tt_entries = true;
+            } else if (key == "tt_min_probe_depth") {
+                if (seen_tt_min_probe_depth) {
+                    return std::nullopt;
+                }
+                const std::optional<int> parsed = parse_non_negative_int(value);
+                if (!parsed.has_value()) {
+                    return std::nullopt;
+                }
+                search_options.tt_min_probe_depth = *parsed;
+                seen_tt_min_probe_depth = true;
+            } else if (key == "tt_min_store_depth") {
+                if (seen_tt_min_store_depth) {
+                    return std::nullopt;
+                }
+                const std::optional<int> parsed = parse_non_negative_int(value);
+                if (!parsed.has_value()) {
+                    return std::nullopt;
+                }
+                search_options.tt_min_store_depth = *parsed;
+                seen_tt_min_store_depth = true;
             } else if (key == "eval_config") {
                 if (seen_eval_config || value.empty()) {
                     return std::nullopt;
@@ -255,6 +279,8 @@ SearchOptions make_search_options(const PlayerSpec& spec) noexcept {
     options.use_transposition_table = spec.search_options.use_transposition_table;
     options.transposition_table_entries = spec.search_options.transposition_table_entries;
     options.store_leaf_tt_entries = spec.search_options.store_leaf_tt_entries;
+    options.tt_min_probe_depth = spec.search_options.tt_min_probe_depth;
+    options.tt_min_store_depth = spec.search_options.tt_min_store_depth;
     options.exact_endgame_empty_threshold = spec.search_options.exact_endgame_empty_threshold;
     options.exact_endgame_root_policy = spec.search_options.exact_endgame_root_policy;
     options.exact_endgame_tt_entries = spec.search_options.exact_endgame_tt_entries;
