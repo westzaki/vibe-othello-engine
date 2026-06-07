@@ -165,28 +165,30 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
     CHECK(strong_v1_options.evaluation_config_override.has_value());
     CHECK(strong_v1_options.evaluation_config_override->opening_pattern_tables != nullptr);
 
-    const runner::PlayerSpec strong_v2_spec =
-        require_player_spec(std::string_view{"search:depth=4,preset=strong-v2"});
-    const othello::SearchOptions strong_v2_options = runner::make_search_options(strong_v2_spec);
-    CHECK(strong_v2_spec.search_options.use_iterative_search);
-    CHECK(strong_v2_options.max_depth == strong_v1_options.max_depth);
-    CHECK(strong_v2_options.use_transposition_table == strong_v1_options.use_transposition_table);
-    CHECK(strong_v2_options.tt_min_probe_depth == strong_v1_options.tt_min_probe_depth);
-    CHECK(strong_v2_options.tt_min_store_depth == strong_v1_options.tt_min_store_depth);
-    CHECK(strong_v2_options.use_pvs == strong_v1_options.use_pvs);
-    CHECK(strong_v2_options.use_aspiration_window == strong_v1_options.use_aspiration_window);
-    CHECK(strong_v2_options.use_lazy_first_move_ordering ==
+    const runner::PlayerSpec experimental_spec =
+        require_player_spec(std::string_view{"search:depth=4,preset=experimental-shallow-tt"});
+    const othello::SearchOptions experimental_options =
+        runner::make_search_options(experimental_spec);
+    CHECK(experimental_spec.search_options.use_iterative_search);
+    CHECK(experimental_options.max_depth == strong_v1_options.max_depth);
+    CHECK(experimental_options.use_transposition_table ==
+          strong_v1_options.use_transposition_table);
+    CHECK(experimental_options.tt_min_probe_depth == strong_v1_options.tt_min_probe_depth);
+    CHECK(experimental_options.tt_min_store_depth == strong_v1_options.tt_min_store_depth);
+    CHECK(experimental_options.use_pvs == strong_v1_options.use_pvs);
+    CHECK(experimental_options.use_aspiration_window == strong_v1_options.use_aspiration_window);
+    CHECK(experimental_options.use_lazy_first_move_ordering ==
           strong_v1_options.use_lazy_first_move_ordering);
-    CHECK(strong_v2_options.aspiration_profile == strong_v1_options.aspiration_profile);
-    CHECK(strong_v2_options.exact_endgame_empty_threshold ==
+    CHECK(experimental_options.aspiration_profile == strong_v1_options.aspiration_profile);
+    CHECK(experimental_options.exact_endgame_empty_threshold ==
           strong_v1_options.exact_endgame_empty_threshold);
-    CHECK(strong_v2_options.exact_endgame_root_policy ==
+    CHECK(experimental_options.exact_endgame_root_policy ==
           strong_v1_options.exact_endgame_root_policy);
-    CHECK(strong_v2_options.transposition_table_entries ==
+    CHECK(experimental_options.transposition_table_entries ==
           strong_v1_options.transposition_table_entries);
-    CHECK(strong_v2_options.store_leaf_tt_entries == strong_v1_options.store_leaf_tt_entries);
+    CHECK(experimental_options.store_leaf_tt_entries == strong_v1_options.store_leaf_tt_entries);
     CHECK_FALSE(strong_v1_options.use_shallow_tt_move_ordering_hint);
-    CHECK(strong_v2_options.use_shallow_tt_move_ordering_hint);
+    CHECK(experimental_options.use_shallow_tt_move_ordering_hint);
 
     const runner::PlayerSpec strong_v1_override_spec =
         require_player_spec(std::string_view{"search:depth=4,preset=strong-v1,tt=off,exact=off"});
@@ -252,10 +254,12 @@ TEST_CASE("Search player specs reject invalid options", "[match-runner]") {
                     .has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,preset=fast").has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,preset=StrongV1").has_value());
+    CHECK_FALSE(runner::parse_player_spec("search:depth=4,preset=strong-v2").has_value());
     CHECK_FALSE(
         runner::parse_player_spec("search:depth=4,preset=default,preset=strong-v1").has_value());
-    CHECK_FALSE(
-        runner::parse_player_spec("search:depth=4,preset=strong-v1,preset=strong-v2").has_value());
+    CHECK_FALSE(runner::parse_player_spec(
+                    "search:depth=4,preset=strong-v1,preset=experimental-shallow-tt")
+                    .has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,eval=default").has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,eval_config=missing.eval").has_value());
     CHECK_FALSE(

@@ -50,15 +50,15 @@ othello_add_help_contains_test(
 )
 
 othello_add_help_contains_test(
-    othello_nboard_engine_help_includes_strong_v2_preset
+    othello_nboard_engine_help_includes_experimental_shallow_tt_preset
     othello_nboard_engine
-    "strong-v2"
+    "experimental-shallow-tt"
 )
 
 othello_add_help_contains_test(
     othello_match_runner_help_includes_search_presets
     othello_match_runner
-    "preset=default|strong-v1|strong-v2"
+    "preset=default|strong-v1|experimental-shallow-tt"
 )
 
 othello_add_help_contains_test(
@@ -68,9 +68,9 @@ othello_add_help_contains_test(
 )
 
 othello_add_help_contains_test(
-    othello_search_bench_help_includes_strong_v2_preset
+    othello_search_bench_help_includes_experimental_shallow_tt_preset
     othello_search_bench
-    "strong-v2"
+    "experimental-shallow-tt"
 )
 
 othello_add_help_contains_test(
@@ -165,9 +165,9 @@ set_tests_properties(
 )
 
 othello_add_tool_smoke_test(
-    othello_search_bench_accepts_strong_v2_preset
+    othello_search_bench_accepts_experimental_shallow_tt_preset
     othello_search_bench
-    --preset strong-v2
+    --preset experimental-shallow-tt
     --depths 1
     --positions smoke
     --repetitions 1
@@ -175,7 +175,7 @@ othello_add_tool_smoke_test(
     --format jsonl
 )
 set_tests_properties(
-    othello_search_bench_accepts_strong_v2_preset
+    othello_search_bench_accepts_experimental_shallow_tt_preset
     PROPERTIES PASS_REGULAR_EXPRESSION "\"mode\":\"iterative\".*\"tt_min_probe_depth\":1.*\"tt_min_store_depth\":1.*\"lazy_first_move_ordering\":true.*\"shallow_tt_move_ordering_hint\":true.*\"aspiration_profile\":\"score-delta-aware\""
 )
 
@@ -414,7 +414,7 @@ othello_add_expect_failure_test(
 othello_add_expect_failure_test(
     othello_search_bench_rejects_unknown_preset
     othello_search_bench
-    "--preset must be default, strong-v1, or strong-v2"
+    "--preset must be default, strong-v1, or experimental-shallow-tt"
     --preset fast
 )
 

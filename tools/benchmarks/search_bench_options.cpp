@@ -60,7 +60,7 @@ BenchmarkOptions::BenchmarkOptions()
 void print_usage(std::string_view program_name) {
     std::cout << "usage: " << program_name
               << " [--mode fixed|iterative|both] [--depths 1,2,3,4,5]"
-                 " [--preset default|strong-v1|strong-v2]"
+                 " [--preset default|strong-v1|experimental-shallow-tt]"
                  " [--repetitions N] [--positions smoke|suite|evaluation|threshold]"
                  " [--describe-positions] [--by-position] [--emit-iterative-depth-rows]"
                  " [--tt on|off] [--tt-entries N] [--exact-tt-entries N]"
@@ -80,9 +80,10 @@ void print_usage(std::string_view program_name) {
               << "  --depths LIST       comma-separated positive search depths\n"
               << "  --repetitions N     positive repetition count per depth\n"
               << "  --mode MODE         fixed, iterative, or both (default: fixed)\n"
-              << "  --preset PRESET     search preset: default, strong-v1, or strong-v2\n"
-              << "                      strong-v2 is a behavior-changing candidate with "
-                 "shallow TT hints\n"
+              << "  --preset PRESET     search preset: default, strong-v1, or "
+                 "experimental-shallow-tt\n"
+              << "                      experimental-shallow-tt is a behavior-changing "
+                 "candidate with shallow TT hints\n"
               << "  --positions SET     smoke, suite, evaluation, or threshold (default: smoke)\n"
               << "  --describe-positions\n"
               << "                      print selected position metadata and metrics only\n"
@@ -367,13 +368,15 @@ parse_exact_root_profiles(std::string_view text) {
         if (option == "--preset") {
             ++index;
             if (index >= args.size()) {
-                std::cerr << "--preset requires default, strong-v1, or strong-v2\n";
+                std::cerr << "--preset requires default, strong-v1, or "
+                             "experimental-shallow-tt\n";
                 return std::nullopt;
             }
 
             const auto preset = othello::tools::parse_search_preset(args[index]);
             if (!preset.has_value()) {
-                std::cerr << "--preset must be default, strong-v1, or strong-v2\n";
+                std::cerr << "--preset must be default, strong-v1, or "
+                             "experimental-shallow-tt\n";
                 return std::nullopt;
             }
             const othello::tools::SearchPresetOptions preset_options =

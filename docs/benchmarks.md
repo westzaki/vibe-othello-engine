@@ -536,8 +536,8 @@ python3 tools/scripts/match_summary.py \
   --by-opening
 ```
 
-Supported search player options are `preset=default|strong-v1|strong-v2`, `tt=on|off`,
-`pvs=on|off`, `exact=off|N|adaptive16`, `tt_entries=N`,
+Supported search player options are `preset=default|strong-v1|experimental-shallow-tt`,
+`tt=on|off`, `pvs=on|off`, `exact=off|N|adaptive16`, `tt_entries=N`,
 `tt_store_leaf=on|off`, `tt_min_probe_depth=N`, `tt_min_store_depth=N`,
 `lazy_first_move_ordering=on|off`, `aspiration_profile=fixed|score-delta-aware`,
 and `eval_config=PATH`. The plain `search:depth=N` form keeps the same defaults
@@ -551,13 +551,14 @@ normal project-default evaluator (`data/eval/current_default.eval`) unless
 15/16-empty roots. `tt_entries=N` only sets the transposition-table capacity;
 include `tt=on` when the match should use the table.
 
-`preset=strong-v2` is a behavior-changing candidate preset for match / exact
-gate evaluation. It is intentionally the same main profile as `strong-v1`, plus
-`use_shallow_tt_move_ordering_hint=true`. Shallow TT hints can change public best
-move, PV, result checksum, and work checksum, so `strong-v2` is not a pure speed
-change and is not promoted into default or `strong-v1`. Do not make strength
-claims for it until match and exact-gate evidence supports them; until then,
-treat it as an opt-in candidate only.
+`preset=experimental-shallow-tt` is a behavior-changing experimental preset for
+match / exact gate evaluation. It is intentionally the same main profile as
+`strong-v1`, plus `use_shallow_tt_move_ordering_hint=true`. Shallow TT hints can
+change public best move, PV, result checksum, and work checksum, so
+`experimental-shallow-tt` is not a pure speed change and is not promoted into
+default or `strong-v1`. Do not make strength claims for it until match and
+exact-gate evidence supports them; until then, treat it as an opt-in experimental
+candidate only.
 
 For a small practical-preset smoke match:
 
@@ -576,9 +577,9 @@ python3 tools/scripts/match_summary.py \
   --by-opening
 ```
 
-The NBoard adapter also accepts `--preset strong-v1` and `--preset strong-v2`, so external-engine
-workflows can select the same practical search preset without changing the
-public core API.
+The NBoard adapter also accepts `--preset strong-v1` and
+`--preset experimental-shallow-tt`, so external-engine workflows can select the
+same named search presets without changing the public core API.
 
 For match-level adaptive16 smoke tests, keep the comparison deterministic and
 swap sides across the same openings:
