@@ -37,7 +37,7 @@ script.
 | `external_teacher_label_workflow.py` | current | Generate teacher-label JSONL from external engines. | Current teacher-label entrypoint and a dependency of `teacher_dataset_build.py`. |
 | `match_summary.py` | current | Summarize C++ match-runner JSONL. | Shared by current evidence, match, and base/head workflows. |
 | `ntest_teacher_smoke.py` | current | Run a local NTest teacher-label smoke and estimate 300K run feasibility. | Operational preflight before overnight NTest teacher dataset generation; does not make strength claims. |
-| `regularized_pairwise_pattern_train.py` | current / canonical | Train phase-specific tables from teacher-vs-engine and exact-aware pairwise preferences. | Canonical current pattern trainer for new experiments; owns the shared analyzer cache/dedup/parallel workflow. |
+| `regularized_pairwise_pattern_train.py` | current / canonical | Train phase-specific PatternOnly tables from exact-aware listwise teacher/exact labels. | Canonical current pattern trainer for new experiments; owns the shared analyzer cache/dedup/parallel workflow. |
 | `teacher_dataset_build.py` | current | Build reusable position shards, manifests, splits, teacher labels, and exact overlap labels under a dataset root. | Recommended durable dataset-builder entrypoint for pattern-first work. |
 | `teacher_label_mistake_mining.py` | current | Mine evaluator move-choice mistakes against validated teacher labels. | Current pattern diagnostics for teacher-vs-engine disagreement and vocabulary gaps. |
 
@@ -101,15 +101,17 @@ in CI.
 
 For new pattern experiments, use `regularized_pairwise_pattern_train.py` by
 default. It is the canonical current trainer because it supports broad
-phase-specific pattern tables, regularization, exact-aware pair generation,
-deterministic validation summaries, and the shared analyzer cache/dedup/parallel
-workflow. Start from this trainer unless the task is explicitly reproducing an
-older artifact or isolating a phase-table migration detail.
+phase-specific PatternOnly tables, regularization, exact-aware listwise target
+construction, deterministic validation summaries, and the shared analyzer
+cache/dedup/parallel workflow. Start from this trainer unless the task is
+explicitly reproducing an older artifact or isolating a phase-table migration
+detail.
 
-The canonical pairwise trainer requires `--eval-config`; choose the base
-evaluator intentionally for each run. Current-engine improvement workflows
-should usually pass `--eval-config data/eval/current_default.eval`. Do not rely
-on historical pattern-teacher config defaults for new work.
+The canonical PatternOnly trainer requires `--eval-config`; choose the base
+evaluator intentionally for analyzer candidate discovery and diagnostics.
+Current-engine improvement workflows should usually pass
+`--eval-config data/eval/current_default.eval`. Base scalar scores are not part
+of the trainer objective or generated candidate `.eval`.
 
 Pattern trainers that invoke `othello_analyze_position` share the same optional
 root-analysis cache flags: `--analysis-cache-dir`, `--analysis-cache-mode`, and
@@ -119,7 +121,7 @@ root analysis without changing the table output format. Future analyzer
 protocol work can avoid subprocess startup overhead further by adding
 `othello_analyze_position --jsonl-in --jsonl-out`.
 
-Train regularized pairwise pattern tables when the goal is to improve the
+Train PatternOnly listwise pattern tables when the goal is to improve the
 pattern objective directly rather than tune scalar residual weights:
 
 ```sh
@@ -128,15 +130,12 @@ python3 tools/scripts/regularized_pairwise_pattern_train.py \
   --exact-labels dataset:teacher.ntest_depth26_2027:exact_teacher2000,dataset:teacher.ntest_depth26_2027:exact_extra30 \
   --eval-config data/eval/current_default.eval \
   --analyze-position build/othello_analyze_position \
-  --out-dir runs/pattern-training/pairwise-v1 \
+  --out-dir runs/pattern-training/listwise-v1 \
   --families broad_all \
   --split train \
-  --loss logistic \
-  --pair-mode exact-aware \
-  --pair-weighting exact-boost \
-  --exact-best-weight 2.0 \
-  --teacher-weight 1.0 \
-  --max-pairs-per-position 8 \
+  --exact-score-temperature 4 \
+  --exact-score-target-floor 0.0001 \
+  --exact-score-near-best-window 8 \
   --l2 0.01 \
   --epochs 5 \
   --learning-rate 0.05 \
@@ -146,44 +145,20 @@ python3 tools/scripts/regularized_pairwise_pattern_train.py \
   --seed 20260601
 ```
 
-Pair modes:
-
-- `best-vs-engine`: preserves the original trainer behavior. The teacher move
-  is preferred over the current engine-selected move only.
-- `best-vs-all`: compares the teacher move against all legal/root candidates.
-  Use this when the single engine move is too narrow and the trainer needs more
-  move-ordering signal per position.
-- `rank-weighted`: compares the teacher move against lower-ranked root
-  candidates and can weight those pairs by root rank or score margin. Use this
-  when root candidate scores are available and tiny score ties should matter
-  less than clear rank gaps.
-- `exact-aware`: when exact labels exist, exact-best moves are preferred over
-  non-exact-best legal/root candidates. Rows without exact labels fall back to
-  teacher preferences. This is the preferred v1 objective after the pairwise-v0
-  report because it reduces dependence on a single teacher-vs-engine pair.
-
-Pair weighting:
-
-- `uniform` keeps every generated pair at weight `1.0`.
-- `rank-margin` modestly increases weight for larger root-rank gaps.
-- `score-margin` modestly increases weight for larger root-score gaps.
-- `exact-boost` uses `--exact-best-weight` for exact-best pairs and
-  `--teacher-weight` for teacher fallback pairs.
-
-Use `--max-pairs-per-position` to cap pair explosion and keep the objective
-from simply overfitting harder. The trainer reports weighted train loss, train
-pair accuracy, generated pair counts, pairs per position, exact-aware pairs,
-phase/family entries, quantization stats, and saturation stats. High train
-accuracy is a diagnostic only; it is not evidence of playing strength. Candidate
-TSVs and `.eval` files remain generated artifacts under `runs/`, and follow-up
-evidence should be recorded in a separate experiment report such as
-`docs(eval): report pairwise pattern v1`.
+When exact labels contain complete `move_scores`, the trainer uses a soft
+exact-score target distribution. When only exact-best moves are available, it
+uses a uniform target over those moves. Rows without exact labels fall back to
+the teacher move. The trainer reports weighted listwise loss, selected-move
+diagnostics, exact-score soft-target diagnostics, phase/family entries,
+quantization stats, and saturation stats. High training accuracy is a
+diagnostic only; it is not evidence of playing strength. Candidate TSVs and
+`.eval` files remain generated artifacts under `runs/`, and follow-up evidence
+should be recorded in a separate experiment report.
 
 Historical reports and retained pattern-table metadata may still mention older
 trainer entry points as timestamped provenance. Those scripts are removed from
-active tooling; new work should use the canonical regularized pairwise trainer
-and direct `pattern_training/` helper tests instead of copying old command
-blocks.
+active tooling; new work should use the canonical PatternOnly listwise trainer
+instead of copying old command blocks.
 
 ## Current Evidence Workflows
 
