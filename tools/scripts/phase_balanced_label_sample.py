@@ -89,6 +89,9 @@ class SampleConfig:
     seed: int
     split: str
     phase_targets: dict[str, int]
+    phase_exact_targets: dict[str, int]
+    phase_complete_move_scores_targets: dict[str, int]
+    prefer_exact_coverage: bool
     bucket_field: str
     legal_move_buckets: tuple[LegalMoveBucket, ...]
     empties_bucket_size: int
@@ -136,6 +139,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--phase-targets",
         help="optional comma-separated targets, e.g. opening=3334,midgame=3333,late=3333",
+    )
+    parser.add_argument(
+        "--phase-exact-target",
+        help="optional exact-label targets by phase, e.g. opening=100,midgame=100,late=100",
+    )
+    parser.add_argument(
+        "--phase-complete-move-scores-target",
+        help="optional complete move_scores targets by phase, e.g. opening=100,midgame=100,late=100",
+    )
+    parser.add_argument(
+        "--prefer-exact-coverage",
+        action="store_true",
+        help="satisfy complete/exact coverage targets before filling remaining phase rows",
     )
     parser.add_argument(
         "--allow-shortage",
@@ -226,15 +242,20 @@ def default_phase_targets(rows: int) -> dict[str, int]:
     }
 
 
-def parse_phase_targets(value: str | None, *, rows: int) -> dict[str, int]:
+def parse_phase_count_map(
+    value: str | None,
+    *,
+    option_name: str,
+    default: dict[str, int],
+) -> dict[str, int]:
     if value is None:
-        return default_phase_targets(rows)
-    targets = {phase: 0 for phase in PHASES}
+        return dict(default)
+    targets = {phase: default.get(phase, 0) for phase in PHASES}
     seen: set[str] = set()
-    for part in parse_csv_values(value, error_label="phase target list"):
+    for part in parse_csv_values(value, error_label=f"{option_name} list"):
         phase, separator, count_text = part.partition("=")
         if not separator:
-            raise ScriptError("--phase-targets entries must be PHASE=COUNT")
+            raise ScriptError(f"{option_name} entries must be PHASE=COUNT")
         phase = phase.strip()
         if phase not in PHASES:
             raise ScriptError(f"unknown phase target: {phase}")
@@ -248,9 +269,41 @@ def parse_phase_targets(value: str | None, *, rows: int) -> dict[str, int]:
         if count < 0:
             raise ScriptError(f"phase target for {phase} must be non-negative")
         targets[phase] = count
+    return targets
+
+
+def parse_phase_targets(value: str | None, *, rows: int) -> dict[str, int]:
+    targets = parse_phase_count_map(
+        value,
+        option_name="--phase-targets",
+        default=default_phase_targets(rows),
+    )
     if sum(targets.values()) != rows:
         raise ScriptError("--phase-targets total must match --rows")
     return targets
+
+
+def parse_phase_gate_targets(value: str | None, *, option_name: str) -> dict[str, int]:
+    return parse_phase_count_map(
+        value,
+        option_name=option_name,
+        default={phase: 0 for phase in PHASES},
+    )
+
+
+def validate_phase_gate_targets(
+    *,
+    phase_targets: dict[str, int],
+    exact_targets: dict[str, int],
+    complete_targets: dict[str, int],
+) -> None:
+    for phase in PHASES:
+        if exact_targets[phase] > phase_targets[phase]:
+            raise ScriptError(f"--phase-exact-target for {phase} exceeds that phase target")
+        if complete_targets[phase] > phase_targets[phase]:
+            raise ScriptError(
+                f"--phase-complete-move-scores-target for {phase} exceeds that phase target"
+            )
 
 
 def parse_legal_move_buckets(value: str) -> tuple[LegalMoveBucket, ...]:
@@ -297,6 +350,20 @@ def config_from_args(args: argparse.Namespace, invocation: list[str] | None = No
     if args.dataset_root or any(is_dataset_reference(value) for value in raw_label_values):
         root = resolve_dataset_root(args.dataset_root, require_exists=False)
         dataset_root = {"path": str(root.path), "source": root.source}
+    phase_targets = parse_phase_targets(args.phase_targets, rows=args.rows)
+    phase_exact_targets = parse_phase_gate_targets(
+        args.phase_exact_target,
+        option_name="--phase-exact-target",
+    )
+    phase_complete_move_scores_targets = parse_phase_gate_targets(
+        args.phase_complete_move_scores_target,
+        option_name="--phase-complete-move-scores-target",
+    )
+    validate_phase_gate_targets(
+        phase_targets=phase_targets,
+        exact_targets=phase_exact_targets,
+        complete_targets=phase_complete_move_scores_targets,
+    )
     return SampleConfig(
         teacher_labels=teacher_labels,
         exact_labels=exact_labels,
@@ -305,7 +372,10 @@ def config_from_args(args: argparse.Namespace, invocation: list[str] | None = No
         rows=args.rows,
         seed=args.seed,
         split=args.split,
-        phase_targets=parse_phase_targets(args.phase_targets, rows=args.rows),
+        phase_targets=phase_targets,
+        phase_exact_targets=phase_exact_targets,
+        phase_complete_move_scores_targets=phase_complete_move_scores_targets,
+        prefer_exact_coverage=args.prefer_exact_coverage,
         bucket_field=args.bucket_field,
         legal_move_buckets=parse_legal_move_buckets(args.legal_move_buckets),
         empties_bucket_size=args.empties_bucket_size,
@@ -598,11 +668,25 @@ def stable_row_hash(row: PreparedTeacherRow, seed: int) -> str:
     return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
 
+def _phase_exact_counts(rows: Iterable[PreparedTeacherRow]) -> tuple[dict[str, int], dict[str, int]]:
+    exact_counts = {phase: 0 for phase in PHASES}
+    complete_counts = {phase: 0 for phase in PHASES}
+    for row in rows:
+        if row.exact_record is not None:
+            exact_counts[row.phase] += 1
+        if row.has_complete_move_scores:
+            complete_counts[row.phase] += 1
+    return exact_counts, complete_counts
+
+
 def sample_rows(
     rows: list[PreparedTeacherRow],
     *,
     seed: int,
     phase_targets: dict[str, int],
+    phase_exact_targets: dict[str, int],
+    phase_complete_move_scores_targets: dict[str, int],
+    prefer_exact_coverage: bool,
 ) -> tuple[list[PreparedTeacherRow], dict[str, Any]]:
     by_phase_stratum: dict[str, dict[tuple[str, str, str, str, str, str], list[PreparedTeacherRow]]] = {
         phase: collections.defaultdict(list) for phase in PHASES
@@ -622,21 +706,29 @@ def sample_rows(
     phase_selected: collections.Counter[str] = collections.Counter()
     stratum_selected: collections.Counter[str] = collections.Counter()
 
-    for phase in PHASES:
-        strata = by_phase_stratum[phase]
-        ordered_keys = sorted(strata)
-        target = phase_targets[phase]
-        while phase_selected[phase] < target:
+    def select_for_phase(
+        *,
+        phase: str,
+        ordered_keys: list[tuple[str, str, str, str, str, str]],
+        target_count: int,
+        predicate: Any,
+    ) -> None:
+        while phase_selected[phase] < target_count:
             progressed = False
             for key in ordered_keys:
-                if phase_selected[phase] >= target:
+                if phase_selected[phase] >= target_count:
                     break
-                bucket = strata[key]
-                while bucket and bucket[0].board_key in selected_board_keys:
-                    bucket.pop(0)
-                if not bucket:
+                bucket = by_phase_stratum[phase][key]
+                chosen_index = None
+                for index, candidate in enumerate(bucket):
+                    if candidate.board_key in selected_board_keys:
+                        continue
+                    if predicate is None or predicate(candidate):
+                        chosen_index = index
+                        break
+                if chosen_index is None:
                     continue
-                row = bucket.pop(0)
+                row = bucket.pop(chosen_index)
                 selected.append(row)
                 selected_board_keys.add(row.board_key)
                 phase_selected[phase] += 1
@@ -644,6 +736,38 @@ def sample_rows(
                 progressed = True
             if not progressed:
                 break
+
+    for phase in PHASES:
+        strata = by_phase_stratum[phase]
+        ordered_keys = sorted(strata)
+        target = phase_targets[phase]
+        if prefer_exact_coverage:
+            complete_target = min(phase_complete_move_scores_targets[phase], target)
+            select_for_phase(
+                phase=phase,
+                ordered_keys=ordered_keys,
+                target_count=complete_target,
+                predicate=lambda row: row.has_complete_move_scores,
+            )
+            exact_target = min(phase_exact_targets[phase], target)
+            select_for_phase(
+                phase=phase,
+                ordered_keys=ordered_keys,
+                target_count=exact_target,
+                predicate=lambda row: row.has_complete_move_scores,
+            )
+            select_for_phase(
+                phase=phase,
+                ordered_keys=ordered_keys,
+                target_count=exact_target,
+                predicate=lambda row: row.exact_status == "exact_best_only",
+            )
+        select_for_phase(
+            phase=phase,
+            ordered_keys=ordered_keys,
+            target_count=target,
+            predicate=None,
+        )
 
     phase_shortage = {
         phase: max(0, phase_targets[phase] - phase_selected[phase])
@@ -664,9 +788,20 @@ def sample_rows(
                 }
             )
     underfilled.sort(key=lambda item: (-int(item["phase_shortage"]), -int(item["available"]), item["stratum"]))
+    exact_counts, complete_counts = _phase_exact_counts(selected)
+    exact_target_shortage = {
+        phase: max(0, phase_exact_targets[phase] - exact_counts[phase])
+        for phase in PHASES
+    }
+    complete_target_shortage = {
+        phase: max(0, phase_complete_move_scores_targets[phase] - complete_counts[phase])
+        for phase in PHASES
+    }
     return selected, {
         "phase_selected": {phase: phase_selected[phase] for phase in PHASES},
         "phase_shortage": phase_shortage,
+        "phase_exact_target_shortage": exact_target_shortage,
+        "phase_complete_move_scores_target_shortage": complete_target_shortage,
         "stratum_count": len(stratum_available),
         "top_underfilled_strata": underfilled[:20],
     }
@@ -779,9 +914,15 @@ def build_summary(
         "requested_rows": config.rows,
         "selected_rows": len(selected),
         "phase_targets": config.phase_targets,
+        "phase_exact_targets": config.phase_exact_targets,
+        "phase_complete_move_scores_targets": config.phase_complete_move_scores_targets,
         "phase_available_rows": prepare_info["phase_available"],
         "phase_selected_rows": sample_info["phase_selected"],
         "phase_shortage": sample_info["phase_shortage"],
+        "phase_exact_target_shortage": sample_info["phase_exact_target_shortage"],
+        "phase_complete_move_scores_target_shortage": sample_info[
+            "phase_complete_move_scores_target_shortage"
+        ],
         "phase_exact_coverage": distributions["exact_coverage"],
         "phase_complete_move_scores_coverage": distributions["complete_move_scores_coverage"],
         "phase_teacher_exact_disagreement": distributions["teacher_exact_disagreement"],
@@ -803,6 +944,7 @@ def build_summary(
         "teacher_stats": prepare_info["stats"],
         "exact_stats": prepare_info["exact_stats"],
         "allow_shortage": config.allow_shortage,
+        "prefer_exact_coverage": config.prefer_exact_coverage,
         "dataset_root": config.dataset_root,
         "invocation": config.invocation,
     }
@@ -827,6 +969,7 @@ def render_report(summary: dict[str, Any]) -> str:
         f"- no_strength_claim: `{str(summary['no_strength_claim']).lower()}`",
         f"- default_promotion: `{str(summary['default_promotion']).lower()}`",
         f"- allow_shortage: `{str(summary['allow_shortage']).lower()}`",
+        f"- prefer_exact_coverage: `{str(summary['prefer_exact_coverage']).lower()}`",
         f"- split: `{summary['split']}`",
         f"- seed: `{summary['seed']}`",
         "",
@@ -846,6 +989,26 @@ def render_report(summary: dict[str, Any]) -> str:
             f"{summary['phase_exact_coverage'][phase]} | "
             f"{summary['phase_complete_move_scores_coverage'][phase]} | "
             f"{summary['phase_teacher_exact_disagreement'][phase]} |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Exact Coverage Targets",
+            "",
+            "| phase | exact target | exact selected | exact shortage | complete target | complete selected | complete shortage |",
+            "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+        ]
+    )
+    for phase in PHASES:
+        lines.append(
+            "| "
+            f"{phase} | "
+            f"{summary['phase_exact_targets'][phase]} | "
+            f"{summary['phase_exact_coverage'][phase]} | "
+            f"{summary['phase_exact_target_shortage'][phase]} | "
+            f"{summary['phase_complete_move_scores_targets'][phase]} | "
+            f"{summary['phase_complete_move_scores_coverage'][phase]} | "
+            f"{summary['phase_complete_move_scores_target_shortage'][phase]} |"
         )
     lines.extend(
         [
@@ -912,13 +1075,18 @@ def write_text(path: Path, text: str) -> None:
 
 
 def reject_shortage_unless_allowed(config: SampleConfig, sample_info: dict[str, Any]) -> None:
-    shortages = {
-        phase: count
-        for phase, count in sample_info["phase_shortage"].items()
-        if count > 0
-    }
+    shortages: dict[str, int] = {}
+    for phase, count in sample_info["phase_shortage"].items():
+        if count > 0:
+            shortages[f"{phase}.rows"] = count
+    for phase, count in sample_info["phase_exact_target_shortage"].items():
+        if count > 0:
+            shortages[f"{phase}.exact"] = count
+    for phase, count in sample_info["phase_complete_move_scores_target_shortage"].items():
+        if count > 0:
+            shortages[f"{phase}.complete_move_scores"] = count
     if shortages and not config.allow_shortage:
-        formatted = ", ".join(f"{phase}={count}" for phase, count in sorted(shortages.items()))
+        formatted = ", ".join(f"{key}={count}" for key, count in sorted(shortages.items()))
         raise ScriptError(f"phase target shortage ({formatted}); pass --allow-shortage to write a partial subset")
 
 
@@ -928,6 +1096,9 @@ def run(config: SampleConfig) -> dict[str, Any]:
         prepared,
         seed=config.seed,
         phase_targets=config.phase_targets,
+        phase_exact_targets=config.phase_exact_targets,
+        phase_complete_move_scores_targets=config.phase_complete_move_scores_targets,
+        prefer_exact_coverage=config.prefer_exact_coverage,
     )
     reject_shortage_unless_allowed(config, sample_info)
     teacher_output = config.out_dir / "teacher_phase_balanced.jsonl"

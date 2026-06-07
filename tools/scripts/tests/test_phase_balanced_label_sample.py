@@ -167,11 +167,70 @@ class PhaseBalancedLabelSampleTests(unittest.TestCase):
             self.assertEqual(summary["selected_rows"], 6)
             self.assertEqual(summary["phase_selected_rows"], {"opening": 2, "midgame": 2, "late": 2})
             self.assertEqual(summary["phase_shortage"], {"opening": 0, "midgame": 0, "late": 0})
+            self.assertEqual(summary["phase_exact_targets"], {"opening": 0, "midgame": 0, "late": 0})
+            self.assertEqual(
+                summary["phase_complete_move_scores_targets"],
+                {"opening": 0, "midgame": 0, "late": 0},
+            )
+            self.assertEqual(summary["phase_exact_target_shortage"], {"opening": 0, "midgame": 0, "late": 0})
+            self.assertEqual(
+                summary["phase_complete_move_scores_target_shortage"],
+                {"opening": 0, "midgame": 0, "late": 0},
+            )
+            self.assertFalse(summary["prefer_exact_coverage"])
             self.assertTrue(summary["no_strength_claim"])
             self.assertFalse(summary["default_promotion"])
             report = (temp_path / "runs" / "sample" / "report.md").read_text(encoding="utf-8")
             self.assertIn("source_bucket", report)
             self.assertIn("legal_move_count", report)
+            self.assertIn("Exact Coverage Targets", report)
+
+    def test_parser_accepts_phase_exact_target_map(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", fixture_rows())
+
+            config = make_config(
+                temp_path,
+                labels,
+                extra_args=[
+                    "--phase-exact-target",
+                    "opening=1,midgame=0,late=2",
+                    "--phase-complete-move-scores-target",
+                    "opening=1,midgame=0,late=0",
+                ],
+            )
+
+            self.assertEqual(config.phase_exact_targets, {"opening": 1, "midgame": 0, "late": 2})
+            self.assertEqual(
+                config.phase_complete_move_scores_targets,
+                {"opening": 1, "midgame": 0, "late": 0},
+            )
+
+    def test_phase_exact_target_unknown_phase_rejects(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", fixture_rows())
+
+            with self.assertRaises(ScriptError):
+                make_config(
+                    temp_path,
+                    labels,
+                    extra_args=["--phase-exact-target", "early=1"],
+                )
+
+    def test_phase_exact_target_greater_than_phase_target_rejects(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", fixture_rows())
+
+            with self.assertRaises(ScriptError):
+                make_config(
+                    temp_path,
+                    labels,
+                    rows=6,
+                    extra_args=["--phase-exact-target", "opening=3,midgame=0,late=0"],
+                )
 
     def test_same_seed_is_deterministic(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -277,6 +336,143 @@ class PhaseBalancedLabelSampleTests(unittest.TestCase):
                 self.assertIn(row["exact_status"], {"complete_move_scores", "exact_best_only", "no_exact"})
                 self.assertIn(row["teacher_exact_status"], {"in_exact_best", "not_in_exact_best", "no_exact"})
 
+    def test_prefer_exact_coverage_satisfies_complete_target_before_no_exact_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            rows = [row for row in fixture_rows() if str(row["position_id"]).startswith("opening-")]
+            labels = write_jsonl(temp_path / "labels.jsonl", rows)
+            exact = write_jsonl(
+                temp_path / "exact.jsonl",
+                [
+                    exact_row(str(rows[0]["board_text"]), complete=True),
+                    exact_row(str(rows[1]["board_text"]), complete=True),
+                ],
+            )
+
+            summary = sampler.run(
+                make_config(
+                    temp_path,
+                    labels,
+                    exact_labels=exact,
+                    rows=3,
+                    extra_args=[
+                        "--phase-targets",
+                        "opening=3,midgame=0,late=0",
+                        "--phase-exact-target",
+                        "opening=2,midgame=0,late=0",
+                        "--phase-complete-move-scores-target",
+                        "opening=2,midgame=0,late=0",
+                        "--prefer-exact-coverage",
+                    ],
+                )
+            )
+            output = read_jsonl(temp_path / "runs" / "sample" / "teacher_phase_balanced.jsonl")
+
+            self.assertEqual([row["exact_status"] for row in output[:2]], ["complete_move_scores", "complete_move_scores"])
+            self.assertEqual(summary["phase_exact_coverage"]["opening"], 2)
+            self.assertEqual(summary["phase_complete_move_scores_coverage"]["opening"], 2)
+            self.assertEqual(summary["phase_exact_target_shortage"]["opening"], 0)
+            self.assertEqual(summary["phase_complete_move_scores_target_shortage"]["opening"], 0)
+            self.assertTrue(summary["prefer_exact_coverage"])
+
+    def test_prefer_exact_coverage_uses_exact_best_only_when_complete_rows_are_short(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            rows = [row for row in fixture_rows() if str(row["position_id"]).startswith("opening-")]
+            labels = write_jsonl(temp_path / "labels.jsonl", rows)
+            exact = write_jsonl(
+                temp_path / "exact.jsonl",
+                [
+                    exact_row(str(rows[0]["board_text"]), complete=True),
+                    exact_row(str(rows[1]["board_text"]), complete=False),
+                ],
+            )
+
+            summary = sampler.run(
+                make_config(
+                    temp_path,
+                    labels,
+                    exact_labels=exact,
+                    rows=3,
+                    extra_args=[
+                        "--phase-targets",
+                        "opening=3,midgame=0,late=0",
+                        "--phase-exact-target",
+                        "opening=2,midgame=0,late=0",
+                        "--phase-complete-move-scores-target",
+                        "opening=1,midgame=0,late=0",
+                        "--prefer-exact-coverage",
+                    ],
+                )
+            )
+            output = read_jsonl(temp_path / "runs" / "sample" / "teacher_phase_balanced.jsonl")
+
+            self.assertEqual(
+                [row["exact_status"] for row in output[:2]],
+                ["complete_move_scores", "exact_best_only"],
+            )
+            self.assertEqual(summary["phase_exact_coverage"]["opening"], 2)
+            self.assertEqual(summary["phase_complete_move_scores_coverage"]["opening"], 1)
+            self.assertEqual(summary["phase_exact_target_shortage"]["opening"], 0)
+            self.assertEqual(summary["phase_complete_move_scores_target_shortage"]["opening"], 0)
+
+    def test_exact_target_shortage_fails_by_default_before_writing_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            rows = [row for row in fixture_rows() if str(row["position_id"]).startswith("opening-")]
+            labels = write_jsonl(temp_path / "labels.jsonl", rows)
+            exact = write_jsonl(temp_path / "exact.jsonl", [exact_row(str(rows[0]["board_text"]), complete=True)])
+
+            with self.assertRaises(ScriptError):
+                sampler.run(
+                    make_config(
+                        temp_path,
+                        labels,
+                        exact_labels=exact,
+                        rows=3,
+                        extra_args=[
+                            "--phase-targets",
+                            "opening=3,midgame=0,late=0",
+                            "--phase-exact-target",
+                            "opening=2,midgame=0,late=0",
+                            "--prefer-exact-coverage",
+                        ],
+                    )
+                )
+            self.assertFalse((temp_path / "runs" / "sample" / "teacher_phase_balanced.jsonl").exists())
+
+    def test_allow_shortage_writes_exact_target_shortage(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            rows = [row for row in fixture_rows() if str(row["position_id"]).startswith("opening-")]
+            labels = write_jsonl(temp_path / "labels.jsonl", rows)
+            exact = write_jsonl(temp_path / "exact.jsonl", [exact_row(str(rows[0]["board_text"]), complete=True)])
+
+            summary = sampler.run(
+                make_config(
+                    temp_path,
+                    labels,
+                    exact_labels=exact,
+                    rows=3,
+                    extra_args=[
+                        "--phase-targets",
+                        "opening=3,midgame=0,late=0",
+                        "--phase-exact-target",
+                        "opening=2,midgame=0,late=0",
+                        "--prefer-exact-coverage",
+                        "--allow-shortage",
+                    ],
+                )
+            )
+            report = (temp_path / "runs" / "sample" / "report.md").read_text(encoding="utf-8")
+
+            self.assertEqual(summary["selected_rows"], 3)
+            self.assertEqual(summary["phase_exact_coverage"]["opening"], 1)
+            self.assertEqual(summary["phase_exact_target_shortage"]["opening"], 1)
+            self.assertTrue(summary["allow_shortage"])
+            self.assertIn("Exact Coverage Targets", report)
+            self.assertIn("| opening | 2 | 1 | 1 |", report)
+
     def test_duplicate_exact_board_prefers_complete_move_scores(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             temp_path = Path(temp)
@@ -360,6 +556,9 @@ class PhaseBalancedLabelSampleTests(unittest.TestCase):
         )
         self.assertEqual(completed.returncode, 0)
         self.assertIn("--phase-targets", completed.stdout)
+        self.assertIn("--phase-exact-target", completed.stdout)
+        self.assertIn("--phase-complete-move-scores-target", completed.stdout)
+        self.assertIn("--prefer-exact-coverage", completed.stdout)
         self.assertIn("--allow-shortage", completed.stdout)
 
     def test_parse_args_requires_eval_config(self) -> None:

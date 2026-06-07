@@ -124,8 +124,11 @@ The subset builder writes `teacher_phase_balanced.jsonl`, optional
 `exact_phase_balanced.jsonl`, `summary.json`, and `report.md` under the
 repository-local `runs/` directory. It fails by default when requested phase
 targets cannot be filled; pass `--allow-shortage` only for diagnostic probes
-where a partial subset is intentional. It does not change the trainer objective,
-score rows, generated candidate eval behavior, or retained defaults.
+where a partial subset is intentional. Use `--phase-exact-target` and
+`--phase-complete-move-scores-target` to gate phase-specific exact coverage, and
+`--prefer-exact-coverage` when those rows should be selected before the normal
+stratum round-robin fill. It does not change the trainer objective, score rows,
+generated candidate eval behavior, or retained defaults.
 
 The canonical PatternOnly trainer should select its comparison evaluator
 explicitly when invoking root analysis, analyzer candidate discovery, or
