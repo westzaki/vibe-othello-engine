@@ -33,12 +33,12 @@ measurement and were not kept as engine commits.
 Baseline worktree:
 
 ```sh
-git worktree add /private/tmp/vibe-othello-ordering-baseline \
+git worktree add /tmp/vibe-othello-ordering-baseline \
   5d03b7b85f8b9ba301c504dbbb97b1726d157d04
-cmake -S /private/tmp/vibe-othello-ordering-baseline \
-  -B /private/tmp/vibe-othello-ordering-baseline/build \
+cmake -S /tmp/vibe-othello-ordering-baseline \
+  -B /tmp/vibe-othello-ordering-baseline/build \
   -DCMAKE_BUILD_TYPE=Release
-cmake --build /private/tmp/vibe-othello-ordering-baseline/build \
+cmake --build /tmp/vibe-othello-ordering-baseline/build \
   --target othello_search_bench -j 6
 ```
 

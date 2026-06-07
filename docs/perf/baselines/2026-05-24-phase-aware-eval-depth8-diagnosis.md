@@ -65,7 +65,7 @@ the existing match runner:
   --swap-sides true \
   --seed 1 \
   --openings data/openings/smoke_openings.txt \
-  --output /private/tmp/vibe-othello-smoke-openings.jsonl \
+  --output /tmp/vibe-othello-smoke-openings.jsonl \
   --quiet
 ```
 

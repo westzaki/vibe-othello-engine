@@ -25,7 +25,7 @@ Targeted opening subset:
 
 ```sh
 rg "^(g12_p0_5_s0|g27_p0_6_s3|g15_p0_5_s3|g25_p0_6_s1|g0_p0_4_s0|g1_p0_4_s1|g24_p0_6_s0):" \
-  data/openings/eval_regression_openings.txt > /private/tmp/adaptive16_diagnostic_openings.txt
+  data/openings/eval_regression_openings.txt > /tmp/adaptive16_diagnostic_openings.txt
 
 ./build/release/othello_match_runner \
   --black search:depth=5,tt=on,pvs=on,exact=14 \
@@ -33,7 +33,7 @@ rg "^(g12_p0_5_s0|g27_p0_6_s3|g15_p0_5_s3|g25_p0_6_s1|g0_p0_4_s0|g1_p0_4_s1|g24_
   --games 14 \
   --swap-sides true \
   --seed 135031 \
-  --openings /private/tmp/adaptive16_diagnostic_openings.txt \
+  --openings /tmp/adaptive16_diagnostic_openings.txt \
   --output build/release/adaptive16-heavy-diagnostics.jsonl \
   --quiet
 
@@ -144,4 +144,3 @@ subtree shape than a simple ordering failure.
   shapes such as `adaptive16-heavy-g12-ply44`.
 - Inspect parity/region ordering on these fixtures specifically before changing
   the production weights again.
-
