@@ -175,6 +175,7 @@ void print_search_result_header() {
               << "  " << std::setw(12) << "tt_min_probe"
               << "  " << std::setw(12) << "tt_min_store"
               << "  " << std::setw(9) << "lazy_ord"
+              << "  " << std::setw(10) << "shallow_tt"
               << "  " << std::setw(3) << "pvs"
               << "  " << std::setw(3) << "asp" << "  " << std::setw(10) << "asp_window"
               << "  " << std::setw(11) << "asp_max_re"
@@ -187,7 +188,8 @@ void print_search_result_header() {
                  "  tt_lookups  tt_hits  tt_hit_rate  tt_stores  tt_leaf_stores"
                  "  tt_leaf_skip  tt_probe_skip  tt_store_skip  tt_overwrites"
                  "  tt_collisions  tt_rejected_stores  tt_order_probes  tt_order_hits"
-                 "  tt_order_used  pvs_scouts  pvs_researches  pvs_scout_cutoffs"
+                 "  tt_order_used  shallow_tt_order_probes  shallow_tt_order_hits"
+                 "  shallow_tt_order_used  pvs_scouts  pvs_researches  pvs_scout_cutoffs"
                  "  asp_searches  asp_researches  asp_fail_lows  asp_fail_highs  asp_fallbacks"
                  "  ord_builds  lazy_hits  lazy_cuts  scored_saved  pref_legal  pref_beta_cut"
                  "  dyn_nodes  dyn_moves"
@@ -217,6 +219,8 @@ void print_search_result(const SearchBenchmarkResult& result) {
               << (result.store_leaf_tt_entries ? "on" : "off") << "  " << std::setw(3)
               << result.tt_min_probe_depth << "  " << std::setw(12) << result.tt_min_store_depth
               << "  " << std::setw(9) << (result.use_lazy_first_move_ordering ? "on" : "off")
+              << "  " << std::setw(10)
+              << (result.use_shallow_tt_move_ordering_hint ? "on" : "off")
               << "  " << std::setw(3) << (result.use_pvs ? "on" : "off") << "  " << std::setw(3)
               << (result.use_aspiration_window ? "on" : "off") << "  " << std::right
               << std::setw(10) << result.aspiration_window << "  " << std::setw(11)
@@ -254,6 +258,9 @@ void print_search_result(const SearchBenchmarkResult& result) {
               << result.total_stats.tt_move_ordering_probes << "  " << std::setw(9)
               << result.total_stats.tt_move_ordering_hits << "  " << std::setw(9)
               << result.total_stats.tt_move_ordering_used << "  " << std::setw(9)
+              << result.total_stats.shallow_tt_move_ordering_probes << "  " << std::setw(9)
+              << result.total_stats.shallow_tt_move_ordering_hits << "  " << std::setw(9)
+              << result.total_stats.shallow_tt_move_ordering_used << "  " << std::setw(9)
               << result.total_stats.pvs_scouts << "  " << std::setw(14)
               << result.total_stats.pvs_researches << "  " << std::setw(17)
               << result.total_stats.pvs_scout_cutoffs << "  " << std::setw(9)
@@ -281,6 +288,7 @@ void print_position_result_header() {
         << "  " << std::setw(12) << "tt_min_probe"
         << "  " << std::setw(12) << "tt_min_store"
         << "  " << std::setw(9) << "lazy_ord"
+        << "  " << std::setw(10) << "shallow_tt"
         << "  " << std::setw(3) << "pvs"
         << "  " << std::setw(3) << "asp" << "  " << std::setw(10) << "asp_window"
         << "  " << std::setw(11) << "asp_max_re"
@@ -294,6 +302,7 @@ void print_position_result_header() {
            "  tt_lookups  tt_hits  tt_hit_rate  tt_stores  tt_leaf_stores"
            "  tt_leaf_skip  tt_probe_skip  tt_store_skip  tt_overwrites"
            "  tt_collisions  tt_rejected_stores  tt_order_probes  tt_order_hits  tt_order_used"
+           "  shallow_tt_order_probes  shallow_tt_order_hits  shallow_tt_order_used"
            "  pvs_scouts  pvs_researches  pvs_scout_cutoffs"
            "  asp_searches  asp_researches  asp_fail_lows  asp_fail_highs  asp_fallbacks"
            "  ord_builds  lazy_hits  lazy_cuts  scored_saved  pref_legal  pref_beta_cut"
@@ -311,6 +320,8 @@ void print_position_result(const PositionBenchmarkResult& result) {
               << (result.store_leaf_tt_entries ? "on" : "off") << "  " << std::setw(3)
               << result.tt_min_probe_depth << "  " << std::setw(12) << result.tt_min_store_depth
               << "  " << std::setw(9) << (result.use_lazy_first_move_ordering ? "on" : "off")
+              << "  " << std::setw(10)
+              << (result.use_shallow_tt_move_ordering_hint ? "on" : "off")
               << "  " << std::setw(3) << (result.use_pvs ? "on" : "off") << "  " << std::setw(3)
               << (result.use_aspiration_window ? "on" : "off") << "  " << std::right
               << std::setw(10) << result.aspiration_window << "  " << std::setw(11)
@@ -348,6 +359,9 @@ void print_position_result(const PositionBenchmarkResult& result) {
               << result.total_stats.tt_move_ordering_probes << "  " << std::setw(9)
               << result.total_stats.tt_move_ordering_hits << "  " << std::setw(9)
               << result.total_stats.tt_move_ordering_used << "  " << std::setw(9)
+              << result.total_stats.shallow_tt_move_ordering_probes << "  " << std::setw(9)
+              << result.total_stats.shallow_tt_move_ordering_hits << "  " << std::setw(9)
+              << result.total_stats.shallow_tt_move_ordering_used << "  " << std::setw(9)
               << result.total_stats.pvs_scouts << "  " << std::setw(14)
               << result.total_stats.pvs_researches << "  " << std::setw(17)
               << result.total_stats.pvs_scout_cutoffs << "  " << std::setw(9)
@@ -456,6 +470,9 @@ void write_json_search_stats_fields(JsonObjectWriter& writer, const othello::Sea
     writer.uint_field("tt_order_probes", stats.tt_move_ordering_probes);
     writer.uint_field("tt_order_hits", stats.tt_move_ordering_hits);
     writer.uint_field("tt_order_used", stats.tt_move_ordering_used);
+    writer.uint_field("shallow_tt_order_probes", stats.shallow_tt_move_ordering_probes);
+    writer.uint_field("shallow_tt_order_hits", stats.shallow_tt_move_ordering_hits);
+    writer.uint_field("shallow_tt_order_used", stats.shallow_tt_move_ordering_used);
     writer.uint_field("ordering_full_builds", stats.ordering_full_builds);
     writer.uint_field("ordering_lazy_first_hits", stats.ordering_lazy_first_hits);
     writer.uint_field("ordering_lazy_cut_before_full_sort",
@@ -517,6 +534,8 @@ void write_search_jsonl(const SearchBenchmarkResult& result, PositionSet positio
     writer.int_field("tt_min_probe_depth", result.tt_min_probe_depth);
     writer.int_field("tt_min_store_depth", result.tt_min_store_depth);
     writer.bool_field("lazy_first_move_ordering", result.use_lazy_first_move_ordering);
+    writer.bool_field("shallow_tt_move_ordering_hint",
+                      result.use_shallow_tt_move_ordering_hint);
     writer.bool_field("pvs", result.use_pvs);
     writer.bool_field("aspiration", result.use_aspiration_window);
     writer.int_field("aspiration_window", result.aspiration_window);
@@ -567,6 +586,8 @@ void write_iterative_depth_jsonl(const IterativeDepthBenchmarkResult& result,
     writer.int_field("tt_min_probe_depth", result.tt_min_probe_depth);
     writer.int_field("tt_min_store_depth", result.tt_min_store_depth);
     writer.bool_field("lazy_first_move_ordering", result.use_lazy_first_move_ordering);
+    writer.bool_field("shallow_tt_move_ordering_hint",
+                      result.use_shallow_tt_move_ordering_hint);
     writer.bool_field("pvs", result.use_pvs);
     writer.bool_field("aspiration", result.use_aspiration_window);
     writer.int_field("aspiration_window", result.aspiration_window);
@@ -610,6 +631,8 @@ void write_position_jsonl(const PositionBenchmarkResult& result, PositionSet pos
     writer.int_field("tt_min_probe_depth", result.tt_min_probe_depth);
     writer.int_field("tt_min_store_depth", result.tt_min_store_depth);
     writer.bool_field("lazy_first_move_ordering", result.use_lazy_first_move_ordering);
+    writer.bool_field("shallow_tt_move_ordering_hint",
+                      result.use_shallow_tt_move_ordering_hint);
     writer.bool_field("pvs", result.use_pvs);
     writer.bool_field("aspiration", result.use_aspiration_window);
     writer.int_field("aspiration_window", result.aspiration_window);
@@ -673,6 +696,7 @@ void print_position_summary_header() {
     std::cout << std::left << std::setw(10) << "mode" << "  " << std::setw(3) << "tt"
               << "  " << std::setw(13) << "tt_store_leaf" << "  " << std::setw(12) << "tt_min_probe"
               << "  " << std::setw(12) << "tt_min_store" << "  " << std::setw(9) << "lazy_ord"
+              << "  " << std::setw(10) << "shallow_tt"
               << "  " << std::setw(3) << "pvs" << "  " << std::setw(3) << "asp"
               << "  exact_profile  exact_pos  exact_roots  depth  positions  total_elapsed_ms"
                  "  avg_ms_per_position"
@@ -695,6 +719,7 @@ void print_position_summary(std::span<const PositionBenchmarkResult> results, Se
     int tt_min_probe_depth = 0;
     int tt_min_store_depth = 0;
     bool use_lazy_first_move_ordering = false;
+    bool use_shallow_tt_move_ordering_hint = false;
     bool use_pvs = false;
     bool use_aspiration_window = false;
     std::uint64_t exact_root_positions = 0;
@@ -710,6 +735,7 @@ void print_position_summary(std::span<const PositionBenchmarkResult> results, Se
         tt_min_probe_depth = result.tt_min_probe_depth;
         tt_min_store_depth = result.tt_min_store_depth;
         use_lazy_first_move_ordering = result.use_lazy_first_move_ordering;
+        use_shallow_tt_move_ordering_hint = result.use_shallow_tt_move_ordering_hint;
         use_pvs = result.use_pvs;
         use_aspiration_window = result.use_aspiration_window;
         if (result.exact_root) {
@@ -734,6 +760,7 @@ void print_position_summary(std::span<const PositionBenchmarkResult> results, Se
               << (store_leaf_tt_entries ? "on" : "off") << "  " << std::setw(12)
               << tt_min_probe_depth << "  " << std::setw(12) << tt_min_store_depth << "  "
               << std::setw(9) << (use_lazy_first_move_ordering ? "on" : "off") << "  "
+              << std::setw(10) << (use_shallow_tt_move_ordering_hint ? "on" : "off") << "  "
               << std::setw(3) << (use_pvs ? "on" : "off") << "  " << std::setw(3)
               << (use_aspiration_window ? "on" : "off") << "  " << std::right << std::setw(13)
               << exact_root_profile << "  " << std::setw(9) << exact_root_positions << "  "

@@ -43,6 +43,7 @@ void print_usage(std::string_view program_name) {
                  "[,tt_entries=N][,tt_store_leaf=on|off]"
                  "[,tt_min_probe_depth=N][,tt_min_store_depth=N]"
                  "[,lazy_first_move_ordering=on|off]"
+                 "[,shallow_tt_move_ordering_hint=on|off]"
                  "[,aspiration_profile=fixed|score-delta-aware]"
                  "[,eval_config=PATH]\n"
               << "  external:NAME\n"

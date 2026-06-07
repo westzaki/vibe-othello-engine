@@ -258,6 +258,11 @@ not treat it as an exact endgame TT setting.
 `--tt-min-probe-depth N` and `--tt-min-store-depth N` skip midgame TT probes or
 stores below a remaining search depth. The default `0` preserves the normal
 policy, including depth-0 probes and leaf stores when `--tt-store-leaf on`.
+
+`--shallow-tt-move-ordering-hint on|off` controls an opt-in midgame ordering
+experiment. Cutoff probes still require a TT entry with sufficient depth, but
+when this flag is on, a shallower matching TT entry may provide only a best-move
+hint for move ordering. Keep it off for existing baseline comparisons.
 These flags are intended for TT overhead ablation; keep best move, score, PV,
 checksum, node count, TT stats, and wall-clock in the comparison table.
 

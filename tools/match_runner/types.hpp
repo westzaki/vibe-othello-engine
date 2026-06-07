@@ -27,6 +27,7 @@ struct SearchPlayerOptions {
     int tt_min_probe_depth = SearchOptions{}.tt_min_probe_depth;
     int tt_min_store_depth = SearchOptions{}.tt_min_store_depth;
     bool use_lazy_first_move_ordering = SearchOptions{}.use_lazy_first_move_ordering;
+    bool use_shallow_tt_move_ordering_hint = SearchOptions{}.use_shallow_tt_move_ordering_hint;
     int exact_endgame_empty_threshold = SearchOptions{}.exact_endgame_empty_threshold;
     ExactEndgameRootPolicy exact_endgame_root_policy = SearchOptions{}.exact_endgame_root_policy;
     std::optional<std::size_t> exact_endgame_tt_entries = SearchOptions{}.exact_endgame_tt_entries;
@@ -90,6 +91,9 @@ struct ExactRootTraceStats {
     std::uint64_t tt_move_ordering_probes = 0;
     std::uint64_t tt_move_ordering_hits = 0;
     std::uint64_t tt_move_ordering_used = 0;
+    std::uint64_t shallow_tt_move_ordering_probes = 0;
+    std::uint64_t shallow_tt_move_ordering_hits = 0;
+    std::uint64_t shallow_tt_move_ordering_used = 0;
     std::uint64_t ordering_full_builds = 0;
     std::uint64_t ordering_lazy_first_hits = 0;
     std::uint64_t ordering_lazy_cut_before_full_sort = 0;

@@ -131,6 +131,7 @@ bool promote_preferred_move(OrderedMoveIndexes& candidates, Square preferred_mov
 OrderedMoveIndexes ordered_legal_move_indexes(const SearchPosition& position, Bitboard moves,
                                               int depth, std::optional<Square> preferred_move,
                                               std::optional<Square> tt_preferred_move,
+                                              bool tt_preferred_move_from_shallow,
                                               bool dynamic_move_ordering,
                                               SearchContext& context) noexcept {
     OrderedMoveIndexes candidates =
@@ -139,6 +140,9 @@ OrderedMoveIndexes ordered_legal_move_indexes(const SearchPosition& position, Bi
     if (tt_preferred_move.has_value() && (moves & tt_preferred_move->bit()) != 0 &&
         promote_preferred_move(candidates, *tt_preferred_move)) {
         ++context.stats.tt_move_ordering_used;
+        if (tt_preferred_move_from_shallow) {
+            ++context.stats.shallow_tt_move_ordering_used;
+        }
     }
 
     if (preferred_move.has_value() && (moves & preferred_move->bit()) != 0) {

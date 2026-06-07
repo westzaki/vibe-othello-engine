@@ -1055,12 +1055,44 @@ TEST_CASE("Midgame transposition table lookup keeps mode and evaluation scopes s
 
     REQUIRE(table.store(hash, fixed_scope, 4, 3, 42, -100, 100, std::nullopt, stats));
 
-    CHECK_FALSE(table.lookup(hash, iterative_scope, 3, -100, 100, false, stats).cutoff.has_value());
     CHECK_FALSE(
-        table.lookup(hash, other_eval_scope, 3, -100, 100, false, stats).cutoff.has_value());
-    const auto scoped = table.lookup(hash, fixed_scope, 3, -100, 100, false, stats);
+        table.lookup(hash, iterative_scope, 3, -100, 100, false, false, stats).cutoff.has_value());
+    CHECK_FALSE(
+        table.lookup(hash, other_eval_scope, 3, -100, 100, false, false, stats)
+            .cutoff.has_value());
+    const auto scoped = table.lookup(hash, fixed_scope, 3, -100, 100, false, false, stats);
     REQUIRE(scoped.cutoff.has_value());
     CHECK(scoped.cutoff->score == 42);
+}
+
+TEST_CASE("Midgame TT shallow best move hints remain ordering-only and opt-in", "[search]") {
+    othello::search_detail::TranspositionTable table{othello::search_detail::SearchEngineOptions{
+        .use_transposition_table = true,
+        .transposition_table_entries = 4,
+    }};
+    othello::SearchStats stats;
+    constexpr othello::ZobristHash hash = 0x1234;
+    constexpr othello::search_detail::TranspositionScope scope{
+        .mode = othello::SearchMode::Iterative,
+        .eval_identity = 17,
+    };
+    const othello::Square best_move = othello::test::square("d3");
+
+    REQUIRE(table.store(hash, scope, 4, 1, 42, -100, 100, best_move, stats));
+
+    const auto without_shallow =
+        table.lookup(hash, scope, 3, -100, 100, true, false, stats);
+    CHECK_FALSE(without_shallow.cutoff.has_value());
+    CHECK_FALSE(without_shallow.best_move_hint.has_value());
+
+    const auto with_shallow = table.lookup(hash, scope, 3, -100, 100, true, true, stats);
+    CHECK_FALSE(with_shallow.cutoff.has_value());
+    REQUIRE(with_shallow.best_move_hint.has_value());
+    CHECK(*with_shallow.best_move_hint == best_move);
+    CHECK(with_shallow.best_move_hint_from_shallow_entry);
+    CHECK(stats.tt_hits == 0);
+    CHECK(stats.shallow_tt_move_ordering_probes == 1);
+    CHECK(stats.shallow_tt_move_ordering_hits == 1);
 }
 
 TEST_CASE("Midgame transposition table updates same scoped hash regardless of generation",
@@ -1079,7 +1111,7 @@ TEST_CASE("Midgame transposition table updates same scoped hash regardless of ge
     REQUIRE(table.store(hash, scope, 20, 4, 42, -100, 100, std::nullopt, stats));
     REQUIRE(table.store(hash, scope, 1, 1, 7, -100, 100, std::nullopt, stats));
 
-    const auto scoped = table.lookup(hash, scope, 1, -100, 100, false, stats);
+    const auto scoped = table.lookup(hash, scope, 1, -100, 100, false, false, stats);
     REQUIRE(scoped.cutoff.has_value());
     CHECK(scoped.cutoff->score == 7);
     CHECK(stats.tt_overwrites == 1);
@@ -1396,6 +1428,43 @@ TEST_CASE("Shallow TT policy composes with lazy first-move ordering", "[search]"
     CHECK(combined.stats.ordering_lazy_first_hits > 0);
     CHECK(combined.stats.ordering_lazy_cut_before_full_sort > 0);
     CHECK(combined.stats.ordering_scored_moves_saved > 0);
+}
+
+TEST_CASE("Shallow TT move ordering hints are opt-in", "[search]") {
+    CHECK_FALSE(othello::SearchOptions{}.use_shallow_tt_move_ordering_hint);
+
+    const auto board = othello::apply_move(Board::initial(), othello::test::square("d3"));
+    REQUIRE(board.has_value());
+
+    const othello::SearchOptions baseline_options{
+        .max_depth = 6,
+        .use_transposition_table = true,
+        .exact_endgame_empty_threshold = 0,
+        .use_pvs = true,
+        .use_aspiration_window = true,
+    };
+    othello::SearchOptions shallow_hint_options = baseline_options;
+    shallow_hint_options.use_lazy_first_move_ordering = true;
+    shallow_hint_options.use_shallow_tt_move_ordering_hint = true;
+
+    const othello::SearchResult baseline = othello::search_iterative(*board, baseline_options);
+    const othello::SearchResult shallow_hint =
+        othello::search_iterative(*board, shallow_hint_options);
+
+    CHECK(shallow_hint.best_move == baseline.best_move);
+    CHECK(shallow_hint.score == baseline.score);
+    CHECK(shallow_hint.depth == baseline.depth);
+    CHECK(shallow_hint.stats.shallow_tt_move_ordering_probes > 0);
+    CHECK(shallow_hint.stats.shallow_tt_move_ordering_hits > 0);
+    CHECK(shallow_hint.stats.shallow_tt_move_ordering_used > 0);
+    CHECK(shallow_hint.stats.shallow_tt_move_ordering_hits <=
+          shallow_hint.stats.shallow_tt_move_ordering_probes);
+    CHECK(shallow_hint.stats.shallow_tt_move_ordering_used <=
+          shallow_hint.stats.shallow_tt_move_ordering_hits);
+    CHECK(shallow_hint.stats.tt_move_ordering_hits >=
+          shallow_hint.stats.shallow_tt_move_ordering_hits);
+    CHECK(shallow_hint.stats.tt_move_ordering_used >=
+          shallow_hint.stats.shallow_tt_move_ordering_used);
 }
 
 TEST_CASE("Transposition best move ordering preserves fixed-depth search result", "[search]") {

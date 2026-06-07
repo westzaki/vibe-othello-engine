@@ -43,6 +43,7 @@ struct TranspositionScope {
 struct TranspositionLookup {
     std::optional<NodeResult> cutoff;
     std::optional<Square> best_move_hint;
+    bool best_move_hint_from_shallow_entry = false;
 };
 
 [[nodiscard]] constexpr std::uint32_t generation_age(std::uint32_t current_generation,
@@ -116,6 +117,7 @@ public:
 
     [[nodiscard]] TranspositionLookup lookup(ZobristHash hash, TranspositionScope scope, int depth,
                                              int alpha, int beta, bool collect_best_move_hint,
+                                             bool allow_shallow_best_move_hint,
                                              SearchStats& stats) const noexcept {
         if (buckets_ == nullptr) {
             return {};
@@ -132,9 +134,7 @@ public:
             }
         }
 
-        // The same depth guard is used for cutoff and ordering hints. A shallower
-        // hint would be correctness-safe, but can perturb iterative search behavior.
-        if (matching_entry == nullptr || matching_entry->depth < depth) {
+        if (matching_entry == nullptr) {
             if (collect_best_move_hint) {
                 ++stats.tt_move_ordering_probes;
             }
@@ -142,7 +142,8 @@ public:
         }
 
         const TranspositionEntry& entry = *matching_entry;
-        if (proves_cutoff(entry.bound, entry.score, alpha, beta)) {
+        const bool depth_sufficient = entry.depth >= depth;
+        if (depth_sufficient && proves_cutoff(entry.bound, entry.score, alpha, beta)) {
             record_hit(stats, entry.bound);
             return TranspositionLookup{.cutoff = node_result_from_entry(entry)};
         }
@@ -152,7 +153,19 @@ public:
         }
 
         ++stats.tt_move_ordering_probes;
-        return TranspositionLookup{.best_move_hint = best_move_hint_from_entry(entry, stats)};
+        if (!depth_sufficient) {
+            if (!allow_shallow_best_move_hint) {
+                return {};
+            }
+            ++stats.shallow_tt_move_ordering_probes;
+            return TranspositionLookup{
+                .best_move_hint = best_move_hint_from_entry(
+                    entry, stats.tt_move_ordering_hits, &stats.shallow_tt_move_ordering_hits),
+                .best_move_hint_from_shallow_entry = true};
+        }
+
+        return TranspositionLookup{.best_move_hint = best_move_hint_from_entry(
+                                       entry, stats.tt_move_ordering_hits)};
     }
 
     bool store(ZobristHash hash, TranspositionScope scope, std::uint32_t generation, int depth,
@@ -241,7 +254,8 @@ private:
     }
 
     [[nodiscard]] static std::optional<Square>
-    best_move_hint_from_entry(const TranspositionEntry& entry, SearchStats& stats) noexcept {
+    best_move_hint_from_entry(const TranspositionEntry& entry, std::uint64_t& hits,
+                              std::uint64_t* shallow_hits = nullptr) noexcept {
         if (entry.best_move_index < Square::min_index ||
             entry.best_move_index > Square::max_index) {
             return std::nullopt;
@@ -252,7 +266,10 @@ private:
             return std::nullopt;
         }
 
-        ++stats.tt_move_ordering_hits;
+        ++hits;
+        if (shallow_hits != nullptr) {
+            ++*shallow_hits;
+        }
         return best_move;
     }
 

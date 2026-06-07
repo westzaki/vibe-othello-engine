@@ -40,6 +40,7 @@ should_use_dynamic_move_ordering(bool enabled, std::size_t move_count, int depth
                                                             Bitboard moves, int depth,
                                                             std::optional<Square> preferred_move,
                                                             std::optional<Square> tt_preferred_move,
+                                                            bool tt_preferred_move_from_shallow,
                                                             bool dynamic_move_ordering,
                                                             SearchContext& context) noexcept;
 

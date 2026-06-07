@@ -43,6 +43,7 @@ using Clock = std::chrono::steady_clock;
             .tt_min_probe_depth = options.tt_min_probe_depth,
             .tt_min_store_depth = options.tt_min_store_depth,
             .use_lazy_first_move_ordering = options.use_lazy_first_move_ordering,
+            .use_shallow_tt_move_ordering_hint = options.use_shallow_tt_move_ordering_hint,
             .exact_endgame_empty_threshold = options.exact_endgame_empty_threshold,
             .use_pvs = options.use_pvs,
             .use_aspiration_window = options.use_aspiration_window,
@@ -138,6 +139,13 @@ void print_candidate_stats(const SearchStats& stats, std::string_view indent) {
               << '\n'
               << indent << "preferred_move_beta_cut_count: " << stats.preferred_move_beta_cut_count
               << '\n'
+              << indent
+              << "shallow_tt_move_ordering_probes: "
+              << stats.shallow_tt_move_ordering_probes << '\n'
+              << indent << "shallow_tt_move_ordering_hits: "
+              << stats.shallow_tt_move_ordering_hits << '\n'
+              << indent << "shallow_tt_move_ordering_used: "
+              << stats.shallow_tt_move_ordering_used << '\n'
               << indent << "aspiration_searches: " << stats.aspiration_searches << '\n'
               << indent << "aspiration_researches: " << stats.aspiration_researches << '\n'
               << indent << "aspiration_fail_lows: " << stats.aspiration_fail_lows << '\n'

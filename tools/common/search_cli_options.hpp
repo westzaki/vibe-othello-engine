@@ -20,6 +20,7 @@ struct SearchCliOptions {
     int tt_min_probe_depth = SearchOptions{}.tt_min_probe_depth;
     int tt_min_store_depth = SearchOptions{}.tt_min_store_depth;
     std::optional<bool> use_lazy_first_move_ordering;
+    std::optional<bool> use_shallow_tt_move_ordering_hint;
     std::optional<std::size_t> exact_endgame_tt_entries = SearchOptions{}.exact_endgame_tt_entries;
     int aspiration_window = SearchOptions{}.aspiration_window;
     int aspiration_max_researches = SearchOptions{}.aspiration_max_researches;

@@ -119,6 +119,9 @@ struct SearchOptions {
     // Try a legal PV/root/TT preferred move before building the full midgame
     // ordering list. Default off preserves the existing eager ordering policy.
     bool use_lazy_first_move_ordering = false;
+    // Allow a shallower matching TT entry to provide only a best-move ordering
+    // hint. Cutoff lookups still require entry.depth >= requested depth.
+    bool use_shallow_tt_move_ordering_hint = false;
     // Root-only exact endgame cutoff by empty square count for FixedThreshold.
     // Values <= 0 disable root exact solving for every root policy.
     int exact_endgame_empty_threshold = 12;
