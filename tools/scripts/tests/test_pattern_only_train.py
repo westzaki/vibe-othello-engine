@@ -12,7 +12,7 @@ from unittest import mock
 SCRIPT_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPT_DIR))
 
-import regularized_pairwise_pattern_train as trainer  # noqa: E402
+import pattern_only_train as trainer  # noqa: E402
 from common import ScriptError  # noqa: E402
 
 
@@ -140,7 +140,7 @@ def make_config(
         args.extend(extra_args)
     return trainer.config_from_args(
         trainer.parse_args(args),
-        invocation=["regularized_pairwise_pattern_train.py", *args],
+        invocation=["pattern_only_train.py", *args],
     )
 
 

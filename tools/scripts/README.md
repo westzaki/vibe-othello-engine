@@ -37,7 +37,7 @@ script.
 | `external_teacher_label_workflow.py` | current | Generate teacher-label JSONL from external engines. | Current teacher-label entrypoint and a dependency of `teacher_dataset_build.py`. |
 | `match_summary.py` | current | Summarize C++ match-runner JSONL. | Shared by current evidence, match, and base/head workflows. |
 | `ntest_teacher_smoke.py` | current | Run a local NTest teacher-label smoke and estimate 300K run feasibility. | Operational preflight before overnight NTest teacher dataset generation; does not make strength claims. |
-| `regularized_pairwise_pattern_train.py` | current / canonical | Train phase-specific PatternOnly tables from exact-aware listwise teacher/exact labels. | Canonical current pattern trainer for new experiments; owns the shared analyzer cache/dedup/parallel workflow. |
+| `pattern_only_train.py` | current / canonical | Train phase-specific PatternOnly tables from exact-aware listwise teacher/exact labels. | Canonical current pattern trainer for new experiments; owns the shared analyzer cache/dedup/parallel workflow. |
 | `teacher_dataset_build.py` | current | Build reusable position shards, manifests, splits, teacher labels, and exact overlap labels under a dataset root. | Recommended durable dataset-builder entrypoint for pattern-first work. |
 | `teacher_label_mistake_mining.py` | current | Mine evaluator move-choice mistakes against validated teacher labels. | Current pattern diagnostics for teacher-vs-engine disagreement and vocabulary gaps. |
 
@@ -99,7 +99,7 @@ optional phases. The script is orchestration only: it uses existing C++ tools
 for rule validation and exact labels, and it does not require external engines
 in CI.
 
-For new pattern experiments, use `regularized_pairwise_pattern_train.py` by
+For new pattern experiments, use `pattern_only_train.py` by
 default. It is the canonical current trainer because it supports broad
 phase-specific PatternOnly tables, regularization, exact-aware listwise target
 construction, deterministic validation summaries, and the shared analyzer
@@ -125,7 +125,7 @@ Train PatternOnly listwise pattern tables when the goal is to improve the
 pattern objective directly rather than tune scalar residual weights:
 
 ```sh
-python3 tools/scripts/regularized_pairwise_pattern_train.py \
+python3 tools/scripts/pattern_only_train.py \
   --teacher-labels dataset:teacher.ntest_depth26_2027:train \
   --exact-labels dataset:teacher.ntest_depth26_2027:exact_teacher2000,dataset:teacher.ntest_depth26_2027:exact_extra30 \
   --eval-config data/eval/current_default.eval \

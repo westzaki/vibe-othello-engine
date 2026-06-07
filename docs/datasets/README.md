@@ -31,7 +31,7 @@ Then edit `[datasets].root`. The local config is ignored by git.
 Use `dataset:relative/path` to read a file below the dataset root:
 
 ```sh
-python3 tools/scripts/regularized_pairwise_pattern_train.py \
+python3 tools/scripts/pattern_only_train.py \
   --dataset-root /path/to/vibe-othello-datasets \
   --teacher-labels dataset:teacher/ntest-depth26-2027/labels/ntest26/train.jsonl \
   --eval-config data/eval/current_default.eval \
@@ -43,7 +43,7 @@ python3 tools/scripts/regularized_pairwise_pattern_train.py \
 Catalog references use the local TOML entry shape:
 
 ```sh
-python3 tools/scripts/regularized_pairwise_pattern_train.py \
+python3 tools/scripts/pattern_only_train.py \
   --teacher-labels dataset:teacher.ntest_depth26_2027:train \
   --exact-labels dataset:teacher.ntest_depth26_2027:exact_teacher2000 \
   --eval-config data/eval/current_default.eval \
@@ -96,7 +96,7 @@ of committed docs.
 
 ## Current Script Support
 
-- `tools/scripts/regularized_pairwise_pattern_train.py` is the canonical
+- `tools/scripts/pattern_only_train.py` is the canonical
   current PatternOnly listwise trainer, requires explicit `--eval-config`, and
   supports `--dataset-root` for `--teacher-labels` and `--exact-labels` entries
   that start with `dataset:`.
@@ -117,7 +117,7 @@ required in CI.
 
 Historical dataset migration reports may mention removed transitional pattern
 trainer entry points. Treat those command blocks as provenance only; active
-pattern training should use `regularized_pairwise_pattern_train.py` and the
+pattern training should use `pattern_only_train.py` and the
 shared helpers under `tools/scripts/pattern_training/`.
 
 ## Teacher Dataset Builder
