@@ -73,7 +73,7 @@ TEST_CASE("Trainer golden TSV keeps root preference sign after C++ load",
     const std::filesystem::path temp_dir = unique_temp_dir("trainer-golden-runtime-sign");
     constexpr std::string_view golden_table =
         "# schema_version: pattern_table.v1\n"
-        "# generated_by: tools/scripts/regularized_pairwise_pattern_train.py\n"
+        "# generated_by: tools/scripts/pattern_only_train.py\n"
         "# fixture: quantization_roundtrip\n"
         "edge_8\t2131\t5\n";
     write_text_file(temp_dir / "tables" / "opening.tsv", golden_table);

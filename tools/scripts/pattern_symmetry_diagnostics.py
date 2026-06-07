@@ -504,7 +504,7 @@ def symmetrize_pattern_table(
 
 
 def run_synthetic_transform_diagnostic() -> dict[str, Any]:
-    import regularized_pairwise_pattern_train as trainer
+    import pattern_only_train as trainer
 
     legal_moves = trainer.legal_moves_for_board(SYMMETRY_DIAGNOSTIC_BOARD)
     preferred_child = trainer.apply_move_to_board(SYMMETRY_DIAGNOSTIC_BOARD, SYMMETRY_TEACHER_MOVE)
