@@ -24,7 +24,8 @@ using hash_detail::hash_after_pass;
                                       SearchContext& context) noexcept {
     ++context.stats.eval_calls;
     return evaluation_detail::evaluate_with_config(position.player, position.opponent_discs,
-                                                   context.evaluation_config);
+                                                   context.evaluation_config,
+                                                   context.evaluation_fast_path_phases);
 }
 
 [[nodiscard]] TranspositionLookup probe_transposition(SearchContext& context, ZobristHash hash,

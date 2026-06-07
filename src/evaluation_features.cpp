@@ -207,6 +207,11 @@ EvaluationScratch make_evaluation_scratch(Bitboard player, Bitboard opponent_dis
     };
 }
 
+bool game_over_for_bitboards(Bitboard player, Bitboard opponent_discs) noexcept {
+    return legal_moves_for_bitboards(player, opponent_discs) == 0 &&
+           legal_moves_for_bitboards(opponent_discs, player) == 0;
+}
+
 int disc_difference_score(const EvaluationScratch& scratch) noexcept {
     return std::popcount(scratch.player) - std::popcount(scratch.opponent);
 }
