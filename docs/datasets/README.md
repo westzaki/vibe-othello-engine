@@ -104,6 +104,10 @@ of committed docs.
   phase-balanced teacher/exact subsets from reusable labels, supports
   `--dataset-root` for `--teacher-labels` and `--exact-labels`, and writes only
   under `runs/`.
+- `tools/scripts/exact_label_workflow.py` can build phase-aware exact overlap
+  labels from teacher labels, supports `--dataset-root` for
+  `--exact-source-teacher-labels`, invokes the C++ exact label dumper, and
+  writes generated diagnostics only under repository `runs/`.
 - `tools/scripts/teacher_label_mistake_mining.py` supports `--dataset-root` for
   `--teacher-labels` and `--exact-labels` entries that start with `dataset:`.
 - `tools/scripts/external_teacher_label_workflow.py` supports `--dataset-root`
