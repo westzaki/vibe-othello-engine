@@ -61,6 +61,12 @@ struct NodeResult {
     PrincipalVariation principal_variation;
 };
 
+struct SearchNodeResult {
+    std::optional<Square> best_move;
+    int score = 0;
+    std::optional<Square> principal_variation_first_move;
+};
+
 [[nodiscard]] inline int empty_count(const Board& board) noexcept {
     return std::popcount(board.empty());
 }
@@ -184,6 +190,16 @@ principal_variation_from_vector(const std::vector<Square>& principal_variation) 
         result.principal_variation.size = 1;
     }
     return result;
+}
+
+[[nodiscard]] inline SearchNodeResult
+search_node_result_from_transposition_entry(int score, int best_move_index) noexcept {
+    const std::optional<Square> best_move = square_from_transposition_index(best_move_index);
+    return SearchNodeResult{
+        .best_move = best_move,
+        .score = score,
+        .principal_variation_first_move = best_move,
+    };
 }
 
 } // namespace othello::search_detail

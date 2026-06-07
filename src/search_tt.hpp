@@ -41,7 +41,7 @@ struct TranspositionScope {
 };
 
 struct TranspositionLookup {
-    std::optional<NodeResult> cutoff;
+    std::optional<SearchNodeResult> cutoff;
     std::optional<Square> best_move_hint;
     bool best_move_hint_from_shallow_entry = false;
 };
@@ -206,6 +206,22 @@ public:
         return true;
     }
 
+    [[nodiscard]] std::optional<Square> best_move_hint(ZobristHash hash,
+                                                       TranspositionScope scope) const noexcept {
+        if (buckets_ == nullptr) {
+            return std::nullopt;
+        }
+
+        const Bucket& bucket = buckets_[bucket_index(hash)];
+        for (const TranspositionEntry& entry : bucket.entries) {
+            if (entry.occupied && entry.hash == hash && entry.mode == scope.mode &&
+                entry.eval_identity == scope.eval_identity) {
+                return best_move_from_index(entry.best_move_index);
+            }
+        }
+        return std::nullopt;
+    }
+
 private:
     static constexpr std::size_t bucket_width = 4;
     static constexpr std::size_t default_entry_count = 1 << 18;
@@ -248,20 +264,15 @@ private:
                                         generation, depth);
     }
 
-    [[nodiscard]] static NodeResult
+    [[nodiscard]] static SearchNodeResult
     node_result_from_entry(const TranspositionEntry& entry) noexcept {
-        return node_result_from_transposition_entry(entry.score, entry.best_move_index);
+        return search_node_result_from_transposition_entry(entry.score, entry.best_move_index);
     }
 
     [[nodiscard]] static std::optional<Square>
     best_move_hint_from_entry(const TranspositionEntry& entry, std::uint64_t& hits,
                               std::uint64_t* shallow_hits = nullptr) noexcept {
-        if (entry.best_move_index < Square::min_index ||
-            entry.best_move_index > Square::max_index) {
-            return std::nullopt;
-        }
-
-        std::optional<Square> best_move = Square::from_index(entry.best_move_index);
+        std::optional<Square> best_move = best_move_from_index(entry.best_move_index);
         if (!best_move.has_value()) {
             return std::nullopt;
         }
@@ -271,6 +282,13 @@ private:
             ++*shallow_hits;
         }
         return best_move;
+    }
+
+    [[nodiscard]] static std::optional<Square> best_move_from_index(int index) noexcept {
+        if (index < Square::min_index || index > Square::max_index) {
+            return std::nullopt;
+        }
+        return Square::from_index(index);
     }
 
     static void record_hit(SearchStats& stats, BoundKind bound) noexcept {
