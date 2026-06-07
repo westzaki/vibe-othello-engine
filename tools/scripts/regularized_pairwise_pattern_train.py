@@ -69,6 +69,7 @@ PAIR_MODES = (
 )
 PAIR_WEIGHTINGS = ("uniform", "rank-margin", "score-margin", "exact-boost")
 GUARD_MODES = ("off", "base-agreement")
+CANDIDATE_EVAL_SHAPES = ("base-plus-delta", "pattern-only")
 FAMILY_ALIASES: dict[str, tuple[str, ...]] = {
     **COMMON_FAMILY_ALIASES,
     "all": FAMILY_ORDER,
@@ -141,6 +142,7 @@ class TrainerConfig:
     max_abs_output_weight: int
     candidate_pattern_table_weight: int
     include_base_margin: bool
+    candidate_eval_shape: str
     seed: int
     phase_cutoffs: PhaseCutoffs
     dataset_root: dict[str, str] | None
@@ -401,6 +403,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "optimizes base evaluator score margin plus learned pattern delta"
         ),
     )
+    parser.add_argument(
+        "--candidate-eval-shape",
+        choices=CANDIDATE_EVAL_SHAPES,
+        default="base-plus-delta",
+        help=(
+            "candidate .eval shape: base-plus-delta preserves the base scalar "
+            "weights and replaces learned table paths; pattern-only writes a "
+            "scalar-free mode=pattern_only candidate"
+        ),
+    )
     parser.add_argument("--seed", type=parse_non_negative_int, default=20260601)
     return parser.parse_args(argv)
 
@@ -579,6 +591,7 @@ def config_from_args(
         max_abs_output_weight=args.max_abs_output_weight,
         candidate_pattern_table_weight=args.candidate_pattern_table_weight,
         include_base_margin=not args.no_base_margin,
+        candidate_eval_shape=args.candidate_eval_shape,
         seed=args.seed,
         phase_cutoffs=phase_cutoffs_from_eval_config(eval_config),
         dataset_root=dataset_root,
@@ -1003,7 +1016,14 @@ def run_analysis(config: TrainerConfig, board_text: str) -> AnalyzeResult:
 
 
 def precomputed_engine_move(record: dict[str, Any], legal_moves: set[str]) -> str | None:
-    for key in ("selected_move", "engine_selected_move", "search_best_move", "vibe_move", "engine_best_move"):
+    for key in (
+        "selected_move",
+        "engine_move",
+        "engine_selected_move",
+        "search_best_move",
+        "vibe_move",
+        "engine_best_move",
+    ):
         move = normalize_move(record.get(key))
         if move is not None and move in legal_moves:
             return move
@@ -1829,7 +1849,37 @@ def render_phase_table(
     return "\n".join(lines) + "\n"
 
 
+def model_margin_shape(config: TrainerConfig) -> str:
+    if config.candidate_eval_shape == "pattern-only":
+        return "pattern_only" if not config.include_base_margin else "pattern_only_with_base_anchor"
+    return "base_plus_delta" if config.include_base_margin else "delta_only"
+
+
 def render_candidate_eval(config: TrainerConfig) -> str:
+    if config.candidate_eval_shape == "pattern-only":
+        return "\n".join(
+            [
+                "# schema_version: eval.v1",
+                "# generated_by: tools/scripts/regularized_pairwise_pattern_train.py",
+                "# no_strength_claim: true",
+                "# not_default_promotion: true",
+                "# trainer_foundation: true",
+                f"# model_margin: {model_margin_shape(config)}",
+                f"# candidate_pattern_table_weight: {config.candidate_pattern_table_weight}",
+                "schema_version=eval.v1",
+                "mode=pattern_only",
+                "name=regularized_pairwise_pattern_candidate",
+                "pattern_table.opening=tables/opening.tsv",
+                "pattern_table.midgame=tables/midgame.tsv",
+                "pattern_table.late=tables/late.tsv",
+                f"opening.pattern_table={config.candidate_pattern_table_weight}",
+                f"midgame.pattern_table={config.candidate_pattern_table_weight}",
+                f"late.pattern_table={config.candidate_pattern_table_weight}",
+                f"opening_max_occupied={config.phase_cutoffs.opening_max_occupied}",
+                f"midgame_max_occupied={config.phase_cutoffs.midgame_max_occupied}",
+            ]
+        ) + "\n"
+
     base_text = read_eval_config_text(config.eval_config)
     base_entries = eval_config_entries(base_text)
     missing_phase_weights = [
@@ -1840,7 +1890,8 @@ def render_candidate_eval(config: TrainerConfig) -> str:
         "# no_strength_claim: true",
         "# not_default_promotion: true",
         "# trainer_foundation: true",
-        f"# model_margin: {'base_plus_delta' if config.include_base_margin else 'delta_only'}",
+        f"# model_margin: {model_margin_shape(config)}",
+        f"# candidate_eval_shape: {config.candidate_eval_shape}",
         f"# candidate_pattern_table_weight: {config.candidate_pattern_table_weight}",
     ]
     inserted_tables = False
@@ -2048,7 +2099,8 @@ def render_report(
         f"- output_scale: `{config.output_scale}`",
         f"- max_abs_output_weight: `{config.max_abs_output_weight}`",
         f"- candidate_pattern_table_weight: `{config.candidate_pattern_table_weight}`",
-        f"- model_margin: `{'base_plus_delta' if config.include_base_margin else 'delta_only'}`",
+        f"- candidate_eval_shape: `{config.candidate_eval_shape}`",
+        f"- model_margin: `{model_margin_shape(config)}`",
         f"- seed: `{config.seed}`",
         f"- phase_cutoffs: opening <= `{config.phase_cutoffs.opening_max_occupied}`, "
         f"midgame <= `{config.phase_cutoffs.midgame_max_occupied}`, else late",
@@ -2105,7 +2157,8 @@ def render_report(
             "",
             "- Generated `.eval` and TSV files belong under `runs/` and should not be copied into `data/eval`.",
             "- `candidate.eval` is a local experiment candidate and does not change `current_default.eval`.",
-            "- The trainer learns pattern-table deltas only from the selected teacher-vs-engine pairs.",
+            "- The trainer learns pattern-table weights from the selected teacher-vs-engine pairs; "
+            "`base-plus-delta` candidates keep base scalar weights, while `pattern-only` candidates are scalar-free.",
             "- Follow-up validation must use held-out labels, search/match checks, and external sanity before any strength claim.",
         ]
     )
@@ -2206,6 +2259,7 @@ def train_pairwise_tables(
         "max_abs_output_weight": config.max_abs_output_weight,
         "candidate_pattern_table_weight": config.candidate_pattern_table_weight,
         "include_base_margin": config.include_base_margin,
+        "candidate_eval_shape": config.candidate_eval_shape,
         "seed": config.seed,
         "phase_cutoffs": {
             "opening_max_occupied": config.phase_cutoffs.opening_max_occupied,
