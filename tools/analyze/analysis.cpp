@@ -49,6 +49,7 @@ using Clock = std::chrono::steady_clock;
             .use_aspiration_window = options.use_aspiration_window,
             .aspiration_window = options.aspiration_window,
             .aspiration_max_researches = options.aspiration_max_researches,
+            .aspiration_profile = options.aspiration_profile,
         },
         options.evaluator);
 }

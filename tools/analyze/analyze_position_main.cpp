@@ -5,6 +5,7 @@
 #include "common/evaluator_selection.hpp"
 #include "common/formatting.hpp"
 #include "common/jsonl.hpp"
+#include "common/search_cli_options.hpp"
 #include "common/stats.hpp"
 
 #include <algorithm>
@@ -39,7 +40,9 @@ void print_usage(std::string_view program_name) {
                  " [--shallow-tt-move-ordering-hint on|off]"
                  " [--pvs on|off]"
                  " [--aspiration on|off] [--aspiration-window N]"
-                 " [--aspiration-max-researches N] [--exact-endgame-threshold N]"
+                 " [--aspiration-max-researches N]"
+                 " [--aspiration-profile fixed|score-delta-aware]"
+                 " [--exact-endgame-threshold N]"
                  " "
               << othello::tools::evaluator_cli_usage() << " [--root-candidates] [--batch-jsonl]\n"
               << '\n'
@@ -73,6 +76,9 @@ void print_usage(std::string_view program_name) {
               << "  --aspiration-max-researches N\n"
               << "                    non-negative aspiration widening retries before full-window "
                  "fallback\n"
+              << "  --aspiration-profile PROFILE\n"
+              << "                    iterative aspiration window policy: fixed or score-delta-aware "
+                 "(default: fixed)\n"
               << "  --exact-endgame-threshold N\n"
               << "                    solve root positions with at most N empties exactly; N <= 0 "
                  "disables\n"
@@ -277,6 +283,57 @@ void write_root_scores_json(
     std::cout << '}';
 }
 
+[[nodiscard]] const othello::tools::analyze::RootCandidateAnalysis*
+top_root_candidate(const std::vector<othello::tools::analyze::RootCandidateAnalysis>& candidates) {
+    return candidates.empty() ? nullptr : &candidates.front();
+}
+
+[[nodiscard]] const othello::tools::analyze::RootCandidateAnalysis*
+candidate_for_result_best_move(
+    const othello::SearchResult& result,
+    const std::vector<othello::tools::analyze::RootCandidateAnalysis>& candidates) {
+    if (!result.best_move.has_value()) {
+        return nullptr;
+    }
+    const auto candidate =
+        std::find_if(candidates.begin(), candidates.end(),
+                     [&result](const othello::tools::analyze::RootCandidateAnalysis& current) {
+                         return current.move == result.best_move;
+                     });
+    return candidate == candidates.end() ? nullptr : &*candidate;
+}
+
+[[nodiscard]] bool root_candidate_matches_result(
+    const othello::SearchResult& result,
+    const std::vector<othello::tools::analyze::RootCandidateAnalysis>& candidates) {
+    const auto* top = top_root_candidate(candidates);
+    if (top == nullptr) {
+        return !result.best_move.has_value();
+    }
+    return top->move == result.best_move && top->score == result.score;
+}
+
+void write_optional_candidate_move_field(
+    othello::tools::JsonObjectWriter& writer, std::string_view field_name,
+    const othello::tools::analyze::RootCandidateAnalysis* candidate) {
+    if (candidate == nullptr) {
+        writer.null_field(field_name);
+        return;
+    }
+    writer.string_field(field_name,
+                        candidate->pass ? "pass" : othello::tools::format_square(candidate->move));
+}
+
+void write_optional_candidate_score_field(
+    othello::tools::JsonObjectWriter& writer, std::string_view field_name,
+    const othello::tools::analyze::RootCandidateAnalysis* candidate) {
+    if (candidate == nullptr) {
+        writer.null_field(field_name);
+        return;
+    }
+    writer.int_field(field_name, candidate->score);
+}
+
 void write_batch_error(std::string_view position_id, std::string_view error) {
     othello::tools::JsonObjectWriter writer{std::cout};
     writer.begin_object();
@@ -314,6 +371,15 @@ void write_batch_result(
     writer.int_field("depth", options.depth);
     writer.uint_field("nodes", result.nodes);
     writer.double_field("elapsed_ms", othello::tools::elapsed_ms(elapsed));
+    writer.string_field("root_score_semantics", "root_perspective_independent_child_search");
+    const auto* top_candidate = top_root_candidate(candidates);
+    const auto* result_best_candidate = candidate_for_result_best_move(result, candidates);
+    write_optional_candidate_move_field(writer, "root_score_best_move", top_candidate);
+    write_optional_candidate_score_field(writer, "root_score_best_score", top_candidate);
+    write_optional_candidate_score_field(writer, "root_score_for_result_best_move",
+                                         result_best_candidate);
+    writer.bool_field("root_scores_match_result",
+                      root_candidate_matches_result(result, candidates));
     writer.field_name("root_scores");
     write_root_scores_json(candidates);
     writer.end_object();
@@ -466,6 +532,15 @@ void write_batch_result(
                 return std::nullopt;
             }
             options.aspiration_max_researches = *researches;
+        } else if (arg == "--aspiration-profile") {
+            const auto value = othello::tools::next_argument(args, index, arg);
+            const auto profile =
+                value.has_value() ? othello::tools::parse_aspiration_profile(*value) : std::nullopt;
+            if (!profile.has_value()) {
+                std::cerr << "invalid --aspiration-profile value\n";
+                return std::nullopt;
+            }
+            options.aspiration_profile = *profile;
         } else if (arg == "--exact-endgame-threshold") {
             const auto value = othello::tools::next_argument(args, index, arg);
             const auto threshold =

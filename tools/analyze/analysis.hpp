@@ -34,6 +34,7 @@ struct AnalysisOptions {
     bool use_aspiration_window = SearchOptions{}.use_aspiration_window;
     int aspiration_window = SearchOptions{}.aspiration_window;
     int aspiration_max_researches = SearchOptions{}.aspiration_max_researches;
+    AspirationProfile aspiration_profile = SearchOptions{}.aspiration_profile;
     EvaluatorSelection evaluator;
     bool root_candidates = false;
     bool batch_jsonl = false;
