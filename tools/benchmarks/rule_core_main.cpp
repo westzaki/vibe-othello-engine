@@ -1,8 +1,13 @@
+#include "../../src/search_common.hpp"
 #include "benchmarks/reporters.hpp"
+#include "common/cli.hpp"
 #include "common/formatting.hpp"
+#include "common/jsonl.hpp"
+#include "common/output_format.hpp"
 #include "positions/fixtures.hpp"
 
 #include <array>
+#include <bit>
 #include <chrono>
 #include <cstdint>
 #include <exception>
@@ -16,6 +21,12 @@
 namespace {
 
 using Clock = std::chrono::steady_clock;
+using Bitboard = othello::Bitboard;
+using othello::tools::JsonObjectWriter;
+using othello::tools::OutputFormat;
+using othello::tools::parse_output_format;
+
+constexpr std::size_t max_move_buffer_size = 33;
 
 enum class PositionSet {
     Smoke,
@@ -25,6 +36,8 @@ enum class PositionSet {
 struct BenchmarkOptions {
     PositionSet position_set = PositionSet::Suite;
     std::uint64_t iterations = 100'000;
+    int perft_depth = 5;
+    OutputFormat output_format = OutputFormat::Text;
     bool show_help = false;
 };
 
@@ -41,6 +54,8 @@ struct BenchmarkResult {
     std::uint64_t calls = 0;
     std::chrono::nanoseconds elapsed{};
     std::uint64_t checksum = 0;
+    std::uint64_t nodes = 0;
+    int depth = 0;
 };
 
 struct SummaryResult {
@@ -52,13 +67,18 @@ struct SummaryResult {
 
 void print_usage(std::string_view program_name) {
     std::cout << "usage: " << program_name
-              << " [--positions smoke|suite] [--iterations N] [--help]\n\n"
+              << " [--positions smoke|suite] [--iterations N] [--perft-depth N]"
+                 " [--format text|jsonl] [--help]\n\n"
               << "Options:\n"
               << "  --positions SET   smoke or suite (default: suite)\n"
               << "  --iterations N    positive iteration count per position/operation"
                  " (default: 100000)\n"
+              << "  --perft-depth N   perft depth from each position, 0 disables perft"
+                 " (default: 5)\n"
+              << "  --format FORMAT   output format: text or jsonl (default: text)\n"
               << "  --help            show this help text\n\n"
-              << "The flips_for_move and apply_move rows call all 64 squares per iteration.\n";
+              << "The flips_for_move and apply_move rows call all 64 squares per iteration.\n"
+              << "SearchPosition position_after_move rows call legal moves only.\n";
 }
 
 [[nodiscard]] std::string_view position_set_name(PositionSet position_set) noexcept {
@@ -317,6 +337,32 @@ void print_usage(std::string_view program_name) {
                 return std::nullopt;
             }
             options.iterations = *parsed;
+        } else if (option == "--perft-depth") {
+            ++index;
+            if (index >= args.size()) {
+                std::cerr << "--perft-depth requires an integer from 0 to 64\n";
+                return std::nullopt;
+            }
+
+            const auto parsed = othello::tools::parse_non_negative_int(args[index]);
+            if (!parsed.has_value() || *parsed > 64) {
+                std::cerr << "--perft-depth requires an integer from 0 to 64\n";
+                return std::nullopt;
+            }
+            options.perft_depth = *parsed;
+        } else if (option == "--format") {
+            ++index;
+            if (index >= args.size()) {
+                std::cerr << "--format requires text or jsonl\n";
+                return std::nullopt;
+            }
+
+            const auto parsed = parse_output_format(args[index]);
+            if (!parsed.has_value()) {
+                std::cerr << "invalid --format value: " << args[index] << '\n';
+                return std::nullopt;
+            }
+            options.output_format = *parsed;
         } else {
             std::cerr << "unknown option: " << option << '\n';
             print_usage(args.front());
@@ -350,6 +396,26 @@ void print_usage(std::string_view program_name) {
     return othello::benchmarks::board_checksum(*board);
 }
 
+[[nodiscard]] std::uint64_t
+search_position_checksum(const othello::search_detail::SearchPosition& position) noexcept {
+    return othello::benchmarks::mix_checksum(
+        othello::benchmarks::mix_checksum(position.player, position.opponent_discs),
+        position.side_to_move == othello::Side::Black ? 1 : 2);
+}
+
+[[nodiscard]] std::size_t move_list_from_bitboard(Bitboard moves, std::span<int> output) noexcept {
+    std::size_t count = 0;
+    while (moves != 0) {
+        const int index = std::countr_zero(moves);
+        if (count < output.size()) {
+            output[count] = index;
+        }
+        ++count;
+        moves &= moves - 1;
+    }
+    return count;
+}
+
 [[nodiscard]] BenchmarkResult benchmark_legal_moves(const RulePosition& position,
                                                     std::uint64_t iterations) {
     std::uint64_t checksum = 0;
@@ -363,6 +429,25 @@ void print_usage(std::string_view program_name) {
 
     return BenchmarkResult{.position_name = position.name,
                            .operation = "legal_moves",
+                           .calls = iterations,
+                           .elapsed = elapsed,
+                           .checksum = checksum};
+}
+
+[[nodiscard]] BenchmarkResult benchmark_search_position_legal_moves(const RulePosition& position,
+                                                                    std::uint64_t iterations) {
+    const auto search_position = othello::search_detail::SearchPosition::from_board(position.board);
+    std::uint64_t checksum = 0;
+
+    const auto start = Clock::now();
+    for (std::uint64_t iteration = 0; iteration < iterations; ++iteration) {
+        checksum = othello::benchmarks::mix_checksum(
+            checksum, othello::search_detail::legal_moves(search_position));
+    }
+    const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - start);
+
+    return BenchmarkResult{.position_name = position.name,
+                           .operation = "sp_legal_moves",
                            .calls = iterations,
                            .elapsed = elapsed,
                            .checksum = checksum};
@@ -391,6 +476,73 @@ void print_usage(std::string_view program_name) {
                            .checksum = checksum};
 }
 
+[[nodiscard]] BenchmarkResult benchmark_search_position_flips_for_move(const RulePosition& position,
+                                                                       std::uint64_t iterations) {
+    const auto search_position = othello::search_detail::SearchPosition::from_board(position.board);
+    std::uint64_t checksum = 0;
+    std::uint64_t calls = 0;
+
+    const auto start = Clock::now();
+    for (std::uint64_t iteration = 0; iteration < iterations; ++iteration) {
+        for (int index = othello::Square::min_index; index <= othello::Square::max_index; ++index) {
+            const auto square = *othello::Square::from_index(index);
+            checksum = othello::benchmarks::mix_checksum(
+                checksum, othello::search_detail::flips_for_move(search_position, square));
+            ++calls;
+        }
+    }
+    const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - start);
+
+    return BenchmarkResult{.position_name = position.name,
+                           .operation = "sp_flips_for_move",
+                           .calls = calls,
+                           .elapsed = elapsed,
+                           .checksum = checksum};
+}
+
+[[nodiscard]] BenchmarkResult benchmark_legal_move_list(const RulePosition& position,
+                                                        std::uint64_t iterations) {
+    std::uint64_t checksum = 0;
+    std::array<int, max_move_buffer_size> buffer{};
+
+    const auto start = Clock::now();
+    for (std::uint64_t iteration = 0; iteration < iterations; ++iteration) {
+        const Bitboard moves = othello::legal_moves(position.board);
+        const std::size_t count = move_list_from_bitboard(moves, buffer);
+        checksum = othello::benchmarks::mix_checksum(checksum, count);
+        for (std::size_t index = 0; index < count && index < buffer.size(); ++index) {
+            checksum = othello::benchmarks::mix_checksum(
+                checksum, static_cast<std::uint64_t>(buffer[index] + 1));
+        }
+    }
+    const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - start);
+
+    return BenchmarkResult{.position_name = position.name,
+                           .operation = "legal_move_list",
+                           .calls = iterations,
+                           .elapsed = elapsed,
+                           .checksum = checksum};
+}
+
+[[nodiscard]] BenchmarkResult benchmark_legal_popcount(const RulePosition& position,
+                                                       std::uint64_t iterations) {
+    std::uint64_t checksum = 0;
+
+    const auto start = Clock::now();
+    for (std::uint64_t iteration = 0; iteration < iterations; ++iteration) {
+        checksum = othello::benchmarks::mix_checksum(
+            checksum,
+            static_cast<std::uint64_t>(std::popcount(othello::legal_moves(position.board))));
+    }
+    const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - start);
+
+    return BenchmarkResult{.position_name = position.name,
+                           .operation = "legal_popcount",
+                           .calls = iterations,
+                           .elapsed = elapsed,
+                           .checksum = checksum};
+}
+
 [[nodiscard]] BenchmarkResult benchmark_apply_move(const RulePosition& position,
                                                    std::uint64_t iterations) {
     std::uint64_t checksum = 0;
@@ -413,6 +565,78 @@ void print_usage(std::string_view program_name) {
                            .calls = calls,
                            .elapsed = elapsed,
                            .checksum = checksum};
+}
+
+[[nodiscard]] BenchmarkResult
+benchmark_search_position_flips_plus_position_after(const RulePosition& position,
+                                                    std::uint64_t iterations) {
+    const auto search_position = othello::search_detail::SearchPosition::from_board(position.board);
+    const Bitboard moves = othello::search_detail::legal_moves(search_position);
+    std::uint64_t checksum = 0;
+    std::uint64_t calls = 0;
+
+    const auto start = Clock::now();
+    for (std::uint64_t iteration = 0; iteration < iterations; ++iteration) {
+        Bitboard remaining = moves;
+        while (remaining != 0) {
+            const auto square = *othello::Square::from_index(std::countr_zero(remaining));
+            const Bitboard flips = othello::search_detail::flips_for_move(search_position, square);
+            const auto next =
+                othello::search_detail::position_after_move(search_position, square, flips);
+            checksum = othello::benchmarks::mix_checksum(checksum, search_position_checksum(next));
+            ++calls;
+            remaining &= remaining - 1;
+        }
+    }
+    const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - start);
+
+    return BenchmarkResult{.position_name = position.name,
+                           .operation = "sp_flips_plus_position_after",
+                           .calls = calls,
+                           .elapsed = elapsed,
+                           .checksum = checksum};
+}
+
+[[nodiscard]] std::uint64_t perft(const othello::Board& board, int depth) {
+    if (depth == 0 || othello::is_game_over(board)) {
+        return 1;
+    }
+
+    const Bitboard moves = othello::legal_moves(board);
+    if (moves == 0) {
+        const auto passed = othello::pass_turn(board);
+        if (!passed.has_value()) {
+            return 1;
+        }
+        return perft(*passed, depth - 1);
+    }
+
+    std::uint64_t nodes = 0;
+    Bitboard remaining = moves;
+    while (remaining != 0) {
+        const auto square = *othello::Square::from_index(std::countr_zero(remaining));
+        const auto next = othello::apply_move(board, square);
+        if (next.has_value()) {
+            nodes += perft(*next, depth - 1);
+        }
+        remaining &= remaining - 1;
+    }
+    return nodes;
+}
+
+[[nodiscard]] BenchmarkResult benchmark_perft(const RulePosition& position, int depth) {
+    const auto start = Clock::now();
+    const std::uint64_t nodes = perft(position.board, depth);
+    const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - start);
+
+    return BenchmarkResult{
+        .position_name = position.name,
+        .operation = "perft",
+        .calls = nodes,
+        .elapsed = elapsed,
+        .checksum = othello::benchmarks::mix_checksum(nodes, static_cast<std::uint64_t>(depth)),
+        .nodes = nodes,
+        .depth = depth};
 }
 
 [[nodiscard]] BenchmarkResult benchmark_pass_turn(const RulePosition& position,
@@ -572,12 +796,18 @@ void print_summary(const std::vector<SummaryResult>& summaries) {
 [[nodiscard]] std::vector<BenchmarkResult>
 run_position_benchmarks(const std::vector<RulePosition>& positions, std::uint64_t iterations) {
     std::vector<BenchmarkResult> results;
-    results.reserve(positions.size() * 7);
+    results.reserve(positions.size() * 12);
 
     for (const auto& position : positions) {
         results.push_back(benchmark_legal_moves(position, iterations));
+        results.push_back(benchmark_search_position_legal_moves(position, iterations));
+        results.push_back(benchmark_legal_popcount(position, iterations));
+        results.push_back(benchmark_legal_move_list(position, iterations));
         results.push_back(benchmark_flips_for_move(position, iterations));
+        results.push_back(benchmark_search_position_flips_for_move(position, iterations));
         results.push_back(benchmark_apply_move(position, iterations));
+        results.push_back(
+            benchmark_search_position_flips_plus_position_after(position, iterations));
         results.push_back(benchmark_pass_turn(position, iterations));
         results.push_back(benchmark_is_game_over(position, iterations));
         results.push_back(benchmark_disc_count(position, iterations));
@@ -585,6 +815,70 @@ run_position_benchmarks(const std::vector<RulePosition>& positions, std::uint64_
     }
 
     return results;
+}
+
+[[nodiscard]] std::vector<BenchmarkResult>
+run_perft_benchmarks(const std::vector<RulePosition>& positions, int depth) {
+    std::vector<BenchmarkResult> results;
+    if (depth <= 0) {
+        return results;
+    }
+
+    results.reserve(positions.size());
+    for (const auto& position : positions) {
+        results.push_back(benchmark_perft(position, depth));
+    }
+    return results;
+}
+
+void print_jsonl_run_row(const BenchmarkOptions& options, std::size_t position_count) {
+    JsonObjectWriter writer(std::cout);
+    writer.begin_object();
+    writer.string_field("tool", "othello_rule_core_bench");
+    writer.string_field("row", "run");
+    writer.string_field("positions", position_set_name(options.position_set));
+    writer.uint_field("position_count", position_count);
+    writer.uint_field("iterations", options.iterations);
+    writer.int_field("perft_depth", options.perft_depth);
+    writer.uint_field("move_buffer_capacity", max_move_buffer_size);
+    writer.end_object();
+    std::cout << '\n';
+}
+
+void print_jsonl_position_result(const BenchmarkOptions& options, const BenchmarkResult& result) {
+    JsonObjectWriter writer(std::cout);
+    writer.begin_object();
+    writer.string_field("tool", "othello_rule_core_bench");
+    writer.string_field("row", "position");
+    writer.string_field("positions", position_set_name(options.position_set));
+    writer.string_field("position", result.position_name);
+    writer.string_field("operation", result.operation);
+    writer.uint_field("calls", result.calls);
+    writer.double_field("elapsed_ms", elapsed_ms(result.elapsed));
+    writer.double_field("ns_per_call", ns_per_call(result));
+    writer.double_field("calls_per_second", calls_per_second(result));
+    writer.uint_field("checksum", result.checksum);
+    if (result.depth > 0) {
+        writer.int_field("depth", result.depth);
+        writer.uint_field("nodes", result.nodes);
+    }
+    writer.end_object();
+    std::cout << '\n';
+}
+
+void print_jsonl_summary(const BenchmarkOptions& options, const SummaryResult& summary) {
+    JsonObjectWriter writer(std::cout);
+    writer.begin_object();
+    writer.string_field("tool", "othello_rule_core_bench");
+    writer.string_field("row", "summary");
+    writer.string_field("positions", position_set_name(options.position_set));
+    writer.string_field("operation", summary.operation);
+    writer.uint_field("total_calls", summary.calls);
+    writer.double_field("total_elapsed_ms", elapsed_ms(summary.elapsed));
+    writer.double_field("avg_ns_per_call", ns_per_call(summary));
+    writer.uint_field("checksum", summary.checksum);
+    writer.end_object();
+    std::cout << '\n';
 }
 
 int run_benchmark(std::span<char* const> args) {
@@ -602,21 +896,44 @@ int run_benchmark(std::span<char* const> args) {
         return 1;
     }
 
-    std::cout << "Othello rule-core operation benchmark\n";
-    std::cout << "positions: " << position_set_name(options->position_set) << '\n';
-    std::cout << "position count: " << positions->size() << '\n';
-    std::cout << "iterations: " << options->iterations << '\n';
-    std::cout << "flips/apply move coverage: all 64 squares per position\n\n";
-
     const auto results = run_position_benchmarks(*positions, options->iterations);
+    const auto perft_results = run_perft_benchmarks(*positions, options->perft_depth);
     std::vector<SummaryResult> summaries;
 
-    print_position_result_header();
-    for (const auto& result : results) {
-        print_position_result(result);
-        add_to_summary(summaries, result);
+    if (options->output_format == OutputFormat::Jsonl) {
+        print_jsonl_run_row(*options, positions->size());
+        for (const auto& result : results) {
+            print_jsonl_position_result(*options, result);
+            add_to_summary(summaries, result);
+        }
+        for (const auto& result : perft_results) {
+            print_jsonl_position_result(*options, result);
+            add_to_summary(summaries, result);
+        }
+        for (const auto& summary : summaries) {
+            print_jsonl_summary(*options, summary);
+        }
+    } else {
+        std::cout << "Othello rule-core operation benchmark\n";
+        std::cout << "positions: " << position_set_name(options->position_set) << '\n';
+        std::cout << "position count: " << positions->size() << '\n';
+        std::cout << "iterations: " << options->iterations << '\n';
+        std::cout << "perft depth: " << options->perft_depth << '\n';
+        std::cout << "move buffer capacity: " << max_move_buffer_size << '\n';
+        std::cout << "flips/apply move coverage: all 64 squares per position\n";
+        std::cout << "SearchPosition position_after_move coverage: legal moves only\n\n";
+
+        print_position_result_header();
+        for (const auto& result : results) {
+            print_position_result(result);
+            add_to_summary(summaries, result);
+        }
+        for (const auto& result : perft_results) {
+            print_position_result(result);
+            add_to_summary(summaries, result);
+        }
+        print_summary(summaries);
     }
-    print_summary(summaries);
 
     return 0;
 }

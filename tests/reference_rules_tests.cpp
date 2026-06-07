@@ -357,6 +357,7 @@ TEST_CASE("Production and reference perft agree on selected positions",
           "[rule-core][reference][perft]") {
     // Perft counts plies. A forced pass is counted as the only legal action for that ply;
     // terminal positions before depth zero return one leaf.
+    CHECK(perft<ProductionRules>(Board::initial(), 5) == 1396);
     check_perft_matches("initial", Board::initial(), 5);
 
     for (const NamedBoard& board : perft_boards()) {

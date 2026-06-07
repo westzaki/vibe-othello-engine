@@ -58,7 +58,7 @@ Run a small smoke profile first to catch obvious regressions before collecting
 longer numbers. Current examples:
 
 ```sh
-./build/othello_rule_core_bench
+./build/othello_rule_core_bench --positions smoke --iterations 1000 --perft-depth 3
 ./build/othello_search_bench --mode both --depths 1,2,3,4,5 --positions smoke --repetitions 3
 ./build/othello_endgame_bench --positions smoke
 ```
@@ -74,7 +74,13 @@ scraping text tables:
 ```sh
 ./build/othello_search_bench --mode fixed --depths 5 --positions smoke --format jsonl
 ./build/othello_endgame_bench --positions smoke --empties 10 --format jsonl
+./build/othello_rule_core_bench --positions suite --iterations 100000 --perft-depth 5 --format jsonl
 ```
+
+Rule-core JSONL emits one `run` row, per-position operation rows, and summary
+rows. It covers public `Board` operations, internal `SearchPosition` kernels,
+legal-move popcount/list conversion with a 33-entry move buffer, pass/game-over
+checks, and perft node counts.
 
 Search benchmark JSONL emits `aggregate` rows for normal summaries and
 `position` rows when `--by-position` is enabled. Search rows include stable
