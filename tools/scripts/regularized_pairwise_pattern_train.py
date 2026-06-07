@@ -104,6 +104,7 @@ class PreparedPosition:
     source: LabelSource
     split: str
     phase: str
+    bucket: str
     board_text: str
     teacher_move: str
     engine_move: str | None
@@ -138,6 +139,10 @@ class TrainerConfig:
     exact_best_weight: float
     teacher_weight: float
     min_score_margin: int
+    diagnose_dataset: bool
+    drop_teacher_exact_disagreement: bool
+    exact_aware_only_when_available: bool
+    max_top_group_size_for_training: int
     l2: float
     epochs: int
     learning_rate: float
@@ -204,6 +209,12 @@ class TrainingResult:
     table_paths: dict[str, Path]
     candidate_eval_path: Path
     validation_path: Path
+    report_path: Path
+
+
+@dataclass(frozen=True)
+class DiagnosticResult:
+    summary: dict[str, Any]
     report_path: Path
 
 
@@ -379,6 +390,27 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=parse_non_negative_int,
         default=0,
         help="drop pairs with smaller root score margins when both candidate scores are available",
+    )
+    parser.add_argument(
+        "--diagnose-dataset",
+        action="store_true",
+        help="write teacher/exact/pair-generation diagnostics without training or candidate output",
+    )
+    parser.add_argument(
+        "--drop-teacher-exact-disagreement",
+        action="store_true",
+        help="drop rows where an available exact label does not include the teacher move",
+    )
+    parser.add_argument(
+        "--exact-aware-only-when-available",
+        action="store_true",
+        help="with --pair-mode exact-aware, skip rows without exact labels instead of falling back to teacher pairs",
+    )
+    parser.add_argument(
+        "--max-top-group-size-for-training",
+        type=parse_non_negative_int,
+        default=0,
+        help="drop rows whose exact-best top group is larger than this value; 0 disables the cap",
     )
     parser.add_argument("--l2", type=parse_non_negative_float, default=0.001)
     parser.add_argument("--epochs", type=parse_positive_int, default=5)
@@ -594,6 +626,10 @@ def config_from_args(
         exact_best_weight=args.exact_best_weight,
         teacher_weight=args.teacher_weight,
         min_score_margin=args.min_score_margin,
+        diagnose_dataset=args.diagnose_dataset,
+        drop_teacher_exact_disagreement=args.drop_teacher_exact_disagreement,
+        exact_aware_only_when_available=args.exact_aware_only_when_available,
+        max_top_group_size_for_training=args.max_top_group_size_for_training,
         l2=args.l2,
         epochs=args.epochs,
         learning_rate=args.learning_rate,
@@ -1279,6 +1315,8 @@ def generate_position_pairs(
                         add_pair(preferred, candidate, "exact")
         else:
             stats["exact_unavailable_fallback_positions"] += 1
+            if config.exact_aware_only_when_available:
+                return [], stats
             for candidate in candidates:
                 if candidate != teacher_move:
                     add_pair(teacher_move, candidate, "teacher")
@@ -1358,6 +1396,137 @@ def generate_guard_pairs(
     return limited, stats
 
 
+def _new_diagnostic_group() -> dict[str, Any]:
+    return {
+        "counters": collections.Counter(),
+        "legal_move_count_distribution": collections.Counter(),
+        "pair_count_distribution": collections.Counter(),
+        "score_margin_distribution": collections.Counter(),
+        "rank_margin_distribution": collections.Counter(),
+        "teacher_rank_distribution": collections.Counter(),
+        "exact_best_top_group_size_distribution": collections.Counter(),
+        "pair_weight_mass": 0.0,
+    }
+
+
+def _new_dataset_diagnostics() -> dict[str, Any]:
+    return {
+        "by_split": collections.defaultdict(_new_diagnostic_group),
+        "by_phase": collections.defaultdict(_new_diagnostic_group),
+        "by_source_bucket": collections.defaultdict(_new_diagnostic_group),
+    }
+
+
+def _diagnostic_groups(
+    diagnostics: dict[str, Any],
+    *,
+    split: str,
+    phase: str,
+    bucket: str,
+) -> tuple[dict[str, Any], ...]:
+    return (
+        diagnostics["by_split"][split],
+        diagnostics["by_phase"][phase],
+        diagnostics["by_source_bucket"][bucket],
+    )
+
+
+def _bump_diagnostic_counter(
+    diagnostics: dict[str, Any],
+    *,
+    split: str,
+    phase: str,
+    bucket: str,
+    key: str,
+    amount: int = 1,
+) -> None:
+    for group in _diagnostic_groups(diagnostics, split=split, phase=phase, bucket=bucket):
+        group["counters"][key] += amount
+
+
+def _bucket_margin(value: int | None) -> str:
+    if value is None:
+        return "unavailable"
+    absolute = abs(value)
+    if absolute == 0:
+        return "0"
+    if absolute <= 1:
+        return "1"
+    if absolute <= 4:
+        return "2-4"
+    if absolute <= 8:
+        return "5-8"
+    if absolute <= 16:
+        return "9-16"
+    if absolute <= 32:
+        return "17-32"
+    if absolute <= 64:
+        return "33-64"
+    if absolute <= 128:
+        return "65-128"
+    return "129+"
+
+
+def _bump_pair_diagnostics(
+    diagnostics: dict[str, Any],
+    *,
+    split: str,
+    phase: str,
+    bucket: str,
+    pair: PreferencePair,
+) -> None:
+    for group in _diagnostic_groups(diagnostics, split=split, phase=phase, bucket=bucket):
+        group["score_margin_distribution"][_bucket_margin(pair.score_margin)] += 1
+        group["rank_margin_distribution"][_bucket_margin(pair.rank_margin)] += 1
+        group["pair_weight_mass"] += pair.pair_weight
+
+
+def _serialize_diagnostic_group(group: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "teacher_rows": int(group["counters"]["teacher_rows"]),
+        "accepted_rows": int(group["counters"]["accepted_rows"]),
+        "illegal_skipped_rows": int(group["counters"]["illegal_skipped_rows"]),
+        "teacher_exact_disagreement": int(group["counters"]["teacher_exact_disagreement"]),
+        "exact_unavailable": int(group["counters"]["exact_unavailable"]),
+        "teacher_in_exact_best": int(group["counters"]["teacher_in_exact_best"]),
+        "teacher_not_in_exact_best": int(group["counters"]["teacher_not_in_exact_best"]),
+        "engine_in_exact_best": int(group["counters"]["engine_in_exact_best"]),
+        "engine_not_in_exact_best": int(group["counters"]["engine_not_in_exact_best"]),
+        "exact_best_in_engine_top_group": int(group["counters"]["exact_best_in_engine_top_group"]),
+        "exact_best_not_in_engine_top_group": int(group["counters"]["exact_best_not_in_engine_top_group"]),
+        "legal_move_count_distribution": {
+            str(key): int(value) for key, value in sorted(group["legal_move_count_distribution"].items())
+        },
+        "pair_count_distribution": {
+            str(key): int(value) for key, value in sorted(group["pair_count_distribution"].items())
+        },
+        "score_margin_distribution": {
+            key: int(value) for key, value in sorted(group["score_margin_distribution"].items())
+        },
+        "rank_margin_distribution": {
+            key: int(value) for key, value in sorted(group["rank_margin_distribution"].items())
+        },
+        "teacher_rank_distribution": {
+            str(key): int(value) for key, value in sorted(group["teacher_rank_distribution"].items())
+        },
+        "exact_best_top_group_size_distribution": {
+            str(key): int(value)
+            for key, value in sorted(group["exact_best_top_group_size_distribution"].items())
+        },
+        "pair_weight_mass": float(group["pair_weight_mass"]),
+    }
+
+
+def serialize_dataset_diagnostics(diagnostics: dict[str, Any]) -> dict[str, Any]:
+    return {
+        dimension: {
+            key: _serialize_diagnostic_group(group)
+            for key, group in sorted(groups.items())
+        }
+        for dimension, groups in diagnostics.items()
+    }
+
+
 def collect_pairs(
     config: TrainerConfig,
     analyzer: Analyzer = run_analysis,
@@ -1369,6 +1538,7 @@ def collect_pairs(
     stats: collections.Counter[str] = collections.Counter()
     bucket_pair_counts: collections.Counter[str] = collections.Counter()
     bucket_pair_weight_mass: collections.Counter[str] = collections.Counter()
+    dataset_diagnostics = _new_dataset_diagnostics()
     stats["teacher_rows"] = len(sources)
     stats["analysis_cache_hits"] = 0
     stats["analysis_cache_misses"] = 0
@@ -1380,15 +1550,40 @@ def collect_pairs(
 
     for source_index, source in enumerate(sources):
         record = source.record
+        split = split_for_source(source, config.seed)
+        bucket = bucket_for_source(config, source)
+        board_text_for_phase = board_text_from_record(record)
+        phase = (
+            phase_for_board(board_text_for_phase, config.phase_cutoffs)
+            if board_text_for_phase is not None
+            else "unknown"
+        )
+        _bump_diagnostic_counter(
+            dataset_diagnostics,
+            split=split,
+            phase=phase,
+            bucket=bucket,
+            key="teacher_rows",
+        )
         if not accepted_teacher_record(record):
             stats["unusable_teacher_rows"] += 1
+            _bump_diagnostic_counter(
+                dataset_diagnostics,
+                split=split,
+                phase=phase,
+                bucket=bucket,
+                key="illegal_skipped_rows",
+            )
             continue
         stats["accepted_teacher_rows"] += 1
-        split = split_for_source(source, config.seed)
+        _bump_diagnostic_counter(
+            dataset_diagnostics,
+            split=split,
+            phase=phase,
+            bucket=bucket,
+            key="accepted_rows",
+        )
         stats[f"{split}_rows"] += 1
-        if config.split != "all" and split != config.split:
-            stats["split_skipped"] += 1
-            continue
 
         board_text = board_text_from_record(record)
         assert board_text is not None
@@ -1396,10 +1591,26 @@ def collect_pairs(
         teacher_move = normalize_move(teacher_move_from_record(record))
         if teacher_move is None:
             stats["missing_teacher_move_skipped"] += 1
+            _bump_diagnostic_counter(
+                dataset_diagnostics,
+                split=split,
+                phase=phase,
+                bucket=bucket,
+                key="illegal_skipped_rows",
+            )
             continue
         legal_moves = legal_moves_for_board(board_text)
+        for group in _diagnostic_groups(dataset_diagnostics, split=split, phase=phase, bucket=bucket):
+            group["legal_move_count_distribution"][len(legal_moves)] += 1
         if teacher_move not in legal_moves:
             stats["illegal_teacher_move_skipped"] += 1
+            _bump_diagnostic_counter(
+                dataset_diagnostics,
+                split=split,
+                phase=phase,
+                bucket=bucket,
+                key="illegal_skipped_rows",
+            )
             entries.append(
                 make_validation_record(
                     source=source,
@@ -1415,7 +1626,51 @@ def collect_pairs(
 
         exact_record = exact_by_board.get(board_key(board_text))
         exact_best = exact_best_moves(exact_record)
-        if exact_best and teacher_move not in exact_best and config.pair_mode != "exact-aware":
+        if exact_best:
+            for group in _diagnostic_groups(dataset_diagnostics, split=split, phase=phase, bucket=bucket):
+                group["exact_best_top_group_size_distribution"][len(exact_best)] += 1
+            if teacher_move in exact_best:
+                _bump_diagnostic_counter(
+                    dataset_diagnostics,
+                    split=split,
+                    phase=phase,
+                    bucket=bucket,
+                    key="teacher_in_exact_best",
+                )
+            else:
+                _bump_diagnostic_counter(
+                    dataset_diagnostics,
+                    split=split,
+                    phase=phase,
+                    bucket=bucket,
+                    key="teacher_not_in_exact_best",
+                )
+                _bump_diagnostic_counter(
+                    dataset_diagnostics,
+                    split=split,
+                    phase=phase,
+                    bucket=bucket,
+                    key="teacher_exact_disagreement",
+                )
+        else:
+            _bump_diagnostic_counter(
+                dataset_diagnostics,
+                split=split,
+                phase=phase,
+                bucket=bucket,
+                key="exact_unavailable",
+            )
+
+        if config.split != "all" and split != config.split:
+            stats["split_skipped"] += 1
+            continue
+
+        drop_exact_disagreement = (
+            exact_best
+            and teacher_move not in exact_best
+            and (config.drop_teacher_exact_disagreement or config.pair_mode != "exact-aware")
+        )
+        if drop_exact_disagreement:
             stats["teacher_exact_disagreements_skipped"] += 1
             entries.append(
                 make_validation_record(
@@ -1431,6 +1686,44 @@ def collect_pairs(
             continue
         if exact_best and teacher_move not in exact_best and config.pair_mode == "exact-aware":
             stats["teacher_exact_disagreements_used_by_exact_aware"] += 1
+        if (
+            exact_best
+            and config.max_top_group_size_for_training > 0
+            and len(exact_best) > config.max_top_group_size_for_training
+        ):
+            stats["large_exact_top_group_skipped"] += 1
+            entries.append(
+                make_validation_record(
+                    source=source,
+                    split=split,
+                    phase=phase,
+                    status="large_exact_top_group",
+                    teacher_move=teacher_move,
+                    engine_move="",
+                    exact_best=exact_best,
+                )
+            )
+            continue
+        if (
+            not exact_best
+            and config.pair_mode == "exact-aware"
+            and config.exact_aware_only_when_available
+            and config.guard_mode == "off"
+        ):
+            stats["exact_unavailable_fallback_positions"] += 1
+            stats["no_pair_generated_skipped"] += 1
+            entries.append(
+                make_validation_record(
+                    source=source,
+                    split=split,
+                    phase=phase,
+                    status="exact_unavailable",
+                    teacher_move=teacher_move,
+                    engine_move="",
+                    exact_best=exact_best,
+                )
+            )
+            continue
 
         engine_move = precomputed_engine_move(record, legal_moves)
         needs_analysis = (
@@ -1460,6 +1753,7 @@ def collect_pairs(
                 source=source,
                 split=split,
                 phase=phase,
+                bucket=bucket,
                 board_text=board_text,
                 teacher_move=teacher_move,
                 engine_move=engine_move,
@@ -1484,6 +1778,7 @@ def collect_pairs(
         source = entry.source
         split = entry.split
         phase = entry.phase
+        bucket = entry.bucket
         board_text = entry.board_text
         teacher_move = entry.teacher_move
         legal_moves = entry.legal_moves
@@ -1504,6 +1799,23 @@ def collect_pairs(
                 )
             )
             continue
+        if exact_best:
+            if engine_move in exact_best:
+                _bump_diagnostic_counter(
+                    dataset_diagnostics,
+                    split=split,
+                    phase=phase,
+                    bucket=bucket,
+                    key="engine_in_exact_best",
+                )
+            else:
+                _bump_diagnostic_counter(
+                    dataset_diagnostics,
+                    split=split,
+                    phase=phase,
+                    bucket=bucket,
+                    key="engine_not_in_exact_best",
+                )
         if engine_move == teacher_move:
             stats["already_agreed"] += 1
             if config.pair_mode == "best-vs-engine" and config.guard_mode == "off":
@@ -1520,6 +1832,30 @@ def collect_pairs(
                 )
                 continue
         root_scores = analysis.root_scores if analysis is not None else {}
+        ranks = root_score_ranks(root_scores)
+        teacher_rank = ranks.get(teacher_move)
+        if exact_best and teacher_rank is not None:
+            for group in _diagnostic_groups(dataset_diagnostics, split=split, phase=phase, bucket=bucket):
+                group["teacher_rank_distribution"][teacher_rank] += 1
+        if exact_best and root_scores:
+            top_score = max(root_scores.values())
+            engine_top_group = {move for move, score in root_scores.items() if score == top_score}
+            if engine_top_group.intersection(exact_best):
+                _bump_diagnostic_counter(
+                    dataset_diagnostics,
+                    split=split,
+                    phase=phase,
+                    bucket=bucket,
+                    key="exact_best_in_engine_top_group",
+                )
+            else:
+                _bump_diagnostic_counter(
+                    dataset_diagnostics,
+                    split=split,
+                    phase=phase,
+                    bucket=bucket,
+                    key="exact_best_not_in_engine_top_group",
+                )
         position_pairs, pair_stats = generate_position_pairs(
             config=config,
             source=source,
@@ -1545,6 +1881,8 @@ def collect_pairs(
         )
         stats.update(guard_stats)
         all_position_pairs = [*position_pairs, *guard_pairs]
+        for group in _diagnostic_groups(dataset_diagnostics, split=split, phase=phase, bucket=bucket):
+            group["pair_count_distribution"][len(all_position_pairs)] += 1
         if not all_position_pairs:
             stats["no_pair_generated_skipped"] += 1
             validation_records.append(
@@ -1576,6 +1914,13 @@ def collect_pairs(
                 stats["guard_pair_weight_mass"] += pair.pair_weight
             else:
                 stats["main_pair_weight_mass"] += pair.pair_weight
+            _bump_pair_diagnostics(
+                dataset_diagnostics,
+                split=split,
+                phase=pair.phase,
+                bucket=pair.bucket,
+                pair=pair,
+            )
             validation_records.append(
                 make_validation_record(
                     source=source,
@@ -1606,6 +1951,7 @@ def collect_pairs(
         "guard_pairs",
         "guard_pairs_truncated",
         "guarded_positions",
+        "large_exact_top_group_skipped",
         "main_pair_weight_mass",
         "main_preference_pairs",
         "max_pairs_in_position",
@@ -1648,6 +1994,7 @@ def collect_pairs(
     row_stats["bucket_pair_weight_mass"] = {
         bucket: float(bucket_pair_weight_mass[bucket]) for bucket in sorted(bucket_pair_weight_mass)
     }
+    row_stats["dataset_diagnostics"] = serialize_dataset_diagnostics(dataset_diagnostics)
     return pairs, validation_records, row_stats
 
 
@@ -2134,6 +2481,9 @@ def render_report(
         f"- exact_best_weight: `{config.exact_best_weight}`",
         f"- teacher_weight: `{config.teacher_weight}`",
         f"- min_score_margin: `{config.min_score_margin}`",
+        f"- drop_teacher_exact_disagreement: `{config.drop_teacher_exact_disagreement}`",
+        f"- exact_aware_only_when_available: `{config.exact_aware_only_when_available}`",
+        f"- max_top_group_size_for_training: `{config.max_top_group_size_for_training}`",
         f"- l2: `{config.l2}`",
         f"- epochs: `{config.epochs}`",
         f"- learning_rate: `{config.learning_rate}`",
@@ -2205,6 +2555,208 @@ def render_report(
         ]
     )
     return "\n".join(lines) + "\n"
+
+
+def _format_distribution(distribution: dict[str, int]) -> str:
+    if not distribution:
+        return "none"
+    return ", ".join(f"{key}:{value}" for key, value in distribution.items())
+
+
+def _diagnostic_table_lines(title: str, groups: dict[str, Any], *, limit: int = 40) -> list[str]:
+    lines = [
+        f"## {title}",
+        "",
+        "| group | teacher rows | accepted | illegal/skipped | exact unavailable | teacher/exact disagreement | pairs | pair weight mass | legal moves | pair counts | score margins | rank margins | teacher ranks | exact top group |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- |",
+    ]
+    for index, (name, group) in enumerate(groups.items()):
+        if index >= limit:
+            lines.append(
+                f"| ... | {len(groups) - limit} more groups omitted from Markdown; see summary.json |  |  |  |  |  |  |  |  |  |  |  | |"
+            )
+            break
+        pair_counts = group.get("pair_count_distribution", {})
+        pair_total = sum(int(value) * int(key) for key, value in pair_counts.items() if str(key).isdigit())
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    str(name),
+                    str(group.get("teacher_rows", 0)),
+                    str(group.get("accepted_rows", 0)),
+                    str(group.get("illegal_skipped_rows", 0)),
+                    str(group.get("exact_unavailable", 0)),
+                    str(group.get("teacher_exact_disagreement", 0)),
+                    str(pair_total),
+                    f"{float(group.get('pair_weight_mass', 0.0)):.6f}",
+                    _format_distribution(group.get("legal_move_count_distribution", {})),
+                    _format_distribution(pair_counts),
+                    _format_distribution(group.get("score_margin_distribution", {})),
+                    _format_distribution(group.get("rank_margin_distribution", {})),
+                    _format_distribution(group.get("teacher_rank_distribution", {})),
+                    _format_distribution(group.get("exact_best_top_group_size_distribution", {})),
+                ]
+            )
+            + " |"
+        )
+    lines.append("")
+    return lines
+
+
+def render_dataset_diagnostic_report(config: TrainerConfig, summary: dict[str, Any]) -> str:
+    rows = summary["rows"]
+    diagnostics = rows.get("dataset_diagnostics", {})
+    lines = [
+        "# NTest Teacher Dataset Diagnostic",
+        "",
+        "This report performs teacher/exact/pair-generation diagnostics only. It does not train weights, "
+        "write a candidate `.eval`, or change `current_default.eval`.",
+        "",
+        "## Command",
+        "",
+        f"`{quote_command(config.invocation) if config.invocation else 'unknown'}`",
+        "",
+        "## Inputs",
+        "",
+        f"- teacher_labels: `{', '.join(str(path) for path in config.teacher_labels)}`",
+        f"- exact_labels: `{', '.join(str(path) for path in config.exact_labels) or 'none'}`",
+        f"- dataset_root: `{json.dumps(config.dataset_root, sort_keys=True)}`",
+        f"- eval_config: `{config.eval_config}`",
+        f"- analyze_position: `{config.analyze_position}`",
+        f"- analysis_runner: `{config.analysis_runner}`",
+        f"- analysis_jobs: `{summary['analysis_jobs']}`",
+        f"- analysis_cache_mode: `{summary['analysis_cache_mode']}`",
+        f"- split: `{config.split}`",
+        f"- pair_mode: `{config.pair_mode}`",
+        f"- pair_weighting: `{config.pair_weighting}`",
+        f"- min_score_margin: `{config.min_score_margin}`",
+        f"- drop_teacher_exact_disagreement: `{config.drop_teacher_exact_disagreement}`",
+        f"- exact_aware_only_when_available: `{config.exact_aware_only_when_available}`",
+        f"- max_top_group_size_for_training: `{config.max_top_group_size_for_training}`",
+        f"- max_pairs_per_position: `{config.max_pairs_per_position}`",
+        "",
+        "## Overall Counts",
+        "",
+    ]
+    for key in sorted(rows):
+        if key in ("bucket_pair_counts", "bucket_pair_weight_mass", "dataset_diagnostics"):
+            continue
+        lines.append(f"- {key}: `{rows[key]}`")
+    if rows.get("bucket_pair_counts") or rows.get("bucket_pair_weight_mass"):
+        lines.extend(["", "## Bucket Pair Weight Mass", ""])
+        counts = rows.get("bucket_pair_counts", {})
+        mass = rows.get("bucket_pair_weight_mass", {})
+        for bucket in sorted(set(counts) | set(mass)):
+            lines.append(
+                f"- {bucket}: count=`{counts.get(bucket, 0)}`, "
+                f"weighted_mass=`{float(mass.get(bucket, 0.0)):.6f}`"
+            )
+    if diagnostics:
+        lines.extend([""])
+        lines.extend(_diagnostic_table_lines("By Split", diagnostics.get("by_split", {})))
+        lines.extend(_diagnostic_table_lines("By Phase", diagnostics.get("by_phase", {})))
+        lines.extend(_diagnostic_table_lines("By Source Bucket", diagnostics.get("by_source_bucket", {})))
+    lines.extend(
+        [
+            "## Full 300K Gate",
+            "",
+            "Proceed to full 300K exact-aware training only after 1K, 10K, and 50K diagnostics show:",
+            "",
+            "- accepted rows are high and illegal/skipped rows are explainable from known teacher failures",
+            "- teacher/exact disagreement is visible and either low enough to keep or explicitly dropped",
+            "- exact unavailable rows are expected for non-endgame positions, and exact-aware fallback is intentionally chosen or disabled",
+            "- no split, phase, or source_bucket owns a surprising share of pair weight mass",
+            "- weak score-margin and rank-margin pair mass is controlled by `--min-score-margin` or pair caps",
+            "- exact-best top groups are not so broad that they turn exact-aware pairs into tie noise",
+            "",
+            "Safe preset for the next training pass:",
+            "",
+            "```sh",
+            "python3 tools/scripts/regularized_pairwise_pattern_train.py \\",
+            "  --pair-mode exact-aware \\",
+            "  --pair-weighting exact-boost \\",
+            "  --drop-teacher-exact-disagreement \\",
+            "  --exact-aware-only-when-available \\",
+            "  --min-score-margin 4 \\",
+            "  --max-top-group-size-for-training 4 \\",
+            "  --max-pairs-per-position 8 \\",
+            "  --no-base-margin \\",
+            "  --candidate-eval-shape pattern-only",
+            "```",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def diagnose_dataset(
+    config: TrainerConfig,
+    analyzer: Analyzer = run_analysis,
+) -> DiagnosticResult:
+    config.out_dir.mkdir(parents=True, exist_ok=True)
+    pairs, validation_records, row_stats = collect_pairs(config, analyzer=analyzer)
+    validation_path = config.out_dir / "diagnostic_validation.tsv"
+    write_validation_tsv(validation_path, validation_records)
+    summary = {
+        "script": "tools/scripts/regularized_pairwise_pattern_train.py",
+        "mode": "diagnose_dataset",
+        "generated_at": dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "git_sha": collect_git_sha(),
+        "command": quote_command(config.invocation) if config.invocation else "unknown",
+        "teacher_label_paths": [str(path) for path in config.teacher_labels],
+        "teacher_label_sha256": {str(path): sha256_file(path) for path in config.teacher_labels},
+        "exact_label_paths": [str(path) for path in config.exact_labels],
+        "exact_label_sha256": {str(path): sha256_file(path) for path in config.exact_labels},
+        "dataset_root": config.dataset_root,
+        "eval_config": str(config.eval_config),
+        "eval_config_sha256": sha256_file(config.eval_config),
+        "analyze_position": str(config.analyze_position),
+        "analysis_depth": DEFAULT_ANALYSIS_DEPTH,
+        "analysis_runner": config.analysis_runner,
+        "analysis_cache_mode": config.analysis_cache.mode,
+        "analysis_cache_dir": (
+            str(config.analysis_cache.directory) if config.analysis_cache.directory is not None else ""
+        ),
+        "analysis_jobs": config.analysis_jobs,
+        "families": list(config.families),
+        "split": config.split,
+        "pair_mode": config.pair_mode,
+        "pair_weighting": config.pair_weighting,
+        "bucket_weighting": {
+            "path": str(config.bucket_weights_path) if config.bucket_weights_path is not None else "",
+            "field": config.bucket_field,
+            "default_weight": config.default_bucket_weight,
+            "weights": config.bucket_weights,
+        },
+        "max_pairs_per_position": config.max_pairs_per_position,
+        "exact_best_weight": config.exact_best_weight,
+        "teacher_weight": config.teacher_weight,
+        "min_score_margin": config.min_score_margin,
+        "drop_teacher_exact_disagreement": config.drop_teacher_exact_disagreement,
+        "exact_aware_only_when_available": config.exact_aware_only_when_available,
+        "max_top_group_size_for_training": config.max_top_group_size_for_training,
+        "seed": config.seed,
+        "phase_cutoffs": {
+            "opening_max_occupied": config.phase_cutoffs.opening_max_occupied,
+            "midgame_max_occupied": config.phase_cutoffs.midgame_max_occupied,
+        },
+        "rows": row_stats,
+        "pair_metrics": evaluate_pairs(config, {phase: {} for phase in PHASES}, pairs),
+        "outputs": {
+            "summary_json": str(config.out_dir / "summary.json"),
+            "report_md": str(config.out_dir / "dataset_diagnostic.md"),
+            "validation_tsv": str(validation_path),
+        },
+        "no_strength_claim": True,
+        "training_performed": False,
+        "default_promotion": False,
+    }
+    summary_path = config.out_dir / "summary.json"
+    summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    report_path = config.out_dir / "dataset_diagnostic.md"
+    report_path.write_text(render_dataset_diagnostic_report(config, summary), encoding="utf-8")
+    return DiagnosticResult(summary=summary, report_path=report_path)
 
 
 def train_pairwise_tables(
@@ -2294,6 +2846,9 @@ def train_pairwise_tables(
         "exact_best_weight": config.exact_best_weight,
         "teacher_weight": config.teacher_weight,
         "min_score_margin": config.min_score_margin,
+        "drop_teacher_exact_disagreement": config.drop_teacher_exact_disagreement,
+        "exact_aware_only_when_available": config.exact_aware_only_when_available,
+        "max_top_group_size_for_training": config.max_top_group_size_for_training,
         "l2": config.l2,
         "epochs": config.epochs,
         "learning_rate": config.learning_rate,
@@ -2357,6 +2912,10 @@ def main(argv: list[str] | None = None) -> int:
             *(argv if argv is not None else sys.argv[1:]),
         ]
         config = config_from_args(args, invocation=invocation)
+        if config.diagnose_dataset:
+            result = diagnose_dataset(config)
+            print(f"wrote {config.out_dir} dataset_diagnostic={result.report_path}")
+            return 0
         result = train_pairwise_tables(config)
         print(f"wrote {config.out_dir} candidate_eval={result.candidate_eval_path}")
         return 0
