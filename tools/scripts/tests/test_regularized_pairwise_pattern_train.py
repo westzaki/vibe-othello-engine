@@ -1679,6 +1679,82 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
         scores = trainer.listwise_scores(config, weights, example)
         self.assertGreater(scores["good"], scores["bad"])
 
+    def test_compact_listwise_metrics_match_object_examples(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            config = make_config(
+                temp_path,
+                labels,
+                extra_args=[
+                    "--objective",
+                    "listwise-softmax",
+                    "--no-base-margin",
+                    "--epochs",
+                    "1",
+                    "--l2",
+                    "0",
+                ],
+            )
+            example = synthetic_listwise_example()
+            compact = trainer.compact_listwise_dataset([example])
+            weights = {
+                "opening": {},
+                "midgame": {("edge_8", 2131): 0.5, ("edge_8", 2179): -0.5},
+                "late": {},
+            }
+
+        self.assertEqual(compact.example_count, 1)
+        self.assertEqual(compact.candidate_count, 2)
+        self.assertEqual(
+            trainer.evaluate_listwise_examples(config, weights, [example]),
+            trainer.evaluate_listwise_examples(config, weights, compact),
+        )
+        self.assertEqual(
+            trainer.move_choice_metrics(config, weights, [example]),
+            trainer.move_choice_metrics(config, weights, compact),
+        )
+
+    def test_listwise_feature_cache_reuses_child_pattern_features(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row(move="d1")])
+            cache_dir = temp_path / "feature-cache"
+            common_args = [
+                "--objective",
+                "listwise-softmax",
+                "--listwise-feature-cache-dir",
+                str(cache_dir),
+            ]
+            warm_config = make_config(
+                temp_path,
+                labels,
+                extra_args=[*common_args, "--listwise-feature-cache-mode", "read-write"],
+            )
+            _, warm_examples, _, warm_stats = trainer.collect_training_data(
+                warm_config,
+                analyzer=wide_fake_analyzer,
+            )
+            read_config = make_config(
+                temp_path,
+                labels,
+                extra_args=[*common_args, "--listwise-feature-cache-mode", "read-only"],
+            )
+            _, read_examples, _, read_stats = trainer.collect_training_data(
+                read_config,
+                analyzer=wide_fake_analyzer,
+            )
+
+        self.assertEqual(len(warm_examples), 1)
+        self.assertEqual(len(read_examples), 1)
+        self.assertEqual(warm_examples[0].candidates, read_examples[0].candidates)
+        self.assertGreater(warm_stats["listwise_feature_cache_writes"], 0)
+        self.assertEqual(read_stats["listwise_feature_cache_misses"], 0)
+        self.assertEqual(
+            read_stats["listwise_feature_cache_hits"],
+            len(read_examples[0].candidates),
+        )
+
     def test_exact_aware_listwise_uses_exact_best_when_teacher_disagrees(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             temp_path = Path(temp)
