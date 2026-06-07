@@ -19,10 +19,9 @@ engine directly.
 - `deprecated`: no longer recommended; removed here when a current workflow
   covers the use case and repository references are historical only.
 
-Historical experiment reports may still mention removed scripts so old evidence
-keeps its provenance. Do not copy those historical commands as current
-instructions unless this README or a current workflow doc still recommends the
-script.
+Historical experiment reports may still mention removed interfaces so old
+evidence keeps its provenance. Do not copy those historical commands as current
+instructions. Removed interfaces are documented only in historical reports.
 
 ## Inventory
 
@@ -37,7 +36,7 @@ script.
 | `external_teacher_label_workflow.py` | current | Generate teacher-label JSONL from external engines. | Current teacher-label entrypoint and a dependency of `teacher_dataset_build.py`. |
 | `match_summary.py` | current | Summarize C++ match-runner JSONL. | Shared by current evidence, match, and base/head workflows. |
 | `ntest_teacher_smoke.py` | current | Run a local NTest teacher-label smoke and estimate 300K run feasibility. | Operational preflight before overnight NTest teacher dataset generation; does not make strength claims. |
-| `pattern_only_train.py` | current / canonical | Train phase-specific PatternOnly tables from exact-aware listwise teacher/exact labels. | Canonical current pattern trainer for new experiments; owns the shared analyzer cache/dedup/parallel workflow. |
+| `pattern_only_train.py` | current / canonical | Train PatternOnly phase-specific tables from teacher labels and exact-score labels. | Canonical current PatternOnly trainer for new experiments; owns the exact-aware-listwise and soft exact-score target workflow. |
 | `teacher_dataset_build.py` | current | Build reusable position shards, manifests, splits, teacher labels, and exact overlap labels under a dataset root. | Recommended durable dataset-builder entrypoint for pattern-first work. |
 | `teacher_label_mistake_mining.py` | current | Mine evaluator move-choice mistakes against validated teacher labels. | Current pattern diagnostics for teacher-vs-engine disagreement and vocabulary gaps. |
 
@@ -99,19 +98,19 @@ optional phases. The script is orchestration only: it uses existing C++ tools
 for rule validation and exact labels, and it does not require external engines
 in CI.
 
-For new pattern experiments, use `pattern_only_train.py` by
-default. It is the canonical current trainer because it supports broad
-phase-specific PatternOnly tables, regularization, exact-aware listwise target
-construction, deterministic validation summaries, and the shared analyzer
-cache/dedup/parallel workflow. Start from this trainer unless the task is
-explicitly reproducing an older artifact or isolating a phase-table migration
+For new PatternOnly experiments, use `pattern_only_train.py` by default. It is
+the canonical current trainer because it keeps generated candidates scalar-free,
+uses broad phase-specific pattern tables, and supports the exact-aware-listwise
+objective with soft exact-score targets. Start from this trainer unless the task
+is explicitly reproducing an older artifact or isolating a phase-table migration
 detail.
 
-The canonical PatternOnly trainer requires `--eval-config`; choose the base
-evaluator intentionally for analyzer candidate discovery and diagnostics.
-Current-engine improvement workflows should usually pass
-`--eval-config data/eval/current_default.eval`. Base scalar scores are not part
-of the trainer objective or generated candidate `.eval`.
+The canonical PatternOnly trainer should select its comparison evaluator
+explicitly when invoking root analysis, analyzer candidate discovery, or
+diagnostics. Current-engine comparison workflows should usually use
+`data/eval/current_default.eval` as the baseline evaluator. Base scalar scores
+are not part of the trainer objective or generated candidate `.eval`. Do not
+rely on historical pattern-teacher config defaults for new work.
 
 Pattern trainers that invoke `othello_analyze_position` share the same optional
 root-analysis cache flags: `--analysis-cache-dir`, `--analysis-cache-mode`, and
@@ -121,8 +120,9 @@ root analysis without changing the table output format. Future analyzer
 protocol work can avoid subprocess startup overhead further by adding
 `othello_analyze_position --jsonl-in --jsonl-out`.
 
-Train PatternOnly listwise pattern tables when the goal is to improve the
-pattern objective directly rather than tune scalar residual weights:
+Train PatternOnly tables with exact-aware-listwise and a soft exact-score target
+when the goal is to improve the learned pattern objective directly rather than
+tune scalar residual weights:
 
 ```sh
 python3 tools/scripts/pattern_only_train.py \
@@ -148,17 +148,31 @@ python3 tools/scripts/pattern_only_train.py \
 When exact labels contain complete `move_scores`, the trainer uses a soft
 exact-score target distribution. When only exact-best moves are available, it
 uses a uniform target over those moves. Rows without exact labels fall back to
-the teacher move. The trainer reports weighted listwise loss, selected-move
-diagnostics, exact-score soft-target diagnostics, phase/family entries,
-quantization stats, and saturation stats. High training accuracy is a
-diagnostic only; it is not evidence of playing strength. Candidate TSVs and
-`.eval` files remain generated artifacts under `runs/`, and follow-up evidence
-should be recorded in a separate experiment report.
+the teacher move.
+
+The standard workflow is:
+
+1. Run 1K/10K diagnostics before launching larger training.
+2. Use exact overlap rows to verify exact-best rank, selected agreement, top
+   tie rate, and exact sign metrics.
+3. Run search smoke and match smoke before making any strength claim.
+4. Keep generated TSVs, candidate `.eval` files, raw logs, and local paths under
+   `runs/` or an external dataset root until a promotion PR explicitly retains
+   artifacts.
+5. Record both positive and negative results in a durable experiment report.
+
+The trainer reports listwise loss, exact-aware target coverage, exact-score
+target settings, phase/family entries, quantization stats, saturation stats, and
+candidate validation summaries. Training metrics are diagnostics only; they are
+not evidence of playing strength. Candidate TSVs and `.eval` files remain
+generated artifacts under `runs/`, and follow-up evidence should be recorded in
+a separate experiment report such as `docs(eval): report PatternOnly soft exact
+target`.
 
 Historical reports and retained pattern-table metadata may still mention older
-trainer entry points as timestamped provenance. Those scripts are removed from
-active tooling; new work should use the canonical PatternOnly listwise trainer
-instead of copying old command blocks.
+trainer entry points as timestamped provenance. Removed CLI interfaces should
+not be restored or copied into active docs unless a new task explicitly designs
+a replacement interface.
 
 ## Current Evidence Workflows
 

@@ -96,10 +96,10 @@ of committed docs.
 
 ## Current Script Support
 
-- `tools/scripts/pattern_only_train.py` is the canonical
-  current PatternOnly listwise trainer, requires explicit `--eval-config`, and
-  supports `--dataset-root` for `--teacher-labels` and `--exact-labels` entries
-  that start with `dataset:`.
+- `tools/scripts/pattern_only_train.py` is the canonical current PatternOnly
+  trainer, uses exact-aware-listwise training with a soft exact-score target,
+  and supports `--dataset-root` for `--teacher-labels` and `--exact-labels`
+  entries that start with `dataset:`.
 - `tools/scripts/teacher_label_mistake_mining.py` supports `--dataset-root` for
   `--teacher-labels` and `--exact-labels` entries that start with `dataset:`.
 - `tools/scripts/external_teacher_label_workflow.py` supports `--dataset-root`
@@ -117,8 +117,9 @@ required in CI.
 
 Historical dataset migration reports may mention removed transitional pattern
 trainer entry points. Treat those command blocks as provenance only; active
-pattern training should use `pattern_only_train.py` and the
-shared helpers under `tools/scripts/pattern_training/`.
+pattern training should use `pattern_only_train.py` and the shared helpers under
+`tools/scripts/pattern_training/`. Removed interfaces are documented only in
+historical reports and should not be restored as current dataset workflows.
 
 ## Teacher Dataset Builder
 
