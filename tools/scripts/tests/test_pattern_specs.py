@@ -132,6 +132,89 @@ class PatternSpecsTests(unittest.TestCase):
                 flipped_index = pattern_specs.pattern_index(board9_rows, "B", spec)
                 self.assertNotEqual(flipped_index, expected_index)
 
+    def test_d4_move_transforms_use_square_index_coordinates(self) -> None:
+        expected = {
+            "identity": "b3",
+            "flip_horizontal": "g3",
+            "flip_vertical": "b6",
+            "rotate_90": "f2",
+            "rotate_180": "g6",
+            "rotate_270": "c7",
+            "transpose_main_diagonal": "c2",
+            "transpose_anti_diagonal": "f7",
+        }
+
+        for transform, move in expected.items():
+            with self.subTest(transform=transform):
+                self.assertEqual(pattern_specs.transform_move("b3", transform), move)
+                self.assertEqual(pattern_specs.transform_move("pass", transform), "pass")
+
+    def test_d4_board_transform_maps_cells_and_preserves_side(self) -> None:
+        board = (
+            "B.......\n"
+            "........\n"
+            "........\n"
+            "........\n"
+            "........\n"
+            "........\n"
+            "........\n"
+            ".......W\n"
+            "side=B"
+        )
+
+        self.assertEqual(
+            pattern_specs.transform_board9_text(board, "rotate_180"),
+            (
+                "W.......\n"
+                "........\n"
+                "........\n"
+                "........\n"
+                "........\n"
+                "........\n"
+                "........\n"
+                ".......B\n"
+                "side=B"
+            ),
+        )
+        self.assertEqual(
+            pattern_specs.transform_board9_text(board, "flip_horizontal"),
+            (
+                ".......B\n"
+                "........\n"
+                "........\n"
+                "........\n"
+                "........\n"
+                "........\n"
+                "........\n"
+                "W.......\n"
+                "side=B"
+            ),
+        )
+
+    def test_side_relative_index_survives_color_and_side_inversion(self) -> None:
+        board = (
+            ".BBBBBB.\n"
+            ".BBWWB..\n"
+            "BWWWWWWW\n"
+            "BWWBBBBB\n"
+            "WWBWBBBB\n"
+            "WWWBBBB.\n"
+            ".WWWBWWW\n"
+            "W.B.BBB.\n"
+            "side=B"
+        )
+        inverted = pattern_specs.invert_board9_colors(board)
+        rows = pattern_specs.parse_board9_square_index_rows(board)
+        inverted_rows = pattern_specs.parse_board9_square_index_rows(inverted)
+
+        for family in pattern_specs.FAMILY_ORDER:
+            for spec in pattern_specs.PATTERN_SPECS[family]:
+                with self.subTest(family=family, spec=spec):
+                    self.assertEqual(
+                        pattern_specs.pattern_index(rows, "B", spec),
+                        pattern_specs.pattern_index(inverted_rows, "W", spec),
+                    )
+
 
 if __name__ == "__main__":
     unittest.main()

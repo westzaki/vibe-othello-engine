@@ -4,11 +4,33 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Literal
 
 
 PatternSpec = tuple[int, ...]
 PatternFamilySpecs = tuple[PatternSpec, ...]
 PatternRows = Sequence[Sequence[str]]
+D4Transform = Literal[
+    "identity",
+    "flip_horizontal",
+    "flip_vertical",
+    "rotate_90",
+    "rotate_180",
+    "rotate_270",
+    "transpose_main_diagonal",
+    "transpose_anti_diagonal",
+]
+
+D4_TRANSFORMS: tuple[D4Transform, ...] = (
+    "identity",
+    "flip_horizontal",
+    "flip_vertical",
+    "rotate_90",
+    "rotate_180",
+    "rotate_270",
+    "transpose_main_diagonal",
+    "transpose_anti_diagonal",
+)
 
 CORNER_2X3_SPECS: PatternFamilySpecs = (
     (0, 1, 2, 8, 9, 10),
@@ -160,3 +182,139 @@ def pattern_index(rows: PatternRows, side: str, spec: PatternSpec) -> int:
         index += state * place
         place *= 3
     return index
+
+
+def transform_square_index(square_index: int, transform: D4Transform) -> int:
+    """Map a C++ square index through one of the board's D4 symmetries."""
+
+    if square_index < 0 or square_index >= 64:
+        raise ValueError("square_index must be in [0, 64)")
+    row = square_index // 8
+    col = square_index % 8
+    if transform == "identity":
+        mapped_row, mapped_col = row, col
+    elif transform == "flip_horizontal":
+        mapped_row, mapped_col = row, 7 - col
+    elif transform == "flip_vertical":
+        mapped_row, mapped_col = 7 - row, col
+    elif transform == "rotate_90":
+        mapped_row, mapped_col = col, 7 - row
+    elif transform == "rotate_180":
+        mapped_row, mapped_col = 7 - row, 7 - col
+    elif transform == "rotate_270":
+        mapped_row, mapped_col = 7 - col, row
+    elif transform == "transpose_main_diagonal":
+        mapped_row, mapped_col = col, row
+    elif transform == "transpose_anti_diagonal":
+        mapped_row, mapped_col = 7 - col, 7 - row
+    else:
+        raise ValueError(f"unknown D4 transform: {transform}")
+    return mapped_row * 8 + mapped_col
+
+
+def transform_pattern_spec(spec: PatternSpec, transform: D4Transform) -> PatternSpec:
+    return tuple(transform_square_index(square_index, transform) for square_index in spec)
+
+
+def reverse_pattern_index(index: int, cell_count: int) -> int:
+    """Reverse base-3 cell order for a pattern table index."""
+
+    if index < 0:
+        raise ValueError("index must be non-negative")
+    reversed_index = 0
+    for _ in range(cell_count):
+        reversed_index = reversed_index * 3 + index % 3
+        index //= 3
+    if index:
+        raise ValueError("index does not fit in cell_count ternary cells")
+    return reversed_index
+
+
+def color_inverted_pattern_index(index: int, cell_count: int) -> int:
+    """Swap own/opponent ternary states in a side-relative pattern index."""
+
+    if index < 0:
+        raise ValueError("index must be non-negative")
+    inverted = 0
+    place = 1
+    for _ in range(cell_count):
+        digit = index % 3
+        if digit == 1:
+            digit = 2
+        elif digit == 2:
+            digit = 1
+        inverted += digit * place
+        place *= 3
+        index //= 3
+    if index:
+        raise ValueError("index does not fit in cell_count ternary cells")
+    return inverted
+
+
+def _move_to_square_index(move: str) -> int | None:
+    text = move.strip().lower()
+    if text in {"pass", "pa", "--", "-"}:
+        return None
+    if len(text) != 2 or text[0] < "a" or text[0] > "h" or text[1] < "1" or text[1] > "8":
+        raise ValueError(f"invalid move coordinate: {move}")
+    return (int(text[1]) - 1) * 8 + ord(text[0]) - ord("a")
+
+
+def _square_index_to_move(square_index: int) -> str:
+    if square_index < 0 or square_index >= 64:
+        raise ValueError("square_index must be in [0, 64)")
+    return f"{chr(ord('a') + square_index % 8)}{square_index // 8 + 1}"
+
+
+def transform_move(move: str, transform: D4Transform) -> str:
+    square_index = _move_to_square_index(move)
+    if square_index is None:
+        return "pass"
+    return _square_index_to_move(transform_square_index(square_index, transform))
+
+
+def parse_board9_text(board_text: str) -> tuple[tuple[str, ...], str]:
+    lines = [line.strip() for line in board_text.strip().splitlines() if line.strip()]
+    if len(lines) != 9:
+        raise ValueError("expected board9 text with 8 rows plus side")
+    side_line = lines[8]
+    if not side_line.startswith("side=") or len(side_line) != 6 or side_line[-1] not in {"B", "W"}:
+        raise ValueError("expected board9 side line")
+    rows = tuple(lines[:8])
+    if any(len(row) != 8 or any(cell not in {"B", "W", "."} for cell in row) for row in rows):
+        raise ValueError("expected 8 board rows containing only B, W, or .")
+    return rows, side_line[-1]
+
+
+def render_board9_text(rows: Sequence[Sequence[str]], side: str) -> str:
+    if side not in {"B", "W"}:
+        raise ValueError("side must be B or W")
+    if len(rows) != 8:
+        raise ValueError("expected exactly 8 board rows")
+    rendered_rows: list[str] = []
+    for row in rows:
+        text = "".join(row)
+        if len(text) != 8 or any(cell not in {"B", "W", "."} for cell in text):
+            raise ValueError("expected 8 board rows containing only B, W, or .")
+        rendered_rows.append(text)
+    return "\n".join(rendered_rows) + f"\nside={side}"
+
+
+def transform_board9_text(board_text: str, transform: D4Transform) -> str:
+    rows, side = parse_board9_text(board_text)
+    square_rows = [list(row) for row in board9_rows_to_square_index_rows(rows)]
+    transformed = [["." for _ in range(8)] for _ in range(8)]
+    for square_index in range(64):
+        target = transform_square_index(square_index, transform)
+        transformed[target // 8][target % 8] = square_rows[square_index // 8][square_index % 8]
+    return render_board9_text(tuple(reversed(["".join(row) for row in transformed])), side)
+
+
+def invert_board9_colors(board_text: str) -> str:
+    rows, side = parse_board9_text(board_text)
+    swapped = [
+        row.translate(str.maketrans({"B": "W", "W": "B", ".": "."}))
+        for row in rows
+    ]
+    inverted_side = "W" if side == "B" else "B"
+    return render_board9_text(swapped, inverted_side)

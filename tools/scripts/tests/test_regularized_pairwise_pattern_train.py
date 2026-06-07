@@ -18,7 +18,7 @@ sys.path.insert(0, str(SCRIPT_DIR))
 import regularized_pairwise_pattern_train as trainer  # noqa: E402
 from pattern_training import analyzer as shared_analyzer  # noqa: E402
 from common import ScriptError  # noqa: E402
-from pattern_specs import PATTERN_SPECS, pattern_index  # noqa: E402
+from pattern_specs import PATTERN_SPECS, invert_board9_colors, pattern_index  # noqa: E402
 from pattern_training.preference_features import parse_board  # noqa: E402
 
 
@@ -507,6 +507,29 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
         }
 
         self.assertEqual(features, expected)
+
+    def test_preference_features_are_side_relative_under_color_inversion(self) -> None:
+        teacher_child = trainer.apply_move_to_board(TEACHER_BOARD, "d1")
+        engine_child = trainer.apply_move_to_board(TEACHER_BOARD, "b1")
+        inverted_root = invert_board9_colors(TEACHER_BOARD)
+        inverted_teacher_child = trainer.apply_move_to_board(inverted_root, "d1")
+        inverted_engine_child = trainer.apply_move_to_board(inverted_root, "b1")
+
+        features = trainer.preference_features(
+            root_board_text=TEACHER_BOARD,
+            teacher_child_board=teacher_child,
+            engine_child_board=engine_child,
+            families=("edge_8", "corner_2x3", "diagonal_8"),
+        )
+        inverted_features = trainer.preference_features(
+            root_board_text=inverted_root,
+            teacher_child_board=inverted_teacher_child,
+            engine_child_board=inverted_engine_child,
+            families=("edge_8", "corner_2x3", "diagonal_8"),
+        )
+
+        self.assertTrue(features)
+        self.assertEqual(inverted_features, features)
 
     def test_teacher_child_other_child_delta_sign_matches_root_move_preference(self) -> None:
         preferred_child = trainer.apply_move_to_board(TEACHER_BOARD, "d1")
