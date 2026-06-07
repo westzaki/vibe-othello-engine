@@ -413,7 +413,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "trainer; listwise-softmax optimizes root candidate softmax; "
             "exact-aware-listwise uses exact-best target sets when exact labels are "
             "available, falls back to the teacher move otherwise, and adds exact sign "
-            "penalties when exact labels include move scores"
+            "penalties when exact labels include move scores. "
+            "--exact-aware-only-when-available only affects pairwise exact-aware "
+            "pair generation, not listwise teacher fallback"
         ),
     )
     parser.add_argument("--loss", choices=("logistic", "hinge"), default="logistic")
@@ -508,7 +510,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--exact-aware-only-when-available",
         action="store_true",
-        help="with --pair-mode exact-aware, skip rows without exact labels instead of falling back to teacher pairs",
+        help=(
+            "with --pair-mode exact-aware, skip rows without exact labels instead "
+            "of falling back to teacher pairs; listwise objectives still fall back "
+            "to teacher targets when exact-best targets are unavailable"
+        ),
     )
     parser.add_argument(
         "--max-top-group-size-for-training",
