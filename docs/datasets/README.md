@@ -100,6 +100,10 @@ of committed docs.
   trainer, uses exact-aware-listwise training with a soft exact-score target,
   and supports `--dataset-root` for `--teacher-labels` and `--exact-labels`
   entries that start with `dataset:`.
+- `tools/scripts/phase_balanced_label_sample.py` builds diagnostic
+  phase-balanced teacher/exact subsets from reusable labels, supports
+  `--dataset-root` for `--teacher-labels` and `--exact-labels`, and writes only
+  under `runs/`.
 - `tools/scripts/teacher_label_mistake_mining.py` supports `--dataset-root` for
   `--teacher-labels` and `--exact-labels` entries that start with `dataset:`.
 - `tools/scripts/external_teacher_label_workflow.py` supports `--dataset-root`

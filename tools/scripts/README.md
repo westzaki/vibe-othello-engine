@@ -36,6 +36,7 @@ instructions. Removed interfaces are documented only in historical reports.
 | `external_teacher_label_workflow.py` | current | Generate teacher-label JSONL from external engines. | Current teacher-label entrypoint and a dependency of `teacher_dataset_build.py`. |
 | `match_summary.py` | current | Summarize C++ match-runner JSONL. | Shared by current evidence, match, and base/head workflows. |
 | `ntest_teacher_smoke.py` | current | Run a local NTest teacher-label smoke and estimate 300K run feasibility. | Operational preflight before overnight NTest teacher dataset generation; does not make strength claims. |
+| `phase_balanced_label_sample.py` | current | Build phase-balanced teacher/exact diagnostic subsets under `runs/`. | Supporting PatternOnly data-design diagnostics before 10K/50K training runs; does not train, tune, or make strength claims. |
 | `pattern_only_train.py` | current / canonical | Train PatternOnly phase-specific tables from teacher labels and exact-score labels. | Canonical current PatternOnly trainer for new experiments; owns the exact-aware-listwise and soft exact-score target workflow. |
 | `teacher_dataset_build.py` | current | Build reusable position shards, manifests, splits, teacher labels, and exact overlap labels under a dataset root. | Recommended durable dataset-builder entrypoint for pattern-first work. |
 | `teacher_label_mistake_mining.py` | current | Mine evaluator move-choice mistakes against validated teacher labels. | Current pattern diagnostics for teacher-vs-engine disagreement and vocabulary gaps. |
@@ -104,6 +105,27 @@ uses broad phase-specific pattern tables, and supports the exact-aware-listwise
 objective with soft exact-score targets. Start from this trainer unless the task
 is explicitly reproducing an older artifact or isolating a phase-table migration
 detail.
+
+Use `phase_balanced_label_sample.py` immediately before focused PatternOnly
+diagnostics when you need a smaller 10K/50K subset with opening/midgame/late
+coverage and exact-label coverage summaries:
+
+```sh
+python3 tools/scripts/phase_balanced_label_sample.py \
+  --teacher-labels dataset:teacher.ntest_depth26_2027:train \
+  --exact-labels dataset:teacher.ntest_depth26_2027:exact_teacher2000,dataset:teacher.ntest_depth26_2027:exact_extra30 \
+  --eval-config data/eval/current_default.eval \
+  --out-dir runs/pattern-training/phase-balanced-10k \
+  --rows 10000 \
+  --split train
+```
+
+The subset builder writes `teacher_phase_balanced.jsonl`, optional
+`exact_phase_balanced.jsonl`, `summary.json`, and `report.md` under the
+repository-local `runs/` directory. It fails by default when requested phase
+targets cannot be filled; pass `--allow-shortage` only for diagnostic probes
+where a partial subset is intentional. It does not change the trainer objective,
+score rows, generated candidate eval behavior, or retained defaults.
 
 The canonical PatternOnly trainer should select its comparison evaluator
 explicitly when invoking root analysis, analyzer candidate discovery, or
