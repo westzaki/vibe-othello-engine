@@ -159,6 +159,10 @@ class TrainerConfig:
     diagnose_dataset: bool
     drop_teacher_exact_disagreement: bool
     exact_aware_only_when_available: bool
+    exact_score_soft_target: bool
+    exact_score_temperature: float
+    exact_score_target_floor: float
+    exact_score_near_best_window: int
     max_top_group_size_for_training: int
     tie_penalty: float
     target_top_group_size: int
@@ -228,6 +232,7 @@ class ListwiseExample:
     exact_best_moves: tuple[str, ...]
     exact_root_score: int | None
     candidates: tuple[CandidateMove, ...]
+    target_probabilities: tuple[float, ...] | None
     example_weight: float
     bucket: str
     bucket_weight: float
@@ -244,6 +249,7 @@ class CompactListwiseDataset:
     candidate_base_scores: tuple[float, ...]
     candidate_exact_scores: tuple[int | None, ...]
     candidate_target_mask: tuple[bool, ...]
+    candidate_target_probabilities: tuple[float, ...]
     candidate_exact_best_mask: tuple[bool, ...]
     example_teacher_moves: tuple[str, ...]
     example_exact_root_scores: tuple[int | None, ...]
@@ -639,6 +645,39 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--exact-score-soft-target",
+        action="store_true",
+        help=(
+            "for exact-aware-listwise rows with complete move_scores, train against "
+            "a soft exact-score distribution over all legal root moves; rows without "
+            "complete move_scores fall back to the teacher move"
+        ),
+    )
+    parser.add_argument(
+        "--exact-score-temperature",
+        type=parse_positive_float,
+        default=4.0,
+        help="temperature in discs for --exact-score-soft-target (default: 4.0)",
+    )
+    parser.add_argument(
+        "--exact-score-target-floor",
+        type=parse_non_negative_float,
+        default=0.0001,
+        help=(
+            "minimum target probability per legal move for --exact-score-soft-target "
+            "(default: 0.0001)"
+        ),
+    )
+    parser.add_argument(
+        "--exact-score-near-best-window",
+        type=parse_non_negative_int,
+        default=8,
+        help=(
+            "exact-score window in discs that receives temperature-shaped probability "
+            "before floor smoothing (default: 8)"
+        ),
+    )
+    parser.add_argument(
         "--max-top-group-size-for-training",
         type=parse_non_negative_int,
         default=0,
@@ -875,6 +914,10 @@ def config_from_args(
 ) -> TrainerConfig:
     if args.max_abs_output_weight > INT16_LIMIT:
         raise ScriptError(f"--max-abs-output-weight must be <= {INT16_LIMIT}")
+    if args.exact_score_soft_target and args.objective != "exact-aware-listwise":
+        raise ScriptError("--exact-score-soft-target requires --objective exact-aware-listwise")
+    if args.exact_score_target_floor >= 1.0:
+        raise ScriptError("--exact-score-target-floor must be less than 1")
     teacher_labels = parse_label_paths(args.teacher_labels, dataset_root=args.dataset_root)
     exact_labels = (
         parse_label_paths(args.exact_labels, dataset_root=args.dataset_root)
@@ -953,6 +996,10 @@ def config_from_args(
         diagnose_dataset=args.diagnose_dataset,
         drop_teacher_exact_disagreement=args.drop_teacher_exact_disagreement,
         exact_aware_only_when_available=args.exact_aware_only_when_available,
+        exact_score_soft_target=args.exact_score_soft_target,
+        exact_score_temperature=args.exact_score_temperature,
+        exact_score_target_floor=args.exact_score_target_floor,
+        exact_score_near_best_window=args.exact_score_near_best_window,
         max_top_group_size_for_training=args.max_top_group_size_for_training,
         tie_penalty=args.tie_penalty,
         target_top_group_size=args.target_top_group_size,
@@ -1196,6 +1243,10 @@ def listwise_feature_cache_key(
             "teacher_weight": config.teacher_weight,
             "drop_teacher_exact_disagreement": config.drop_teacher_exact_disagreement,
             "exact_aware_only_when_available": config.exact_aware_only_when_available,
+            "exact_score_soft_target": config.exact_score_soft_target,
+            "exact_score_temperature": config.exact_score_temperature,
+            "exact_score_target_floor": config.exact_score_target_floor,
+            "exact_score_near_best_window": config.exact_score_near_best_window,
             "max_top_group_size_for_training": config.max_top_group_size_for_training,
             "target_top_group_size": config.target_top_group_size,
             "top_group_margin": config.top_group_margin,
@@ -1498,6 +1549,32 @@ def root_move_features(
     return {key: -value for key, value in counts.items() if value}
 
 
+def exact_score_soft_target_probabilities(
+    *,
+    moves: tuple[str, ...],
+    exact_scores: dict[str, int],
+    temperature: float,
+    floor: float,
+    near_best_window: int,
+) -> tuple[float, ...] | None:
+    if not moves or any(move not in exact_scores for move in moves):
+        return None
+    if floor * len(moves) >= 1.0:
+        raise ScriptError(
+            "--exact-score-target-floor is too large for the legal move count in at least one row"
+        )
+    best_score = max(exact_scores[move] for move in moves)
+    raw: list[float] = []
+    for move in moves:
+        gap = best_score - exact_scores[move]
+        shaped = math.exp(-gap / temperature) if gap <= near_best_window else 0.0
+        raw.append(max(floor, shaped))
+    total = sum(raw)
+    if total <= 0.0 or not math.isfinite(total):
+        return None
+    return tuple(value / total for value in raw)
+
+
 def make_listwise_example(
     *,
     config: TrainerConfig,
@@ -1558,8 +1635,51 @@ def make_listwise_example(
         )
     if len(candidates) < 2:
         return None
+    candidate_moves = tuple(candidate.move for candidate in candidates)
+    target_probabilities: tuple[float, ...] | None = None
+    if config.exact_score_soft_target and exact_scores:
+        target_probabilities = exact_score_soft_target_probabilities(
+            moves=candidate_moves,
+            exact_scores=exact_scores,
+            temperature=config.exact_score_temperature,
+            floor=config.exact_score_target_floor,
+            near_best_window=config.exact_score_near_best_window,
+        )
+        if target_probabilities is not None:
+            target_moves = tuple(
+                move
+                for move, probability in zip(candidate_moves, target_probabilities, strict=True)
+                if probability > config.exact_score_target_floor
+            )
+            target_weight = config.exact_best_weight
+            if not target_moves:
+                best_probability = max(target_probabilities)
+                target_moves = tuple(
+                    move
+                    for move, probability in zip(candidate_moves, target_probabilities, strict=True)
+                    if probability == best_probability
+                )
+            bucket = bucket_for_source(config, source)
+            bucket_weight = bucket_weight_for_source(config, source)
+            return ListwiseExample(
+                position_id=position_id_for_source(source),
+                source_path=source.path,
+                source_line=source.line_number,
+                split=split,
+                board_text=board_text,
+                teacher_move=teacher_move,
+                engine_move=engine_move,
+                target_moves=target_moves,
+                exact_best_moves=exact_best,
+                exact_root_score=exact_score,
+                candidates=tuple(candidates),
+                target_probabilities=target_probabilities,
+                example_weight=target_weight * bucket_weight,
+                bucket=bucket,
+                bucket_weight=bucket_weight,
+            )
     exact_targets = tuple(move for move in exact_best if move in legal_moves)
-    if exact_targets:
+    if exact_targets and not config.exact_score_soft_target:
         target_moves = exact_targets
         target_weight = config.exact_best_weight
     elif teacher_move in legal_moves:
@@ -1581,6 +1701,7 @@ def make_listwise_example(
         exact_best_moves=exact_best,
         exact_root_score=exact_score,
         candidates=tuple(candidates),
+        target_probabilities=None,
         example_weight=target_weight * bucket_weight,
         bucket=bucket,
         bucket_weight=bucket_weight,
@@ -2900,6 +3021,7 @@ def compact_listwise_dataset(examples: list[ListwiseExample]) -> CompactListwise
     candidate_base_scores: list[float] = []
     candidate_exact_scores: list[int | None] = []
     candidate_target_mask: list[bool] = []
+    candidate_target_probabilities: list[float] = []
     candidate_exact_best_mask: list[bool] = []
     example_teacher_moves: list[str] = []
     example_exact_root_scores: list[int | None] = []
@@ -2912,12 +3034,24 @@ def compact_listwise_dataset(examples: list[ListwiseExample]) -> CompactListwise
     for example in examples:
         target_moves = set(example.target_moves)
         exact_best_moves = set(example.exact_best_moves)
+        if example.target_probabilities is not None:
+            if len(example.target_probabilities) != len(example.candidates):
+                raise ScriptError("listwise target probability count must match candidate count")
+            target_probabilities = example.target_probabilities
+        else:
+            target_count = max(1, sum(1 for candidate in example.candidates if candidate.move in target_moves))
+            target_probabilities = tuple(
+                (1.0 / target_count) if candidate.move in target_moves else 0.0
+                for candidate in example.candidates
+            )
         for candidate in example.candidates:
+            local_index = len(candidate_moves) - example_offsets[-1]
             candidate_moves.append(candidate.move)
             candidate_phase_ids.append(PHASE_TO_ID[candidate.phase])
             candidate_base_scores.append(candidate.base_score)
             candidate_exact_scores.append(candidate.exact_score)
             candidate_target_mask.append(candidate.move in target_moves)
+            candidate_target_probabilities.append(target_probabilities[local_index])
             candidate_exact_best_mask.append(candidate.move in exact_best_moves)
             for key, value in candidate.features.items():
                 feature_id = feature_id_by_key.get(key)
@@ -2941,6 +3075,7 @@ def compact_listwise_dataset(examples: list[ListwiseExample]) -> CompactListwise
         candidate_base_scores=tuple(candidate_base_scores),
         candidate_exact_scores=tuple(candidate_exact_scores),
         candidate_target_mask=tuple(candidate_target_mask),
+        candidate_target_probabilities=tuple(candidate_target_probabilities),
         candidate_exact_best_mask=tuple(candidate_exact_best_mask),
         example_teacher_moves=tuple(example_teacher_moves),
         example_exact_root_scores=tuple(example_exact_root_scores),
@@ -2969,6 +3104,7 @@ def compact_listwise_dataset_subset(
     candidate_base_scores: list[float] = []
     candidate_exact_scores: list[int | None] = []
     candidate_target_mask: list[bool] = []
+    candidate_target_probabilities: list[float] = []
     candidate_exact_best_mask: list[bool] = []
     example_teacher_moves: list[str] = []
     example_exact_root_scores: list[int | None] = []
@@ -2985,6 +3121,9 @@ def compact_listwise_dataset_subset(
             candidate_base_scores.append(dataset.candidate_base_scores[candidate_index])
             candidate_exact_scores.append(dataset.candidate_exact_scores[candidate_index])
             candidate_target_mask.append(dataset.candidate_target_mask[candidate_index])
+            candidate_target_probabilities.append(
+                dataset.candidate_target_probabilities[candidate_index]
+            )
             candidate_exact_best_mask.append(dataset.candidate_exact_best_mask[candidate_index])
             feature_start = dataset.candidate_feature_offsets[candidate_index]
             feature_end = dataset.candidate_feature_offsets[candidate_index + 1]
@@ -3004,6 +3143,7 @@ def compact_listwise_dataset_subset(
         candidate_base_scores=tuple(candidate_base_scores),
         candidate_exact_scores=tuple(candidate_exact_scores),
         candidate_target_mask=tuple(candidate_target_mask),
+        candidate_target_probabilities=tuple(candidate_target_probabilities),
         candidate_exact_best_mask=tuple(candidate_exact_best_mask),
         example_teacher_moves=tuple(example_teacher_moves),
         example_exact_root_scores=tuple(example_exact_root_scores),
@@ -3115,15 +3255,8 @@ def train_listwise_weights(
                 for candidate_index in range(candidate_start, candidate_end)
             ]
             probabilities = softmax_probabilities(scores)
-            target_indexes = [
-                candidate_index
-                for candidate_index in range(candidate_start, candidate_end)
-                if dataset.candidate_target_mask[candidate_index]
-            ]
-            target_count = max(1, len(target_indexes))
-            target_index_set = set(target_indexes)
             for local_index, candidate_index in enumerate(range(candidate_start, candidate_end)):
-                target_probability = (1.0 / target_count) if candidate_index in target_index_set else 0.0
+                target_probability = dataset.candidate_target_probabilities[candidate_index]
                 coefficient = (
                     config.learning_rate
                     * dataset.example_weights[example_index]
@@ -3139,6 +3272,11 @@ def train_listwise_weights(
                 update_count += 1
 
             if config.tie_penalty > 0.0:
+                target_indexes = [
+                    candidate_index
+                    for candidate_index in range(candidate_start, candidate_end)
+                    if dataset.candidate_target_mask[candidate_index]
+                ]
                 if target_indexes:
                     best_target = max(
                         target_indexes,
@@ -3672,8 +3810,11 @@ def evaluate_listwise_examples(
             for index in range(candidate_start, candidate_end)
             if dataset.candidate_target_mask[index]
         ]
-        target_probability = sum(probabilities[index] for index in target_indexes)
-        loss = -math.log(max(target_probability, 1.0e-300))
+        loss = 0.0
+        for local_index, candidate_index in enumerate(range(candidate_start, candidate_end)):
+            target_probability = dataset.candidate_target_probabilities[candidate_index]
+            if target_probability > 0.0:
+                loss -= target_probability * math.log(max(probabilities[local_index], 1.0e-300))
         losses.append(loss)
         example_weight = dataset.example_weights[example_index]
         weighted_losses.append(loss * example_weight)
@@ -3735,7 +3876,11 @@ def move_choice_metrics(
             "exact_sign_agreement": 0,
             "exact_sign_agreement_rate": None,
             "wrong_direction": 0,
+            "wrong_direction_by_phase": {phase: 0 for phase in PHASES},
             "high_confidence_wrong_direction": 0,
+            "soft_target_cross_entropy": None,
+            "selected_exact_score_regret": None,
+            "top_move_exact_score_gap": None,
         }
     selected_teacher = 0
     teacher_rank_sum = 0
@@ -3748,7 +3893,13 @@ def move_choice_metrics(
     sign_rows = 0
     sign_agree = 0
     wrong_direction = 0
+    wrong_direction_by_phase = collections.Counter({phase: 0 for phase in PHASES})
     high_conf_wrong = 0
+    soft_target_ce_sum = 0.0
+    soft_target_rows = 0
+    exact_score_regret_sum = 0.0
+    exact_score_gap_sum = 0.0
+    selected_exact_score_rows = 0
     for example_index in range(dataset.example_count):
         scores = compact_listwise_scores(config, weights, dataset, example_index)
         if not scores:
@@ -3770,6 +3921,25 @@ def move_choice_metrics(
             top_ties += 1
         candidate_start = dataset.example_offsets[example_index]
         candidate_end = dataset.example_offsets[example_index + 1]
+        candidate_indexes = range(candidate_start, candidate_end)
+        local_scores = [
+            compact_candidate_score(config, weights, dataset, candidate_index)
+            for candidate_index in candidate_indexes
+        ]
+        probabilities = softmax_probabilities(local_scores)
+        has_soft_target = any(
+            dataset.candidate_target_probabilities[candidate_index] > 0.0
+            and not dataset.candidate_target_mask[candidate_index]
+            for candidate_index in range(candidate_start, candidate_end)
+        )
+        if has_soft_target:
+            row_ce = 0.0
+            for local_index, candidate_index in enumerate(range(candidate_start, candidate_end)):
+                target_probability = dataset.candidate_target_probabilities[candidate_index]
+                if target_probability > 0.0:
+                    row_ce -= target_probability * math.log(max(probabilities[local_index], 1.0e-300))
+            soft_target_ce_sum += row_ce
+            soft_target_rows += 1
         exact_best = {
             dataset.candidate_moves[candidate_index]
             for candidate_index in range(candidate_start, candidate_end)
@@ -3783,6 +3953,31 @@ def move_choice_metrics(
             if ranks:
                 exact_best_rank_sum += min(ranks)
                 exact_best_rank_rows += 1
+        scored_candidates = [
+            candidate_index
+            for candidate_index in range(candidate_start, candidate_end)
+            if dataset.candidate_exact_scores[candidate_index] is not None
+        ]
+        selected_index = next(
+            (
+                candidate_index
+                for candidate_index in range(candidate_start, candidate_end)
+                if dataset.candidate_moves[candidate_index] == selected_move
+            ),
+            None,
+        )
+        if scored_candidates and selected_index is not None:
+            selected_exact_score = dataset.candidate_exact_scores[selected_index]
+            assert selected_exact_score is not None
+            best_exact_score = max(
+                dataset.candidate_exact_scores[candidate_index]
+                for candidate_index in scored_candidates
+                if dataset.candidate_exact_scores[candidate_index] is not None
+            )
+            regret = best_exact_score - selected_exact_score
+            exact_score_regret_sum += regret
+            exact_score_gap_sum += regret
+            selected_exact_score_rows += 1
         exact_sign = sign(dataset.example_exact_root_scores[example_index])
         model_sign = sign(best_score)
         if exact_sign != 0 and model_sign != 0:
@@ -3791,6 +3986,8 @@ def move_choice_metrics(
                 sign_agree += 1
             else:
                 wrong_direction += 1
+                phase = ID_TO_PHASE[dataset.candidate_phase_ids[candidate_start]]
+                wrong_direction_by_phase[phase] += 1
                 if abs(best_score) >= config.high_confidence_margin:
                     high_conf_wrong += 1
     return {
@@ -3806,7 +4003,17 @@ def move_choice_metrics(
         "exact_sign_agreement": sign_agree,
         "exact_sign_agreement_rate": sign_agree / sign_rows if sign_rows else None,
         "wrong_direction": wrong_direction,
+        "wrong_direction_by_phase": {phase: wrong_direction_by_phase[phase] for phase in PHASES},
         "high_confidence_wrong_direction": high_conf_wrong,
+        "soft_target_cross_entropy": soft_target_ce_sum / soft_target_rows if soft_target_rows else None,
+        "soft_target_rows": soft_target_rows,
+        "selected_exact_score_regret": (
+            exact_score_regret_sum / selected_exact_score_rows if selected_exact_score_rows else None
+        ),
+        "top_move_exact_score_gap": (
+            exact_score_gap_sum / selected_exact_score_rows if selected_exact_score_rows else None
+        ),
+        "selected_exact_score_rows": selected_exact_score_rows,
     }
 
 
@@ -4195,6 +4402,10 @@ def render_report(
         f"- min_score_margin: `{config.min_score_margin}`",
         f"- drop_teacher_exact_disagreement: `{config.drop_teacher_exact_disagreement}`",
         f"- exact_aware_only_when_available: `{config.exact_aware_only_when_available}`",
+        f"- exact_score_soft_target: `{config.exact_score_soft_target}`",
+        f"- exact_score_temperature: `{config.exact_score_temperature}`",
+        f"- exact_score_target_floor: `{config.exact_score_target_floor}`",
+        f"- exact_score_near_best_window: `{config.exact_score_near_best_window}`",
         f"- max_top_group_size_for_training: `{config.max_top_group_size_for_training}`",
         f"- tie_penalty: `{config.tie_penalty}`",
         f"- target_top_group_size: `{config.target_top_group_size}`",
@@ -4309,7 +4520,11 @@ def render_report(
                 f"- exact_sign_agreement: `{row.get('exact_sign_agreement', 0)} / {row.get('exact_sign_rows', 0)}`",
                 f"- exact_sign_agreement_rate: `{row['exact_sign_agreement_rate'] if row['exact_sign_agreement_rate'] is not None else 'n/a'}`",
                 f"- wrong_direction: `{row['wrong_direction']}`",
+                f"- wrong_direction_by_phase: `{json.dumps(row.get('wrong_direction_by_phase', {}), sort_keys=True)}`",
                 f"- high_confidence_wrong_direction: `{row['high_confidence_wrong_direction']}`",
+                f"- soft_target_cross_entropy: `{row.get('soft_target_cross_entropy') if row.get('soft_target_cross_entropy') is not None else 'n/a'}`",
+                f"- selected_exact_score_regret: `{row.get('selected_exact_score_regret') if row.get('selected_exact_score_regret') is not None else 'n/a'}`",
+                f"- top_move_exact_score_gap: `{row.get('top_move_exact_score_gap') if row.get('top_move_exact_score_gap') is not None else 'n/a'}`",
                 "",
             ]
         )
@@ -4575,6 +4790,10 @@ def training_config_hash(config: TrainerConfig) -> str:
         "learning_rate": config.learning_rate,
         "max_abs_weight": config.max_abs_weight,
         "include_base_margin": config.include_base_margin,
+        "exact_score_soft_target": config.exact_score_soft_target,
+        "exact_score_temperature": config.exact_score_temperature,
+        "exact_score_target_floor": config.exact_score_target_floor,
+        "exact_score_near_best_window": config.exact_score_near_best_window,
         "seed": config.seed,
     }
     return sha256_text(json.dumps(material, sort_keys=True, separators=(",", ":")))
@@ -4611,6 +4830,10 @@ def pair_cache_key(config: TrainerConfig) -> tuple[str, dict[str, Any]]:
         "min_score_margin": config.min_score_margin,
         "drop_teacher_exact_disagreement": config.drop_teacher_exact_disagreement,
         "exact_aware_only_when_available": config.exact_aware_only_when_available,
+        "exact_score_soft_target": config.exact_score_soft_target,
+        "exact_score_temperature": config.exact_score_temperature,
+        "exact_score_target_floor": config.exact_score_target_floor,
+        "exact_score_near_best_window": config.exact_score_near_best_window,
         "max_top_group_size_for_training": config.max_top_group_size_for_training,
         "phase_cutoffs": {
             "opening_max_occupied": config.phase_cutoffs.opening_max_occupied,
