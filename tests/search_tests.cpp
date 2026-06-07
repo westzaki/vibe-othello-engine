@@ -1356,6 +1356,48 @@ TEST_CASE("Lazy first-move ordering preserves iterative result and skips full or
     CHECK(lazy.stats.ordering_full_builds < baseline.stats.ordering_full_builds);
 }
 
+TEST_CASE("Shallow TT policy composes with lazy first-move ordering", "[search]") {
+    const auto board = othello::apply_move(Board::initial(), othello::test::square("d3"));
+    REQUIRE(board.has_value());
+
+    const othello::SearchOptions baseline_options{
+        .max_depth = 6,
+        .use_transposition_table = true,
+        .exact_endgame_empty_threshold = 0,
+        .use_pvs = true,
+        .use_aspiration_window = true,
+    };
+    othello::SearchOptions shallow_options = baseline_options;
+    shallow_options.tt_min_probe_depth = 1;
+    shallow_options.tt_min_store_depth = 1;
+
+    othello::SearchOptions lazy_options = baseline_options;
+    lazy_options.use_lazy_first_move_ordering = true;
+
+    othello::SearchOptions combined_options = shallow_options;
+    combined_options.use_lazy_first_move_ordering = true;
+
+    const othello::SearchResult baseline = othello::search_iterative(*board, baseline_options);
+    const othello::SearchResult shallow = othello::search_iterative(*board, shallow_options);
+    const othello::SearchResult lazy = othello::search_iterative(*board, lazy_options);
+    const othello::SearchResult combined = othello::search_iterative(*board, combined_options);
+
+    check_same_result(shallow, baseline);
+    check_same_result(lazy, baseline);
+    check_same_result(combined, baseline);
+
+    CHECK(shallow.stats.tt_probe_skipped_by_depth > 0);
+    CHECK(shallow.stats.tt_store_skipped_by_depth > 0);
+    CHECK(lazy.stats.ordering_lazy_first_hits > 0);
+    CHECK(lazy.stats.ordering_lazy_cut_before_full_sort > 0);
+    CHECK(combined.stats.tt_probe_skipped_by_depth > 0);
+    CHECK(combined.stats.tt_store_skipped_by_depth > 0);
+    CHECK(combined.stats.tt_leaf_stores == 0);
+    CHECK(combined.stats.ordering_lazy_first_hits > 0);
+    CHECK(combined.stats.ordering_lazy_cut_before_full_sort > 0);
+    CHECK(combined.stats.ordering_scored_moves_saved > 0);
+}
+
 TEST_CASE("Transposition best move ordering preserves fixed-depth search result", "[search]") {
     const auto board = othello::apply_move(Board::initial(), othello::test::square("d3"));
     REQUIRE(board.has_value());
