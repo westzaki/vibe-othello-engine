@@ -1151,13 +1151,60 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
                     "--exact-aware-only-when-available",
                 ],
             )
+            calls = 0
 
-            pairs, records, stats = trainer.collect_pairs(config, analyzer=wide_fake_analyzer)
+            def counting_analyzer(
+                config: trainer.TrainerConfig, board_text: str
+            ) -> trainer.AnalyzeResult:
+                nonlocal calls
+                calls += 1
+                return wide_fake_analyzer(config, board_text)
+
+            pairs, records, stats = trainer.collect_pairs(config, analyzer=counting_analyzer)
 
         self.assertEqual(pairs, [])
+        self.assertEqual(calls, 0)
         self.assertEqual(stats["exact_unavailable_fallback_positions"], 1)
         self.assertEqual(stats["no_pair_generated_skipped"], 1)
-        self.assertTrue(any(record.status == "no_pair_generated" for record in records))
+        self.assertEqual(stats["analysis_cache_misses"], 0)
+        self.assertTrue(any(record.status == "exact_unavailable" for record in records))
+
+    def test_dataset_diagnostics_keep_mixed_source_bucket_pair_counts_separate(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(
+                temp_path / "labels.jsonl",
+                [
+                    teacher_row(position_id="bucket-a", source_bucket="A"),
+                    teacher_row(position_id="bucket-b", source_bucket="B"),
+                ],
+            )
+            exact = write_jsonl(temp_path / "exact.jsonl", [exact_row(TEACHER_BOARD, "b1")])
+            config = make_config(
+                temp_path,
+                labels,
+                exact_labels=exact,
+                extra_args=[
+                    "--pair-mode",
+                    "exact-aware",
+                ],
+            )
+
+            pairs, _, stats = trainer.collect_pairs(config, analyzer=wide_fake_analyzer)
+
+        self.assertEqual(len(pairs), 6)
+        diagnostics = stats["dataset_diagnostics"]["by_source_bucket"]
+        self.assertEqual(diagnostics["A"]["pair_count_distribution"], {"3": 1})
+        self.assertEqual(diagnostics["B"]["pair_count_distribution"], {"3": 1})
+        self.assertEqual(diagnostics["A"]["pair_weight_mass"], 3.0)
+        self.assertEqual(diagnostics["B"]["pair_weight_mass"], 3.0)
+        self.assertEqual(diagnostics["A"]["engine_not_in_exact_best"], 1)
+        self.assertEqual(diagnostics["B"]["engine_not_in_exact_best"], 1)
+        self.assertEqual(diagnostics["A"]["teacher_rank_distribution"], {"2": 1})
+        self.assertEqual(diagnostics["B"]["teacher_rank_distribution"], {"2": 1})
+        self.assertEqual(diagnostics["A"]["exact_best_not_in_engine_top_group"], 1)
+        self.assertEqual(diagnostics["B"]["exact_best_not_in_engine_top_group"], 1)
+        self.assertNotEqual(diagnostics["B"]["pair_weight_mass"], 6.0)
 
     def test_max_top_group_size_filter_skips_noisy_exact_rows(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

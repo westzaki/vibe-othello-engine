@@ -104,6 +104,7 @@ class PreparedPosition:
     source: LabelSource
     split: str
     phase: str
+    bucket: str
     board_text: str
     teacher_move: str
     engine_move: str | None
@@ -1703,6 +1704,26 @@ def collect_pairs(
                 )
             )
             continue
+        if (
+            not exact_best
+            and config.pair_mode == "exact-aware"
+            and config.exact_aware_only_when_available
+            and config.guard_mode == "off"
+        ):
+            stats["exact_unavailable_fallback_positions"] += 1
+            stats["no_pair_generated_skipped"] += 1
+            entries.append(
+                make_validation_record(
+                    source=source,
+                    split=split,
+                    phase=phase,
+                    status="exact_unavailable",
+                    teacher_move=teacher_move,
+                    engine_move="",
+                    exact_best=exact_best,
+                )
+            )
+            continue
 
         engine_move = precomputed_engine_move(record, legal_moves)
         needs_analysis = (
@@ -1732,6 +1753,7 @@ def collect_pairs(
                 source=source,
                 split=split,
                 phase=phase,
+                bucket=bucket,
                 board_text=board_text,
                 teacher_move=teacher_move,
                 engine_move=engine_move,
@@ -1756,6 +1778,7 @@ def collect_pairs(
         source = entry.source
         split = entry.split
         phase = entry.phase
+        bucket = entry.bucket
         board_text = entry.board_text
         teacher_move = entry.teacher_move
         legal_moves = entry.legal_moves
