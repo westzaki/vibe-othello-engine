@@ -122,6 +122,73 @@ parse_corner_3x3(std::string_view text) {
     return Edge::Top;
 }
 
+[[nodiscard]] othello::Row8PatternRow parse_row_8(std::string_view text) {
+    using Row = othello::Row8PatternRow;
+    if (text == "Rank1") {
+        return Row::Rank1;
+    }
+    if (text == "Rank2") {
+        return Row::Rank2;
+    }
+    if (text == "Rank3") {
+        return Row::Rank3;
+    }
+    if (text == "Rank4") {
+        return Row::Rank4;
+    }
+    if (text == "Rank5") {
+        return Row::Rank5;
+    }
+    if (text == "Rank6") {
+        return Row::Rank6;
+    }
+    if (text == "Rank7") {
+        return Row::Rank7;
+    }
+    if (text == "Rank8") {
+        return Row::Rank8;
+    }
+    FAIL("unknown row_8 instance: " << text);
+    return Row::Rank1;
+}
+
+[[nodiscard]] othello::Column8PatternColumn parse_column_8(std::string_view text) {
+    using Column = othello::Column8PatternColumn;
+    if (text == "FileA") {
+        return Column::FileA;
+    }
+    if (text == "FileB") {
+        return Column::FileB;
+    }
+    if (text == "FileC") {
+        return Column::FileC;
+    }
+    if (text == "FileD") {
+        return Column::FileD;
+    }
+    if (text == "FileE") {
+        return Column::FileE;
+    }
+    if (text == "FileF") {
+        return Column::FileF;
+    }
+    if (text == "FileG") {
+        return Column::FileG;
+    }
+    if (text == "FileH") {
+        return Column::FileH;
+    }
+    FAIL("unknown column_8 instance: " << text);
+    return Column::FileA;
+}
+
+[[nodiscard]] int parse_indexed_instance(std::string_view text) {
+    if (!text.empty() && text[0] == 'D') {
+        text.remove_prefix(1);
+    }
+    return std::stoi(std::string{text});
+}
+
 [[nodiscard]] othello::Diagonal8PatternDiagonal
 parse_diagonal_8(std::string_view text) {
     using Diagonal = othello::Diagonal8PatternDiagonal;
@@ -154,6 +221,25 @@ parse_inner_row_8(std::string_view text) {
     return Line::Top;
 }
 
+[[nodiscard]] othello::Corner2x4PatternCorner
+parse_corner_2x4(std::string_view text) {
+    using Corner = othello::Corner2x4PatternCorner;
+    if (text == "A1") {
+        return Corner::A1;
+    }
+    if (text == "H1") {
+        return Corner::H1;
+    }
+    if (text == "A8") {
+        return Corner::A8;
+    }
+    if (text == "H8") {
+        return Corner::H8;
+    }
+    FAIL("unknown corner_2x4 instance: " << text);
+    return Corner::A1;
+}
+
 [[nodiscard]] int pattern_index_for_instance(const Board& board, Side side,
                                              std::string_view family,
                                              std::string_view instance) {
@@ -172,6 +258,24 @@ parse_inner_row_8(std::string_view text) {
         return othello::edge_x_10_pattern_index(board, side,
                                                 parse_edge_x_10(instance));
     }
+    if (family == "row_8") {
+        return othello::row_8_pattern_index(board, side, parse_row_8(instance));
+    }
+    if (family == "column_8") {
+        return othello::column_8_pattern_index(board, side, parse_column_8(instance));
+    }
+    if (family == "diagonal_4") {
+        return othello::diagonal_4_pattern_index(board, side, parse_indexed_instance(instance));
+    }
+    if (family == "diagonal_5") {
+        return othello::diagonal_5_pattern_index(board, side, parse_indexed_instance(instance));
+    }
+    if (family == "diagonal_6") {
+        return othello::diagonal_6_pattern_index(board, side, parse_indexed_instance(instance));
+    }
+    if (family == "diagonal_7") {
+        return othello::diagonal_7_pattern_index(board, side, parse_indexed_instance(instance));
+    }
     if (family == "diagonal_8") {
         return othello::diagonal_8_pattern_index(board, side,
                                                  parse_diagonal_8(instance));
@@ -179,6 +283,10 @@ parse_inner_row_8(std::string_view text) {
     if (family == "inner_row_8") {
         return othello::inner_row_8_pattern_index(board, side,
                                                   parse_inner_row_8(instance));
+    }
+    if (family == "corner_2x4") {
+        return othello::corner_2x4_pattern_index(board, side,
+                                                 parse_corner_2x4(instance));
     }
 
     FAIL("unknown pattern family: " << family);
@@ -289,7 +397,7 @@ TEST_CASE("Pattern index fixture matches C++ pattern definitions", "[evaluation]
 
     for (const PatternIndexFixture& fixture : fixtures) {
         CAPTURE(fixture.name);
-        REQUIRE(fixture.expectations.size() == 12);
+        REQUIRE(fixture.expectations.size() == 26);
         REQUIRE(fixture.rows.size() == 8);
         CHECK(fixture.rows.front() != fixture.rows.back());
         const Board board =

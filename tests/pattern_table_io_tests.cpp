@@ -24,7 +24,11 @@ using namespace othello::test::evaluation;
 TEST_CASE("Pattern-only eval config loader resolves compact pattern table paths",
           "[evaluation]") {
     const std::filesystem::path temp_dir = unique_temp_dir("pattern-only-eval-config");
-    write_text_file(temp_dir / "patterns" / "tiny.tsv", "corner_2x3\t1\t6\n");
+    write_text_file(temp_dir / "patterns" / "tiny.tsv",
+                    "corner_2x3\t1\t6\n"
+                    "row_8\t2\t-4\n"
+                    "diagonal_4\t3\t5\n"
+                    "corner_2x4\t4\t7\n");
     const std::filesystem::path eval_path = temp_dir / "pattern_only.eval";
     write_text_file(eval_path, R"(schema_version=eval.v1
 mode=pattern_only
@@ -44,6 +48,15 @@ midgame_max_occupied=40
     CHECK(loaded.pattern_table_path == "patterns/tiny.tsv");
     REQUIRE(loaded.config.pattern_tables != nullptr);
     CHECK(loaded.config.pattern_tables->corner_2x3[1] == 6);
+    CHECK(loaded.config.pattern_tables->row_8[2] == -4);
+    CHECK(loaded.config.pattern_tables->diagonal_4[3] == 5);
+    CHECK(loaded.config.pattern_tables->corner_2x4[4] == 7);
+    CHECK(loaded.config.pattern_tables->column_8[2] == 0);
+    CHECK(loaded.config.pattern_tables->active_families.corner_2x3);
+    CHECK(loaded.config.pattern_tables->active_families.row_8);
+    CHECK(loaded.config.pattern_tables->active_families.diagonal_4);
+    CHECK(loaded.config.pattern_tables->active_families.corner_2x4);
+    CHECK_FALSE(loaded.config.pattern_tables->active_families.column_8);
     check_scalar_weights_zero(loaded.config.opening);
     check_scalar_weights_zero(loaded.config.midgame);
     check_scalar_weights_zero(loaded.config.late);
@@ -92,6 +105,18 @@ TEST_CASE("Eval config loader rejects missing and malformed pattern tables",
         othello::tools::load_evaluation_config_file(out_of_range_eval);
     CHECK_FALSE(out_of_range.ok());
     CHECK(out_of_range.error.find("corner_3x3 index out of range") != std::string::npos);
+
+    write_text_file(temp_dir / "patterns" / "out_of_range_broad_v2.tsv",
+                    "diagonal_4\t81\t1\n");
+    const std::filesystem::path out_of_range_broad_v2_eval =
+        temp_dir / "out_of_range_broad_v2.eval";
+    write_text_file(out_of_range_broad_v2_eval,
+                    eval_config_with_pattern_table("patterns/out_of_range_broad_v2.tsv"));
+    const othello::tools::EvaluationConfigLoadResult out_of_range_broad_v2 =
+        othello::tools::load_evaluation_config_file(out_of_range_broad_v2_eval);
+    CHECK_FALSE(out_of_range_broad_v2.ok());
+    CHECK(out_of_range_broad_v2.error.find("diagonal_4 index out of range") !=
+          std::string::npos);
 
     write_text_file(temp_dir / "patterns" / "malformed.tsv", "corner_2x3\t1\n");
     const std::filesystem::path malformed_eval = temp_dir / "malformed.eval";

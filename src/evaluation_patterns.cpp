@@ -30,6 +30,22 @@ struct EdgeX10PatternSpec {
     std::array<int, 10> square_indexes{};
 };
 
+struct Row8PatternSpec {
+    Row8PatternRow row = Row8PatternRow::Rank1;
+    std::array<int, 8> square_indexes{};
+};
+
+struct Column8PatternSpec {
+    Column8PatternColumn column = Column8PatternColumn::FileA;
+    std::array<int, 8> square_indexes{};
+};
+
+template <std::size_t N>
+struct IndexedPatternSpec {
+    int instance = 0;
+    std::array<int, N> square_indexes{};
+};
+
 struct Diagonal8PatternSpec {
     Diagonal8PatternDiagonal diagonal = Diagonal8PatternDiagonal::A1H8;
     std::array<int, 8> square_indexes{};
@@ -37,6 +53,11 @@ struct Diagonal8PatternSpec {
 
 struct InnerRow8PatternSpec {
     InnerRow8PatternLine line = InnerRow8PatternLine::Top;
+    std::array<int, 8> square_indexes{};
+};
+
+struct Corner2x4PatternSpec {
+    Corner2x4PatternCorner corner = Corner2x4PatternCorner::A1;
     std::array<int, 8> square_indexes{};
 };
 
@@ -88,6 +109,56 @@ constexpr std::array<EdgeX10PatternSpec, 4> edge_x_10_pattern_specs{{
      .square_indexes = {7, 15, 23, 31, 39, 47, 55, 63, 14, 54}},
 }};
 
+constexpr std::array<Row8PatternSpec, 8> row_8_pattern_specs{{
+    {.row = Row8PatternRow::Rank1, .square_indexes = {0, 1, 2, 3, 4, 5, 6, 7}},
+    {.row = Row8PatternRow::Rank2, .square_indexes = {8, 9, 10, 11, 12, 13, 14, 15}},
+    {.row = Row8PatternRow::Rank3, .square_indexes = {16, 17, 18, 19, 20, 21, 22, 23}},
+    {.row = Row8PatternRow::Rank4, .square_indexes = {24, 25, 26, 27, 28, 29, 30, 31}},
+    {.row = Row8PatternRow::Rank5, .square_indexes = {32, 33, 34, 35, 36, 37, 38, 39}},
+    {.row = Row8PatternRow::Rank6, .square_indexes = {40, 41, 42, 43, 44, 45, 46, 47}},
+    {.row = Row8PatternRow::Rank7, .square_indexes = {48, 49, 50, 51, 52, 53, 54, 55}},
+    {.row = Row8PatternRow::Rank8, .square_indexes = {56, 57, 58, 59, 60, 61, 62, 63}},
+}};
+
+constexpr std::array<Column8PatternSpec, 8> column_8_pattern_specs{{
+    {.column = Column8PatternColumn::FileA, .square_indexes = {0, 8, 16, 24, 32, 40, 48, 56}},
+    {.column = Column8PatternColumn::FileB, .square_indexes = {1, 9, 17, 25, 33, 41, 49, 57}},
+    {.column = Column8PatternColumn::FileC, .square_indexes = {2, 10, 18, 26, 34, 42, 50, 58}},
+    {.column = Column8PatternColumn::FileD, .square_indexes = {3, 11, 19, 27, 35, 43, 51, 59}},
+    {.column = Column8PatternColumn::FileE, .square_indexes = {4, 12, 20, 28, 36, 44, 52, 60}},
+    {.column = Column8PatternColumn::FileF, .square_indexes = {5, 13, 21, 29, 37, 45, 53, 61}},
+    {.column = Column8PatternColumn::FileG, .square_indexes = {6, 14, 22, 30, 38, 46, 54, 62}},
+    {.column = Column8PatternColumn::FileH, .square_indexes = {7, 15, 23, 31, 39, 47, 55, 63}},
+}};
+
+constexpr std::array<IndexedPatternSpec<4>, 4> diagonal_4_pattern_specs{{
+    {.instance = 0, .square_indexes = {4, 13, 22, 31}},
+    {.instance = 1, .square_indexes = {32, 41, 50, 59}},
+    {.instance = 2, .square_indexes = {3, 10, 17, 24}},
+    {.instance = 3, .square_indexes = {39, 46, 53, 60}},
+}};
+
+constexpr std::array<IndexedPatternSpec<5>, 4> diagonal_5_pattern_specs{{
+    {.instance = 0, .square_indexes = {3, 12, 21, 30, 39}},
+    {.instance = 1, .square_indexes = {24, 33, 42, 51, 60}},
+    {.instance = 2, .square_indexes = {4, 11, 18, 25, 32}},
+    {.instance = 3, .square_indexes = {31, 38, 45, 52, 59}},
+}};
+
+constexpr std::array<IndexedPatternSpec<6>, 4> diagonal_6_pattern_specs{{
+    {.instance = 0, .square_indexes = {2, 11, 20, 29, 38, 47}},
+    {.instance = 1, .square_indexes = {16, 25, 34, 43, 52, 61}},
+    {.instance = 2, .square_indexes = {5, 12, 19, 26, 33, 40}},
+    {.instance = 3, .square_indexes = {23, 30, 37, 44, 51, 58}},
+}};
+
+constexpr std::array<IndexedPatternSpec<7>, 4> diagonal_7_pattern_specs{{
+    {.instance = 0, .square_indexes = {1, 10, 19, 28, 37, 46, 55}},
+    {.instance = 1, .square_indexes = {8, 17, 26, 35, 44, 53, 62}},
+    {.instance = 2, .square_indexes = {6, 13, 20, 27, 34, 41, 48}},
+    {.instance = 3, .square_indexes = {15, 22, 29, 36, 43, 50, 57}},
+}};
+
 constexpr std::array<Diagonal8PatternSpec, 2> diagonal_8_pattern_specs{{
     {.diagonal = Diagonal8PatternDiagonal::A1H8,
      .square_indexes = {0, 9, 18, 27, 36, 45, 54, 63}},
@@ -103,6 +174,13 @@ constexpr std::array<InnerRow8PatternSpec, 4> inner_row_8_pattern_specs{{
      .square_indexes = {48, 49, 50, 51, 52, 53, 54, 55}},
     {.line = InnerRow8PatternLine::Left, .square_indexes = {1, 9, 17, 25, 33, 41, 49, 57}},
     {.line = InnerRow8PatternLine::Right, .square_indexes = {6, 14, 22, 30, 38, 46, 54, 62}},
+}};
+
+constexpr std::array<Corner2x4PatternSpec, 4> corner_2x4_pattern_specs{{
+    {.corner = Corner2x4PatternCorner::A1, .square_indexes = {0, 1, 2, 3, 8, 9, 10, 11}},
+    {.corner = Corner2x4PatternCorner::H1, .square_indexes = {7, 6, 5, 4, 15, 14, 13, 12}},
+    {.corner = Corner2x4PatternCorner::A8, .square_indexes = {56, 57, 58, 59, 48, 49, 50, 51}},
+    {.corner = Corner2x4PatternCorner::H8, .square_indexes = {63, 62, 61, 60, 55, 54, 53, 52}},
 }};
 
 [[nodiscard]] constexpr const Corner2x3PatternSpec&
@@ -169,6 +247,63 @@ edge_x_10_pattern_spec(EdgeX10PatternEdge edge) noexcept {
     return edge_x_10_pattern_specs[0];
 }
 
+[[nodiscard]] constexpr const Row8PatternSpec&
+row_8_pattern_spec(Row8PatternRow row) noexcept {
+    switch (row) {
+    case Row8PatternRow::Rank1:
+        return row_8_pattern_specs[0];
+    case Row8PatternRow::Rank2:
+        return row_8_pattern_specs[1];
+    case Row8PatternRow::Rank3:
+        return row_8_pattern_specs[2];
+    case Row8PatternRow::Rank4:
+        return row_8_pattern_specs[3];
+    case Row8PatternRow::Rank5:
+        return row_8_pattern_specs[4];
+    case Row8PatternRow::Rank6:
+        return row_8_pattern_specs[5];
+    case Row8PatternRow::Rank7:
+        return row_8_pattern_specs[6];
+    case Row8PatternRow::Rank8:
+        return row_8_pattern_specs[7];
+    }
+
+    return row_8_pattern_specs[0];
+}
+
+[[nodiscard]] constexpr const Column8PatternSpec&
+column_8_pattern_spec(Column8PatternColumn column) noexcept {
+    switch (column) {
+    case Column8PatternColumn::FileA:
+        return column_8_pattern_specs[0];
+    case Column8PatternColumn::FileB:
+        return column_8_pattern_specs[1];
+    case Column8PatternColumn::FileC:
+        return column_8_pattern_specs[2];
+    case Column8PatternColumn::FileD:
+        return column_8_pattern_specs[3];
+    case Column8PatternColumn::FileE:
+        return column_8_pattern_specs[4];
+    case Column8PatternColumn::FileF:
+        return column_8_pattern_specs[5];
+    case Column8PatternColumn::FileG:
+        return column_8_pattern_specs[6];
+    case Column8PatternColumn::FileH:
+        return column_8_pattern_specs[7];
+    }
+
+    return column_8_pattern_specs[0];
+}
+
+template <std::size_t N, std::size_t M>
+[[nodiscard]] constexpr const IndexedPatternSpec<N>&
+indexed_pattern_spec(const std::array<IndexedPatternSpec<N>, M>& specs, int instance) noexcept {
+    if (instance < 0 || instance >= static_cast<int>(M)) {
+        return specs[0];
+    }
+    return specs[static_cast<std::size_t>(instance)];
+}
+
 [[nodiscard]] constexpr const Diagonal8PatternSpec&
 diagonal_8_pattern_spec(Diagonal8PatternDiagonal diagonal) noexcept {
     switch (diagonal) {
@@ -195,6 +330,22 @@ inner_row_8_pattern_spec(InnerRow8PatternLine line) noexcept {
     }
 
     return inner_row_8_pattern_specs[0];
+}
+
+[[nodiscard]] constexpr const Corner2x4PatternSpec&
+corner_2x4_pattern_spec(Corner2x4PatternCorner corner) noexcept {
+    switch (corner) {
+    case Corner2x4PatternCorner::A1:
+        return corner_2x4_pattern_specs[0];
+    case Corner2x4PatternCorner::H1:
+        return corner_2x4_pattern_specs[1];
+    case Corner2x4PatternCorner::A8:
+        return corner_2x4_pattern_specs[2];
+    case Corner2x4PatternCorner::H8:
+        return corner_2x4_pattern_specs[3];
+    }
+
+    return corner_2x4_pattern_specs[0];
 }
 
 template <std::size_t N>
@@ -469,6 +620,37 @@ int edge_x_10_pattern_index(const Board& board, Side side, EdgeX10PatternEdge ed
     return pattern_index_for_squares(board, side, spec.square_indexes);
 }
 
+int row_8_pattern_index(const Board& board, Side side, Row8PatternRow row) noexcept {
+    const Row8PatternSpec& spec = row_8_pattern_spec(row);
+    return pattern_index_for_squares(board, side, spec.square_indexes);
+}
+
+int column_8_pattern_index(const Board& board, Side side,
+                           Column8PatternColumn column) noexcept {
+    const Column8PatternSpec& spec = column_8_pattern_spec(column);
+    return pattern_index_for_squares(board, side, spec.square_indexes);
+}
+
+int diagonal_4_pattern_index(const Board& board, Side side, int instance) noexcept {
+    const IndexedPatternSpec<4>& spec = indexed_pattern_spec(diagonal_4_pattern_specs, instance);
+    return pattern_index_for_squares(board, side, spec.square_indexes);
+}
+
+int diagonal_5_pattern_index(const Board& board, Side side, int instance) noexcept {
+    const IndexedPatternSpec<5>& spec = indexed_pattern_spec(diagonal_5_pattern_specs, instance);
+    return pattern_index_for_squares(board, side, spec.square_indexes);
+}
+
+int diagonal_6_pattern_index(const Board& board, Side side, int instance) noexcept {
+    const IndexedPatternSpec<6>& spec = indexed_pattern_spec(diagonal_6_pattern_specs, instance);
+    return pattern_index_for_squares(board, side, spec.square_indexes);
+}
+
+int diagonal_7_pattern_index(const Board& board, Side side, int instance) noexcept {
+    const IndexedPatternSpec<7>& spec = indexed_pattern_spec(diagonal_7_pattern_specs, instance);
+    return pattern_index_for_squares(board, side, spec.square_indexes);
+}
+
 int diagonal_8_pattern_index(const Board& board, Side side,
                              Diagonal8PatternDiagonal diagonal) noexcept {
     const Diagonal8PatternSpec& spec = diagonal_8_pattern_spec(diagonal);
@@ -481,33 +663,93 @@ int inner_row_8_pattern_index(const Board& board, Side side,
     return pattern_index_for_squares(board, side, spec.square_indexes);
 }
 
+int corner_2x4_pattern_index(const Board& board, Side side,
+                             Corner2x4PatternCorner corner) noexcept {
+    const Corner2x4PatternSpec& spec = corner_2x4_pattern_spec(corner);
+    return pattern_index_for_squares(board, side, spec.square_indexes);
+}
+
 int evaluation_pattern_table_value(const Board& board, Side side,
                                    const PatternTableBundle& tables) noexcept {
     const PatternIndexContext context = pattern_index_context(board, side);
     int value = 0;
-    for (const Corner2x3PatternSpec& spec : corner_2x3_pattern_specs) {
-        value += tables.corner_2x3[static_cast<std::size_t>(
-            pattern_index_for_squares(context, spec.square_indexes))];
+    if (tables.active_families.corner_2x3) {
+        for (const Corner2x3PatternSpec& spec : corner_2x3_pattern_specs) {
+            value += tables.corner_2x3[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
     }
-    for (const Corner3x3PatternSpec& spec : corner_3x3_pattern_specs) {
-        value += tables.corner_3x3[static_cast<std::size_t>(
-            pattern_index_for_squares(context, spec.square_indexes))];
+    if (tables.active_families.corner_3x3) {
+        for (const Corner3x3PatternSpec& spec : corner_3x3_pattern_specs) {
+            value += tables.corner_3x3[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
     }
-    for (const Edge8PatternSpec& spec : edge_8_pattern_specs) {
-        value += tables.edge_8[static_cast<std::size_t>(
-            pattern_index_for_squares(context, spec.square_indexes))];
+    if (tables.active_families.edge_8) {
+        for (const Edge8PatternSpec& spec : edge_8_pattern_specs) {
+            value += tables.edge_8[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
     }
-    for (const EdgeX10PatternSpec& spec : edge_x_10_pattern_specs) {
-        value += tables.edge_x_10[static_cast<std::size_t>(
-            pattern_index_for_squares(context, spec.square_indexes))];
+    if (tables.active_families.edge_x_10) {
+        for (const EdgeX10PatternSpec& spec : edge_x_10_pattern_specs) {
+            value += tables.edge_x_10[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
     }
-    for (const Diagonal8PatternSpec& spec : diagonal_8_pattern_specs) {
-        value += tables.diagonal_8[static_cast<std::size_t>(
-            pattern_index_for_squares(context, spec.square_indexes))];
+    if (tables.active_families.row_8) {
+        for (const Row8PatternSpec& spec : row_8_pattern_specs) {
+            value += tables.row_8[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
     }
-    for (const InnerRow8PatternSpec& spec : inner_row_8_pattern_specs) {
-        value += tables.inner_row_8[static_cast<std::size_t>(
-            pattern_index_for_squares(context, spec.square_indexes))];
+    if (tables.active_families.column_8) {
+        for (const Column8PatternSpec& spec : column_8_pattern_specs) {
+            value += tables.column_8[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
+    }
+    if (tables.active_families.diagonal_4) {
+        for (const IndexedPatternSpec<4>& spec : diagonal_4_pattern_specs) {
+            value += tables.diagonal_4[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
+    }
+    if (tables.active_families.diagonal_5) {
+        for (const IndexedPatternSpec<5>& spec : diagonal_5_pattern_specs) {
+            value += tables.diagonal_5[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
+    }
+    if (tables.active_families.diagonal_6) {
+        for (const IndexedPatternSpec<6>& spec : diagonal_6_pattern_specs) {
+            value += tables.diagonal_6[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
+    }
+    if (tables.active_families.diagonal_7) {
+        for (const IndexedPatternSpec<7>& spec : diagonal_7_pattern_specs) {
+            value += tables.diagonal_7[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
+    }
+    if (tables.active_families.diagonal_8) {
+        for (const Diagonal8PatternSpec& spec : diagonal_8_pattern_specs) {
+            value += tables.diagonal_8[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
+    }
+    if (tables.active_families.inner_row_8) {
+        for (const InnerRow8PatternSpec& spec : inner_row_8_pattern_specs) {
+            value += tables.inner_row_8[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
+    }
+    if (tables.active_families.corner_2x4) {
+        for (const Corner2x4PatternSpec& spec : corner_2x4_pattern_specs) {
+            value += tables.corner_2x4[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
     }
     return value;
 }
@@ -543,29 +785,83 @@ int evaluation_pattern_table_score(Bitboard player, Bitboard opponent,
                                    const PatternTableBundle& tables) noexcept {
     const PatternIndexContext context = pattern_index_context(player, opponent);
     int value = 0;
-    for (const Corner2x3PatternSpec& spec : corner_2x3_pattern_specs) {
-        value += tables.corner_2x3[static_cast<std::size_t>(
-            pattern_index_for_squares(context, spec.square_indexes))];
+    if (tables.active_families.corner_2x3) {
+        for (const Corner2x3PatternSpec& spec : corner_2x3_pattern_specs) {
+            value += tables.corner_2x3[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
     }
-    for (const Corner3x3PatternSpec& spec : corner_3x3_pattern_specs) {
-        value += tables.corner_3x3[static_cast<std::size_t>(
-            pattern_index_for_squares(context, spec.square_indexes))];
+    if (tables.active_families.corner_3x3) {
+        for (const Corner3x3PatternSpec& spec : corner_3x3_pattern_specs) {
+            value += tables.corner_3x3[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
     }
-    for (const Edge8PatternSpec& spec : edge_8_pattern_specs) {
-        value += tables.edge_8[static_cast<std::size_t>(
-            pattern_index_for_squares(context, spec.square_indexes))];
+    if (tables.active_families.edge_8) {
+        for (const Edge8PatternSpec& spec : edge_8_pattern_specs) {
+            value += tables.edge_8[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
     }
-    for (const EdgeX10PatternSpec& spec : edge_x_10_pattern_specs) {
-        value += tables.edge_x_10[static_cast<std::size_t>(
-            pattern_index_for_squares(context, spec.square_indexes))];
+    if (tables.active_families.edge_x_10) {
+        for (const EdgeX10PatternSpec& spec : edge_x_10_pattern_specs) {
+            value += tables.edge_x_10[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
     }
-    for (const Diagonal8PatternSpec& spec : diagonal_8_pattern_specs) {
-        value += tables.diagonal_8[static_cast<std::size_t>(
-            pattern_index_for_squares(context, spec.square_indexes))];
+    if (tables.active_families.row_8) {
+        for (const Row8PatternSpec& spec : row_8_pattern_specs) {
+            value += tables.row_8[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
     }
-    for (const InnerRow8PatternSpec& spec : inner_row_8_pattern_specs) {
-        value += tables.inner_row_8[static_cast<std::size_t>(
-            pattern_index_for_squares(context, spec.square_indexes))];
+    if (tables.active_families.column_8) {
+        for (const Column8PatternSpec& spec : column_8_pattern_specs) {
+            value += tables.column_8[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
+    }
+    if (tables.active_families.diagonal_4) {
+        for (const IndexedPatternSpec<4>& spec : diagonal_4_pattern_specs) {
+            value += tables.diagonal_4[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
+    }
+    if (tables.active_families.diagonal_5) {
+        for (const IndexedPatternSpec<5>& spec : diagonal_5_pattern_specs) {
+            value += tables.diagonal_5[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
+    }
+    if (tables.active_families.diagonal_6) {
+        for (const IndexedPatternSpec<6>& spec : diagonal_6_pattern_specs) {
+            value += tables.diagonal_6[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
+    }
+    if (tables.active_families.diagonal_7) {
+        for (const IndexedPatternSpec<7>& spec : diagonal_7_pattern_specs) {
+            value += tables.diagonal_7[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
+    }
+    if (tables.active_families.diagonal_8) {
+        for (const Diagonal8PatternSpec& spec : diagonal_8_pattern_specs) {
+            value += tables.diagonal_8[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
+    }
+    if (tables.active_families.inner_row_8) {
+        for (const InnerRow8PatternSpec& spec : inner_row_8_pattern_specs) {
+            value += tables.inner_row_8[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
+    }
+    if (tables.active_families.corner_2x4) {
+        for (const Corner2x4PatternSpec& spec : corner_2x4_pattern_specs) {
+            value += tables.corner_2x4[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
     }
     return value;
 }

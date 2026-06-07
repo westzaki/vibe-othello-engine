@@ -18,8 +18,15 @@ class PatternSpecsTests(unittest.TestCase):
             "corner_3x3": (4, 9),
             "edge_8": (4, 8),
             "edge_x_10": (4, 10),
+            "row_8": (8, 8),
+            "column_8": (8, 8),
+            "diagonal_4": (4, 4),
+            "diagonal_5": (4, 5),
+            "diagonal_6": (4, 6),
+            "diagonal_7": (4, 7),
             "diagonal_8": (2, 8),
             "inner_row_8": (4, 8),
+            "corner_2x4": (4, 8),
         }
 
         self.assertEqual(tuple(expected_shapes), pattern_specs.FAMILY_ORDER)
@@ -33,6 +40,23 @@ class PatternSpecsTests(unittest.TestCase):
         self.assertEqual(
             pattern_specs.COMMON_FAMILY_ALIASES["broad_all"],
             ("corner_3x3", "edge_8", "edge_x_10", "diagonal_8", "inner_row_8"),
+        )
+        self.assertEqual(
+            pattern_specs.COMMON_FAMILY_ALIASES["broad_v2"],
+            (
+                "corner_3x3",
+                "edge_8",
+                "edge_x_10",
+                "diagonal_8",
+                "inner_row_8",
+                "row_8",
+                "column_8",
+                "diagonal_4",
+                "diagonal_5",
+                "diagonal_6",
+                "diagonal_7",
+                "corner_2x4",
+            ),
         )
         for families in pattern_specs.COMMON_FAMILY_ALIASES.values():
             self.assertTrue(all(family in pattern_specs.PATTERN_SPECS for family in families))
@@ -92,8 +116,15 @@ class PatternSpecsTests(unittest.TestCase):
             "corner_3x3",
             "edge_8",
             "edge_x_10",
+            "row_8",
+            "column_8",
+            "diagonal_4",
+            "diagonal_5",
+            "diagonal_6",
+            "diagonal_7",
             "diagonal_8",
             "inner_row_8",
+            "corner_2x4",
         ):
             with self.subTest(family=family):
                 spec = pattern_specs.PATTERN_SPECS[family][0]

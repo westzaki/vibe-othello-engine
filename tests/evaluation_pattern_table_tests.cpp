@@ -1,3 +1,4 @@
+#include "../src/evaluation_internal.hpp"
 #include "common/eval_config_io.hpp"
 #include "common/evaluator_selection.hpp"
 #include "evaluation_test_helpers.hpp"
@@ -90,15 +91,29 @@ TEST_CASE("External broad pattern table is antisymmetric under color swap",
     tables->corner_3x3[2] = -3;
     tables->edge_x_10[1] = 5;
     tables->edge_x_10[2] = -5;
+    tables->row_8[1] = 13;
+    tables->row_8[2] = -13;
+    tables->column_8[1] = 17;
+    tables->column_8[2] = -17;
+    tables->diagonal_4[1] = 19;
+    tables->diagonal_4[2] = -19;
+    tables->diagonal_5[1] = 23;
+    tables->diagonal_5[2] = -23;
+    tables->diagonal_6[1] = 29;
+    tables->diagonal_6[2] = -29;
+    tables->diagonal_7[1] = 31;
+    tables->diagonal_7[2] = -31;
     tables->diagonal_8[1] = 7;
     tables->diagonal_8[2] = -7;
     tables->inner_row_8[1] = 11;
     tables->inner_row_8[2] = -11;
+    tables->corner_2x4[1] = 37;
+    tables->corner_2x4[2] = -37;
 
     const Board corner_board = pattern_disc_board(othello::test::bit("a1"));
     const Board swapped_corner = swapped_colors(corner_board);
     CHECK(othello::evaluation_pattern_table_value(corner_board, Side::Black,
-                                                  *tables) == 20);
+                                                  *tables) == 87);
     CHECK(othello::evaluation_pattern_table_value(corner_board, Side::Black,
                                                   *tables) ==
           -othello::evaluation_pattern_table_value(swapped_corner, Side::Black,
@@ -107,9 +122,28 @@ TEST_CASE("External broad pattern table is antisymmetric under color swap",
     const Board inner_board = pattern_disc_board(othello::test::bit("b1"));
     const Board swapped_inner = swapped_colors(inner_board);
     CHECK(othello::evaluation_pattern_table_value(inner_board, Side::Black,
-                                                  *tables) == 11);
+                                                  *tables) == 59);
     CHECK(othello::evaluate_with_config(inner_board, Side::Black, config) ==
           -othello::evaluate_with_config(swapped_inner, Side::Black, config));
+}
+
+TEST_CASE("External pattern table skips inactive families", "[evaluation]") {
+    othello::PatternTableBundle tables;
+    tables.active_families = othello::PatternTableActiveFamilies{};
+
+    const Board board = pattern_disc_board(othello::test::bit("a1"));
+    const int inactive_index =
+        othello::row_8_pattern_index(board, Side::Black, othello::Row8PatternRow::Rank1);
+    tables.row_8[static_cast<std::size_t>(inactive_index)] = 99;
+
+    CHECK(othello::evaluation_pattern_table_value(board, Side::Black, tables) == 0);
+    CHECK(othello::evaluation_detail::evaluation_pattern_table_score(
+              board.black, board.white, tables) == 0);
+
+    tables.active_families.row_8 = true;
+    CHECK(othello::evaluation_pattern_table_value(board, Side::Black, tables) == 99);
+    CHECK(othello::evaluation_detail::evaluation_pattern_table_score(
+              board.black, board.white, tables) == 99);
 }
 
 TEST_CASE("External pattern table value follows public pattern indexes",
@@ -147,6 +181,26 @@ TEST_CASE("External pattern table value follows public pattern indexes",
         othello::EdgeX10PatternEdge::Left,
         othello::EdgeX10PatternEdge::Right,
     };
+    constexpr std::array rows{
+        othello::Row8PatternRow::Rank1,
+        othello::Row8PatternRow::Rank2,
+        othello::Row8PatternRow::Rank3,
+        othello::Row8PatternRow::Rank4,
+        othello::Row8PatternRow::Rank5,
+        othello::Row8PatternRow::Rank6,
+        othello::Row8PatternRow::Rank7,
+        othello::Row8PatternRow::Rank8,
+    };
+    constexpr std::array columns{
+        othello::Column8PatternColumn::FileA,
+        othello::Column8PatternColumn::FileB,
+        othello::Column8PatternColumn::FileC,
+        othello::Column8PatternColumn::FileD,
+        othello::Column8PatternColumn::FileE,
+        othello::Column8PatternColumn::FileF,
+        othello::Column8PatternColumn::FileG,
+        othello::Column8PatternColumn::FileH,
+    };
     constexpr std::array diagonals{
         othello::Diagonal8PatternDiagonal::A1H8,
         othello::Diagonal8PatternDiagonal::H1A8,
@@ -156,6 +210,12 @@ TEST_CASE("External pattern table value follows public pattern indexes",
         othello::InnerRow8PatternLine::Bottom,
         othello::InnerRow8PatternLine::Left,
         othello::InnerRow8PatternLine::Right,
+    };
+    constexpr std::array corner_2x4_corners{
+        othello::Corner2x4PatternCorner::A1,
+        othello::Corner2x4PatternCorner::H1,
+        othello::Corner2x4PatternCorner::A8,
+        othello::Corner2x4PatternCorner::H8,
     };
 
     for (const othello::Corner2x3PatternCorner corner : corner_2x3_corners) {
@@ -178,6 +238,30 @@ TEST_CASE("External pattern table value follows public pattern indexes",
         tables.edge_x_10[static_cast<std::size_t>(index)] =
             static_cast<std::int16_t>(-31 + (index % 29));
     }
+    for (const othello::Row8PatternRow row : rows) {
+        const int index = othello::row_8_pattern_index(board, Side::Black, row);
+        tables.row_8[static_cast<std::size_t>(index)] =
+            static_cast<std::int16_t>(47 + (index % 41));
+    }
+    for (const othello::Column8PatternColumn column : columns) {
+        const int index = othello::column_8_pattern_index(board, Side::Black, column);
+        tables.column_8[static_cast<std::size_t>(index)] =
+            static_cast<std::int16_t>(-53 + (index % 43));
+    }
+    for (int instance = 0; instance < 4; ++instance) {
+        int index = othello::diagonal_4_pattern_index(board, Side::Black, instance);
+        tables.diagonal_4[static_cast<std::size_t>(index)] =
+            static_cast<std::int16_t>(59 + (index % 47));
+        index = othello::diagonal_5_pattern_index(board, Side::Black, instance);
+        tables.diagonal_5[static_cast<std::size_t>(index)] =
+            static_cast<std::int16_t>(-61 + (index % 53));
+        index = othello::diagonal_6_pattern_index(board, Side::Black, instance);
+        tables.diagonal_6[static_cast<std::size_t>(index)] =
+            static_cast<std::int16_t>(67 + (index % 59));
+        index = othello::diagonal_7_pattern_index(board, Side::Black, instance);
+        tables.diagonal_7[static_cast<std::size_t>(index)] =
+            static_cast<std::int16_t>(-71 + (index % 61));
+    }
     for (const othello::Diagonal8PatternDiagonal diagonal : diagonals) {
         const int index = othello::diagonal_8_pattern_index(board, Side::Black, diagonal);
         tables.diagonal_8[static_cast<std::size_t>(index)] =
@@ -187,6 +271,11 @@ TEST_CASE("External pattern table value follows public pattern indexes",
         const int index = othello::inner_row_8_pattern_index(board, Side::Black, line);
         tables.inner_row_8[static_cast<std::size_t>(index)] =
             static_cast<std::int16_t>(-43 + (index % 37));
+    }
+    for (const othello::Corner2x4PatternCorner corner : corner_2x4_corners) {
+        const int index = othello::corner_2x4_pattern_index(board, Side::Black, corner);
+        tables.corner_2x4[static_cast<std::size_t>(index)] =
+            static_cast<std::int16_t>(73 + (index % 67));
     }
 
     int expected = 0;
@@ -206,6 +295,24 @@ TEST_CASE("External pattern table value follows public pattern indexes",
         expected += tables.edge_x_10[static_cast<std::size_t>(
             othello::edge_x_10_pattern_index(board, Side::Black, edge))];
     }
+    for (const othello::Row8PatternRow row : rows) {
+        expected += tables.row_8[static_cast<std::size_t>(
+            othello::row_8_pattern_index(board, Side::Black, row))];
+    }
+    for (const othello::Column8PatternColumn column : columns) {
+        expected += tables.column_8[static_cast<std::size_t>(
+            othello::column_8_pattern_index(board, Side::Black, column))];
+    }
+    for (int instance = 0; instance < 4; ++instance) {
+        expected += tables.diagonal_4[static_cast<std::size_t>(
+            othello::diagonal_4_pattern_index(board, Side::Black, instance))];
+        expected += tables.diagonal_5[static_cast<std::size_t>(
+            othello::diagonal_5_pattern_index(board, Side::Black, instance))];
+        expected += tables.diagonal_6[static_cast<std::size_t>(
+            othello::diagonal_6_pattern_index(board, Side::Black, instance))];
+        expected += tables.diagonal_7[static_cast<std::size_t>(
+            othello::diagonal_7_pattern_index(board, Side::Black, instance))];
+    }
     for (const othello::Diagonal8PatternDiagonal diagonal : diagonals) {
         expected += tables.diagonal_8[static_cast<std::size_t>(
             othello::diagonal_8_pattern_index(board, Side::Black, diagonal))];
@@ -213,6 +320,10 @@ TEST_CASE("External pattern table value follows public pattern indexes",
     for (const othello::InnerRow8PatternLine line : inner_rows) {
         expected += tables.inner_row_8[static_cast<std::size_t>(
             othello::inner_row_8_pattern_index(board, Side::Black, line))];
+    }
+    for (const othello::Corner2x4PatternCorner corner : corner_2x4_corners) {
+        expected += tables.corner_2x4[static_cast<std::size_t>(
+            othello::corner_2x4_pattern_index(board, Side::Black, corner))];
     }
 
     CHECK(othello::evaluation_pattern_table_value(board, Side::Black, tables) ==
