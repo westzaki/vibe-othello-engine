@@ -16,6 +16,7 @@ SCRIPT_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPT_DIR))
 
 import regularized_pairwise_pattern_train as trainer  # noqa: E402
+import pattern_symmetry_diagnostics as diagnostics  # noqa: E402
 from pattern_training import analyzer as shared_analyzer  # noqa: E402
 from common import ScriptError  # noqa: E402
 from pattern_specs import PATTERN_SPECS, invert_board9_colors, pattern_index  # noqa: E402
@@ -69,6 +70,15 @@ def write_eval_config(path: Path) -> Path:
         encoding="utf-8",
     )
     return path
+
+
+def write_phase_tables(table_dir: Path, opening: str) -> dict[str, Path]:
+    table_dir.mkdir(parents=True, exist_ok=True)
+    paths = {phase: table_dir / f"{phase}.tsv" for phase in trainer.PHASES}
+    paths["opening"].write_text(opening, encoding="utf-8")
+    for phase in ("midgame", "late"):
+        paths[phase].write_text("corner_2x3\t0\t0\n", encoding="utf-8")
+    return paths
 
 
 def write_current_default_like_eval_config(path: Path) -> Path:
@@ -460,6 +470,185 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
 
         self.assertEqual(paths[0], (root / "teacher" / "demo" / "train.jsonl").resolve(strict=False))
         self.assertEqual(paths[1], Path("local.jsonl"))
+
+    def test_post_training_symmetrize_default_leaves_generated_tsv_unchanged(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            config = make_config(temp_path, labels)
+            table_paths = write_phase_tables(
+                config.out_dir / "tables",
+                "# schema_version: pattern_table.v1\nedge_8\t1\t5\nedge_8\t2187\t0\n",
+            )
+            before = {phase: path.read_text(encoding="utf-8") for phase, path in table_paths.items()}
+
+            summary = trainer.apply_post_training_symmetrize(config, table_paths)
+
+            self.assertFalse(summary["enabled"])
+            self.assertEqual(summary["modes"], [])
+            self.assertEqual(summary["phases"], {})
+            after = {phase: path.read_text(encoding="utf-8") for phase, path in table_paths.items()}
+            self.assertEqual(after, before)
+
+    def test_post_training_symmetrize_reversed_index_averages_generated_tsv(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            config = make_config(
+                temp_path,
+                labels,
+                extra_args=["--post-training-symmetrize", "reversed-index"],
+            )
+            table_paths = write_phase_tables(
+                config.out_dir / "tables",
+                "edge_8\t1\t5\nedge_8\t2187\t1\n",
+            )
+
+            summary = trainer.apply_post_training_symmetrize(config, table_paths)
+            weights = diagnostics.read_pattern_table(table_paths["opening"])
+
+            self.assertTrue(summary["enabled"])
+            self.assertEqual(summary["modes"], ["reversed-index"])
+            self.assertEqual(weights["edge_8"][1], 3)
+            self.assertEqual(weights["edge_8"][2187], 3)
+            self.assertGreater(summary["phases"]["opening"]["changed_entries"], 0)
+            self.assertIn("violations_before", summary["phases"]["opening"])
+            self.assertIn("violations_after", summary["phases"]["opening"])
+
+    def test_post_training_symmetrize_color_inversion_enforces_antisymmetry(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            config = make_config(
+                temp_path,
+                labels,
+                extra_args=["--post-training-symmetrize", "color-inversion"],
+            )
+            table_paths = write_phase_tables(
+                config.out_dir / "tables",
+                "edge_8\t1\t5\nedge_8\t2\t1\n",
+            )
+
+            trainer.apply_post_training_symmetrize(config, table_paths)
+            weights = diagnostics.read_pattern_table(table_paths["opening"])
+
+            self.assertEqual(weights["edge_8"][1], 2)
+            self.assertEqual(weights["edge_8"][2], -2)
+
+    def test_post_training_symmetrize_writes_sentinel_when_phase_table_becomes_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            config = make_config(
+                temp_path,
+                labels,
+                extra_args=["--post-training-symmetrize", "color-inversion"],
+            )
+            table_paths = write_phase_tables(
+                config.out_dir / "tables",
+                "edge_8\t1\t1\nedge_8\t2\t1\n",
+            )
+
+            summary = trainer.apply_post_training_symmetrize(config, table_paths)
+            weights = diagnostics.read_pattern_table(table_paths["opening"])
+
+            self.assertEqual(weights[trainer.SENTINEL_FAMILY][trainer.SENTINEL_ENTRY[0]], 0)
+            self.assertEqual(sum(len(entries) for entries in weights.values()), 1)
+            self.assertTrue(summary["phases"]["opening"]["sentinel_entry_written"])
+            self.assertEqual(summary["phases"]["opening"]["entries_written"], 1)
+            self.assertEqual(summary["phases"]["opening"]["zero_entries_introduced"], 3)
+
+    def test_post_training_symmetrize_multiple_modes_are_order_independent(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            opening = "edge_8\t1\t5\nedge_8\t2\t1\nedge_8\t2187\t-3\nedge_8\t4374\t4\n"
+            config_a = make_config(
+                temp_path,
+                labels,
+                extra_args=["--post-training-symmetrize", "reversed-index,color-inversion"],
+            )
+            paths_a = write_phase_tables(config_a.out_dir / "tables-a", opening)
+            config_b = replace(
+                config_a,
+                post_training_symmetrize_modes=("color-inversion", "reversed-index"),
+            )
+            paths_b = write_phase_tables(config_a.out_dir / "tables-b", opening)
+
+            trainer.apply_post_training_symmetrize(config_a, paths_a)
+            trainer.apply_post_training_symmetrize(config_b, paths_b)
+
+            self.assertEqual(
+                diagnostics.read_pattern_table(paths_a["opening"]),
+                diagnostics.read_pattern_table(paths_b["opening"]),
+            )
+
+    def test_post_training_symmetrize_report_section_lists_before_after_violations(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            config = make_config(
+                temp_path,
+                labels,
+                extra_args=["--post-training-symmetrize", "reversed-index"],
+            )
+            table_paths = write_phase_tables(
+                config.out_dir / "tables",
+                "edge_8\t1\t5\nedge_8\t2187\t1\n",
+            )
+            post_summary = trainer.apply_post_training_symmetrize(config, table_paths)
+            metrics = {
+                "pairs": 0,
+                "weighted_loss": 0.0,
+                "unweighted_loss": 0.0,
+                "accuracy": 0.0,
+                "weighted_accuracy": 0.0,
+                "avg_margin": 0.0,
+                "total_pair_weight": 0.0,
+            }
+            summary = {
+                "rows": {},
+                "training": {
+                    "initial_metrics": metrics,
+                    "final_metrics": metrics,
+                    "listwise_compact": {},
+                },
+                "analysis_cache_mode": "off",
+                "analysis_cache_dir": "",
+                "analysis_jobs": 1,
+                "diagnostics": {},
+                "post_training_symmetrize": post_summary,
+            }
+
+            report = trainer.render_report(
+                config=config,
+                summary=summary,
+                table_paths=table_paths,
+                candidate_eval_path=config.out_dir / "candidate.eval",
+                validation_path=config.out_dir / "validation.tsv",
+            )
+
+            self.assertIn("## Post-Training Symmetrize", report)
+            self.assertIn("violations before", report)
+            self.assertIn("violations after", report)
+            self.assertIn("reversed-index", report)
+
+    def test_post_training_symmetrize_rejects_source_controlled_data_eval_output(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+
+            with self.assertRaisesRegex(ScriptError, "--out-dir must not be under source-controlled data/"):
+                make_config(
+                    temp_path,
+                    labels,
+                    extra_args=[
+                        "--out-dir",
+                        str(trainer.REPO_ROOT / "data" / "eval" / "post-training-symmetrize-test"),
+                        "--post-training-symmetrize",
+                        "reversed-index",
+                    ],
+                )
 
     def test_pattern_indexes_match_existing_trainer_convention(self) -> None:
         side = "B"
