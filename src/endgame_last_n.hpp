@@ -14,6 +14,7 @@ namespace othello::endgame_detail {
 
 using search_detail::empty_count;
 using search_detail::flips_for_move;
+using search_detail::flips_for_known_empty_move;
 using search_detail::is_better_best_move;
 using search_detail::legal_moves;
 using search_detail::NodeResult;
@@ -88,7 +89,7 @@ constexpr int last_n_specialized_empties = 4;
 
 [[nodiscard]] inline Bitboard flips_for_empty_square(const SearchPosition& position,
                                                      Square square) noexcept {
-    return flips_for_move(position, square);
+    return flips_for_known_empty_move(position, square.bit());
 }
 
 [[nodiscard]] inline NodeResult solve_last_1(const SearchPosition& position,
