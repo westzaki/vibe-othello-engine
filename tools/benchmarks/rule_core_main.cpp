@@ -500,8 +500,8 @@ search_position_checksum(const othello::search_detail::SearchPosition& position)
                            .checksum = checksum};
 }
 
-[[nodiscard]] BenchmarkResult benchmark_move_list(const RulePosition& position,
-                                                  std::uint64_t iterations) {
+[[nodiscard]] BenchmarkResult benchmark_legal_move_list(const RulePosition& position,
+                                                        std::uint64_t iterations) {
     std::uint64_t checksum = 0;
     std::array<int, max_move_buffer_size> buffer{};
 
@@ -518,7 +518,7 @@ search_position_checksum(const othello::search_detail::SearchPosition& position)
     const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - start);
 
     return BenchmarkResult{.position_name = position.name,
-                           .operation = "move_list",
+                           .operation = "legal_move_list",
                            .calls = iterations,
                            .elapsed = elapsed,
                            .checksum = checksum};
@@ -567,8 +567,9 @@ search_position_checksum(const othello::search_detail::SearchPosition& position)
                            .checksum = checksum};
 }
 
-[[nodiscard]] BenchmarkResult benchmark_search_position_after_move(const RulePosition& position,
-                                                                   std::uint64_t iterations) {
+[[nodiscard]] BenchmarkResult
+benchmark_search_position_flips_plus_position_after(const RulePosition& position,
+                                                    std::uint64_t iterations) {
     const auto search_position = othello::search_detail::SearchPosition::from_board(position.board);
     const Bitboard moves = othello::search_detail::legal_moves(search_position);
     std::uint64_t checksum = 0;
@@ -590,7 +591,7 @@ search_position_checksum(const othello::search_detail::SearchPosition& position)
     const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - start);
 
     return BenchmarkResult{.position_name = position.name,
-                           .operation = "sp_position_after",
+                           .operation = "sp_flips_plus_position_after",
                            .calls = calls,
                            .elapsed = elapsed,
                            .checksum = checksum};
@@ -801,11 +802,12 @@ run_position_benchmarks(const std::vector<RulePosition>& positions, std::uint64_
         results.push_back(benchmark_legal_moves(position, iterations));
         results.push_back(benchmark_search_position_legal_moves(position, iterations));
         results.push_back(benchmark_legal_popcount(position, iterations));
-        results.push_back(benchmark_move_list(position, iterations));
+        results.push_back(benchmark_legal_move_list(position, iterations));
         results.push_back(benchmark_flips_for_move(position, iterations));
         results.push_back(benchmark_search_position_flips_for_move(position, iterations));
         results.push_back(benchmark_apply_move(position, iterations));
-        results.push_back(benchmark_search_position_after_move(position, iterations));
+        results.push_back(
+            benchmark_search_position_flips_plus_position_after(position, iterations));
         results.push_back(benchmark_pass_turn(position, iterations));
         results.push_back(benchmark_is_game_over(position, iterations));
         results.push_back(benchmark_disc_count(position, iterations));
