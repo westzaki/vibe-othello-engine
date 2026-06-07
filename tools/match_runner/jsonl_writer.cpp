@@ -42,6 +42,9 @@ void write_exact_root_trace_stats(std::ostream& output, const ExactRootTraceStat
     output << "\"tt_upper_hits\":" << stats.tt_upper_hits << ',';
     output << "\"tt_stores\":" << stats.tt_stores << ',';
     output << "\"tt_leaf_stores\":" << stats.tt_leaf_stores << ',';
+    output << "\"tt_leaf_store_skipped\":" << stats.tt_leaf_store_skipped << ',';
+    output << "\"tt_probe_skipped_by_depth\":" << stats.tt_probe_skipped_by_depth << ',';
+    output << "\"tt_store_skipped_by_depth\":" << stats.tt_store_skipped_by_depth << ',';
     output << "\"tt_overwrites\":" << stats.tt_overwrites << ',';
     output << "\"tt_collisions\":" << stats.tt_collisions << ',';
     output << "\"tt_rejected_stores\":" << stats.tt_rejected_stores << ',';

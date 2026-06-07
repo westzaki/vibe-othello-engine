@@ -36,8 +36,7 @@ side=B)");
 }
 
 [[nodiscard]] std::string test_eval_config_fixture_path(std::string_view file_name) {
-    return (std::filesystem::path{OTHELLO_SOURCE_DIR} / "tests" / "fixtures" / "eval" /
-            file_name)
+    return (std::filesystem::path{OTHELLO_SOURCE_DIR} / "tests" / "fixtures" / "eval" / file_name)
         .string();
 }
 
@@ -66,13 +65,12 @@ TEST_CASE("Search player specs require positive depth", "[match-runner]") {
 TEST_CASE("Search player specs parse options", "[match-runner]") {
     const runner::PlayerSpec depth_only_spec =
         require_player_spec(std::string_view{"search:depth=4"});
-    CHECK(othello::tools::uses_project_default_eval_config(
-        depth_only_spec.search_options.evaluator));
+    CHECK(
+        othello::tools::uses_project_default_eval_config(depth_only_spec.search_options.evaluator));
     CHECK_FALSE(othello::tools::uses_built_in_fallback_eval_config(
         depth_only_spec.search_options.evaluator));
 
-    const othello::SearchOptions depth_only_options =
-        runner::make_search_options(depth_only_spec);
+    const othello::SearchOptions depth_only_options = runner::make_search_options(depth_only_spec);
     CHECK(depth_only_options.max_depth == 4);
     CHECK_FALSE(depth_only_options.use_transposition_table);
     CHECK_FALSE(depth_only_options.use_pvs);
@@ -80,6 +78,8 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
     CHECK(depth_only_options.aspiration_profile == othello::AspirationProfile::Fixed);
     CHECK_FALSE(depth_only_spec.search_options.use_iterative_search);
     CHECK(depth_only_options.store_leaf_tt_entries);
+    CHECK(depth_only_options.tt_min_probe_depth == 0);
+    CHECK(depth_only_options.tt_min_store_depth == 0);
     CHECK(depth_only_options.exact_endgame_empty_threshold == 12);
     CHECK(depth_only_options.transposition_table_entries == (1U << 18));
 
@@ -113,6 +113,8 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
     CHECK(require_search_options("search:depth=4,tt_entries=262144").transposition_table_entries ==
           262144U);
     CHECK_FALSE(require_search_options("search:depth=4,tt_store_leaf=off").store_leaf_tt_entries);
+    CHECK(require_search_options("search:depth=4,tt_min_probe_depth=1").tt_min_probe_depth == 1);
+    CHECK(require_search_options("search:depth=4,tt_min_store_depth=2").tt_min_store_depth == 2);
     const othello::SearchOptions fixed_aspiration_options =
         require_search_options("search:depth=4,aspiration_profile=fixed");
     CHECK(fixed_aspiration_options.use_aspiration_window);
@@ -122,21 +124,19 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
     CHECK(score_delta_aware_options.use_aspiration_window);
     CHECK(score_delta_aware_options.aspiration_profile ==
           othello::AspirationProfile::ScoreDeltaAware);
-    CHECK(require_player_spec(
-              std::string_view{"search:depth=4,aspiration_profile=score-delta-aware"})
-              .search_options.use_iterative_search);
+    CHECK(
+        require_player_spec(std::string_view{"search:depth=4,aspiration_profile=score-delta-aware"})
+            .search_options.use_iterative_search);
 
     const runner::PlayerSpec strong_v1_spec =
         require_player_spec(std::string_view{"search:depth=4,preset=strong-v1"});
-    const othello::SearchOptions strong_v1_options =
-        runner::make_search_options(strong_v1_spec);
+    const othello::SearchOptions strong_v1_options = runner::make_search_options(strong_v1_spec);
     CHECK(strong_v1_spec.search_options.use_iterative_search);
     CHECK(strong_v1_options.max_depth == 4);
     CHECK(strong_v1_options.use_transposition_table);
     CHECK(strong_v1_options.use_pvs);
     CHECK(strong_v1_options.use_aspiration_window);
-    CHECK(strong_v1_options.aspiration_profile ==
-          othello::AspirationProfile::ScoreDeltaAware);
+    CHECK(strong_v1_options.aspiration_profile == othello::AspirationProfile::ScoreDeltaAware);
     CHECK(strong_v1_options.exact_endgame_empty_threshold == 16);
     CHECK(strong_v1_options.exact_endgame_root_policy ==
           othello::ExactEndgameRootPolicy::Adaptive16);
@@ -145,8 +145,7 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
     CHECK(strong_v1_options.evaluation_config_override->opening_pattern_tables != nullptr);
 
     const runner::PlayerSpec strong_v1_override_spec =
-        require_player_spec(
-            std::string_view{"search:depth=4,preset=strong-v1,tt=off,exact=off"});
+        require_player_spec(std::string_view{"search:depth=4,preset=strong-v1,tt=off,exact=off"});
     const othello::SearchOptions strong_v1_override_options =
         runner::make_search_options(strong_v1_override_spec);
     CHECK(strong_v1_override_spec.search_options.use_iterative_search);
@@ -163,8 +162,7 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
           *depth_only_options.evaluation_config_override);
 
     const othello::SearchOptions eval_config_options = require_search_options(
-        "search:depth=4,eval_config=" +
-        test_eval_config_fixture_path("minimal_pattern_eval.eval"));
+        "search:depth=4,eval_config=" + test_eval_config_fixture_path("minimal_pattern_eval.eval"));
     CHECK(eval_config_options.evaluation_config_override.has_value());
     CHECK(eval_config_options.evaluation_config_override->pattern_tables != nullptr);
     CHECK(eval_config_options.evaluation_config_override->opening.pattern_table == 2);
@@ -179,6 +177,14 @@ TEST_CASE("Search player specs reject invalid options", "[match-runner]") {
     CHECK_FALSE(
         runner::parse_player_spec("search:depth=4,tt_store_leaf=on,tt_store_leaf=off").has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,tt_store_leaf=maybe").has_value());
+    CHECK_FALSE(runner::parse_player_spec("search:depth=4,tt_min_probe_depth=-1").has_value());
+    CHECK_FALSE(runner::parse_player_spec("search:depth=4,tt_min_store_depth=-1").has_value());
+    CHECK_FALSE(
+        runner::parse_player_spec("search:depth=4,tt_min_probe_depth=1,tt_min_probe_depth=2")
+            .has_value());
+    CHECK_FALSE(
+        runner::parse_player_spec("search:depth=4,tt_min_store_depth=1,tt_min_store_depth=2")
+            .has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,pvs=on,pvs=off").has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,exact=1,exact=off").has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,tt_entries=1,tt_entries=2").has_value());
@@ -186,10 +192,9 @@ TEST_CASE("Search player specs reject invalid options", "[match-runner]") {
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,exact=adaptive17").has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,tt_entries=-1").has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,aspiration_profile=wide").has_value());
-    CHECK_FALSE(
-        runner::parse_player_spec(
-            "search:depth=4,aspiration_profile=fixed,aspiration_profile=score-delta-aware")
-            .has_value());
+    CHECK_FALSE(runner::parse_player_spec(
+                    "search:depth=4,aspiration_profile=fixed,aspiration_profile=score-delta-aware")
+                    .has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,preset=fast").has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,preset=StrongV1").has_value());
     CHECK_FALSE(

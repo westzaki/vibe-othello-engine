@@ -24,10 +24,11 @@ struct SearchPlayerOptions {
     bool use_transposition_table = SearchOptions{}.use_transposition_table;
     std::size_t transposition_table_entries = SearchOptions{}.transposition_table_entries;
     bool store_leaf_tt_entries = SearchOptions{}.store_leaf_tt_entries;
+    int tt_min_probe_depth = SearchOptions{}.tt_min_probe_depth;
+    int tt_min_store_depth = SearchOptions{}.tt_min_store_depth;
     int exact_endgame_empty_threshold = SearchOptions{}.exact_endgame_empty_threshold;
     ExactEndgameRootPolicy exact_endgame_root_policy = SearchOptions{}.exact_endgame_root_policy;
-    std::optional<std::size_t> exact_endgame_tt_entries =
-        SearchOptions{}.exact_endgame_tt_entries;
+    std::optional<std::size_t> exact_endgame_tt_entries = SearchOptions{}.exact_endgame_tt_entries;
     bool use_pvs = SearchOptions{}.use_pvs;
     bool use_aspiration_window = SearchOptions{}.use_aspiration_window;
     AspirationProfile aspiration_profile = SearchOptions{}.aspiration_profile;
@@ -79,6 +80,9 @@ struct ExactRootTraceStats {
     std::uint64_t tt_upper_hits = 0;
     std::uint64_t tt_stores = 0;
     std::uint64_t tt_leaf_stores = 0;
+    std::uint64_t tt_leaf_store_skipped = 0;
+    std::uint64_t tt_probe_skipped_by_depth = 0;
+    std::uint64_t tt_store_skipped_by_depth = 0;
     std::uint64_t tt_overwrites = 0;
     std::uint64_t tt_collisions = 0;
     std::uint64_t tt_rejected_stores = 0;

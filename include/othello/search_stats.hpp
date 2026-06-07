@@ -26,6 +26,9 @@ struct SearchStats {
     std::uint64_t tt_upper_hits = 0;
     std::uint64_t tt_stores = 0;
     std::uint64_t tt_leaf_stores = 0;
+    std::uint64_t tt_leaf_store_skipped = 0;
+    std::uint64_t tt_probe_skipped_by_depth = 0;
+    std::uint64_t tt_store_skipped_by_depth = 0;
     std::uint64_t tt_overwrites = 0;
     std::uint64_t tt_collisions = 0;
     std::uint64_t tt_rejected_stores = 0;
@@ -72,6 +75,9 @@ inline constexpr auto additive_members = std::to_array<std::uint64_t SearchStats
     &SearchStats::tt_upper_hits,
     &SearchStats::tt_stores,
     &SearchStats::tt_leaf_stores,
+    &SearchStats::tt_leaf_store_skipped,
+    &SearchStats::tt_probe_skipped_by_depth,
+    &SearchStats::tt_store_skipped_by_depth,
     &SearchStats::tt_overwrites,
     &SearchStats::tt_collisions,
     &SearchStats::tt_rejected_stores,

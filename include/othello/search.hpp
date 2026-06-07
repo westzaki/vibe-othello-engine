@@ -112,6 +112,10 @@ struct SearchOptions {
     // Store depth-0 midgame heuristic leaves in the transposition table. The
     // default preserves the current search behavior for ablation comparisons.
     bool store_leaf_tt_entries = true;
+    // Minimum remaining search depth for midgame TT probes/stores. Zero keeps
+    // the current behavior; positive values skip shallow TT work for ablation.
+    int tt_min_probe_depth = 0;
+    int tt_min_store_depth = 0;
     // Root-only exact endgame cutoff by empty square count for FixedThreshold.
     // Values <= 0 disable root exact solving for every root policy.
     int exact_endgame_empty_threshold = 12;

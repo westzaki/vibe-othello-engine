@@ -32,8 +32,7 @@ struct MoveOrderingParams {
     int dynamic_opponent_mobility_penalty = 500;
     int dynamic_potential_mobility_penalty = 25;
     int dynamic_static_risk_penalty = 25;
-    HistoryKillerOrderingParams history_killer =
-        default_history_killer_ordering_params;
+    HistoryKillerOrderingParams history_killer = default_history_killer_ordering_params;
 
     int dynamic_min_depth = 3;
     std::size_t dynamic_min_moves = 5;
@@ -49,9 +48,10 @@ struct SearchContext {
           transpositions{session_state.transpositions},
           transposition_scope{.mode = session_state.mode,
                               .eval_identity = session_state.evaluation_identity},
-          dynamic_move_ordering{enable_dynamic_move_ordering},
-          use_pvs{engine_options.use_pvs},
+          dynamic_move_ordering{enable_dynamic_move_ordering}, use_pvs{engine_options.use_pvs},
           store_leaf_tt_entries{engine_options.store_leaf_tt_entries},
+          tt_min_probe_depth{engine_options.tt_min_probe_depth},
+          tt_min_store_depth{engine_options.tt_min_store_depth},
           evaluation_config{session_state.evaluation_config}, diagnostics{diagnostics_options} {}
 
     SearchStats stats;
@@ -63,6 +63,8 @@ struct SearchContext {
     bool dynamic_move_ordering = false;
     bool use_pvs = false;
     bool store_leaf_tt_entries = true;
+    int tt_min_probe_depth = 0;
+    int tt_min_store_depth = 0;
     EvaluationConfig evaluation_config = default_evaluation_config();
     SearchDiagnosticsOptions diagnostics;
 };

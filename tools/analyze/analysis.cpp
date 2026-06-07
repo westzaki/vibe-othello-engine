@@ -40,6 +40,8 @@ using Clock = std::chrono::steady_clock;
             .use_transposition_table = options.use_transposition_table,
             .transposition_table_entries = options.transposition_table_entries,
             .store_leaf_tt_entries = options.store_leaf_tt_entries,
+            .tt_min_probe_depth = options.tt_min_probe_depth,
+            .tt_min_store_depth = options.tt_min_store_depth,
             .exact_endgame_empty_threshold = options.exact_endgame_empty_threshold,
             .use_pvs = options.use_pvs,
             .use_aspiration_window = options.use_aspiration_window,
@@ -275,6 +277,8 @@ void print_report(const Board& board, const AnalysisOptions& options, const Sear
               << "tt: " << (options.use_transposition_table ? "on" : "off") << '\n'
               << "tt_entries: " << options.transposition_table_entries << '\n'
               << "tt_store_leaf: " << (options.store_leaf_tt_entries ? "on" : "off") << '\n'
+              << "tt_min_probe_depth: " << options.tt_min_probe_depth << '\n'
+              << "tt_min_store_depth: " << options.tt_min_store_depth << '\n'
               << "pvs: " << (options.use_pvs ? "on" : "off") << '\n'
               << "aspiration: " << (options.use_aspiration_window ? "on" : "off") << '\n'
               << "aspiration_window: " << options.aspiration_window << '\n'
