@@ -13,6 +13,7 @@ struct SearchEngineOptions {
     bool store_leaf_tt_entries = true;
     int tt_min_probe_depth = 0;
     int tt_min_store_depth = 0;
+    bool use_lazy_first_move_ordering = false;
     int exact_endgame_empty_threshold = 12;
     ExactEndgameRootPolicy exact_endgame_root_policy = ExactEndgameRootPolicy::FixedThreshold;
     std::optional<std::size_t> exact_endgame_tt_entries = std::nullopt;
@@ -37,6 +38,7 @@ engine_options_from(const SearchOptions& options) noexcept {
         .store_leaf_tt_entries = options.store_leaf_tt_entries,
         .tt_min_probe_depth = options.tt_min_probe_depth,
         .tt_min_store_depth = options.tt_min_store_depth,
+        .use_lazy_first_move_ordering = options.use_lazy_first_move_ordering,
         .exact_endgame_empty_threshold = options.exact_endgame_empty_threshold,
         .exact_endgame_root_policy = options.exact_endgame_root_policy,
         .exact_endgame_tt_entries = options.exact_endgame_tt_entries,

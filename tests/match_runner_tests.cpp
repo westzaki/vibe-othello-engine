@@ -80,6 +80,7 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
     CHECK(depth_only_options.store_leaf_tt_entries);
     CHECK(depth_only_options.tt_min_probe_depth == 0);
     CHECK(depth_only_options.tt_min_store_depth == 0);
+    CHECK_FALSE(depth_only_options.use_lazy_first_move_ordering);
     CHECK(depth_only_options.exact_endgame_empty_threshold == 12);
     CHECK(depth_only_options.transposition_table_entries == (1U << 18));
 
@@ -115,6 +116,10 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
     CHECK_FALSE(require_search_options("search:depth=4,tt_store_leaf=off").store_leaf_tt_entries);
     CHECK(require_search_options("search:depth=4,tt_min_probe_depth=1").tt_min_probe_depth == 1);
     CHECK(require_search_options("search:depth=4,tt_min_store_depth=2").tt_min_store_depth == 2);
+    CHECK(require_search_options("search:depth=4,lazy_first_move_ordering=on")
+              .use_lazy_first_move_ordering);
+    CHECK_FALSE(require_search_options("search:depth=4,lazy_first_move_ordering=off")
+                    .use_lazy_first_move_ordering);
     const othello::SearchOptions fixed_aspiration_options =
         require_search_options("search:depth=4,aspiration_profile=fixed");
     CHECK(fixed_aspiration_options.use_aspiration_window);
@@ -136,6 +141,7 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
     CHECK(strong_v1_options.use_transposition_table);
     CHECK(strong_v1_options.use_pvs);
     CHECK(strong_v1_options.use_aspiration_window);
+    CHECK_FALSE(strong_v1_options.use_lazy_first_move_ordering);
     CHECK(strong_v1_options.aspiration_profile == othello::AspirationProfile::ScoreDeltaAware);
     CHECK(strong_v1_options.exact_endgame_empty_threshold == 16);
     CHECK(strong_v1_options.exact_endgame_root_policy ==
@@ -185,6 +191,11 @@ TEST_CASE("Search player specs reject invalid options", "[match-runner]") {
     CHECK_FALSE(
         runner::parse_player_spec("search:depth=4,tt_min_store_depth=1,tt_min_store_depth=2")
             .has_value());
+    CHECK_FALSE(
+        runner::parse_player_spec("search:depth=4,lazy_first_move_ordering=maybe").has_value());
+    CHECK_FALSE(runner::parse_player_spec(
+                    "search:depth=4,lazy_first_move_ordering=on,lazy_first_move_ordering=off")
+                    .has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,pvs=on,pvs=off").has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,exact=1,exact=off").has_value());
     CHECK_FALSE(runner::parse_player_spec("search:depth=4,tt_entries=1,tt_entries=2").has_value());

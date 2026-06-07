@@ -50,7 +50,14 @@ void write_exact_root_trace_stats(std::ostream& output, const ExactRootTraceStat
     output << "\"tt_rejected_stores\":" << stats.tt_rejected_stores << ',';
     output << "\"tt_move_ordering_probes\":" << stats.tt_move_ordering_probes << ',';
     output << "\"tt_move_ordering_hits\":" << stats.tt_move_ordering_hits << ',';
-    output << "\"tt_move_ordering_used\":" << stats.tt_move_ordering_used;
+    output << "\"tt_move_ordering_used\":" << stats.tt_move_ordering_used << ',';
+    output << "\"ordering_full_builds\":" << stats.ordering_full_builds << ',';
+    output << "\"ordering_lazy_first_hits\":" << stats.ordering_lazy_first_hits << ',';
+    output << "\"ordering_lazy_cut_before_full_sort\":" << stats.ordering_lazy_cut_before_full_sort
+           << ',';
+    output << "\"ordering_scored_moves_saved\":" << stats.ordering_scored_moves_saved << ',';
+    output << "\"preferred_move_legal_count\":" << stats.preferred_move_legal_count << ',';
+    output << "\"preferred_move_beta_cut_count\":" << stats.preferred_move_beta_cut_count;
     output << "}";
 }
 

@@ -116,6 +116,9 @@ struct SearchOptions {
     // the current behavior; positive values skip shallow TT work for ablation.
     int tt_min_probe_depth = 0;
     int tt_min_store_depth = 0;
+    // Try a legal PV/root/TT preferred move before building the full midgame
+    // ordering list. Default off preserves the existing eager ordering policy.
+    bool use_lazy_first_move_ordering = false;
     // Root-only exact endgame cutoff by empty square count for FixedThreshold.
     // Values <= 0 disable root exact solving for every root policy.
     int exact_endgame_empty_threshold = 12;

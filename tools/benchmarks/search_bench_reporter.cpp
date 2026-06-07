@@ -174,6 +174,7 @@ void print_search_result_header() {
               << "  " << std::setw(3) << "tt" << "  " << std::setw(13) << "tt_store_leaf"
               << "  " << std::setw(12) << "tt_min_probe"
               << "  " << std::setw(12) << "tt_min_store"
+              << "  " << std::setw(9) << "lazy_ord"
               << "  " << std::setw(3) << "pvs"
               << "  " << std::setw(3) << "asp" << "  " << std::setw(10) << "asp_window"
               << "  " << std::setw(11) << "asp_max_re"
@@ -188,6 +189,7 @@ void print_search_result_header() {
                  "  tt_collisions  tt_rejected_stores  tt_order_probes  tt_order_hits"
                  "  tt_order_used  pvs_scouts  pvs_researches  pvs_scout_cutoffs"
                  "  asp_searches  asp_researches  asp_fail_lows  asp_fail_highs  asp_fallbacks"
+                 "  ord_builds  lazy_hits  lazy_cuts  scored_saved  pref_legal  pref_beta_cut"
                  "  dyn_nodes  dyn_moves"
                  "  result_checksum  work_checksum\n";
 }
@@ -214,6 +216,7 @@ void print_search_result(const SearchBenchmarkResult& result) {
               << (result.use_transposition_table ? "on" : "off") << "  " << std::setw(13)
               << (result.store_leaf_tt_entries ? "on" : "off") << "  " << std::setw(3)
               << result.tt_min_probe_depth << "  " << std::setw(12) << result.tt_min_store_depth
+              << "  " << std::setw(9) << (result.use_lazy_first_move_ordering ? "on" : "off")
               << "  " << std::setw(3) << (result.use_pvs ? "on" : "off") << "  " << std::setw(3)
               << (result.use_aspiration_window ? "on" : "off") << "  " << std::right
               << std::setw(10) << result.aspiration_window << "  " << std::setw(11)
@@ -259,6 +262,12 @@ void print_search_result(const SearchBenchmarkResult& result) {
               << result.total_stats.aspiration_fail_lows << "  " << std::setw(14)
               << result.total_stats.aspiration_fail_highs << "  " << std::setw(13)
               << result.total_stats.aspiration_full_window_fallbacks << "  " << std::setw(9)
+              << result.total_stats.ordering_full_builds << "  " << std::setw(9)
+              << result.total_stats.ordering_lazy_first_hits << "  " << std::setw(9)
+              << result.total_stats.ordering_lazy_cut_before_full_sort << "  " << std::setw(12)
+              << result.total_stats.ordering_scored_moves_saved << "  " << std::setw(10)
+              << result.total_stats.preferred_move_legal_count << "  " << std::setw(13)
+              << result.total_stats.preferred_move_beta_cut_count << "  " << std::setw(9)
               << result.total_stats.dynamic_ordering_nodes << "  " << std::setw(9)
               << result.total_stats.dynamic_ordering_moves << "  " << result.result_checksum << "  "
               << result.work_checksum << '\n';
@@ -271,6 +280,7 @@ void print_position_result_header() {
         << "  " << std::setw(3) << "tt" << "  " << std::setw(13) << "tt_store_leaf"
         << "  " << std::setw(12) << "tt_min_probe"
         << "  " << std::setw(12) << "tt_min_store"
+        << "  " << std::setw(9) << "lazy_ord"
         << "  " << std::setw(3) << "pvs"
         << "  " << std::setw(3) << "asp" << "  " << std::setw(10) << "asp_window"
         << "  " << std::setw(11) << "asp_max_re"
@@ -286,6 +296,7 @@ void print_position_result_header() {
            "  tt_collisions  tt_rejected_stores  tt_order_probes  tt_order_hits  tt_order_used"
            "  pvs_scouts  pvs_researches  pvs_scout_cutoffs"
            "  asp_searches  asp_researches  asp_fail_lows  asp_fail_highs  asp_fallbacks"
+           "  ord_builds  lazy_hits  lazy_cuts  scored_saved  pref_legal  pref_beta_cut"
            "  dyn_nodes  dyn_moves  result_checksum  work_checksum\n";
 }
 
@@ -299,6 +310,7 @@ void print_position_result(const PositionBenchmarkResult& result) {
               << (result.use_transposition_table ? "on" : "off") << "  " << std::setw(13)
               << (result.store_leaf_tt_entries ? "on" : "off") << "  " << std::setw(3)
               << result.tt_min_probe_depth << "  " << std::setw(12) << result.tt_min_store_depth
+              << "  " << std::setw(9) << (result.use_lazy_first_move_ordering ? "on" : "off")
               << "  " << std::setw(3) << (result.use_pvs ? "on" : "off") << "  " << std::setw(3)
               << (result.use_aspiration_window ? "on" : "off") << "  " << std::right
               << std::setw(10) << result.aspiration_window << "  " << std::setw(11)
@@ -344,6 +356,12 @@ void print_position_result(const PositionBenchmarkResult& result) {
               << result.total_stats.aspiration_fail_lows << "  " << std::setw(14)
               << result.total_stats.aspiration_fail_highs << "  " << std::setw(13)
               << result.total_stats.aspiration_full_window_fallbacks << "  " << std::setw(9)
+              << result.total_stats.ordering_full_builds << "  " << std::setw(9)
+              << result.total_stats.ordering_lazy_first_hits << "  " << std::setw(9)
+              << result.total_stats.ordering_lazy_cut_before_full_sort << "  " << std::setw(12)
+              << result.total_stats.ordering_scored_moves_saved << "  " << std::setw(10)
+              << result.total_stats.preferred_move_legal_count << "  " << std::setw(13)
+              << result.total_stats.preferred_move_beta_cut_count << "  " << std::setw(9)
               << result.total_stats.dynamic_ordering_nodes << "  " << std::setw(9)
               << result.total_stats.dynamic_ordering_moves << "  " << result.result_checksum << "  "
               << result.work_checksum << '\n';
@@ -420,7 +438,9 @@ void write_json_search_stats_fields(JsonObjectWriter& writer, const othello::Sea
     writer.uint_field("eval_calls", stats.eval_calls);
     writer.uint_field("pass_nodes", stats.pass_nodes);
     writer.uint_field("game_over_nodes", stats.game_over_nodes);
+    writer.uint_field("beta_cut_count", stats.beta_cutoffs);
     writer.uint_field("beta_cutoffs", stats.beta_cutoffs);
+    writer.double_field("fail_high_first_move_rate", beta_cut_first_move_percentage(stats));
     writer.double_field("beta_cut_first_move_pct", beta_cut_first_move_percentage(stats));
     writer.uint_field("tt_lookups", stats.tt_lookups);
     writer.uint_field("tt_hits", stats.tt_hits);
@@ -436,6 +456,13 @@ void write_json_search_stats_fields(JsonObjectWriter& writer, const othello::Sea
     writer.uint_field("tt_order_probes", stats.tt_move_ordering_probes);
     writer.uint_field("tt_order_hits", stats.tt_move_ordering_hits);
     writer.uint_field("tt_order_used", stats.tt_move_ordering_used);
+    writer.uint_field("ordering_full_builds", stats.ordering_full_builds);
+    writer.uint_field("ordering_lazy_first_hits", stats.ordering_lazy_first_hits);
+    writer.uint_field("ordering_lazy_cut_before_full_sort",
+                      stats.ordering_lazy_cut_before_full_sort);
+    writer.uint_field("ordering_scored_moves_saved", stats.ordering_scored_moves_saved);
+    writer.uint_field("preferred_move_legal_count", stats.preferred_move_legal_count);
+    writer.uint_field("preferred_move_beta_cut_count", stats.preferred_move_beta_cut_count);
     writer.uint_field("pvs_scouts", stats.pvs_scouts);
     writer.uint_field("pvs_researches", stats.pvs_researches);
     writer.uint_field("pvs_scout_cutoffs", stats.pvs_scout_cutoffs);
@@ -489,6 +516,7 @@ void write_search_jsonl(const SearchBenchmarkResult& result, PositionSet positio
     writer.bool_field("tt_store_leaf", result.store_leaf_tt_entries);
     writer.int_field("tt_min_probe_depth", result.tt_min_probe_depth);
     writer.int_field("tt_min_store_depth", result.tt_min_store_depth);
+    writer.bool_field("lazy_first_move_ordering", result.use_lazy_first_move_ordering);
     writer.bool_field("pvs", result.use_pvs);
     writer.bool_field("aspiration", result.use_aspiration_window);
     writer.int_field("aspiration_window", result.aspiration_window);
@@ -538,6 +566,7 @@ void write_iterative_depth_jsonl(const IterativeDepthBenchmarkResult& result,
     writer.bool_field("tt_store_leaf", result.store_leaf_tt_entries);
     writer.int_field("tt_min_probe_depth", result.tt_min_probe_depth);
     writer.int_field("tt_min_store_depth", result.tt_min_store_depth);
+    writer.bool_field("lazy_first_move_ordering", result.use_lazy_first_move_ordering);
     writer.bool_field("pvs", result.use_pvs);
     writer.bool_field("aspiration", result.use_aspiration_window);
     writer.int_field("aspiration_window", result.aspiration_window);
@@ -580,6 +609,7 @@ void write_position_jsonl(const PositionBenchmarkResult& result, PositionSet pos
     writer.bool_field("tt_store_leaf", result.store_leaf_tt_entries);
     writer.int_field("tt_min_probe_depth", result.tt_min_probe_depth);
     writer.int_field("tt_min_store_depth", result.tt_min_store_depth);
+    writer.bool_field("lazy_first_move_ordering", result.use_lazy_first_move_ordering);
     writer.bool_field("pvs", result.use_pvs);
     writer.bool_field("aspiration", result.use_aspiration_window);
     writer.int_field("aspiration_window", result.aspiration_window);
@@ -642,8 +672,8 @@ void write_position_jsonl(const PositionBenchmarkResult& result, PositionSet pos
 void print_position_summary_header() {
     std::cout << std::left << std::setw(10) << "mode" << "  " << std::setw(3) << "tt"
               << "  " << std::setw(13) << "tt_store_leaf" << "  " << std::setw(12) << "tt_min_probe"
-              << "  " << std::setw(12) << "tt_min_store" << "  " << std::setw(3) << "pvs" << "  "
-              << std::setw(3) << "asp"
+              << "  " << std::setw(12) << "tt_min_store" << "  " << std::setw(9) << "lazy_ord"
+              << "  " << std::setw(3) << "pvs" << "  " << std::setw(3) << "asp"
               << "  exact_profile  exact_pos  exact_roots  depth  positions  total_elapsed_ms"
                  "  avg_ms_per_position"
                  "  p50_ms_per_position  p95_ms_per_position  max_ms_per_position"
@@ -664,6 +694,7 @@ void print_position_summary(std::span<const PositionBenchmarkResult> results, Se
     bool store_leaf_tt_entries = true;
     int tt_min_probe_depth = 0;
     int tt_min_store_depth = 0;
+    bool use_lazy_first_move_ordering = false;
     bool use_pvs = false;
     bool use_aspiration_window = false;
     std::uint64_t exact_root_positions = 0;
@@ -678,6 +709,7 @@ void print_position_summary(std::span<const PositionBenchmarkResult> results, Se
         store_leaf_tt_entries = result.store_leaf_tt_entries;
         tt_min_probe_depth = result.tt_min_probe_depth;
         tt_min_store_depth = result.tt_min_store_depth;
+        use_lazy_first_move_ordering = result.use_lazy_first_move_ordering;
         use_pvs = result.use_pvs;
         use_aspiration_window = result.use_aspiration_window;
         if (result.exact_root) {
@@ -701,6 +733,7 @@ void print_position_summary(std::span<const PositionBenchmarkResult> results, Se
               << (use_transposition_table ? "on" : "off") << "  " << std::setw(13)
               << (store_leaf_tt_entries ? "on" : "off") << "  " << std::setw(12)
               << tt_min_probe_depth << "  " << std::setw(12) << tt_min_store_depth << "  "
+              << std::setw(9) << (use_lazy_first_move_ordering ? "on" : "off") << "  "
               << std::setw(3) << (use_pvs ? "on" : "off") << "  " << std::setw(3)
               << (use_aspiration_window ? "on" : "off") << "  " << std::right << std::setw(13)
               << exact_root_profile << "  " << std::setw(9) << exact_root_positions << "  "

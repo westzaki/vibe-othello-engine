@@ -30,6 +30,7 @@ struct IterativeDepthBenchmarkResult {
     bool store_leaf_tt_entries;
     int tt_min_probe_depth;
     int tt_min_store_depth;
+    bool use_lazy_first_move_ordering;
     bool use_pvs;
     bool use_aspiration_window;
     int aspiration_window;
@@ -61,6 +62,7 @@ struct SearchBenchmarkResult {
     bool store_leaf_tt_entries;
     int tt_min_probe_depth;
     int tt_min_store_depth;
+    bool use_lazy_first_move_ordering;
     bool use_pvs;
     bool use_aspiration_window;
     int aspiration_window;
@@ -96,6 +98,7 @@ struct PositionBenchmarkResult {
     bool store_leaf_tt_entries;
     int tt_min_probe_depth;
     int tt_min_store_depth;
+    bool use_lazy_first_move_ordering;
     bool use_pvs;
     bool use_aspiration_window;
     int aspiration_window;

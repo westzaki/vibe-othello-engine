@@ -52,6 +52,7 @@ struct SearchContext {
           store_leaf_tt_entries{engine_options.store_leaf_tt_entries},
           tt_min_probe_depth{engine_options.tt_min_probe_depth},
           tt_min_store_depth{engine_options.tt_min_store_depth},
+          use_lazy_first_move_ordering{engine_options.use_lazy_first_move_ordering},
           evaluation_config{session_state.evaluation_config}, diagnostics{diagnostics_options} {}
 
     SearchStats stats;
@@ -65,6 +66,7 @@ struct SearchContext {
     bool store_leaf_tt_entries = true;
     int tt_min_probe_depth = 0;
     int tt_min_store_depth = 0;
+    bool use_lazy_first_move_ordering = false;
     EvaluationConfig evaluation_config = default_evaluation_config();
     SearchDiagnosticsOptions diagnostics;
 };

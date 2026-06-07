@@ -64,6 +64,23 @@ void store_leaf_transposition(SearchContext& context, ZobristHash hash, int dept
     }
 }
 
+[[nodiscard]] std::optional<Square>
+preferred_move_for_node(std::optional<Square> principal_variation_move,
+                        std::optional<Square> root_preferred_move,
+                        std::optional<Square> tt_preferred_move, bool is_root) noexcept {
+    if (principal_variation_move.has_value()) {
+        return principal_variation_move;
+    }
+    if (is_root && root_preferred_move.has_value()) {
+        return root_preferred_move;
+    }
+    return tt_preferred_move;
+}
+
+[[nodiscard]] bool same_move(std::optional<Square> lhs, std::optional<Square> rhs) noexcept {
+    return lhs.has_value() && rhs.has_value() && *lhs == *rhs;
+}
+
 } // namespace
 
 // Fixed-depth negamax is easiest to audit as direct recursion at this stage.
@@ -75,8 +92,10 @@ NodeResult search_node(const SearchPosition& position, ZobristHash hash, int dep
 
     const int original_alpha = alpha;
 
-    const bool collect_tt_best_move_hint = context.dynamic_move_ordering && !is_root &&
-                                           depth >= context.move_ordering_params.dynamic_min_depth;
+    const bool collect_tt_best_move_hint =
+        !is_root && ((context.dynamic_move_ordering &&
+                      depth >= context.move_ordering_params.dynamic_min_depth) ||
+                     context.use_lazy_first_move_ordering);
     const TranspositionLookup cached =
         probe_transposition(context, hash, depth, alpha, beta, collect_tt_best_move_hint);
     if (cached.cutoff.has_value()) {
@@ -125,25 +144,101 @@ NodeResult search_node(const SearchPosition& position, ZobristHash hash, int dep
 
     const bool use_dynamic_ordering = context.dynamic_move_ordering && !is_root;
     const auto move_count = static_cast<std::size_t>(std::popcount(moves));
-    if (should_use_dynamic_move_ordering(use_dynamic_ordering, move_count, depth,
-                                         context.move_ordering_params)) {
-        ++context.stats.dynamic_ordering_nodes;
-        context.stats.dynamic_ordering_moves += move_count;
-    }
-    std::optional<Square> preferred_move = preferred_move_from_hint(pv_hint);
-    if (!preferred_move.has_value() && is_root) {
-        preferred_move = root_preferred_move;
+    const std::optional<Square> principal_variation_move = preferred_move_from_hint(pv_hint);
+    const std::optional<Square> promoted_preferred_move =
+        principal_variation_move.has_value()
+            ? principal_variation_move
+            : (is_root ? root_preferred_move : std::optional<Square>{});
+    const std::optional<Square> lazy_preferred_move = preferred_move_for_node(
+        principal_variation_move, root_preferred_move, cached.best_move_hint, is_root);
+    const bool lazy_first_enabled = context.use_lazy_first_move_ordering &&
+                                    lazy_preferred_move.has_value() &&
+                                    (moves & lazy_preferred_move->bit()) != 0;
+
+    Bitboard remaining_moves = moves;
+    std::size_t searched_move_count = 0;
+    const bool use_pvs_at_node = context.use_pvs && move_count > 1 && depth >= 3;
+
+    if (lazy_first_enabled) {
+        const Bitboard flips = flips_for_move(position, *lazy_preferred_move);
+        if (flips != 0) {
+            ++context.stats.preferred_move_legal_count;
+            ++context.stats.ordering_lazy_first_hits;
+            if (same_move(lazy_preferred_move, cached.best_move_hint)) {
+                ++context.stats.tt_move_ordering_used;
+            }
+
+            const SearchPosition next = position_after_move(position, *lazy_preferred_move, flips);
+            const ZobristHash next_hash =
+                hash_after_move(hash, position.side_to_move, *lazy_preferred_move, flips);
+#ifndef NDEBUG
+            assert(next_hash == zobrist_hash(next.to_board()));
+#endif
+            ++context.stats.searched_moves;
+
+            const PrincipalVariationHint child_hint =
+                child_hint_after_move(pv_hint, *lazy_preferred_move);
+            const NodeResult child = search_node(next, next_hash, depth - 1, -beta, -alpha, context,
+                                                 std::nullopt, child_hint, false);
+            const int candidate_score = -child.score;
+            best_score = candidate_score;
+            best_move = lazy_preferred_move;
+            best_principal_variation =
+                principal_variation_with_move(*lazy_preferred_move, child.principal_variation);
+
+            ++searched_move_count;
+            alpha = std::max(alpha, candidate_score);
+            remaining_moves &= ~lazy_preferred_move->bit();
+            if (alpha >= beta) {
+                ++context.stats.beta_cutoffs;
+                ++context.stats.beta_cutoffs_first_move;
+                ++context.stats.preferred_move_beta_cut_count;
+                ++context.stats.ordering_lazy_cut_before_full_sort;
+                context.stats.ordering_scored_moves_saved += move_count - 1;
+                record_history_killer_cutoff(context, *lazy_preferred_move, depth);
+                store_transposition(context, hash, depth, candidate_score, original_alpha, beta,
+                                    best_move);
+                return NodeResult{
+                    .best_move = best_move,
+                    .score = candidate_score,
+                    .principal_variation = best_principal_variation,
+                };
+            }
+        }
     }
 
+    if (remaining_moves == 0) {
+        const NodeResult result{
+            .best_move = best_move,
+            .score = best_score.value_or(evaluate_for_search(position, context)),
+            .principal_variation = best_principal_variation,
+        };
+        store_transposition(context, hash, depth, result.score, original_alpha, beta,
+                            result.best_move);
+        return result;
+    }
+
+    const auto remaining_move_count = static_cast<std::size_t>(std::popcount(remaining_moves));
+    if (should_use_dynamic_move_ordering(use_dynamic_ordering, remaining_move_count, depth,
+                                         context.move_ordering_params)) {
+        ++context.stats.dynamic_ordering_nodes;
+        context.stats.dynamic_ordering_moves += remaining_move_count;
+    }
+    ++context.stats.ordering_full_builds;
+    const std::optional<Square> remaining_preferred_move =
+        searched_move_count == 0 ? promoted_preferred_move : std::nullopt;
+    const std::optional<Square> remaining_tt_preferred_move =
+        searched_move_count > 0 && same_move(lazy_preferred_move, cached.best_move_hint)
+            ? std::nullopt
+            : cached.best_move_hint;
     const OrderedMoveIndexes ordered_moves =
-        ordered_legal_move_indexes(position, moves, depth, preferred_move, cached.best_move_hint,
-                                   use_dynamic_ordering, context);
+        ordered_legal_move_indexes(position, remaining_moves, depth, remaining_preferred_move,
+                                   remaining_tt_preferred_move, use_dynamic_ordering, context);
     if (is_root) {
         record_root_move_ordering_snapshot(context, ordered_moves);
     }
     // Avoid very shallow scouts; with the current ordering, depth-2 null windows tend
     // to add overhead while giving little pruning back.
-    const bool use_pvs_at_node = context.use_pvs && ordered_moves.size > 1 && depth >= 3;
     for (std::size_t move = 0; move < ordered_moves.size; ++move) {
         const auto& ordered_move = ordered_moves.moves[move];
         const std::optional<Square> square = Square::from_index(ordered_move.index);
@@ -165,7 +260,7 @@ NodeResult search_node(const SearchPosition& position, ZobristHash hash, int dep
 
         const PrincipalVariationHint child_hint = child_hint_after_move(pv_hint, *square);
         NodeResult child;
-        if (!use_pvs_at_node || move == 0) {
+        if (!use_pvs_at_node || searched_move_count == 0) {
             child = search_node(next, next_hash, depth - 1, -beta, -alpha, context, std::nullopt,
                                 child_hint, false);
         } else {
@@ -194,12 +289,13 @@ NodeResult search_node(const SearchPosition& position, ZobristHash hash, int dep
         alpha = std::max(alpha, candidate_score);
         if (alpha >= beta) {
             ++context.stats.beta_cutoffs;
-            if (move == 0) {
+            if (searched_move_count == 0) {
                 ++context.stats.beta_cutoffs_first_move;
             }
             record_history_killer_cutoff(context, *square, depth);
             break;
         }
+        ++searched_move_count;
     }
 
     const NodeResult result{

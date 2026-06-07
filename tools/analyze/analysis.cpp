@@ -42,6 +42,7 @@ using Clock = std::chrono::steady_clock;
             .store_leaf_tt_entries = options.store_leaf_tt_entries,
             .tt_min_probe_depth = options.tt_min_probe_depth,
             .tt_min_store_depth = options.tt_min_store_depth,
+            .use_lazy_first_move_ordering = options.use_lazy_first_move_ordering,
             .exact_endgame_empty_threshold = options.exact_endgame_empty_threshold,
             .use_pvs = options.use_pvs,
             .use_aspiration_window = options.use_aspiration_window,
@@ -126,6 +127,17 @@ void print_candidate_stats(const SearchStats& stats, std::string_view indent) {
               << indent << "pvs_scout_cutoffs: " << stats.pvs_scout_cutoffs << '\n'
               << indent << "beta_cut_first_move_pct: " << std::fixed << std::setprecision(3)
               << beta_cut_first_move_percentage(stats) << '\n'
+              << indent << "ordering_full_builds: " << stats.ordering_full_builds << '\n'
+              << indent << "ordering_lazy_first_hits: " << stats.ordering_lazy_first_hits << '\n'
+              << indent
+              << "ordering_lazy_cut_before_full_sort: " << stats.ordering_lazy_cut_before_full_sort
+              << '\n'
+              << indent << "ordering_scored_moves_saved: " << stats.ordering_scored_moves_saved
+              << '\n'
+              << indent << "preferred_move_legal_count: " << stats.preferred_move_legal_count
+              << '\n'
+              << indent << "preferred_move_beta_cut_count: " << stats.preferred_move_beta_cut_count
+              << '\n'
               << indent << "aspiration_searches: " << stats.aspiration_searches << '\n'
               << indent << "aspiration_researches: " << stats.aspiration_researches << '\n'
               << indent << "aspiration_fail_lows: " << stats.aspiration_fail_lows << '\n'
@@ -279,6 +291,8 @@ void print_report(const Board& board, const AnalysisOptions& options, const Sear
               << "tt_store_leaf: " << (options.store_leaf_tt_entries ? "on" : "off") << '\n'
               << "tt_min_probe_depth: " << options.tt_min_probe_depth << '\n'
               << "tt_min_store_depth: " << options.tt_min_store_depth << '\n'
+              << "lazy_first_move_ordering: "
+              << (options.use_lazy_first_move_ordering ? "on" : "off") << '\n'
               << "pvs: " << (options.use_pvs ? "on" : "off") << '\n'
               << "aspiration: " << (options.use_aspiration_window ? "on" : "off") << '\n'
               << "aspiration_window: " << options.aspiration_window << '\n'
