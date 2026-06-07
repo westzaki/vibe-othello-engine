@@ -165,6 +165,12 @@ SearchCliParseResult parse_search_cli_option(std::span<char* const> args, std::s
         return SearchCliParseResult::Parsed;
     }
 
+    if (option == "--lazy-first-move-ordering") {
+        return parse_on_off_option(options.use_lazy_first_move_ordering)
+                   ? SearchCliParseResult::Parsed
+                   : SearchCliParseResult::Error;
+    }
+
     if (option == "--exact-tt-entries") {
         ++index;
         if (index >= args.size()) {
@@ -232,6 +238,9 @@ SearchOptions apply_search_cli_options(SearchOptions options,
     options.transposition_table_entries = cli_options.transposition_table_entries;
     options.tt_min_probe_depth = cli_options.tt_min_probe_depth;
     options.tt_min_store_depth = cli_options.tt_min_store_depth;
+    if (cli_options.use_lazy_first_move_ordering.has_value()) {
+        options.use_lazy_first_move_ordering = *cli_options.use_lazy_first_move_ordering;
+    }
     options.exact_endgame_tt_entries = cli_options.exact_endgame_tt_entries;
     options.aspiration_window = cli_options.aspiration_window;
     options.aspiration_max_researches = cli_options.aspiration_max_researches;

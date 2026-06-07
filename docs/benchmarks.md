@@ -260,6 +260,12 @@ policy, including depth-0 probes and leaf stores when `--tt-store-leaf on`.
 These flags are intended for TT overhead ablation; keep best move, score, PV,
 checksum, node count, TT stats, and wall-clock in the comparison table.
 
+`--lazy-first-move-ordering on|off` tries a legal PV/root/TT preferred move
+before building the full midgame move-ordering list. If that first move beta
+cuts, the benchmark reports skipped full-ordering work through
+`ordering_lazy_cut_before_full_sort` and `ordering_scored_moves_saved`. The
+default `off` preserves the eager ordering policy.
+
 ## Comparing Iterative Aspiration Windows
 
 Aspiration windows are opt-in and apply only to `search_iterative()`. They use
@@ -525,16 +531,16 @@ python3 tools/scripts/match_summary.py \
 Supported search player options are `preset=default|strong-v1`, `tt=on|off`,
 `pvs=on|off`, `exact=off|N|adaptive16`, `tt_entries=N`,
 `tt_store_leaf=on|off`, `tt_min_probe_depth=N`, `tt_min_store_depth=N`,
-`aspiration_profile=fixed|score-delta-aware`, and `eval_config=PATH`. The plain
-`search:depth=N` form keeps the same defaults as the existing fixed-depth search
-path. `preset=strong-v1` is an explicit opt-in practical play preset: iterative
-search, TT on, PVS on, score-delta-aware aspiration, adaptive16 exact root
-endgame, and the normal project-default evaluator
-(`data/eval/current_default.eval`) unless `eval_config=PATH` overrides it.
-`exact=N` uses the fixed root threshold, while `exact=adaptive16` solves roots up
-to 14 empties and conservatively gates 15/16-empty roots. `tt_entries=N` only
-sets the transposition-table capacity; include `tt=on` when the match should use
-the table.
+`lazy_first_move_ordering=on|off`, `aspiration_profile=fixed|score-delta-aware`,
+and `eval_config=PATH`. The plain `search:depth=N` form keeps the same defaults
+as the existing fixed-depth search path. `preset=strong-v1` is an explicit
+opt-in practical play preset: iterative search, TT on, PVS on,
+score-delta-aware aspiration, adaptive16 exact root endgame, and the normal
+project-default evaluator (`data/eval/current_default.eval`) unless
+`eval_config=PATH` overrides it. `exact=N` uses the fixed root threshold, while
+`exact=adaptive16` solves roots up to 14 empties and conservatively gates
+15/16-empty roots. `tt_entries=N` only sets the transposition-table capacity;
+include `tt=on` when the match should use the table.
 
 For a small practical-preset smoke match:
 

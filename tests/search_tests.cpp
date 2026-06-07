@@ -1317,6 +1317,43 @@ TEST_CASE("Search stats count transposition table work when enabled", "[search]"
     CHECK(result.stats.tt_exact_hits + result.stats.tt_lower_hits + result.stats.tt_upper_hits ==
           result.stats.tt_hits);
     CHECK(result.stats.tt_collisions <= result.stats.tt_overwrites);
+    CHECK(result.stats.ordering_full_builds > 0);
+    CHECK(result.stats.ordering_lazy_first_hits == 0);
+    CHECK(result.stats.ordering_lazy_cut_before_full_sort == 0);
+    CHECK(result.stats.ordering_scored_moves_saved == 0);
+    CHECK(result.stats.preferred_move_legal_count == 0);
+    CHECK(result.stats.preferred_move_beta_cut_count == 0);
+}
+
+TEST_CASE("Lazy first-move ordering preserves iterative result and skips full ordering on cut",
+          "[search]") {
+    const auto board = othello::apply_move(Board::initial(), othello::test::square("d3"));
+    REQUIRE(board.has_value());
+
+    const othello::SearchOptions baseline_options{
+        .max_depth = 6,
+        .use_transposition_table = true,
+        .exact_endgame_empty_threshold = 0,
+        .use_pvs = true,
+        .use_aspiration_window = true,
+    };
+    othello::SearchOptions lazy_options = baseline_options;
+    lazy_options.use_lazy_first_move_ordering = true;
+
+    const othello::SearchResult baseline = othello::search_iterative(*board, baseline_options);
+    const othello::SearchResult lazy = othello::search_iterative(*board, lazy_options);
+
+    CHECK(lazy.best_move == baseline.best_move);
+    CHECK(lazy.score == baseline.score);
+    CHECK(lazy.depth == baseline.depth);
+    CHECK(lazy.principal_variation == baseline.principal_variation);
+    CHECK(lazy.stats.ordering_lazy_first_hits > 0);
+    CHECK(lazy.stats.ordering_lazy_cut_before_full_sort > 0);
+    CHECK(lazy.stats.ordering_scored_moves_saved > 0);
+    CHECK(lazy.stats.preferred_move_legal_count == lazy.stats.ordering_lazy_first_hits);
+    CHECK(lazy.stats.preferred_move_beta_cut_count ==
+          lazy.stats.ordering_lazy_cut_before_full_sort);
+    CHECK(lazy.stats.ordering_full_builds < baseline.stats.ordering_full_builds);
 }
 
 TEST_CASE("Transposition best move ordering preserves fixed-depth search result", "[search]") {

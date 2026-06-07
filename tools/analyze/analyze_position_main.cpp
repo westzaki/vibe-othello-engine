@@ -35,7 +35,8 @@ void print_usage(std::string_view program_name) {
               << " (--board-file PATH | --stdin) [--depth N] [--mode fixed|iterative]"
                  " [--tt on|off] [--tt-entries N] [--exact-tt-entries N]"
                  " [--tt-store-leaf on|off] [--tt-min-probe-depth N]"
-                 " [--tt-min-store-depth N] [--pvs on|off]"
+                 " [--tt-min-store-depth N] [--lazy-first-move-ordering on|off]"
+                 " [--pvs on|off]"
                  " [--aspiration on|off] [--aspiration-window N]"
                  " [--aspiration-max-researches N] [--exact-endgame-threshold N]"
                  " "
@@ -59,6 +60,8 @@ void print_usage(std::string_view program_name) {
               << "                    skip midgame TT probes below remaining depth N\n"
               << "  --tt-min-store-depth N\n"
               << "                    skip midgame TT stores below remaining depth N\n"
+              << "  --lazy-first-move-ordering on|off\n"
+              << "                    try a legal PV/root/TT preferred move before full ordering\n"
               << "  --pvs on|off       enable or disable PVS (default: off)\n"
               << "  --aspiration on|off\n"
               << "                    enable iterative-search aspiration windows (default: off)\n"
@@ -406,6 +409,15 @@ void write_batch_result(
                 return std::nullopt;
             }
             options.tt_min_store_depth = *depth;
+        } else if (arg == "--lazy-first-move-ordering") {
+            const auto value = othello::tools::next_argument(args, index, arg);
+            const auto lazy =
+                value.has_value() ? othello::tools::parse_on_off(*value) : std::nullopt;
+            if (!lazy.has_value()) {
+                std::cerr << "invalid --lazy-first-move-ordering value\n";
+                return std::nullopt;
+            }
+            options.use_lazy_first_move_ordering = *lazy;
         } else if (arg == "--pvs") {
             const auto value = othello::tools::next_argument(args, index, arg);
             const auto pvs =

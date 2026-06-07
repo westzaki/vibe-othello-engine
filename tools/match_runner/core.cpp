@@ -80,6 +80,12 @@ namespace {
         .tt_move_ordering_probes = stats.tt_move_ordering_probes,
         .tt_move_ordering_hits = stats.tt_move_ordering_hits,
         .tt_move_ordering_used = stats.tt_move_ordering_used,
+        .ordering_full_builds = stats.ordering_full_builds,
+        .ordering_lazy_first_hits = stats.ordering_lazy_first_hits,
+        .ordering_lazy_cut_before_full_sort = stats.ordering_lazy_cut_before_full_sort,
+        .ordering_scored_moves_saved = stats.ordering_scored_moves_saved,
+        .preferred_move_legal_count = stats.preferred_move_legal_count,
+        .preferred_move_beta_cut_count = stats.preferred_move_beta_cut_count,
     };
 }
 

@@ -209,6 +209,7 @@ struct IterativeDepthObserverData {
     bool store_leaf_tt_entries = true;
     int tt_min_probe_depth = 0;
     int tt_min_store_depth = 0;
+    bool use_lazy_first_move_ordering = false;
     bool use_pvs = false;
     bool use_aspiration_window = false;
     int aspiration_window = 0;
@@ -255,6 +256,7 @@ void observe_iterative_depth(const othello::IterativeSearchDepthInfo& info, void
         .store_leaf_tt_entries = data->store_leaf_tt_entries,
         .tt_min_probe_depth = data->tt_min_probe_depth,
         .tt_min_store_depth = data->tt_min_store_depth,
+        .use_lazy_first_move_ordering = data->use_lazy_first_move_ordering,
         .use_pvs = data->use_pvs,
         .use_aspiration_window = data->use_aspiration_window,
         .aspiration_window = data->aspiration_window,
@@ -365,6 +367,7 @@ benchmark_search(const std::vector<othello::benchmarks::Position>& positions, in
                     .store_leaf_tt_entries = search_options.store_leaf_tt_entries,
                     .tt_min_probe_depth = search_options.tt_min_probe_depth,
                     .tt_min_store_depth = search_options.tt_min_store_depth,
+                    .use_lazy_first_move_ordering = search_options.use_lazy_first_move_ordering,
                     .use_pvs = search_options.use_pvs,
                     .use_aspiration_window = search_options.use_aspiration_window,
                     .aspiration_window = search_options.aspiration_window,
@@ -416,6 +419,7 @@ benchmark_search(const std::vector<othello::benchmarks::Position>& positions, in
         .store_leaf_tt_entries = base_search_options.store_leaf_tt_entries,
         .tt_min_probe_depth = base_search_options.tt_min_probe_depth,
         .tt_min_store_depth = base_search_options.tt_min_store_depth,
+        .use_lazy_first_move_ordering = base_search_options.use_lazy_first_move_ordering,
         .use_pvs = base_search_options.use_pvs,
         .use_aspiration_window = base_search_options.use_aspiration_window,
         .aspiration_window = base_search_options.aspiration_window,
@@ -490,6 +494,7 @@ benchmark_position(const othello::benchmarks::Position& position, int depth,
                 .store_leaf_tt_entries = search_options.store_leaf_tt_entries,
                 .tt_min_probe_depth = search_options.tt_min_probe_depth,
                 .tt_min_store_depth = search_options.tt_min_store_depth,
+                .use_lazy_first_move_ordering = search_options.use_lazy_first_move_ordering,
                 .use_pvs = search_options.use_pvs,
                 .use_aspiration_window = search_options.use_aspiration_window,
                 .aspiration_window = search_options.aspiration_window,
@@ -543,6 +548,7 @@ benchmark_position(const othello::benchmarks::Position& position, int depth,
         .store_leaf_tt_entries = base_search_options.store_leaf_tt_entries,
         .tt_min_probe_depth = base_search_options.tt_min_probe_depth,
         .tt_min_store_depth = base_search_options.tt_min_store_depth,
+        .use_lazy_first_move_ordering = base_search_options.use_lazy_first_move_ordering,
         .use_pvs = base_search_options.use_pvs,
         .use_aspiration_window = base_search_options.use_aspiration_window,
         .aspiration_window = base_search_options.aspiration_window,

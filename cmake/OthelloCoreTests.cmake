@@ -92,6 +92,12 @@ othello_add_help_contains_test(
 )
 
 othello_add_help_contains_test(
+    othello_search_bench_help_includes_lazy_first_move_ordering
+    othello_search_bench
+    "--lazy-first-move-ordering"
+)
+
+othello_add_help_contains_test(
     othello_search_bench_help_includes_iterative_depth_rows
     othello_search_bench
     "--emit-iterative-depth-rows"
@@ -128,6 +134,7 @@ othello_add_tool_smoke_test(
     --tt on
     --tt-min-probe-depth 1
     --tt-min-store-depth 1
+    --lazy-first-move-ordering on
     --pvs on
     --aspiration on
     --aspiration-profile score-delta-aware
@@ -136,7 +143,7 @@ othello_add_tool_smoke_test(
 )
 set_tests_properties(
     othello_search_bench_jsonl_score_delta_aware_aspiration_profile
-    PROPERTIES PASS_REGULAR_EXPRESSION "\"tt_min_probe_depth\":1.*\"tt_min_store_depth\":1.*\"aspiration_profile\":\"score-delta-aware\".*\"tt_probe_skipped_by_depth\""
+    PROPERTIES PASS_REGULAR_EXPRESSION "\"tt_min_probe_depth\":1.*\"tt_min_store_depth\":1.*\"lazy_first_move_ordering\":true.*\"aspiration_profile\":\"score-delta-aware\".*\"tt_probe_skipped_by_depth\".*\"ordering_full_builds\""
 )
 
 othello_add_tool_smoke_test(
@@ -231,6 +238,12 @@ othello_add_help_contains_test(
 )
 
 othello_add_help_contains_test(
+    othello_analyze_position_help_includes_lazy_first_move_ordering
+    othello_analyze_position
+    "--lazy-first-move-ordering"
+)
+
+othello_add_help_contains_test(
     othello_match_runner_help_includes_tt_store_leaf
     othello_match_runner
     "tt_store_leaf=on|off"
@@ -246,6 +259,12 @@ othello_add_help_contains_test(
     othello_match_runner_help_includes_tt_min_store_depth
     othello_match_runner
     "tt_min_store_depth=N"
+)
+
+othello_add_help_contains_test(
+    othello_match_runner_help_includes_lazy_first_move_ordering
+    othello_match_runner
+    "lazy_first_move_ordering=on|off"
 )
 
 othello_add_help_contains_test(

@@ -36,6 +36,13 @@ struct SearchStats {
     std::uint64_t tt_move_ordering_hits = 0;
     std::uint64_t tt_move_ordering_used = 0;
 
+    std::uint64_t ordering_full_builds = 0;
+    std::uint64_t ordering_lazy_first_hits = 0;
+    std::uint64_t ordering_lazy_cut_before_full_sort = 0;
+    std::uint64_t ordering_scored_moves_saved = 0;
+    std::uint64_t preferred_move_legal_count = 0;
+    std::uint64_t preferred_move_beta_cut_count = 0;
+
     std::uint64_t pvs_scouts = 0;
     std::uint64_t pvs_researches = 0;
     std::uint64_t pvs_scout_cutoffs = 0;
@@ -84,6 +91,12 @@ inline constexpr auto additive_members = std::to_array<std::uint64_t SearchStats
     &SearchStats::tt_move_ordering_probes,
     &SearchStats::tt_move_ordering_hits,
     &SearchStats::tt_move_ordering_used,
+    &SearchStats::ordering_full_builds,
+    &SearchStats::ordering_lazy_first_hits,
+    &SearchStats::ordering_lazy_cut_before_full_sort,
+    &SearchStats::ordering_scored_moves_saved,
+    &SearchStats::preferred_move_legal_count,
+    &SearchStats::preferred_move_beta_cut_count,
     &SearchStats::pvs_scouts,
     &SearchStats::pvs_researches,
     &SearchStats::pvs_scout_cutoffs,
