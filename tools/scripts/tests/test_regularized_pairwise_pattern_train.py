@@ -350,6 +350,7 @@ def synthetic_listwise_example(
                 exact_score=-8,
             ),
         ),
+        target_probabilities=None,
         example_weight=1.0,
         bucket="__missing__",
         bucket_weight=1.0,
@@ -1939,6 +1940,113 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
         scores = trainer.listwise_scores(config, weights, examples[0])
         self.assertGreater(scores["b1"], scores["d1"])
         self.assertTrue(any(record.status == "paired" for record in records))
+
+    def test_exact_score_soft_target_uses_move_score_shape(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row(move="d1")])
+            exact = write_jsonl(
+                temp_path / "exact.jsonl",
+                [
+                    exact_row_with_scores(
+                        TEACHER_BOARD,
+                        best_move="b1",
+                        move_scores={
+                            "a2": 9,
+                            "a7": -12,
+                            "b1": 10,
+                            "d1": 6,
+                            "g7": -14,
+                            "h1": -30,
+                            "h3": -8,
+                            "h7": -16,
+                        },
+                    )
+                ],
+            )
+            config = make_config(
+                temp_path,
+                labels,
+                exact_labels=exact,
+                extra_args=[
+                    "--objective",
+                    "exact-aware-listwise",
+                    "--exact-score-soft-target",
+                    "--exact-score-temperature",
+                    "2",
+                    "--exact-score-target-floor",
+                    "0.001",
+                    "--exact-score-near-best-window",
+                    "8",
+                    "--no-base-margin",
+                    "--epochs",
+                    "1",
+                    "--l2",
+                    "0",
+                ],
+            )
+
+            _, examples, _, _ = trainer.collect_training_data(
+                config,
+                analyzer=wide_fake_analyzer,
+            )
+            compact = trainer.compact_listwise_dataset(examples)
+            weights: trainer.WeightsByPhase = {phase: {} for phase in trainer.PHASES}
+            metrics = trainer.evaluate_listwise_examples(config, weights, compact)
+            diagnostics = trainer.move_choice_metrics(config, weights, compact)
+
+        self.assertEqual(len(examples), 1)
+        self.assertIsNotNone(examples[0].target_probabilities)
+        probabilities = dict(
+            zip(
+                [candidate.move for candidate in examples[0].candidates],
+                examples[0].target_probabilities or (),
+                strict=True,
+            )
+        )
+        self.assertGreater(probabilities["b1"], probabilities["a2"])
+        self.assertGreater(probabilities["a2"], probabilities["d1"])
+        self.assertGreater(probabilities["h1"], 0.0)
+        self.assertLess(probabilities["h1"], probabilities["d1"])
+        self.assertGreater(metrics["weighted_loss"], 0.0)
+        self.assertIsNotNone(diagnostics["soft_target_cross_entropy"])
+        self.assertEqual(diagnostics["soft_target_rows"], 1)
+        self.assertIn("wrong_direction_by_phase", diagnostics)
+
+    def test_exact_score_soft_target_falls_back_to_teacher_without_move_scores(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row(move="d1")])
+            exact = write_jsonl(
+                temp_path / "exact.jsonl",
+                [exact_row(TEACHER_BOARD, best_move="b1")],
+            )
+            config = make_config(
+                temp_path,
+                labels,
+                exact_labels=exact,
+                extra_args=[
+                    "--objective",
+                    "exact-aware-listwise",
+                    "--exact-score-soft-target",
+                    "--no-base-margin",
+                ],
+            )
+
+            _, examples, _, _ = trainer.collect_training_data(
+                config,
+                analyzer=wide_fake_analyzer,
+            )
+            compact = trainer.compact_listwise_dataset(examples)
+
+        self.assertEqual(len(examples), 1)
+        self.assertEqual(examples[0].target_moves, ("d1",))
+        self.assertIsNone(examples[0].target_probabilities)
+        target_probabilities = dict(
+            zip(compact.candidate_moves, compact.candidate_target_probabilities, strict=True)
+        )
+        self.assertEqual(target_probabilities["d1"], 1.0)
+        self.assertEqual(target_probabilities["b1"], 0.0)
 
     def test_output_scale_calibration_selects_best_grid_value(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
