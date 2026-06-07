@@ -2589,7 +2589,7 @@ def render_phase_table(
 ) -> str:
     lines = [
         "# schema_version: pattern_table.v1",
-        "# generated_by: tools/scripts/regularized_pairwise_pattern_train.py",
+        "# generated_by: tools/scripts/pattern_only_train.py",
         f"# phase: {phase}",
         "# no_strength_claim: true",
         "# not_default_promotion: true",
@@ -2718,7 +2718,7 @@ def render_candidate_eval(config: TrainerConfig) -> str:
     return "\n".join(
         [
             "# schema_version: eval.v1",
-            "# generated_by: tools/scripts/regularized_pairwise_pattern_train.py",
+            "# generated_by: tools/scripts/pattern_only_train.py",
             "# no_strength_claim: true",
             "# not_default_promotion: true",
             "# trainer_foundation: true",
@@ -3159,7 +3159,7 @@ def render_dataset_diagnostic_report(config: TrainerConfig, summary: dict[str, A
             "Safe preset for the next training pass:",
             "",
             "```sh",
-            "python3 tools/scripts/regularized_pairwise_pattern_train.py \\",
+            "python3 tools/scripts/pattern_only_train.py \\",
             "  --max-top-group-size-for-training 4 \\",
             "  --exact-score-temperature 4 \\",
             "  --exact-score-target-floor 0.0001 \\",
@@ -3180,7 +3180,7 @@ def diagnose_dataset(
     validation_path = config.out_dir / "diagnostic_validation.tsv"
     write_validation_tsv(validation_path, validation_records)
     summary = {
-        "script": "tools/scripts/regularized_pairwise_pattern_train.py",
+        "script": "tools/scripts/pattern_only_train.py",
         "mode": "diagnose_dataset",
         "generated_at": dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "git_sha": collect_git_sha(),
@@ -3310,7 +3310,7 @@ def train_pattern_tables(
     write_validation_tsv(validation_path, validation_records)
 
     summary = {
-        "script": "tools/scripts/regularized_pairwise_pattern_train.py",
+        "script": "tools/scripts/pattern_only_train.py",
         "generated_at": dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "git_sha": collect_git_sha(),
         "command": quote_command(config.invocation) if config.invocation else "unknown",
@@ -3421,7 +3421,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         args = parse_args(argv)
         invocation = [
-            "tools/scripts/regularized_pairwise_pattern_train.py",
+            "tools/scripts/pattern_only_train.py",
             *(argv if argv is not None else sys.argv[1:]),
         ]
         config = config_from_args(args, invocation=invocation)
