@@ -1,3 +1,4 @@
+#include "../src/endgame_last_n.hpp"
 #include "../src/endgame_ordering.hpp"
 #include "../src/search_common.hpp"
 #include "test_helpers.hpp"
@@ -165,18 +166,34 @@ solve_generic_exact_reference(const othello::search_detail::SearchPosition& posi
     return board;
 }
 
-void check_last_1_or_2_matches_generic_reference(const Board& board) {
+void check_last_n_matches_generic_reference(const Board& board) {
     CAPTURE(othello::to_string(board));
-    REQUIRE((std::popcount(board.empty()) == 1 || std::popcount(board.empty()) == 2));
+    const int empties = std::popcount(board.empty());
+    REQUIRE(empties >= 1);
+    REQUIRE(empties <= 4);
 
     const auto position = othello::search_detail::SearchPosition::from_board(board);
     const othello::ExactEndgameResult specialized = othello::solve_exact_endgame(board);
     const othello::search_detail::NodeResult generic = solve_generic_exact_reference(position);
+    othello::endgame_detail::ExactEndgameContext generic_context{
+        empties, othello::ExactEndgameOptions{.transposition_table_entries = 0}};
+    const othello::search_detail::NodeResult generic_tail =
+        othello::endgame_detail::solve_last_n_generic_node(position, -1'000, 1'000,
+                                                           generic_context);
 
     CHECK(specialized.best_move == generic.best_move);
     CHECK(specialized.disc_margin == generic.score);
     CHECK(specialized.principal_variation ==
           othello::search_detail::principal_variation_to_vector(generic.principal_variation));
+    CHECK(specialized.best_move == generic_tail.best_move);
+    CHECK(specialized.disc_margin == generic_tail.score);
+    CHECK(specialized.principal_variation ==
+          othello::search_detail::principal_variation_to_vector(
+              generic_tail.principal_variation));
+    CHECK(specialized.stats.tt_lookups == 0);
+    CHECK(specialized.stats.tt_stores == 0);
+    CHECK(generic_context.stats.tt_lookups == 0);
+    CHECK(generic_context.stats.tt_stores == 0);
 }
 
 } // namespace
@@ -600,7 +617,7 @@ side=B)"),
     };
 
     for (const Board& board : boards) {
-        check_last_1_or_2_matches_generic_reference(board);
+        check_last_n_matches_generic_reference(board);
     }
 }
 
@@ -616,7 +633,156 @@ TEST_CASE("Exact endgame last-1 and last-2 tails match generic reference random 
                 continue;
             }
 
-            check_last_1_or_2_matches_generic_reference(board);
+            check_last_n_matches_generic_reference(board);
+            ++checked;
+        }
+        CHECK(checked == 32);
+    }
+}
+
+TEST_CASE("Exact endgame last-3 and last-4 tails match generic reference fixed cases",
+          "[endgame]") {
+    const std::array boards{
+        othello::test::board_from_text(R"(BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBW...
+side=B)"),
+        othello::test::board_from_text(R"(BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBW...
+side=W)"),
+        othello::test::board_from_text(R"(BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBB...
+side=W)"),
+        othello::test::board_from_text(R"(BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBW....
+side=B)"),
+        othello::test::board_from_text(R"(BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBW....
+side=W)"),
+        othello::test::board_from_text(R"(BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBB....
+side=W)"),
+        othello::test::board_from_text(R"(.WBBBBW.
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+.BBBBBB.
+side=B)"),
+    };
+
+    for (const Board& board : boards) {
+        check_last_n_matches_generic_reference(board);
+    }
+}
+
+TEST_CASE("Exact endgame last-3 and last-4 tails keep lower-index tie break", "[endgame]") {
+    const std::array boards{
+        othello::test::board_from_text(R"(.WBBBBW.
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+.BBBBBBB
+side=B)"),
+        othello::test::board_from_text(R"(.WBBBBW.
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+BBBBBBBB
+.BBBBBB.
+side=B)"),
+    };
+
+    for (const Board& board : boards) {
+        CAPTURE(othello::to_string(board));
+        check_last_n_matches_generic_reference(board);
+
+        const othello::ExactEndgameResult result = othello::solve_exact_endgame(board);
+        const auto position = othello::search_detail::SearchPosition::from_board(board);
+        const othello::search_detail::NodeResult generic = solve_generic_exact_reference(position);
+        REQUIRE(result.best_move.has_value());
+        REQUIRE(generic.best_move.has_value());
+        CHECK(*result.best_move == *generic.best_move);
+        CHECK(result.disc_margin == generic.score);
+
+        othello::Bitboard tied_legal_moves = 0;
+        othello::Bitboard moves = othello::legal_moves(board);
+        while (moves != 0) {
+            const int index = std::countr_zero(moves);
+            moves &= moves - 1;
+
+            const std::optional<othello::Square> square = othello::Square::from_index(index);
+            REQUIRE(square.has_value());
+            const auto next = othello::apply_move(board, *square);
+            REQUIRE(next.has_value());
+            const othello::search_detail::NodeResult child =
+                solve_generic_exact_reference(
+                    othello::search_detail::SearchPosition::from_board(*next));
+            if (-child.score == result.disc_margin) {
+                tied_legal_moves |= square->bit();
+            }
+        }
+
+        REQUIRE(std::popcount(tied_legal_moves) >= 2);
+        CHECK(result.best_move->index() == std::countr_zero(tied_legal_moves));
+    }
+}
+
+TEST_CASE("Exact endgame last-3 and last-4 tails match generic reference random near-end boards",
+          "[endgame]") {
+    std::mt19937 random_engine{20260607};
+
+    for (int target_empties : {3, 4}) {
+        int checked = 0;
+        for (int attempt = 0; checked < 32 && attempt < 4096; ++attempt) {
+            Board board = random_near_end_board(target_empties, random_engine);
+            if (std::popcount(board.empty()) != target_empties) {
+                continue;
+            }
+
+            check_last_n_matches_generic_reference(board);
             ++checked;
         }
         CHECK(checked == 32);
