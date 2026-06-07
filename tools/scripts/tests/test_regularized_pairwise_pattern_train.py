@@ -349,14 +349,12 @@ def synthetic_listwise_example(
                 move=target_move,
                 phase="midgame",
                 features={("edge_8", 2131): 1},
-                base_score=0.0,
                 exact_score=8,
             ),
             trainer.CandidateMove(
                 move=other_move,
                 phase="midgame",
                 features={("edge_8", 2179): 1},
-                base_score=0.0,
                 exact_score=-8,
             ),
         ),
@@ -1881,7 +1879,7 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
                     extra_args=["--checkpoint-dir", "data/checkpoints"],
                 )
 
-    def test_model_margin_includes_base_score_margin_by_default(self) -> None:
+    def test_model_margin_ignores_root_scores(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             temp_path = Path(temp)
             labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
@@ -1892,16 +1890,24 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
         empty_weights = {phase: {} for phase in trainer.PHASES}
 
         self.assertEqual(trainer.pair_margin(empty_weights, pair), 0.0)
-        self.assertEqual(trainer.model_margin(config, empty_weights, pair), -10.0)
+        self.assertEqual(pair.preferred_score, 50)
+        self.assertEqual(pair.other_score, 60)
+        self.assertEqual(trainer.model_margin(config, empty_weights, pair), 0.0)
 
-    def test_no_base_margin_preserves_delta_only_objective(self) -> None:
+    def test_scalar_base_eval_config_does_not_enter_training_score(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             temp_path = Path(temp)
             labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            eval_config = write_current_default_like_eval_config(temp_path / "current_default.eval")
             config = make_config(
                 temp_path,
                 labels,
-                extra_args=["--pair-mode", "best-vs-all", "--no-base-margin"],
+                extra_args=[
+                    "--eval-config",
+                    str(eval_config),
+                    "--pair-mode",
+                    "best-vs-all",
+                ],
             )
             pairs, _, _ = trainer.collect_pairs(config, analyzer=wide_fake_analyzer)
 
@@ -1918,7 +1924,6 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
                 temp_path,
                 labels,
                 extra_args=[
-                    "--no-base-margin",
                     "--epochs",
                     "12",
                     "--learning-rate",
@@ -1950,7 +1955,6 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
                 temp_path,
                 labels,
                 extra_args=[
-                    "--no-base-margin",
                     "--epochs",
                     "18",
                     "--learning-rate",
@@ -1987,7 +1991,6 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
                 extra_args=[
                     "--objective",
                     "listwise-softmax",
-                    "--no-base-margin",
                     "--epochs",
                     "16",
                     "--learning-rate",
@@ -2018,7 +2021,6 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
                 extra_args=[
                     "--objective",
                     "listwise-softmax",
-                    "--no-base-margin",
                     "--epochs",
                     "1",
                     "--l2",
@@ -2105,7 +2107,6 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
                 extra_args=[
                     "--objective",
                     "exact-aware-listwise",
-                    "--no-base-margin",
                     "--epochs",
                     "12",
                     "--learning-rate",
@@ -2167,7 +2168,6 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
                     "0.001",
                     "--exact-score-near-best-window",
                     "8",
-                    "--no-base-margin",
                     "--epochs",
                     "1",
                     "--l2",
@@ -2218,7 +2218,6 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
                     "--objective",
                     "exact-aware-listwise",
                     "--exact-score-soft-target",
-                    "--no-base-margin",
                 ],
             )
 
@@ -2276,7 +2275,6 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
                     "0.05",
                     "--soft-sign-anchor-margin",
                     "1",
-                    "--no-base-margin",
                 ],
             )
             example = synthetic_listwise_example(exact_root_score=8)
@@ -2309,7 +2307,6 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
                     "0.1",
                     "--soft-sign-anchor-margin",
                     "1",
-                    "--no-base-margin",
                     "--epochs",
                     "1",
                     "--learning-rate",
@@ -2339,7 +2336,6 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
                     "--calibrate-output-scale",
                     "--scale-grid",
                     "1,10",
-                    "--no-base-margin",
                 ],
             )
             example = replace(synthetic_listwise_example(), teacher_move="good")
@@ -2393,6 +2389,7 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
                 self.assertTrue(result.table_paths[phase].exists())
 
             candidate = result.candidate_eval_path.read_text(encoding="utf-8")
+            self.assertIn("mode=pattern_only", candidate)
             self.assertIn("pattern_table.opening=tables/opening.tsv", candidate)
             self.assertIn("pattern_table.midgame=tables/midgame.tsv", candidate)
             self.assertIn("pattern_table.late=tables/late.tsv", candidate)
@@ -2410,7 +2407,7 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
             self.assertTrue(result.summary["no_strength_claim"])
             self.assertFalse(result.summary["default_promotion"])
 
-    def test_candidate_eval_inserts_missing_phase_pattern_weights_for_scalar_base(self) -> None:
+    def test_candidate_eval_is_always_pattern_only_for_scalar_base(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             temp_path = Path(temp)
             labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
@@ -2429,11 +2426,15 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
 
             candidate = trainer.render_candidate_eval(config)
 
-        self.assertIn("opening.mobility=8", candidate)
+        self.assertIn("schema_version=eval.v1", candidate)
+        self.assertIn("mode=pattern_only", candidate)
         self.assertIn("pattern_table.opening=tables/opening.tsv", candidate)
         self.assertIn("opening.pattern_table=3", candidate)
         self.assertIn("midgame.pattern_table=3", candidate)
         self.assertIn("late.pattern_table=3", candidate)
+        self.assertNotIn("opening.mobility", candidate)
+        self.assertNotIn("midgame.mobility", candidate)
+        self.assertNotIn("late.mobility", candidate)
 
     def test_pattern_only_candidate_eval_omits_base_scalar_weights(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -2449,9 +2450,6 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
                 str(temp_path / "runs" / "candidate"),
                 "--candidate-pattern-table-weight",
                 "3",
-                "--candidate-eval-shape",
-                "pattern-only",
-                "--no-base-margin",
             ]
             config = trainer.config_from_args(trainer.parse_args(args))
 
@@ -2460,7 +2458,7 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
         self.assertIn("schema_version=eval.v1", candidate)
         self.assertIn("mode=pattern_only", candidate)
         self.assertIn("name=regularized_pairwise_pattern_candidate", candidate)
-        self.assertIn("# model_margin: pattern_only", candidate)
+        self.assertIn("# model: pattern_only_delta_only", candidate)
         self.assertIn("pattern_table.opening=tables/opening.tsv", candidate)
         self.assertIn("pattern_table.midgame=tables/midgame.tsv", candidate)
         self.assertIn("pattern_table.late=tables/late.tsv", candidate)
@@ -2473,15 +2471,11 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
         self.assertNotIn("midgame.mobility", candidate)
         self.assertNotIn("late.mobility", candidate)
 
-    def test_pattern_only_report_uses_candidate_margin_shape(self) -> None:
+    def test_report_uses_single_pattern_only_model_name(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             temp_path = Path(temp)
             labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
-            config = make_config(
-                temp_path,
-                labels,
-                extra_args=["--candidate-eval-shape", "pattern-only", "--no-base-margin"],
-            )
+            config = make_config(temp_path, labels)
             summary = {
                 "rows": {},
                 "training": {
@@ -2515,9 +2509,9 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
                 validation_path=temp_path / "validation.tsv",
             )
 
-        self.assertIn("- candidate_eval_shape: `pattern-only`", report)
-        self.assertIn("- model_margin: `pattern_only`", report)
-        self.assertNotIn("- model_margin: `delta_only`", report)
+        self.assertIn("- model: `pattern_only_delta_only`", report)
+        self.assertNotIn("candidate" + "_eval_shape", report)
+        self.assertNotIn("model_margin", report)
 
     def test_table_data_lines_are_integer_values(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -2548,7 +2542,6 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
                 temp_path,
                 labels,
                 extra_args=[
-                    "--no-base-margin",
                     "--output-scale",
                     "10",
                     "--max-abs-output-weight",
