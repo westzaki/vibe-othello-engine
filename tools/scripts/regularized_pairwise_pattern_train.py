@@ -83,7 +83,6 @@ PAIR_MODES = (
 PAIR_WEIGHTINGS = ("uniform", "rank-margin", "score-margin", "exact-boost")
 OBJECTIVES = ("pairwise-logistic", "listwise-softmax", "exact-aware-listwise")
 GUARD_MODES = ("off", "base-agreement")
-CANDIDATE_EVAL_SHAPES = ("base-plus-delta", "pattern-only")
 ANALYSIS_RUNNERS = ("subprocess", "batch")
 LISTWISE_FEATURE_CACHE_MODES = ("off", "read-write", "read-only", "refresh")
 SOFT_SIGN_ANCHOR_MODES = ("off", "selected", "expected")
@@ -100,6 +99,7 @@ PHASE_TO_ID = {phase: index for index, phase in enumerate(PHASES)}
 ID_TO_PHASE = {index: phase for phase, index in PHASE_TO_ID.items()}
 PAIR_CACHE_SCHEMA = "regularized_pairwise_pair_cache.v1"
 CHECKPOINT_SCHEMA = "regularized_pairwise_checkpoint.v1"
+TRAINER_MODEL = "pattern_only_delta_only"
 
 
 @dataclass(frozen=True)
@@ -190,8 +190,6 @@ class TrainerConfig:
     output_scale: float
     max_abs_output_weight: int
     candidate_pattern_table_weight: int
-    include_base_margin: bool
-    candidate_eval_shape: str
     seed: int
     phase_cutoffs: PhaseCutoffs
     dataset_root: dict[str, str] | None
@@ -227,7 +225,6 @@ class CandidateMove:
     move: str
     phase: str
     features: dict[FeatureKey, int]
-    base_score: float
     exact_score: int | None
 
 
@@ -258,7 +255,6 @@ class CompactListwiseDataset:
     candidate_feature_offsets: tuple[int, ...]
     candidate_moves: tuple[str, ...]
     candidate_phase_ids: tuple[int, ...]
-    candidate_base_scores: tuple[float, ...]
     candidate_exact_scores: tuple[int | None, ...]
     candidate_target_mask: tuple[bool, ...]
     candidate_target_probabilities: tuple[float, ...]
@@ -355,7 +351,6 @@ class CompactPreferencePairs:
     offsets: array.array
     phase_ids: array.array
     pair_weights: array.array
-    base_margins: array.array
     count: int
     memory_bytes: int
 
@@ -368,11 +363,9 @@ class CompactPreferencePairs:
         offsets = array.array("Q", [0])
         phase_ids = array.array("B")
         pair_weights = array.array("d")
-        base_margins = array.array("d")
         for pair in pairs:
             phase_ids.append(PHASE_TO_ID[pair.phase])
             pair_weights.append(float(pair.pair_weight))
-            base_margins.append(base_score_margin(pair))
             for key, value in pair.features.items():
                 feature_id = feature_to_id.get(key)
                 if feature_id is None:
@@ -388,7 +381,6 @@ class CompactPreferencePairs:
             + len(offsets) * offsets.itemsize
             + len(phase_ids) * phase_ids.itemsize
             + len(pair_weights) * pair_weights.itemsize
-            + len(base_margins) * base_margins.itemsize
         )
         return cls(
             feature_keys=feature_keys,
@@ -397,7 +389,6 @@ class CompactPreferencePairs:
             offsets=offsets,
             phase_ids=phase_ids,
             pair_weights=pair_weights,
-            base_margins=base_margins,
             count=len(pairs),
             memory_bytes=memory_bytes,
         )
@@ -793,26 +784,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=parse_positive_int,
         default=1,
         help=(
-            "phase pattern_table weight inserted into candidate eval when the base "
-            ".eval has no phase-specific pattern_table weights"
-        ),
-    )
-    parser.add_argument(
-        "--no-base-margin",
-        action="store_true",
-        help=(
-            "optimize learned delta margins only; by default the pairwise objective "
-            "optimizes base evaluator score margin plus learned pattern delta"
-        ),
-    )
-    parser.add_argument(
-        "--candidate-eval-shape",
-        choices=CANDIDATE_EVAL_SHAPES,
-        default="base-plus-delta",
-        help=(
-            "candidate .eval shape: base-plus-delta preserves the base scalar "
-            "weights and replaces learned table paths; pattern-only writes a "
-            "scalar-free mode=pattern_only candidate"
+            "phase pattern_table weight inserted into the generated pattern-only candidate eval"
         ),
     )
     parser.add_argument("--seed", type=parse_non_negative_int, default=20260601)
@@ -1077,8 +1049,6 @@ def config_from_args(
         output_scale=args.output_scale,
         max_abs_output_weight=args.max_abs_output_weight,
         candidate_pattern_table_weight=args.candidate_pattern_table_weight,
-        include_base_margin=not args.no_base_margin,
-        candidate_eval_shape=args.candidate_eval_shape,
         seed=args.seed,
         phase_cutoffs=phase_cutoffs_from_eval_config(eval_config),
         dataset_root=dataset_root,
@@ -1315,7 +1285,6 @@ def listwise_feature_cache_key(
             "max_top_group_size_for_training": config.max_top_group_size_for_training,
             "target_top_group_size": config.target_top_group_size,
             "top_group_margin": config.top_group_margin,
-            "include_base_margin": config.include_base_margin,
         },
         "seed": config.seed,
     }
@@ -1694,7 +1663,6 @@ def make_listwise_example(
                 move=move,
                 phase=phase,
                 features=features,
-                base_score=float(root_scores.get(move, 0)),
                 exact_score=exact_scores.get(move),
             )
         )
@@ -2940,17 +2908,9 @@ def pair_margin(weights: WeightsByPhase, pair: PreferencePair) -> float:
     return sum(phase_weights.get(key, 0.0) * value for key, value in pair.features.items())
 
 
-def base_score_margin(pair: PreferencePair) -> float:
-    if pair.preferred_score is None or pair.other_score is None:
-        return 0.0
-    return float(pair.preferred_score - pair.other_score)
-
-
 def model_margin(config: TrainerConfig, weights: WeightsByPhase, pair: PreferencePair) -> float:
-    margin = pair_margin(weights, pair)
-    if config.include_base_margin:
-        margin += base_score_margin(pair)
-    return margin
+    del config
+    return pair_margin(weights, pair)
 
 
 def pair_loss(loss_name: str, margin: float) -> float:
@@ -3030,20 +2990,16 @@ def lazy_candidate_score(
     lazy_weights: dict[str, LazyPhaseWeights],
     candidate: CandidateMove,
 ) -> float:
-    score = sum(
+    del config
+    return sum(
         lazy_weights[candidate.phase].effective_value(key) * value
         for key, value in candidate.features.items()
     )
-    if config.include_base_margin:
-        score += candidate.base_score
-    return score
 
 
 def candidate_score(config: TrainerConfig, weights: WeightsByPhase, candidate: CandidateMove) -> float:
-    score = sum(weights.get(candidate.phase, {}).get(key, 0.0) * value for key, value in candidate.features.items())
-    if config.include_base_margin:
-        score += candidate.base_score
-    return score
+    del config
+    return sum(weights.get(candidate.phase, {}).get(key, 0.0) * value for key, value in candidate.features.items())
 
 
 def add_sparse_update(
@@ -3083,7 +3039,6 @@ def compact_listwise_dataset(examples: list[ListwiseExample]) -> CompactListwise
     candidate_feature_offsets: list[int] = [0]
     candidate_moves: list[str] = []
     candidate_phase_ids: list[int] = []
-    candidate_base_scores: list[float] = []
     candidate_exact_scores: list[int | None] = []
     candidate_target_mask: list[bool] = []
     candidate_target_probabilities: list[float] = []
@@ -3113,7 +3068,6 @@ def compact_listwise_dataset(examples: list[ListwiseExample]) -> CompactListwise
             local_index = len(candidate_moves) - example_offsets[-1]
             candidate_moves.append(candidate.move)
             candidate_phase_ids.append(PHASE_TO_ID[candidate.phase])
-            candidate_base_scores.append(candidate.base_score)
             candidate_exact_scores.append(candidate.exact_score)
             candidate_target_mask.append(candidate.move in target_moves)
             candidate_target_probabilities.append(target_probabilities[local_index])
@@ -3137,7 +3091,6 @@ def compact_listwise_dataset(examples: list[ListwiseExample]) -> CompactListwise
         candidate_feature_offsets=tuple(candidate_feature_offsets),
         candidate_moves=tuple(candidate_moves),
         candidate_phase_ids=tuple(candidate_phase_ids),
-        candidate_base_scores=tuple(candidate_base_scores),
         candidate_exact_scores=tuple(candidate_exact_scores),
         candidate_target_mask=tuple(candidate_target_mask),
         candidate_target_probabilities=tuple(candidate_target_probabilities),
@@ -3166,7 +3119,6 @@ def compact_listwise_dataset_subset(
     candidate_feature_offsets: list[int] = [0]
     candidate_moves: list[str] = []
     candidate_phase_ids: list[int] = []
-    candidate_base_scores: list[float] = []
     candidate_exact_scores: list[int | None] = []
     candidate_target_mask: list[bool] = []
     candidate_target_probabilities: list[float] = []
@@ -3183,7 +3135,6 @@ def compact_listwise_dataset_subset(
         for candidate_index in range(candidate_start, candidate_end):
             candidate_moves.append(dataset.candidate_moves[candidate_index])
             candidate_phase_ids.append(dataset.candidate_phase_ids[candidate_index])
-            candidate_base_scores.append(dataset.candidate_base_scores[candidate_index])
             candidate_exact_scores.append(dataset.candidate_exact_scores[candidate_index])
             candidate_target_mask.append(dataset.candidate_target_mask[candidate_index])
             candidate_target_probabilities.append(
@@ -3205,7 +3156,6 @@ def compact_listwise_dataset_subset(
         candidate_feature_offsets=tuple(candidate_feature_offsets),
         candidate_moves=tuple(candidate_moves),
         candidate_phase_ids=tuple(candidate_phase_ids),
-        candidate_base_scores=tuple(candidate_base_scores),
         candidate_exact_scores=tuple(candidate_exact_scores),
         candidate_target_mask=tuple(candidate_target_mask),
         candidate_target_probabilities=tuple(candidate_target_probabilities),
@@ -3226,6 +3176,7 @@ def compact_candidate_score(
     dataset: CompactListwiseDataset,
     candidate_index: int,
 ) -> float:
+    del config
     phase = ID_TO_PHASE[dataset.candidate_phase_ids[candidate_index]]
     phase_weights = weights.get(phase, {})
     start = dataset.candidate_feature_offsets[candidate_index]
@@ -3233,8 +3184,6 @@ def compact_candidate_score(
     score = 0.0
     for offset in range(start, end):
         score += phase_weights.get(dataset.feature_keys[dataset.feature_ids[offset]], 0.0) * dataset.feature_values[offset]
-    if config.include_base_margin:
-        score += dataset.candidate_base_scores[candidate_index]
     return score
 
 
@@ -3244,6 +3193,7 @@ def compact_lazy_candidate_score(
     dataset: CompactListwiseDataset,
     candidate_index: int,
 ) -> float:
+    del config
     phase = ID_TO_PHASE[dataset.candidate_phase_ids[candidate_index]]
     phase_weights = lazy_weights[phase]
     start = dataset.candidate_feature_offsets[candidate_index]
@@ -3251,8 +3201,6 @@ def compact_lazy_candidate_score(
     score = 0.0
     for offset in range(start, end):
         score += phase_weights.effective_value(dataset.feature_keys[dataset.feature_ids[offset]]) * dataset.feature_values[offset]
-    if config.include_base_margin:
-        score += dataset.candidate_base_scores[candidate_index]
     return score
 
 
@@ -3572,8 +3520,6 @@ def train_weights(
             if config.l2 != 0.0:
                 phase_weights.shrink(shrink_factor)
             margin = lazy_pair_margin(lazy_weights, pair)
-            if config.include_base_margin:
-                margin += base_score_margin(pair)
             if config.loss == "hinge":
                 factor = 1.0 if margin < 1.0 else 0.0
             else:
@@ -3645,8 +3591,6 @@ def evaluate_compact_pairs(
     for pair_index in range(compact.count):
         phase_id = compact.phase_ids[pair_index]
         margin = compact_pair_margin(weights_by_phase_id[phase_id], compact, pair_index)
-        if config.include_base_margin:
-            margin += compact.base_margins[pair_index]
         weight = compact.pair_weights[pair_index]
         loss = pair_loss(config.loss, margin)
         loss_sum += loss
@@ -3803,8 +3747,6 @@ def train_compact_weights(
             end_offset = offsets[pair_index + 1]
             for offset in range(start_offset, end_offset):
                 margin += phase_weights.effective_value(feature_ids[offset]) * values[offset]
-            if config.include_base_margin:
-                margin += compact.base_margins[pair_index]
             if config.loss == "hinge":
                 factor = 1.0 if margin < 1.0 else 0.0
             else:
@@ -4463,80 +4405,29 @@ def apply_post_training_symmetrize(
     return summary
 
 
-def model_margin_shape(config: TrainerConfig) -> str:
-    if config.candidate_eval_shape == "pattern-only":
-        return "pattern_only" if not config.include_base_margin else "pattern_only_with_base_anchor"
-    return "base_plus_delta" if config.include_base_margin else "delta_only"
-
-
 def render_candidate_eval(config: TrainerConfig) -> str:
-    if config.candidate_eval_shape == "pattern-only":
-        return "\n".join(
-            [
-                "# schema_version: eval.v1",
-                "# generated_by: tools/scripts/regularized_pairwise_pattern_train.py",
-                "# no_strength_claim: true",
-                "# not_default_promotion: true",
-                "# trainer_foundation: true",
-                f"# model_margin: {model_margin_shape(config)}",
-                f"# candidate_pattern_table_weight: {config.candidate_pattern_table_weight}",
-                "schema_version=eval.v1",
-                "mode=pattern_only",
-                "name=regularized_pairwise_pattern_candidate",
-                "pattern_table.opening=tables/opening.tsv",
-                "pattern_table.midgame=tables/midgame.tsv",
-                "pattern_table.late=tables/late.tsv",
-                f"opening.pattern_table={config.candidate_pattern_table_weight}",
-                f"midgame.pattern_table={config.candidate_pattern_table_weight}",
-                f"late.pattern_table={config.candidate_pattern_table_weight}",
-                f"opening_max_occupied={config.phase_cutoffs.opening_max_occupied}",
-                f"midgame_max_occupied={config.phase_cutoffs.midgame_max_occupied}",
-            ]
-        ) + "\n"
-
-    base_text = read_eval_config_text(config.eval_config)
-    base_entries = eval_config_entries(base_text)
-    missing_phase_weights = [
-        phase for phase in PHASES if f"{phase}.pattern_table" not in base_entries
-    ]
-    lines = [
-        "# generated_by: tools/scripts/regularized_pairwise_pattern_train.py",
-        "# no_strength_claim: true",
-        "# not_default_promotion: true",
-        "# trainer_foundation: true",
-        f"# model_margin: {model_margin_shape(config)}",
-        f"# candidate_eval_shape: {config.candidate_eval_shape}",
-        f"# candidate_pattern_table_weight: {config.candidate_pattern_table_weight}",
-    ]
-    inserted_tables = False
-
-    def append_table_bindings() -> None:
-        lines.extend(
-            (
-                "pattern_table.opening=tables/opening.tsv",
-                "pattern_table.midgame=tables/midgame.tsv",
-                "pattern_table.late=tables/late.tsv",
-            )
-        )
-        for phase in missing_phase_weights:
-            lines.append(f"{phase}.pattern_table={config.candidate_pattern_table_weight}")
-
-    for raw_line in base_text.splitlines():
-        parsed = _line_key_value(raw_line)
-        if parsed is not None:
-            key, _ = parsed
-            if key == "pattern_table" or key.startswith("pattern_table."):
-                continue
-            if key == "name":
-                lines.append("name=regularized_pairwise_pattern_candidate")
-                append_table_bindings()
-                inserted_tables = True
-                continue
-        lines.append(raw_line)
-    if not inserted_tables:
-        lines.append("name=regularized_pairwise_pattern_candidate")
-        append_table_bindings()
-    return "\n".join(lines).rstrip() + "\n"
+    return "\n".join(
+        [
+            "# schema_version: eval.v1",
+            "# generated_by: tools/scripts/regularized_pairwise_pattern_train.py",
+            "# no_strength_claim: true",
+            "# not_default_promotion: true",
+            "# trainer_foundation: true",
+            f"# model: {TRAINER_MODEL}",
+            f"# candidate_pattern_table_weight: {config.candidate_pattern_table_weight}",
+            "schema_version=eval.v1",
+            "mode=pattern_only",
+            "name=regularized_pairwise_pattern_candidate",
+            "pattern_table.opening=tables/opening.tsv",
+            "pattern_table.midgame=tables/midgame.tsv",
+            "pattern_table.late=tables/late.tsv",
+            f"opening.pattern_table={config.candidate_pattern_table_weight}",
+            f"midgame.pattern_table={config.candidate_pattern_table_weight}",
+            f"late.pattern_table={config.candidate_pattern_table_weight}",
+            f"opening_max_occupied={config.phase_cutoffs.opening_max_occupied}",
+            f"midgame_max_occupied={config.phase_cutoffs.midgame_max_occupied}",
+        ]
+    ) + "\n"
 
 
 def validation_rows_with_margins(
@@ -4739,8 +4630,7 @@ def render_report(
         f"- scale_grid: `{', '.join(format_weight(scale) for scale in config.scale_grid)}`",
         f"- max_abs_output_weight: `{config.max_abs_output_weight}`",
         f"- candidate_pattern_table_weight: `{config.candidate_pattern_table_weight}`",
-        f"- candidate_eval_shape: `{config.candidate_eval_shape}`",
-        f"- model_margin: `{model_margin_shape(config)}`",
+        f"- model: `{TRAINER_MODEL}`",
         f"- seed: `{config.seed}`",
         f"- phase_cutoffs: opening <= `{config.phase_cutoffs.opening_max_occupied}`, "
         f"midgame <= `{config.phase_cutoffs.midgame_max_occupied}`, else late",
@@ -4919,8 +4809,8 @@ def render_report(
             "",
             "- Generated `.eval` and TSV files belong under `runs/` and should not be copied into `data/eval`.",
             "- `candidate.eval` is a local experiment candidate and does not change `current_default.eval`.",
-            "- The trainer learns pattern-table weights from the selected teacher-vs-engine pairs; "
-            "`base-plus-delta` candidates keep base scalar weights, while `pattern-only` candidates are scalar-free.",
+            "- The trainer learns pattern-only delta scores from the selected teacher-vs-engine pairs; "
+            "base scalar weights are not part of the trainer objective or generated candidate.",
             "- Follow-up validation must use held-out labels, search/match checks, and external sanity before any strength claim.",
         ]
     )
@@ -5050,9 +4940,7 @@ def render_dataset_diagnostic_report(config: TrainerConfig, summary: dict[str, A
             "  --exact-aware-only-when-available \\",
             "  --min-score-margin 4 \\",
             "  --max-top-group-size-for-training 4 \\",
-            "  --max-pairs-per-position 8 \\",
-            "  --no-base-margin \\",
-            "  --candidate-eval-shape pattern-only",
+            "  --max-pairs-per-position 8",
             "```",
             "",
         ]
@@ -5158,7 +5046,6 @@ def training_config_hash(config: TrainerConfig) -> str:
         "l2": config.l2,
         "learning_rate": config.learning_rate,
         "max_abs_weight": config.max_abs_weight,
-        "include_base_margin": config.include_base_margin,
         "exact_score_soft_target": config.exact_score_soft_target,
         "exact_score_temperature": config.exact_score_temperature,
         "exact_score_target_floor": config.exact_score_target_floor,
@@ -5496,8 +5383,7 @@ def train_pairwise_tables(
         "scale_grid": list(config.scale_grid),
         "max_abs_output_weight": config.max_abs_output_weight,
         "candidate_pattern_table_weight": config.candidate_pattern_table_weight,
-        "include_base_margin": config.include_base_margin,
-        "candidate_eval_shape": config.candidate_eval_shape,
+        "model": TRAINER_MODEL,
         "seed": config.seed,
         "phase_cutoffs": {
             "opening_max_occupied": config.phase_cutoffs.opening_max_occupied,
