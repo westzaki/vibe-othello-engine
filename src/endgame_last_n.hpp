@@ -4,6 +4,7 @@
 #include "search_common.hpp"
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cassert>
 #include <optional>
@@ -34,8 +35,15 @@ constexpr int last_n_specialized_empties = 4;
     return NodeResult{.score = score_for_player(position)};
 }
 
-[[nodiscard]] inline NodeResult solve_last_n_node(const SearchPosition& position, int alpha,
-                                                  int beta, ExactEndgameContext& context) noexcept;
+[[nodiscard]] inline NodeResult solve_last_1(const SearchPosition& position,
+                                             ExactEndgameContext& context) noexcept;
+
+[[nodiscard]] inline NodeResult solve_last_2(const SearchPosition& position, int alpha, int beta,
+                                             ExactEndgameContext& context) noexcept;
+
+[[nodiscard]] inline NodeResult solve_last_n_generic_node(const SearchPosition& position, int alpha,
+                                                          int beta,
+                                                          ExactEndgameContext& context) noexcept;
 
 // NOLINTNEXTLINE(misc-no-recursion)
 [[nodiscard]] inline NodeResult solve_last_n_dispatch(const SearchPosition& position, int alpha,
@@ -45,19 +53,143 @@ constexpr int last_n_specialized_empties = 4;
     case 0:
         return solve_last_0(position, context);
     case 1:
+        return solve_last_1(position, context);
     case 2:
+        return solve_last_2(position, alpha, beta, context);
     case 3:
     case 4:
-        return solve_last_n_node(position, alpha, beta, context);
+        return solve_last_n_generic_node(position, alpha, beta, context);
     default:
         assert(false);
         return NodeResult{.score = score_for_player(position)};
     }
 }
 
+[[nodiscard]] inline PrincipalVariation principal_variation_single_move(Square move) noexcept {
+    PrincipalVariation principal_variation;
+    principal_variation.indexes[0] = move.index();
+    principal_variation.size = 1;
+    return principal_variation;
+}
+
+[[nodiscard]] inline std::optional<Square> first_empty_square(Bitboard empty) noexcept {
+    if (empty == 0) {
+        return std::nullopt;
+    }
+    return Square::from_index(std::countr_zero(empty));
+}
+
+[[nodiscard]] inline Bitboard flips_for_empty_square(const SearchPosition& position,
+                                                     Square square) noexcept {
+    return flips_for_move(position, square);
+}
+
+[[nodiscard]] inline NodeResult solve_last_1(const SearchPosition& position,
+                                             ExactEndgameContext& context) noexcept {
+    ++context.stats.nodes;
+
+    const std::optional<Square> square = first_empty_square(position.empty());
+    if (!square.has_value()) {
+        return NodeResult{.score = score_for_player(position)};
+    }
+
+    const Bitboard current_flips = flips_for_empty_square(position, *square);
+    if (current_flips != 0) {
+        const SearchPosition next = position_after_move(position, *square, current_flips);
+        ++context.stats.nodes;
+        return NodeResult{
+            .best_move = square,
+            .score = -score_for_player(next),
+            .principal_variation = principal_variation_single_move(*square),
+        };
+    }
+
+    const SearchPosition after_pass = position_after_pass(position);
+    const Bitboard opponent_flips = flips_for_empty_square(after_pass, *square);
+    if (opponent_flips == 0) {
+        return NodeResult{.score = score_for_player(position)};
+    }
+
+    const SearchPosition next = position_after_move(after_pass, *square, opponent_flips);
+    context.stats.nodes += 2;
+    return NodeResult{
+        .score = score_for_player(next),
+        .principal_variation = principal_variation_single_move(*square),
+    };
+}
+
+[[nodiscard]] inline std::array<Square, 2> last_2_empty_squares(Bitboard empty) noexcept {
+    assert(std::popcount(empty) == 2);
+    const int first_index = std::countr_zero(empty);
+    empty &= empty - 1;
+    const int second_index = std::countr_zero(empty);
+    return {*Square::from_index(first_index), *Square::from_index(second_index)};
+}
+
+[[nodiscard]] inline bool
+has_move_on_any_last_2_empty(const SearchPosition& position,
+                             const std::array<Square, 2>& squares) noexcept {
+    return flips_for_empty_square(position, squares[0]) != 0 ||
+           flips_for_empty_square(position, squares[1]) != 0;
+}
+
+[[nodiscard]] inline NodeResult solve_last_2(const SearchPosition& position, int alpha, int beta,
+                                             ExactEndgameContext& context) noexcept {
+    ++context.stats.nodes;
+    assert(empty_count(position) == 2);
+
+    const std::array<Square, 2> squares = last_2_empty_squares(position.empty());
+    if (flips_for_empty_square(position, squares[0]) == 0 &&
+        flips_for_empty_square(position, squares[1]) == 0) {
+        const SearchPosition after_pass = position_after_pass(position);
+        if (!has_move_on_any_last_2_empty(after_pass, squares)) {
+            return NodeResult{.score = score_for_player(position)};
+        }
+
+        const NodeResult child = solve_last_2(after_pass, -beta, -alpha, context);
+        return NodeResult{
+            .score = -child.score,
+            .principal_variation = child.principal_variation,
+        };
+    }
+
+    std::optional<int> best_score;
+    std::optional<Square> best_move;
+    PrincipalVariation best_principal_variation;
+
+    for (Square square : squares) {
+        const Bitboard flips = flips_for_empty_square(position, square);
+        if (flips == 0) {
+            continue;
+        }
+
+        const SearchPosition next = position_after_move(position, square, flips);
+        const NodeResult child = solve_last_1(next, context);
+        const int candidate_score = -child.score;
+        if (is_better_best_move(candidate_score, square, best_score, best_move)) {
+            best_score = candidate_score;
+            best_move = square;
+            best_principal_variation =
+                principal_variation_with_move(square, child.principal_variation);
+        }
+
+        alpha = std::max(alpha, candidate_score);
+        if (alpha >= beta) {
+            break;
+        }
+    }
+
+    return NodeResult{
+        .best_move = best_move,
+        .score = best_score.value_or(score_for_player(position)),
+        .principal_variation = best_principal_variation,
+    };
+}
+
 // NOLINTNEXTLINE(misc-no-recursion)
-[[nodiscard]] inline NodeResult solve_last_n_node(const SearchPosition& position, int alpha,
-                                                  int beta, ExactEndgameContext& context) noexcept {
+[[nodiscard]] inline NodeResult solve_last_n_generic_node(const SearchPosition& position, int alpha,
+                                                          int beta,
+                                                          ExactEndgameContext& context) noexcept {
     ++context.stats.nodes;
     const int empties = empty_count(position);
     if (empties == 0) {
