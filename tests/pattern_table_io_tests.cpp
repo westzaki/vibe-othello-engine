@@ -52,6 +52,11 @@ midgame_max_occupied=40
     CHECK(loaded.config.pattern_tables->diagonal_4[3] == 5);
     CHECK(loaded.config.pattern_tables->corner_2x4[4] == 7);
     CHECK(loaded.config.pattern_tables->column_8[2] == 0);
+    CHECK(loaded.config.pattern_tables->active_families.corner_2x3);
+    CHECK(loaded.config.pattern_tables->active_families.row_8);
+    CHECK(loaded.config.pattern_tables->active_families.diagonal_4);
+    CHECK(loaded.config.pattern_tables->active_families.corner_2x4);
+    CHECK_FALSE(loaded.config.pattern_tables->active_families.column_8);
     check_scalar_weights_zero(loaded.config.opening);
     check_scalar_weights_zero(loaded.config.midgame);
     check_scalar_weights_zero(loaded.config.late);

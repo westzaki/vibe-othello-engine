@@ -65,6 +65,7 @@ PatternTableLoadResult load_pattern_table_file(const std::filesystem::path& path
     }
 
     auto loaded = std::make_shared<PatternTableBundle>();
+    loaded->active_families = PatternTableActiveFamilies{};
     std::array<bool, corner_2x3_pattern_table_size> seen_corner{};
     std::array<bool, corner_3x3_pattern_table_size> seen_corner_3x3{};
     std::array<bool, edge_8_pattern_table_size> seen_edge{};
@@ -114,78 +115,91 @@ PatternTableLoadResult load_pattern_table_file(const std::filesystem::path& path
                 !error.empty()) {
                 return pattern_table_error(error);
             }
+            loaded->active_families.corner_2x3 = true;
         } else if (family == "corner_3x3") {
             if (const std::string error = assign_sparse_pattern_entry(
                     loaded->corner_3x3, seen_corner_3x3, line_number, family, index, value);
                 !error.empty()) {
                 return pattern_table_error(error);
             }
+            loaded->active_families.corner_3x3 = true;
         } else if (family == "edge_8") {
             if (const std::string error = assign_sparse_pattern_entry(
                     loaded->edge_8, seen_edge, line_number, family, index, value);
                 !error.empty()) {
                 return pattern_table_error(error);
             }
+            loaded->active_families.edge_8 = true;
         } else if (family == "edge_x_10") {
             if (const std::string error = assign_sparse_pattern_entry(
                     loaded->edge_x_10, seen_edge_x_10, line_number, family, index, value);
                 !error.empty()) {
                 return pattern_table_error(error);
             }
+            loaded->active_families.edge_x_10 = true;
         } else if (family == "row_8") {
             if (const std::string error = assign_sparse_pattern_entry(
                     loaded->row_8, seen_row_8, line_number, family, index, value);
                 !error.empty()) {
                 return pattern_table_error(error);
             }
+            loaded->active_families.row_8 = true;
         } else if (family == "column_8") {
             if (const std::string error = assign_sparse_pattern_entry(
                     loaded->column_8, seen_column_8, line_number, family, index, value);
                 !error.empty()) {
                 return pattern_table_error(error);
             }
+            loaded->active_families.column_8 = true;
         } else if (family == "diagonal_4") {
             if (const std::string error = assign_sparse_pattern_entry(
                     loaded->diagonal_4, seen_diagonal_4, line_number, family, index, value);
                 !error.empty()) {
                 return pattern_table_error(error);
             }
+            loaded->active_families.diagonal_4 = true;
         } else if (family == "diagonal_5") {
             if (const std::string error = assign_sparse_pattern_entry(
                     loaded->diagonal_5, seen_diagonal_5, line_number, family, index, value);
                 !error.empty()) {
                 return pattern_table_error(error);
             }
+            loaded->active_families.diagonal_5 = true;
         } else if (family == "diagonal_6") {
             if (const std::string error = assign_sparse_pattern_entry(
                     loaded->diagonal_6, seen_diagonal_6, line_number, family, index, value);
                 !error.empty()) {
                 return pattern_table_error(error);
             }
+            loaded->active_families.diagonal_6 = true;
         } else if (family == "diagonal_7") {
             if (const std::string error = assign_sparse_pattern_entry(
                     loaded->diagonal_7, seen_diagonal_7, line_number, family, index, value);
                 !error.empty()) {
                 return pattern_table_error(error);
             }
+            loaded->active_families.diagonal_7 = true;
         } else if (family == "diagonal_8") {
             if (const std::string error = assign_sparse_pattern_entry(
                     loaded->diagonal_8, seen_diagonal, line_number, family, index, value);
                 !error.empty()) {
                 return pattern_table_error(error);
             }
+            loaded->active_families.diagonal_8 = true;
         } else if (family == "inner_row_8") {
             if (const std::string error = assign_sparse_pattern_entry(
                     loaded->inner_row_8, seen_inner_row, line_number, family, index, value);
                 !error.empty()) {
                 return pattern_table_error(error);
             }
+            loaded->active_families.inner_row_8 = true;
         } else if (family == "corner_2x4") {
             if (const std::string error = assign_sparse_pattern_entry(
                     loaded->corner_2x4, seen_corner_2x4, line_number, family, index, value);
                 !error.empty()) {
                 return pattern_table_error(error);
             }
+            loaded->active_families.corner_2x4 = true;
         } else {
             return pattern_table_error(
                 line_error(line_number, "unknown pattern family: " + family));

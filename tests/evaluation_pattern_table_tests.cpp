@@ -1,3 +1,4 @@
+#include "../src/evaluation_internal.hpp"
 #include "common/eval_config_io.hpp"
 #include "common/evaluator_selection.hpp"
 #include "evaluation_test_helpers.hpp"
@@ -124,6 +125,25 @@ TEST_CASE("External broad pattern table is antisymmetric under color swap",
                                                   *tables) == 59);
     CHECK(othello::evaluate_with_config(inner_board, Side::Black, config) ==
           -othello::evaluate_with_config(swapped_inner, Side::Black, config));
+}
+
+TEST_CASE("External pattern table skips inactive families", "[evaluation]") {
+    othello::PatternTableBundle tables;
+    tables.active_families = othello::PatternTableActiveFamilies{};
+
+    const Board board = pattern_disc_board(othello::test::bit("a1"));
+    const int inactive_index =
+        othello::row_8_pattern_index(board, Side::Black, othello::Row8PatternRow::Rank1);
+    tables.row_8[static_cast<std::size_t>(inactive_index)] = 99;
+
+    CHECK(othello::evaluation_pattern_table_value(board, Side::Black, tables) == 0);
+    CHECK(othello::evaluation_detail::evaluation_pattern_table_score(
+              board.black, board.white, tables) == 0);
+
+    tables.active_families.row_8 = true;
+    CHECK(othello::evaluation_pattern_table_value(board, Side::Black, tables) == 99);
+    CHECK(othello::evaluation_detail::evaluation_pattern_table_score(
+              board.black, board.white, tables) == 99);
 }
 
 TEST_CASE("External pattern table value follows public pattern indexes",

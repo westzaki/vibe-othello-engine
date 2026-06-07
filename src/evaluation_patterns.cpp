@@ -673,57 +673,83 @@ int evaluation_pattern_table_value(const Board& board, Side side,
                                    const PatternTableBundle& tables) noexcept {
     const PatternIndexContext context = pattern_index_context(board, side);
     int value = 0;
-    for (const Corner2x3PatternSpec& spec : corner_2x3_pattern_specs) {
-        value += tables.corner_2x3[static_cast<std::size_t>(
-            pattern_index_for_squares(context, spec.square_indexes))];
+    if (tables.active_families.corner_2x3) {
+        for (const Corner2x3PatternSpec& spec : corner_2x3_pattern_specs) {
+            value += tables.corner_2x3[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
     }
-    for (const Corner3x3PatternSpec& spec : corner_3x3_pattern_specs) {
-        value += tables.corner_3x3[static_cast<std::size_t>(
-            pattern_index_for_squares(context, spec.square_indexes))];
+    if (tables.active_families.corner_3x3) {
+        for (const Corner3x3PatternSpec& spec : corner_3x3_pattern_specs) {
+            value += tables.corner_3x3[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
     }
-    for (const Edge8PatternSpec& spec : edge_8_pattern_specs) {
-        value += tables.edge_8[static_cast<std::size_t>(
-            pattern_index_for_squares(context, spec.square_indexes))];
+    if (tables.active_families.edge_8) {
+        for (const Edge8PatternSpec& spec : edge_8_pattern_specs) {
+            value += tables.edge_8[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
     }
-    for (const EdgeX10PatternSpec& spec : edge_x_10_pattern_specs) {
-        value += tables.edge_x_10[static_cast<std::size_t>(
-            pattern_index_for_squares(context, spec.square_indexes))];
+    if (tables.active_families.edge_x_10) {
+        for (const EdgeX10PatternSpec& spec : edge_x_10_pattern_specs) {
+            value += tables.edge_x_10[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
     }
-    for (const Row8PatternSpec& spec : row_8_pattern_specs) {
-        value += tables.row_8[static_cast<std::size_t>(
-            pattern_index_for_squares(context, spec.square_indexes))];
+    if (tables.active_families.row_8) {
+        for (const Row8PatternSpec& spec : row_8_pattern_specs) {
+            value += tables.row_8[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
     }
-    for (const Column8PatternSpec& spec : column_8_pattern_specs) {
-        value += tables.column_8[static_cast<std::size_t>(
-            pattern_index_for_squares(context, spec.square_indexes))];
+    if (tables.active_families.column_8) {
+        for (const Column8PatternSpec& spec : column_8_pattern_specs) {
+            value += tables.column_8[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
     }
-    for (const IndexedPatternSpec<4>& spec : diagonal_4_pattern_specs) {
-        value += tables.diagonal_4[static_cast<std::size_t>(
-            pattern_index_for_squares(context, spec.square_indexes))];
+    if (tables.active_families.diagonal_4) {
+        for (const IndexedPatternSpec<4>& spec : diagonal_4_pattern_specs) {
+            value += tables.diagonal_4[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
     }
-    for (const IndexedPatternSpec<5>& spec : diagonal_5_pattern_specs) {
-        value += tables.diagonal_5[static_cast<std::size_t>(
-            pattern_index_for_squares(context, spec.square_indexes))];
+    if (tables.active_families.diagonal_5) {
+        for (const IndexedPatternSpec<5>& spec : diagonal_5_pattern_specs) {
+            value += tables.diagonal_5[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
     }
-    for (const IndexedPatternSpec<6>& spec : diagonal_6_pattern_specs) {
-        value += tables.diagonal_6[static_cast<std::size_t>(
-            pattern_index_for_squares(context, spec.square_indexes))];
+    if (tables.active_families.diagonal_6) {
+        for (const IndexedPatternSpec<6>& spec : diagonal_6_pattern_specs) {
+            value += tables.diagonal_6[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
     }
-    for (const IndexedPatternSpec<7>& spec : diagonal_7_pattern_specs) {
-        value += tables.diagonal_7[static_cast<std::size_t>(
-            pattern_index_for_squares(context, spec.square_indexes))];
+    if (tables.active_families.diagonal_7) {
+        for (const IndexedPatternSpec<7>& spec : diagonal_7_pattern_specs) {
+            value += tables.diagonal_7[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
     }
-    for (const Diagonal8PatternSpec& spec : diagonal_8_pattern_specs) {
-        value += tables.diagonal_8[static_cast<std::size_t>(
-            pattern_index_for_squares(context, spec.square_indexes))];
+    if (tables.active_families.diagonal_8) {
+        for (const Diagonal8PatternSpec& spec : diagonal_8_pattern_specs) {
+            value += tables.diagonal_8[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
     }
-    for (const InnerRow8PatternSpec& spec : inner_row_8_pattern_specs) {
-        value += tables.inner_row_8[static_cast<std::size_t>(
-            pattern_index_for_squares(context, spec.square_indexes))];
+    if (tables.active_families.inner_row_8) {
+        for (const InnerRow8PatternSpec& spec : inner_row_8_pattern_specs) {
+            value += tables.inner_row_8[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
     }
-    for (const Corner2x4PatternSpec& spec : corner_2x4_pattern_specs) {
-        value += tables.corner_2x4[static_cast<std::size_t>(
-            pattern_index_for_squares(context, spec.square_indexes))];
+    if (tables.active_families.corner_2x4) {
+        for (const Corner2x4PatternSpec& spec : corner_2x4_pattern_specs) {
+            value += tables.corner_2x4[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
     }
     return value;
 }
@@ -759,57 +785,83 @@ int evaluation_pattern_table_score(Bitboard player, Bitboard opponent,
                                    const PatternTableBundle& tables) noexcept {
     const PatternIndexContext context = pattern_index_context(player, opponent);
     int value = 0;
-    for (const Corner2x3PatternSpec& spec : corner_2x3_pattern_specs) {
-        value += tables.corner_2x3[static_cast<std::size_t>(
-            pattern_index_for_squares(context, spec.square_indexes))];
+    if (tables.active_families.corner_2x3) {
+        for (const Corner2x3PatternSpec& spec : corner_2x3_pattern_specs) {
+            value += tables.corner_2x3[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
     }
-    for (const Corner3x3PatternSpec& spec : corner_3x3_pattern_specs) {
-        value += tables.corner_3x3[static_cast<std::size_t>(
-            pattern_index_for_squares(context, spec.square_indexes))];
+    if (tables.active_families.corner_3x3) {
+        for (const Corner3x3PatternSpec& spec : corner_3x3_pattern_specs) {
+            value += tables.corner_3x3[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
     }
-    for (const Edge8PatternSpec& spec : edge_8_pattern_specs) {
-        value += tables.edge_8[static_cast<std::size_t>(
-            pattern_index_for_squares(context, spec.square_indexes))];
+    if (tables.active_families.edge_8) {
+        for (const Edge8PatternSpec& spec : edge_8_pattern_specs) {
+            value += tables.edge_8[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
     }
-    for (const EdgeX10PatternSpec& spec : edge_x_10_pattern_specs) {
-        value += tables.edge_x_10[static_cast<std::size_t>(
-            pattern_index_for_squares(context, spec.square_indexes))];
+    if (tables.active_families.edge_x_10) {
+        for (const EdgeX10PatternSpec& spec : edge_x_10_pattern_specs) {
+            value += tables.edge_x_10[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
     }
-    for (const Row8PatternSpec& spec : row_8_pattern_specs) {
-        value += tables.row_8[static_cast<std::size_t>(
-            pattern_index_for_squares(context, spec.square_indexes))];
+    if (tables.active_families.row_8) {
+        for (const Row8PatternSpec& spec : row_8_pattern_specs) {
+            value += tables.row_8[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
     }
-    for (const Column8PatternSpec& spec : column_8_pattern_specs) {
-        value += tables.column_8[static_cast<std::size_t>(
-            pattern_index_for_squares(context, spec.square_indexes))];
+    if (tables.active_families.column_8) {
+        for (const Column8PatternSpec& spec : column_8_pattern_specs) {
+            value += tables.column_8[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
     }
-    for (const IndexedPatternSpec<4>& spec : diagonal_4_pattern_specs) {
-        value += tables.diagonal_4[static_cast<std::size_t>(
-            pattern_index_for_squares(context, spec.square_indexes))];
+    if (tables.active_families.diagonal_4) {
+        for (const IndexedPatternSpec<4>& spec : diagonal_4_pattern_specs) {
+            value += tables.diagonal_4[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
     }
-    for (const IndexedPatternSpec<5>& spec : diagonal_5_pattern_specs) {
-        value += tables.diagonal_5[static_cast<std::size_t>(
-            pattern_index_for_squares(context, spec.square_indexes))];
+    if (tables.active_families.diagonal_5) {
+        for (const IndexedPatternSpec<5>& spec : diagonal_5_pattern_specs) {
+            value += tables.diagonal_5[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
     }
-    for (const IndexedPatternSpec<6>& spec : diagonal_6_pattern_specs) {
-        value += tables.diagonal_6[static_cast<std::size_t>(
-            pattern_index_for_squares(context, spec.square_indexes))];
+    if (tables.active_families.diagonal_6) {
+        for (const IndexedPatternSpec<6>& spec : diagonal_6_pattern_specs) {
+            value += tables.diagonal_6[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
     }
-    for (const IndexedPatternSpec<7>& spec : diagonal_7_pattern_specs) {
-        value += tables.diagonal_7[static_cast<std::size_t>(
-            pattern_index_for_squares(context, spec.square_indexes))];
+    if (tables.active_families.diagonal_7) {
+        for (const IndexedPatternSpec<7>& spec : diagonal_7_pattern_specs) {
+            value += tables.diagonal_7[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
     }
-    for (const Diagonal8PatternSpec& spec : diagonal_8_pattern_specs) {
-        value += tables.diagonal_8[static_cast<std::size_t>(
-            pattern_index_for_squares(context, spec.square_indexes))];
+    if (tables.active_families.diagonal_8) {
+        for (const Diagonal8PatternSpec& spec : diagonal_8_pattern_specs) {
+            value += tables.diagonal_8[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
     }
-    for (const InnerRow8PatternSpec& spec : inner_row_8_pattern_specs) {
-        value += tables.inner_row_8[static_cast<std::size_t>(
-            pattern_index_for_squares(context, spec.square_indexes))];
+    if (tables.active_families.inner_row_8) {
+        for (const InnerRow8PatternSpec& spec : inner_row_8_pattern_specs) {
+            value += tables.inner_row_8[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
     }
-    for (const Corner2x4PatternSpec& spec : corner_2x4_pattern_specs) {
-        value += tables.corner_2x4[static_cast<std::size_t>(
-            pattern_index_for_squares(context, spec.square_indexes))];
+    if (tables.active_families.corner_2x4) {
+        for (const Corner2x4PatternSpec& spec : corner_2x4_pattern_specs) {
+            value += tables.corner_2x4[static_cast<std::size_t>(
+                pattern_index_for_squares(context, spec.square_indexes))];
+        }
     }
     return value;
 }

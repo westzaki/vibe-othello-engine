@@ -100,7 +100,45 @@ enum class Corner2x4PatternCorner {
 
 inline constexpr int corner_2x4_pattern_table_size = 6561;
 
+struct PatternTableActiveFamilies {
+    bool corner_2x3 = false;
+    bool corner_3x3 = false;
+    bool edge_8 = false;
+    bool edge_x_10 = false;
+    bool row_8 = false;
+    bool column_8 = false;
+    bool diagonal_4 = false;
+    bool diagonal_5 = false;
+    bool diagonal_6 = false;
+    bool diagonal_7 = false;
+    bool diagonal_8 = false;
+    bool inner_row_8 = false;
+    bool corner_2x4 = false;
+
+    [[nodiscard]] friend bool operator==(const PatternTableActiveFamilies&,
+                                         const PatternTableActiveFamilies&) = default;
+};
+
+[[nodiscard]] constexpr PatternTableActiveFamilies all_pattern_table_families_active() noexcept {
+    return PatternTableActiveFamilies{
+        .corner_2x3 = true,
+        .corner_3x3 = true,
+        .edge_8 = true,
+        .edge_x_10 = true,
+        .row_8 = true,
+        .column_8 = true,
+        .diagonal_4 = true,
+        .diagonal_5 = true,
+        .diagonal_6 = true,
+        .diagonal_7 = true,
+        .diagonal_8 = true,
+        .inner_row_8 = true,
+        .corner_2x4 = true,
+    };
+}
+
 struct PatternTableBundle {
+    PatternTableActiveFamilies active_families = all_pattern_table_families_active();
     std::array<std::int16_t, corner_2x3_pattern_table_size> corner_2x3{};
     std::array<std::int16_t, corner_3x3_pattern_table_size> corner_3x3{};
     std::array<std::int16_t, edge_8_pattern_table_size> edge_8{};

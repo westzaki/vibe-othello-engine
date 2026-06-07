@@ -27,6 +27,8 @@ diagonal_7, corner_2x4
 
 Old pattern TSVs remain loadable: families absent from a TSV stay zero in the dense runtime bundle.
 
+After review, `PatternTableBundle` also carries active family flags. Bundles built by the TSV loader start with every family inactive and activate only families that appear in the TSV. Manually constructed bundles keep all families active by default for compatibility with existing tests/helpers. This means old TSVs preserve score compatibility without paying row/column/short-diagonal/corner_2x4 index cost at every leaf.
+
 ## Table Size
 
 | family | instances | cells | entries | dense int16 bytes |
@@ -179,6 +181,36 @@ Current default:
 | 7 | d6 | 114,104 | 77.085 | 106,927 | 7683126379340188895 |
 
 The candidate loads and searches successfully. It is faster in this smoke set, but it changes best moves/checksums and the match evidence below is strongly negative.
+
+## Current Default Compatibility And Overhead
+
+`current_default.eval` uses the committed `ntest_pairwise_full_v2` phase tables. Those TSVs contain the old broad families (`corner_3x3`, `edge_8`, `edge_x_10`, `diagonal_8`, `inner_row_8`) and do not contain the new `row_8`, `column_8`, `diagonal_4..7`, or `corner_2x4` families. With active family flags, those new families stay inactive for `current_default`.
+
+Compared `origin/main` at `4b050b9` against this PR using:
+
+```bash
+build/release/othello_search_bench \
+  --mode iterative \
+  --depths 5,6,7 \
+  --positions evaluation \
+  --repetitions 10 \
+  --tt on \
+  --pvs on \
+  --exact-endgame-threshold 0 \
+  --eval-config data/eval/current_default.eval \
+  --format jsonl
+```
+
+| depth | build | best move | score | nodes | eval calls | elapsed ms | result checksum | work checksum |
+| --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- |
+| 5 | main | b2 | 38 | 169,330 | 154,840 | 157.069 | 5143768556796042231 | 15852834915476305377 |
+| 5 | PR | b2 | 38 | 169,330 | 154,840 | 157.248 | 5143768556796042231 | 15852834915476305377 |
+| 6 | main | d6 | 84 | 467,200 | 428,100 | 293.365 | 2835569881963986004 | 8139319974316638276 |
+| 6 | PR | d6 | 84 | 467,200 | 428,100 | 226.202 | 2835569881963986004 | 8139319974316638276 |
+| 7 | main | b2 | 29 | 1,502,340 | 1,387,750 | 699.744 | 16887926371653799903 | 7367587863577908325 |
+| 7 | PR | b2 | 29 | 1,502,340 | 1,387,750 | 480.923 | 16887926371653799903 | 7367587863577908325 |
+
+Scores, best moves, nodes, eval calls, result checksums, and work checksums match exactly. Elapsed time did not show an overhead regression in this smoke run; timing is noisy, but the PR is not paying the new-family index loops for `current_default`.
 
 ## Match Smoke
 
