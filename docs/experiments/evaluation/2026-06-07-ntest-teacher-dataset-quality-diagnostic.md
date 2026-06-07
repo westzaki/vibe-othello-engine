@@ -39,10 +39,10 @@ group size.
 
 ## Commands
 
-The diagnostic runs used the local dataset root:
+The diagnostic runs used a local dataset root outside the repository:
 
 ```sh
-DATASET_ROOT=/Users/mnishizaki/Project/vibe-othello-datasets
+DATASET_ROOT=/path/to/vibe-othello-datasets
 ```
 
 1K smoke:
@@ -157,7 +157,7 @@ Safe preset for the next exact-aware training experiment:
 ```sh
 python3 tools/scripts/regularized_pairwise_pattern_train.py \
   --teacher-labels "$teacher_labels" \
-  --dataset-root /Users/mnishizaki/Project/vibe-othello-datasets \
+  --dataset-root "$DATASET_ROOT" \
   --exact-labels dataset:teacher/ntest-balanced300k-v0-exact-overlap-v0/exact-overlap/labels.jsonl \
   --eval-config data/eval/current_default.eval \
   --analyze-position build/release/othello_analyze_position \
