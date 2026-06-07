@@ -244,6 +244,19 @@ if(Python3_Interpreter_FOUND AND OTHELLO_BUILD_EXPERIMENT_TOOLS)
     )
 
     add_test(
+        NAME pattern_only_train_py
+        COMMAND "${Python3_EXECUTABLE}"
+            -m unittest
+            tools/scripts/tests/test_pattern_only_train.py
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+    set_tests_properties(
+        pattern_only_train_py
+        PROPERTIES
+            ENVIRONMENT "OTHELLO_ANALYZE_POSITION=$<TARGET_FILE:othello_analyze_position>"
+    )
+
+    add_test(
         NAME eval_candidate_matrix_dry_run
         COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/tools/scripts/eval_candidate_matrix.py"
@@ -263,6 +276,7 @@ if(Python3_Interpreter_FOUND AND OTHELLO_BUILD_EXPERIMENT_TOOLS)
         ntest_teacher_smoke_py
         pattern_training_analysis_cache_py
         pattern_training_helpers_py
+        pattern_only_train_py
         eval_candidate_matrix_dry_run
     )
 endif()

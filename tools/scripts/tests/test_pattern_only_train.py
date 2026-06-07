@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import io
 import json
+import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -39,12 +41,26 @@ def write_jsonl(path: Path, rows: list[dict[str, object]]) -> Path:
 
 
 def write_eval_config(path: Path) -> Path:
+    table_dir = path.parent / "tables"
+    table_dir.mkdir(parents=True, exist_ok=True)
+    for phase in trainer.PHASES:
+        (table_dir / f"{phase}.tsv").write_text(
+            "# schema_version: pattern_table.v1\n"
+            f"# name: pattern_fixture_{phase}\n"
+            "corner_2x3\t1\t1\n",
+            encoding="utf-8",
+        )
     path.write_text(
         "# schema_version: eval.v1\n"
+        "schema_version=eval.v1\n"
+        "mode=pattern_only\n"
         "name=pattern_fixture\n"
-        "opening.mobility=8\n"
-        "midgame.mobility=10\n"
-        "late.mobility=6\n"
+        "pattern_table.opening=tables/opening.tsv\n"
+        "pattern_table.midgame=tables/midgame.tsv\n"
+        "pattern_table.late=tables/late.tsv\n"
+        "opening.pattern_table=1\n"
+        "midgame.pattern_table=1\n"
+        "late.pattern_table=1\n"
         "opening_max_occupied=20\n"
         "midgame_max_occupied=44\n",
         encoding="utf-8",
@@ -506,6 +522,68 @@ class CanonicalPatternOnlyListwiseTrainerTests(unittest.TestCase):
             self.assertEqual(result.summary["rows"]["soft_target_examples"], 1)
             for phase in trainer.PHASES:
                 self.assertTrue(result.table_paths[phase].exists())
+
+    def test_generated_candidate_eval_loads_in_cpp_analyzer(self) -> None:
+        analyze_position = os.environ.get("OTHELLO_ANALYZE_POSITION")
+        if not analyze_position:
+            self.skipTest("OTHELLO_ANALYZE_POSITION is not set")
+        analyze_position_path = Path(analyze_position)
+        if not analyze_position_path.is_file():
+            self.skipTest(f"othello_analyze_position not found: {analyze_position_path}")
+
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            exact = write_jsonl(
+                temp_path / "exact.jsonl",
+                [
+                    exact_row(
+                        TEACHER_BOARD,
+                        best_move="b1",
+                        move_scores=all_legal_move_scores(TEACHER_BOARD, "b1"),
+                    )
+                ],
+            )
+            config = make_config(temp_path, labels, exact_labels=exact)
+
+            result = trainer.train_pattern_tables(config, analyzer=fake_analyzer)
+            candidate = result.candidate_eval_path.read_text(encoding="utf-8")
+
+            self.assertIn("schema_version=eval.v1", candidate)
+            self.assertIn("mode=pattern_only", candidate)
+            self.assertIn("pattern_table.opening=tables/opening.tsv", candidate)
+            self.assertIn("pattern_table.midgame=tables/midgame.tsv", candidate)
+            self.assertIn("pattern_table.late=tables/late.tsv", candidate)
+            self.assertIn("opening.pattern_table=", candidate)
+            self.assertIn("midgame.pattern_table=", candidate)
+            self.assertIn("late.pattern_table=", candidate)
+            self.assertNotIn("opening.mobility", candidate)
+            self.assertNotIn("midgame.mobility", candidate)
+            self.assertNotIn("late.mobility", candidate)
+
+            completed = subprocess.run(
+                [
+                    str(analyze_position_path),
+                    "--stdin",
+                    "--eval-config",
+                    str(result.candidate_eval_path),
+                    "--depth",
+                    "1",
+                    "--exact-endgame-threshold",
+                    "0",
+                ],
+                input=TEACHER_BOARD,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+        self.assertEqual(
+            completed.returncode,
+            0,
+            f"stdout:\n{completed.stdout}\nstderr:\n{completed.stderr}",
+        )
 
     def test_post_training_symmetrize_runs_under_out_dir_and_keeps_tables_nonempty(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
