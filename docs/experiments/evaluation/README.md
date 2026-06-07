@@ -42,6 +42,7 @@ pruned from active eval configs. Current work should use `current_default.eval`,
 | [`2026-06-07-ntest-pattern-only-full-v0-analysis.md`](2026-06-07-ntest-pattern-only-full-v0-analysis.md) | canonical trainer foundation / negative full candidate evidence | Batch root analysis and streaming cache enabled full NTest 300K PatternOnly training. | Use the batch/cache workflow evidence; do not promote the generated PatternOnly full v0 candidate. |
 | [`2026-06-07-ntest-teacher-dataset-quality-diagnostic.md`](2026-06-07-ntest-teacher-dataset-quality-diagnostic.md) | dataset/evidence infrastructure | Data-quality diagnostics for NTest teacher 300K exact-aware PatternOnly follow-up. | Use the diagnostic commands and full-300K gate before further exact-aware training. |
 | [`2026-06-07-pattern-symmetry-diagnostic.md`](2026-06-07-pattern-symmetry-diagnostic.md) | canonical trainer foundation / diagnostic | D4 and color-inversion symmetry audit for pattern specs, trainer pair features, and learned TSV entries. | Use before adding `--symmetry-augment` or table symmetrization; no trainer behavior changed. |
+| [`2026-06-07-pattern-objective-modes.md`](2026-06-07-pattern-objective-modes.md) | experimental objective foundation | Pairwise, listwise, and exact-aware-listwise PatternOnly trainer objective modes with 10K positive and exact-overlap negative evidence. | Use as objective-shape evidence only; selected agreement and top tie rate improved, but exact-best rank remains unresolved and no default promotion is implied. |
 | [`2026-05-31-historical-scalar-eval-rollup.md`](2026-05-31-historical-scalar-eval-rollup.md) | historical negative evidence / superseded | Compressed archive for old scalar tuning iterations and early teacher-safe scalar follow-up. | Read only to avoid repeating rejected scalar candidates; not current tuning guidance. |
 
 ## Category Notes
@@ -55,5 +56,7 @@ pruned from active eval configs. Current work should use `current_default.eval`,
   new pattern experiments.
 - Dataset/evidence infrastructure reports explain reusable evidence plumbing,
   not evaluator promotion.
+- Experimental objective foundation reports document trainer objective
+  capabilities and diagnostics without claiming evaluator strength.
 - Historical negative evidence and superseded reports are archived to preserve
   conclusions while making clear that they are not plans.
