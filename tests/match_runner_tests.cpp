@@ -120,6 +120,11 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
               .use_lazy_first_move_ordering);
     CHECK_FALSE(require_search_options("search:depth=4,lazy_first_move_ordering=off")
                     .use_lazy_first_move_ordering);
+    const othello::SearchOptions combined_tt_lazy_options = require_search_options(
+        "search:depth=4,tt_min_probe_depth=1,tt_min_store_depth=1,lazy_first_move_ordering=on");
+    CHECK(combined_tt_lazy_options.tt_min_probe_depth == 1);
+    CHECK(combined_tt_lazy_options.tt_min_store_depth == 1);
+    CHECK(combined_tt_lazy_options.use_lazy_first_move_ordering);
     const othello::SearchOptions fixed_aspiration_options =
         require_search_options("search:depth=4,aspiration_profile=fixed");
     CHECK(fixed_aspiration_options.use_aspiration_window);
