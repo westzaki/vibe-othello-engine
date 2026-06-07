@@ -20,7 +20,7 @@ import pattern_symmetry_diagnostics as diagnostics  # noqa: E402
 from pattern_training import analyzer as shared_analyzer  # noqa: E402
 from common import ScriptError  # noqa: E402
 from pattern_specs import PATTERN_SPECS, invert_board9_colors, pattern_index  # noqa: E402
-from pattern_training.preference_features import parse_board  # noqa: E402
+from pattern_training.board9 import parse_board  # noqa: E402
 
 
 TEACHER_BOARD = (
@@ -376,10 +376,10 @@ def boundary_pair_moves(
             if other_move == teacher_move:
                 continue
             other_child = trainer.apply_move_to_board(board, other_move)
-            features = trainer.preference_features(
+            features = trainer.preference_delta(
                 root_board_text=board,
-                teacher_child_board=teacher_child,
-                engine_child_board=other_child,
+                preferred_child_board=teacher_child,
+                compared_child_board=other_child,
                 families=config.families,
             )
             if features:
@@ -694,14 +694,14 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
 
         self.assertEqual(trainer.apply_move_to_board(TEACHER_BOARD, "d1"), expected)
 
-    def test_apply_move_and_preference_features_create_pairwise_delta(self) -> None:
+    def test_apply_move_and_preference_delta_create_pairwise_delta(self) -> None:
         teacher_child = trainer.apply_move_to_board(TEACHER_BOARD, "d1")
         engine_child = trainer.apply_move_to_board(TEACHER_BOARD, "b1")
 
-        features = trainer.preference_features(
+        features = trainer.preference_delta(
             root_board_text=TEACHER_BOARD,
-            teacher_child_board=teacher_child,
-            engine_child_board=engine_child,
+            preferred_child_board=teacher_child,
+            compared_child_board=engine_child,
             families=("edge_8", "corner_2x3"),
         )
 
@@ -734,16 +734,16 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
         self.assertEqual(result.root_scores, {"d1": 3})
         sleep.assert_called_once()
 
-    def test_preference_features_match_negated_child_side_search_score_delta(self) -> None:
+    def test_preference_delta_matches_negated_child_side_search_score_delta(self) -> None:
         teacher_child = trainer.apply_move_to_board(TEACHER_BOARD, "d1")
         engine_child = trainer.apply_move_to_board(TEACHER_BOARD, "b1")
         _, root_side = trainer.parse_board(TEACHER_BOARD)
         child_side = trainer.opponent(root_side)
 
-        features = trainer.preference_features(
+        features = trainer.preference_delta(
             root_board_text=TEACHER_BOARD,
-            teacher_child_board=teacher_child,
-            engine_child_board=engine_child,
+            preferred_child_board=teacher_child,
+            compared_child_board=engine_child,
             families=("edge_8",),
         )
         teacher_counts = trainer.pattern_counts(teacher_child, child_side, ("edge_8",))
@@ -756,23 +756,97 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
 
         self.assertEqual(features, expected)
 
-    def test_preference_features_are_side_relative_under_color_inversion(self) -> None:
+    def test_root_move_feature_convention_negates_child_side_counts(self) -> None:
+        preferred_child = trainer.apply_move_to_board(TEACHER_BOARD, "d1")
+        compared_child = trainer.apply_move_to_board(TEACHER_BOARD, "b1")
+        _, root_side = trainer.parse_board(TEACHER_BOARD)
+        child_side = trainer.opponent(root_side)
+        families = ("edge_8", "corner_2x3")
+
+        preferred_counts = trainer.pattern_counts(preferred_child, child_side, families)
+        compared_counts = trainer.pattern_counts(compared_child, child_side, families)
+        preferred_root_features = trainer.root_move_features(
+            root_board_text=TEACHER_BOARD,
+            child_board_text=preferred_child,
+            families=families,
+        )
+        compared_root_features = trainer.root_move_features(
+            root_board_text=TEACHER_BOARD,
+            child_board_text=compared_child,
+            families=families,
+        )
+
+        self.assertEqual(
+            preferred_root_features,
+            {key: -value for key, value in preferred_counts.items() if value},
+        )
+        self.assertEqual(
+            compared_root_features,
+            {key: -value for key, value in compared_counts.items() if value},
+        )
+
+        weights = {key: float((index % 5) + 1) for index, key in enumerate(sorted(set(preferred_counts) | set(compared_counts)))}
+        preferred_child_eval = sum(weights.get(key, 0.0) * value for key, value in preferred_counts.items())
+        compared_child_eval = sum(weights.get(key, 0.0) * value for key, value in compared_counts.items())
+        preferred_root_score = sum(
+            weights.get(key, 0.0) * value for key, value in preferred_root_features.items()
+        )
+        compared_root_score = sum(
+            weights.get(key, 0.0) * value for key, value in compared_root_features.items()
+        )
+
+        self.assertEqual(preferred_root_score, -preferred_child_eval)
+        self.assertEqual(compared_root_score, -compared_child_eval)
+        self.assertGreater(
+            preferred_root_score - compared_root_score,
+            0.0,
+            "lowering the preferred child-side eval raises the preferred root move",
+        )
+
+        compared_minus_preferred = {
+            key: compared_counts[key] - preferred_counts[key]
+            for key in set(preferred_counts) | set(compared_counts)
+            if compared_counts[key] - preferred_counts[key]
+        }
+        preferred_minus_compared = {
+            key: preferred_counts[key] - compared_counts[key]
+            for key in set(preferred_counts) | set(compared_counts)
+            if preferred_counts[key] - compared_counts[key]
+        }
+        features = trainer.preference_delta(
+            root_board_text=TEACHER_BOARD,
+            preferred_child_board=preferred_child,
+            compared_child_board=compared_child,
+            families=families,
+        )
+
+        self.assertEqual(features, compared_minus_preferred)
+        self.assertEqual(
+            sum(weights.get(key, 0.0) * value for key, value in features.items()),
+            preferred_root_score - compared_root_score,
+        )
+        self.assertEqual(
+            {key: -value for key, value in preferred_minus_compared.items()},
+            compared_minus_preferred,
+        )
+
+    def test_preference_delta_is_side_relative_under_color_inversion(self) -> None:
         teacher_child = trainer.apply_move_to_board(TEACHER_BOARD, "d1")
         engine_child = trainer.apply_move_to_board(TEACHER_BOARD, "b1")
         inverted_root = invert_board9_colors(TEACHER_BOARD)
         inverted_teacher_child = trainer.apply_move_to_board(inverted_root, "d1")
         inverted_engine_child = trainer.apply_move_to_board(inverted_root, "b1")
 
-        features = trainer.preference_features(
+        features = trainer.preference_delta(
             root_board_text=TEACHER_BOARD,
-            teacher_child_board=teacher_child,
-            engine_child_board=engine_child,
+            preferred_child_board=teacher_child,
+            compared_child_board=engine_child,
             families=("edge_8", "corner_2x3", "diagonal_8"),
         )
-        inverted_features = trainer.preference_features(
+        inverted_features = trainer.preference_delta(
             root_board_text=inverted_root,
-            teacher_child_board=inverted_teacher_child,
-            engine_child_board=inverted_engine_child,
+            preferred_child_board=inverted_teacher_child,
+            compared_child_board=inverted_engine_child,
             families=("edge_8", "corner_2x3", "diagonal_8"),
         )
 
@@ -782,10 +856,10 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
     def test_teacher_child_other_child_delta_sign_matches_root_move_preference(self) -> None:
         preferred_child = trainer.apply_move_to_board(TEACHER_BOARD, "d1")
         other_child = trainer.apply_move_to_board(TEACHER_BOARD, "b1")
-        features = trainer.preference_features(
+        features = trainer.preference_delta(
             root_board_text=TEACHER_BOARD,
-            teacher_child_board=preferred_child,
-            engine_child_board=other_child,
+            preferred_child_board=preferred_child,
+            compared_child_board=other_child,
             families=("edge_8",),
         )
         weights: trainer.WeightsByPhase = {

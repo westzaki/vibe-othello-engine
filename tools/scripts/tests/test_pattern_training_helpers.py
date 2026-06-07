@@ -11,7 +11,8 @@ SCRIPT_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPT_DIR))
 
 from common import ScriptError  # noqa: E402
-from pattern_training import dataset, pattern_tables, preference_features, splits  # noqa: E402
+from pattern_training import board9, dataset, pattern_tables, splits  # noqa: E402
+from pattern_training.features import preference_delta  # noqa: E402
 from pattern_training.analyzer import AnalyzerConfig, batch_analyze_command, root_analysis_from_batch_row  # noqa: E402
 
 
@@ -60,6 +61,32 @@ def write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
 
 
 class PatternTrainingHelperTests(unittest.TestCase):
+    def test_board9_helpers_parse_count_hash_legal_moves_and_apply(self) -> None:
+        padded = f"\n{BOARD}\n"
+
+        rows, side = board9.parse_board(padded)
+
+        self.assertEqual(side, "B")
+        self.assertEqual(board9.board_to_text(rows, side), BOARD)
+        self.assertEqual(board9.occupied_count(BOARD), 4)
+        self.assertEqual(board9.empty_count(BOARD), 60)
+        self.assertEqual(sorted(board9.legal_moves_for_board(BOARD)), ["c5", "d6", "e3", "f4"])
+        self.assertEqual(board9.normalize_move(" PA "), "pass")
+        self.assertEqual(board9.board_key(padded), BOARD)
+        self.assertEqual(board9.board_hash(padded), board9.board_hash(BOARD))
+        self.assertEqual(
+            board9.apply_move_to_board(BOARD, "c5"),
+            "........\n"
+            "........\n"
+            "........\n"
+            "..BBB...\n"
+            "...BW...\n"
+            "........\n"
+            "........\n"
+            "........\n"
+            "side=W",
+        )
+
     def test_split_ratios_and_row_split_are_deterministic(self) -> None:
         ratios = splits.parse_split_ratios("60,20,20")
         row = {"board_text": BOARD, "move": "d3"}
@@ -181,19 +208,17 @@ class PatternTrainingHelperTests(unittest.TestCase):
             "inner_row_8\t32\t-3\n",
         )
 
-    def test_preference_update_counts_teacher_minus_compared_features(self) -> None:
+    def test_preference_delta_uses_compared_minus_preferred_features(self) -> None:
         families = pattern_tables.parse_families("corner_only")
-        counts = {family: collections.Counter[int]() for family in families}
 
-        preference_features.apply_preference_update(
-            board_text=BOARD,
-            teacher_child_board=TEACHER_CHILD,
+        delta = preference_delta(
+            root_board_text=BOARD,
+            preferred_child_board=TEACHER_CHILD,
             compared_child_board=COMPARED_CHILD,
-            family_counts=counts,
             families=families,
         )
 
-        total_delta = sum(abs(value) for counter in counts.values() for value in counter.values())
+        total_delta = sum(abs(value) for value in delta.values())
         self.assertGreater(total_delta, 0)
 
     def test_batch_analyze_command_uses_jsonl_stdin_mode(self) -> None:
