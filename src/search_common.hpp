@@ -84,21 +84,29 @@ struct MidgamePvTable {
     }
 
     void set_single_move(std::size_t ply, Square move) noexcept {
+        set_single_move_index(ply, move.index());
+    }
+
+    void set_single_move_index(std::size_t ply, int move_index) noexcept {
         if (ply >= lines.size()) {
             return;
         }
         lines[ply] = PrincipalVariation{};
-        lines[ply].indexes[0] = move.index();
+        lines[ply].indexes[0] = move_index;
         lines[ply].size = 1;
     }
 
     void update_with_move(std::size_t ply, Square move) noexcept {
+        update_with_move_index(ply, move.index());
+    }
+
+    void update_with_move_index(std::size_t ply, int move_index) noexcept {
         if (ply >= lines.size()) {
             return;
         }
 
         PrincipalVariation& line = lines[ply];
-        line.indexes[0] = move.index();
+        line.indexes[0] = move_index;
         line.size = 1;
 
         if (ply + 1 >= lines.size()) {
@@ -132,10 +140,21 @@ struct MidgamePvTable {
                                             square);
 }
 
-[[nodiscard]] inline SearchPosition position_after_move(const SearchPosition& position,
-                                                        Square square,
-                                                        Bitboard flips) noexcept {
-    const Bitboard move_bit = square.bit();
+[[nodiscard]] inline Bitboard flips_for_move_bit(const SearchPosition& position,
+                                                 Bitboard move_bit) noexcept {
+    return rules_detail::flips_for_move_bit(position.player, position.opponent_discs,
+                                            move_bit);
+}
+
+[[nodiscard]] inline Bitboard flips_for_known_empty_move(const SearchPosition& position,
+                                                        Bitboard move_bit) noexcept {
+    return rules_detail::flips_for_known_empty_move(position.player, position.opponent_discs,
+                                                    move_bit);
+}
+
+[[nodiscard]] inline SearchPosition position_after_move_bit(const SearchPosition& position,
+                                                            Bitboard move_bit,
+                                                            Bitboard flips) noexcept {
     const Bitboard next_opponent = position.player | move_bit | flips;
     const Bitboard next_player = position.opponent_discs & ~flips;
     return SearchPosition{
@@ -143,6 +162,12 @@ struct MidgamePvTable {
         .opponent_discs = next_opponent,
         .side_to_move = opponent(position.side_to_move),
     };
+}
+
+[[nodiscard]] inline SearchPosition position_after_move(const SearchPosition& position,
+                                                        Square square,
+                                                        Bitboard flips) noexcept {
+    return position_after_move_bit(position, square.bit(), flips);
 }
 
 [[nodiscard]] inline SearchPosition
@@ -168,6 +193,18 @@ position_after_pass(const SearchPosition& position) noexcept {
         return candidate_score > *best_score;
     }
     return !best_move.has_value() || candidate.index() < best_move->index();
+}
+
+[[nodiscard]] inline bool is_better_best_move_index(
+    int candidate_score, int candidate_index, const std::optional<int>& best_score,
+    const std::optional<int>& best_move_index) noexcept {
+    if (!best_score.has_value()) {
+        return true;
+    }
+    if (candidate_score != *best_score) {
+        return candidate_score > *best_score;
+    }
+    return !best_move_index.has_value() || candidate_index < *best_move_index;
 }
 
 [[nodiscard]] inline PrincipalVariation

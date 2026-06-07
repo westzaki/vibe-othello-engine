@@ -35,6 +35,11 @@ void check_search_position_matches_public_rules(const Board& board) {
         const Bitboard public_flips = othello::flips_for_move(board, *square);
         const Bitboard search_flips = othello::search_detail::flips_for_move(position, *square);
         CHECK(search_flips == public_flips);
+        if ((public_moves & square->bit()) != 0) {
+            const Bitboard known_empty_flips =
+                othello::search_detail::flips_for_known_empty_move(position, square->bit());
+            CHECK(known_empty_flips == public_flips);
+        }
 
         const std::optional<Board> public_next = othello::apply_move(board, *square);
         if (public_next.has_value()) {

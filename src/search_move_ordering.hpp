@@ -27,9 +27,9 @@ should_use_dynamic_move_ordering(bool enabled, std::size_t move_count, int depth
     return enabled && depth >= params.dynamic_min_depth && move_count >= params.dynamic_min_moves;
 }
 
-[[nodiscard]] int move_order_score(const SearchPosition& position, Square square, Bitboard flips,
-                                   std::size_t move_count, int depth, bool dynamic_move_ordering,
-                                   SearchContext& context) noexcept;
+[[nodiscard]] int move_order_score(const SearchPosition& position, int index, Bitboard move_bit,
+                                   Bitboard flips, std::size_t move_count, int depth,
+                                   bool dynamic_move_ordering, SearchContext& context) noexcept;
 
 [[nodiscard]] OrderedMoveIndexes ordered_legal_move_indexes(const SearchPosition& position,
                                                             Bitboard moves, int depth,
@@ -55,8 +55,14 @@ void record_root_move_ordering_snapshot(SearchContext& context,
 [[nodiscard]] PrincipalVariationHint child_hint_after_move(PrincipalVariationHint hint,
                                                            Square move) noexcept;
 
+[[nodiscard]] PrincipalVariationHint child_hint_after_move_index(PrincipalVariationHint hint,
+                                                                 int move_index) noexcept;
+
 [[nodiscard]] PrincipalVariationHint child_hint_after_pass(PrincipalVariationHint hint) noexcept;
 
 void record_history_killer_cutoff(SearchContext& context, Square move, int depth) noexcept;
+
+void record_history_killer_cutoff_index(SearchContext& context, int move_index,
+                                        int depth) noexcept;
 
 } // namespace othello::search_detail
