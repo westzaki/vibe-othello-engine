@@ -79,6 +79,7 @@ GUARD_MODES = ("off", "base-agreement")
 CANDIDATE_EVAL_SHAPES = ("base-plus-delta", "pattern-only")
 ANALYSIS_RUNNERS = ("subprocess", "batch")
 LISTWISE_FEATURE_CACHE_MODES = ("off", "read-write", "read-only", "refresh")
+SOFT_SIGN_ANCHOR_MODES = ("off", "selected", "expected")
 FAMILY_ALIASES: dict[str, tuple[str, ...]] = {
     **COMMON_FAMILY_ALIASES,
     "all": FAMILY_ORDER,
@@ -163,6 +164,9 @@ class TrainerConfig:
     exact_score_temperature: float
     exact_score_target_floor: float
     exact_score_near_best_window: int
+    soft_sign_anchor_weight: float
+    soft_sign_anchor_margin: float
+    soft_sign_anchor_mode: str
     max_top_group_size_for_training: int
     tie_penalty: float
     target_top_group_size: int
@@ -678,6 +682,34 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--soft-sign-anchor-weight",
+        type=parse_non_negative_float,
+        default=0.0,
+        help=(
+            "small auxiliary exact-root sign anchor weight for soft exact-score "
+            "target training (default: 0.0)"
+        ),
+    )
+    parser.add_argument(
+        "--soft-sign-anchor-margin",
+        type=parse_non_negative_float,
+        default=1.0,
+        help=(
+            "target signed model score margin for --soft-sign-anchor-mode "
+            "selected/expected (default: 1.0)"
+        ),
+    )
+    parser.add_argument(
+        "--soft-sign-anchor-mode",
+        choices=SOFT_SIGN_ANCHOR_MODES,
+        default="off",
+        help=(
+            "soft exact-score sign anchor mode: off disables it; selected anchors "
+            "the current selected/top candidate score; expected anchors the "
+            "softmax-probability-weighted expected score"
+        ),
+    )
+    parser.add_argument(
         "--max-top-group-size-for-training",
         type=parse_non_negative_int,
         default=0,
@@ -918,6 +950,14 @@ def config_from_args(
         raise ScriptError("--exact-score-soft-target requires --objective exact-aware-listwise")
     if args.exact_score_target_floor >= 1.0:
         raise ScriptError("--exact-score-target-floor must be less than 1")
+    if args.soft_sign_anchor_mode != "off":
+        if args.objective != "exact-aware-listwise" or not args.exact_score_soft_target:
+            raise ScriptError(
+                "--soft-sign-anchor-mode selected/expected requires "
+                "--objective exact-aware-listwise --exact-score-soft-target"
+            )
+        if args.soft_sign_anchor_weight == 0.0:
+            raise ScriptError("--soft-sign-anchor-weight must be positive when sign anchor is enabled")
     teacher_labels = parse_label_paths(args.teacher_labels, dataset_root=args.dataset_root)
     exact_labels = (
         parse_label_paths(args.exact_labels, dataset_root=args.dataset_root)
@@ -1000,6 +1040,9 @@ def config_from_args(
         exact_score_temperature=args.exact_score_temperature,
         exact_score_target_floor=args.exact_score_target_floor,
         exact_score_near_best_window=args.exact_score_near_best_window,
+        soft_sign_anchor_weight=args.soft_sign_anchor_weight,
+        soft_sign_anchor_margin=args.soft_sign_anchor_margin,
+        soft_sign_anchor_mode=args.soft_sign_anchor_mode,
         max_top_group_size_for_training=args.max_top_group_size_for_training,
         tie_penalty=args.tie_penalty,
         target_top_group_size=args.target_top_group_size,
@@ -1247,6 +1290,9 @@ def listwise_feature_cache_key(
             "exact_score_temperature": config.exact_score_temperature,
             "exact_score_target_floor": config.exact_score_target_floor,
             "exact_score_near_best_window": config.exact_score_near_best_window,
+            "soft_sign_anchor_weight": config.soft_sign_anchor_weight,
+            "soft_sign_anchor_margin": config.soft_sign_anchor_margin,
+            "soft_sign_anchor_mode": config.soft_sign_anchor_mode,
             "max_top_group_size_for_training": config.max_top_group_size_for_training,
             "target_top_group_size": config.target_top_group_size,
             "top_group_margin": config.top_group_margin,
@@ -3224,6 +3270,90 @@ def add_compact_candidate_delta_update(
     add_compact_sparse_update(lazy_weights, dataset, negative_index, -coefficient, maximum)
 
 
+def sign_anchor_enabled(config: TrainerConfig) -> bool:
+    return config.soft_sign_anchor_mode != "off" and config.soft_sign_anchor_weight > 0.0
+
+
+def sign_anchor_loss_value(config: TrainerConfig, exact_root_score: int | None, score: float) -> float:
+    exact_sign = sign(exact_root_score)
+    if exact_sign == 0:
+        return 0.0
+    return max(0.0, config.soft_sign_anchor_margin - exact_sign * score)
+
+
+def selected_anchor_candidate_index(
+    dataset: CompactListwiseDataset,
+    candidate_start: int,
+    candidate_end: int,
+    scores: list[float],
+) -> int:
+    best_score = max(scores)
+    best_indexes = [
+        candidate_index
+        for candidate_index, score_value in zip(range(candidate_start, candidate_end), scores, strict=True)
+        if score_value == best_score
+    ]
+    return min(best_indexes, key=lambda candidate_index: dataset.candidate_moves[candidate_index])
+
+
+def expected_anchor_score(scores: list[float], probabilities: list[float]) -> float:
+    return sum(score * probability for score, probability in zip(scores, probabilities, strict=True))
+
+
+def apply_soft_sign_anchor_update(
+    *,
+    config: TrainerConfig,
+    lazy_weights: dict[str, LazyPhaseWeights],
+    dataset: CompactListwiseDataset,
+    example_index: int,
+    candidate_start: int,
+    candidate_end: int,
+    scores: list[float],
+    probabilities: list[float],
+) -> tuple[int, float]:
+    exact_sign = sign(dataset.example_exact_root_scores[example_index])
+    if exact_sign == 0 or not sign_anchor_enabled(config):
+        return 0, 0.0
+    if config.soft_sign_anchor_mode == "selected":
+        anchor_index = selected_anchor_candidate_index(dataset, candidate_start, candidate_end, scores)
+        anchor_score = scores[anchor_index - candidate_start]
+        loss = sign_anchor_loss_value(config, dataset.example_exact_root_scores[example_index], anchor_score)
+        if loss <= 0.0:
+            return 0, 0.0
+        coefficient = (
+            config.learning_rate
+            * dataset.example_weights[example_index]
+            * config.soft_sign_anchor_weight
+            * exact_sign
+        )
+        add_compact_sparse_update(lazy_weights, dataset, anchor_index, coefficient, config.max_abs_weight)
+        return 1, loss
+    if config.soft_sign_anchor_mode == "expected":
+        anchor_score = expected_anchor_score(scores, probabilities)
+        loss = sign_anchor_loss_value(config, dataset.example_exact_root_scores[example_index], anchor_score)
+        if loss <= 0.0:
+            return 0, 0.0
+        updates = 0
+        base_coefficient = (
+            config.learning_rate
+            * dataset.example_weights[example_index]
+            * config.soft_sign_anchor_weight
+            * exact_sign
+        )
+        for local_index, candidate_index in enumerate(range(candidate_start, candidate_end)):
+            coefficient = base_coefficient * probabilities[local_index]
+            add_compact_sparse_update(
+                lazy_weights,
+                dataset,
+                candidate_index,
+                coefficient,
+                config.max_abs_weight,
+            )
+            updates += 1
+        return updates, loss
+    return 0, 0.0
+
+
 def train_listwise_weights(
     config: TrainerConfig,
     examples: ListwiseData,
@@ -3242,6 +3372,9 @@ def train_listwise_weights(
     for epoch in range(1, config.epochs + 1):
         epoch_start = time.perf_counter()
         update_count = 0
+        sign_anchor_updates = 0
+        sign_anchor_loss_sum = 0.0
+        sign_anchor_rows = 0
         shuffled = list(range(dataset.example_count))
         rng.shuffle(shuffled)
         for example_index in shuffled:
@@ -3270,6 +3403,22 @@ def train_listwise_weights(
                     config.max_abs_weight,
                 )
                 update_count += 1
+
+            updates, anchor_loss = apply_soft_sign_anchor_update(
+                config=config,
+                lazy_weights=lazy_weights,
+                dataset=dataset,
+                example_index=example_index,
+                candidate_start=candidate_start,
+                candidate_end=candidate_end,
+                scores=scores,
+                probabilities=probabilities,
+            )
+            if updates:
+                update_count += updates
+                sign_anchor_updates += updates
+                sign_anchor_loss_sum += anchor_loss
+                sign_anchor_rows += 1
 
             if config.tie_penalty > 0.0:
                 target_indexes = [
@@ -3367,6 +3516,11 @@ def train_listwise_weights(
                 "epoch": epoch,
                 **evaluate_listwise_examples(config, weights, dataset),
                 "updates": update_count,
+                "sign_anchor_rows": sign_anchor_rows,
+                "sign_anchor_updates": sign_anchor_updates,
+                "sign_anchor_loss": (
+                    sign_anchor_loss_sum / sign_anchor_rows if sign_anchor_rows else 0.0
+                ),
                 "updates_per_second": update_count / elapsed if elapsed > 0.0 else 0.0,
                 "epoch_seconds": elapsed,
             }
@@ -3881,6 +4035,9 @@ def move_choice_metrics(
             "soft_target_cross_entropy": None,
             "selected_exact_score_regret": None,
             "top_move_exact_score_gap": None,
+            "sign_anchor_rows": 0,
+            "sign_anchor_updates": 0,
+            "sign_anchor_loss": 0.0,
         }
     selected_teacher = 0
     teacher_rank_sum = 0
@@ -3900,6 +4057,9 @@ def move_choice_metrics(
     exact_score_regret_sum = 0.0
     exact_score_gap_sum = 0.0
     selected_exact_score_rows = 0
+    sign_anchor_rows = 0
+    sign_anchor_updates = 0
+    sign_anchor_loss_sum = 0.0
     for example_index in range(dataset.example_count):
         scores = compact_listwise_scores(config, weights, dataset, example_index)
         if not scores:
@@ -3927,6 +4087,35 @@ def move_choice_metrics(
             for candidate_index in candidate_indexes
         ]
         probabilities = softmax_probabilities(local_scores)
+        if sign_anchor_enabled(config):
+            if config.soft_sign_anchor_mode == "selected":
+                anchor_index = selected_anchor_candidate_index(
+                    dataset,
+                    candidate_start,
+                    candidate_end,
+                    local_scores,
+                )
+                anchor_score = local_scores[anchor_index - candidate_start]
+                anchor_loss = sign_anchor_loss_value(
+                    config,
+                    dataset.example_exact_root_scores[example_index],
+                    anchor_score,
+                )
+                if anchor_loss > 0.0:
+                    sign_anchor_rows += 1
+                    sign_anchor_updates += 1
+                    sign_anchor_loss_sum += anchor_loss
+            elif config.soft_sign_anchor_mode == "expected":
+                anchor_score = expected_anchor_score(local_scores, probabilities)
+                anchor_loss = sign_anchor_loss_value(
+                    config,
+                    dataset.example_exact_root_scores[example_index],
+                    anchor_score,
+                )
+                if anchor_loss > 0.0:
+                    sign_anchor_rows += 1
+                    sign_anchor_updates += candidate_end - candidate_start
+                    sign_anchor_loss_sum += anchor_loss
         has_soft_target = any(
             dataset.candidate_target_probabilities[candidate_index] > 0.0
             and not dataset.candidate_target_mask[candidate_index]
@@ -4014,6 +4203,9 @@ def move_choice_metrics(
             exact_score_gap_sum / selected_exact_score_rows if selected_exact_score_rows else None
         ),
         "selected_exact_score_rows": selected_exact_score_rows,
+        "sign_anchor_rows": sign_anchor_rows,
+        "sign_anchor_updates": sign_anchor_updates,
+        "sign_anchor_loss": sign_anchor_loss_sum / sign_anchor_rows if sign_anchor_rows else 0.0,
     }
 
 
@@ -4406,6 +4598,9 @@ def render_report(
         f"- exact_score_temperature: `{config.exact_score_temperature}`",
         f"- exact_score_target_floor: `{config.exact_score_target_floor}`",
         f"- exact_score_near_best_window: `{config.exact_score_near_best_window}`",
+        f"- soft_sign_anchor_weight: `{config.soft_sign_anchor_weight}`",
+        f"- soft_sign_anchor_margin: `{config.soft_sign_anchor_margin}`",
+        f"- soft_sign_anchor_mode: `{config.soft_sign_anchor_mode}`",
         f"- max_top_group_size_for_training: `{config.max_top_group_size_for_training}`",
         f"- tie_penalty: `{config.tie_penalty}`",
         f"- target_top_group_size: `{config.target_top_group_size}`",
@@ -4525,6 +4720,9 @@ def render_report(
                 f"- soft_target_cross_entropy: `{row.get('soft_target_cross_entropy') if row.get('soft_target_cross_entropy') is not None else 'n/a'}`",
                 f"- selected_exact_score_regret: `{row.get('selected_exact_score_regret') if row.get('selected_exact_score_regret') is not None else 'n/a'}`",
                 f"- top_move_exact_score_gap: `{row.get('top_move_exact_score_gap') if row.get('top_move_exact_score_gap') is not None else 'n/a'}`",
+                f"- sign_anchor_rows: `{row.get('sign_anchor_rows', 0)}`",
+                f"- sign_anchor_updates: `{row.get('sign_anchor_updates', 0)}`",
+                f"- sign_anchor_loss: `{row.get('sign_anchor_loss', 0.0)}`",
                 "",
             ]
         )
@@ -4743,6 +4941,13 @@ def diagnose_dataset(
         "min_score_margin": config.min_score_margin,
         "drop_teacher_exact_disagreement": config.drop_teacher_exact_disagreement,
         "exact_aware_only_when_available": config.exact_aware_only_when_available,
+        "exact_score_soft_target": config.exact_score_soft_target,
+        "exact_score_temperature": config.exact_score_temperature,
+        "exact_score_target_floor": config.exact_score_target_floor,
+        "exact_score_near_best_window": config.exact_score_near_best_window,
+        "soft_sign_anchor_weight": config.soft_sign_anchor_weight,
+        "soft_sign_anchor_margin": config.soft_sign_anchor_margin,
+        "soft_sign_anchor_mode": config.soft_sign_anchor_mode,
         "max_top_group_size_for_training": config.max_top_group_size_for_training,
         "seed": config.seed,
         "phase_cutoffs": {
@@ -4794,6 +4999,9 @@ def training_config_hash(config: TrainerConfig) -> str:
         "exact_score_temperature": config.exact_score_temperature,
         "exact_score_target_floor": config.exact_score_target_floor,
         "exact_score_near_best_window": config.exact_score_near_best_window,
+        "soft_sign_anchor_weight": config.soft_sign_anchor_weight,
+        "soft_sign_anchor_margin": config.soft_sign_anchor_margin,
+        "soft_sign_anchor_mode": config.soft_sign_anchor_mode,
         "seed": config.seed,
     }
     return sha256_text(json.dumps(material, sort_keys=True, separators=(",", ":")))
@@ -4834,6 +5042,9 @@ def pair_cache_key(config: TrainerConfig) -> tuple[str, dict[str, Any]]:
         "exact_score_temperature": config.exact_score_temperature,
         "exact_score_target_floor": config.exact_score_target_floor,
         "exact_score_near_best_window": config.exact_score_near_best_window,
+        "soft_sign_anchor_weight": config.soft_sign_anchor_weight,
+        "soft_sign_anchor_margin": config.soft_sign_anchor_margin,
+        "soft_sign_anchor_mode": config.soft_sign_anchor_mode,
         "max_top_group_size_for_training": config.max_top_group_size_for_training,
         "phase_cutoffs": {
             "opening_max_occupied": config.phase_cutoffs.opening_max_occupied,

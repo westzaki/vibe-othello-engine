@@ -2048,6 +2048,95 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
         self.assertEqual(target_probabilities["d1"], 1.0)
         self.assertEqual(target_probabilities["b1"], 0.0)
 
+    def test_soft_sign_anchor_requires_soft_exact_score_target(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+
+            with self.assertRaisesRegex(
+                ScriptError,
+                "--soft-sign-anchor-mode selected/expected requires",
+            ):
+                make_config(
+                    temp_path,
+                    labels,
+                    extra_args=[
+                        "--objective",
+                        "exact-aware-listwise",
+                        "--soft-sign-anchor-mode",
+                        "selected",
+                        "--soft-sign-anchor-weight",
+                        "0.05",
+                    ],
+                )
+
+    def test_soft_sign_anchor_diagnostics_detect_selected_violation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            config = make_config(
+                temp_path,
+                labels,
+                extra_args=[
+                    "--objective",
+                    "exact-aware-listwise",
+                    "--exact-score-soft-target",
+                    "--soft-sign-anchor-mode",
+                    "selected",
+                    "--soft-sign-anchor-weight",
+                    "0.05",
+                    "--soft-sign-anchor-margin",
+                    "1",
+                    "--no-base-margin",
+                ],
+            )
+            example = synthetic_listwise_example(exact_root_score=8)
+            weights: trainer.WeightsByPhase = {phase: {} for phase in trainer.PHASES}
+            weights["midgame"] = {
+                ("edge_8", 2131): -2.0,
+                ("edge_8", 2179): -2.0,
+            }
+
+            diagnostics = trainer.move_choice_metrics(config, weights, [example])
+
+        self.assertEqual(diagnostics["sign_anchor_rows"], 1)
+        self.assertEqual(diagnostics["sign_anchor_updates"], 1)
+        self.assertAlmostEqual(diagnostics["sign_anchor_loss"], 3.0)
+
+    def test_soft_sign_anchor_expected_mode_spreads_updates(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            config = make_config(
+                temp_path,
+                labels,
+                extra_args=[
+                    "--objective",
+                    "exact-aware-listwise",
+                    "--exact-score-soft-target",
+                    "--soft-sign-anchor-mode",
+                    "expected",
+                    "--soft-sign-anchor-weight",
+                    "0.1",
+                    "--soft-sign-anchor-margin",
+                    "1",
+                    "--no-base-margin",
+                    "--epochs",
+                    "1",
+                    "--learning-rate",
+                    "0.1",
+                    "--l2",
+                    "0",
+                ],
+            )
+            example = synthetic_listwise_example(exact_root_score=8)
+
+            _, history = trainer.train_weights(config, [], [example])
+
+        self.assertEqual(history[-1]["sign_anchor_rows"], 1)
+        self.assertEqual(history[-1]["sign_anchor_updates"], 2)
+        self.assertGreater(history[-1]["sign_anchor_loss"], 0.0)
+
     def test_output_scale_calibration_selects_best_grid_value(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             temp_path = Path(temp)
