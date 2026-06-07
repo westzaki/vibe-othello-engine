@@ -17,7 +17,7 @@ import json
 import math
 import random
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable
 
@@ -70,6 +70,7 @@ PAIR_MODES = (
     "exact-aware",
 )
 PAIR_WEIGHTINGS = ("uniform", "rank-margin", "score-margin", "exact-boost")
+OBJECTIVES = ("pairwise-logistic", "listwise-softmax", "exact-aware-listwise")
 GUARD_MODES = ("off", "base-agreement")
 CANDIDATE_EVAL_SHAPES = ("base-plus-delta", "pattern-only")
 ANALYSIS_RUNNERS = ("subprocess", "batch")
@@ -125,6 +126,7 @@ class TrainerConfig:
     analysis_jobs: int
     families: tuple[str, ...]
     split: str
+    objective: str
     loss: str
     pair_mode: str
     pair_weighting: str
@@ -143,6 +145,13 @@ class TrainerConfig:
     drop_teacher_exact_disagreement: bool
     exact_aware_only_when_available: bool
     max_top_group_size_for_training: int
+    tie_penalty: float
+    target_top_group_size: int
+    top_group_margin: float
+    sign_penalty: float
+    high_confidence_margin: float
+    calibrate_output_scale: bool
+    scale_grid: tuple[float, ...]
     l2: float
     epochs: int
     learning_rate: float
@@ -180,6 +189,33 @@ class PreferencePair:
     other_score: int | None
     rank_margin: int | None
     score_margin: int | None
+
+
+@dataclass(frozen=True)
+class CandidateMove:
+    move: str
+    phase: str
+    features: dict[FeatureKey, int]
+    base_score: float
+    exact_score: int | None
+
+
+@dataclass(frozen=True)
+class ListwiseExample:
+    position_id: str
+    source_path: Path
+    source_line: int
+    split: str
+    board_text: str
+    teacher_move: str
+    engine_move: str
+    target_moves: tuple[str, ...]
+    exact_best_moves: tuple[str, ...]
+    exact_root_score: int | None
+    candidates: tuple[CandidateMove, ...]
+    example_weight: float
+    bucket: str
+    bucket_weight: float
 
 
 @dataclass(frozen=True)
@@ -312,6 +348,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="train",
         help="teacher split to train/evaluate",
     )
+    parser.add_argument(
+        "--objective",
+        choices=OBJECTIVES,
+        default="pairwise-logistic",
+        help=(
+            "training objective. pairwise-logistic preserves the existing pairwise "
+            "trainer; listwise-softmax optimizes root candidate softmax; "
+            "exact-aware-listwise uses exact-best target sets when exact labels are "
+            "available, falls back to the teacher move otherwise, and adds exact sign "
+            "penalties when exact labels include move scores"
+        ),
+    )
     parser.add_argument("--loss", choices=("logistic", "hinge"), default="logistic")
     parser.add_argument(
         "--pair-mode",
@@ -412,6 +460,36 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=0,
         help="drop rows whose exact-best top group is larger than this value; 0 disables the cap",
     )
+    parser.add_argument(
+        "--tie-penalty",
+        type=parse_non_negative_float,
+        default=0.0,
+        help="extra listwise penalty weight for non-target moves in an oversized top group",
+    )
+    parser.add_argument(
+        "--target-top-group-size",
+        type=parse_positive_int,
+        default=1,
+        help="desired maximum top group size for tie-aware listwise training",
+    )
+    parser.add_argument(
+        "--top-group-margin",
+        type=parse_non_negative_float,
+        default=1.0,
+        help="score band treated as the top group for tie-aware training and diagnostics",
+    )
+    parser.add_argument(
+        "--sign-penalty",
+        type=parse_non_negative_float,
+        default=1.0,
+        help="exact-score ordering penalty for exact-aware-listwise rows with move_scores",
+    )
+    parser.add_argument(
+        "--high-confidence-margin",
+        type=parse_non_negative_float,
+        default=8.0,
+        help="model score magnitude used for high-confidence wrong-direction diagnostics",
+    )
     parser.add_argument("--l2", type=parse_non_negative_float, default=0.001)
     parser.add_argument("--epochs", type=parse_positive_int, default=5)
     parser.add_argument("--learning-rate", type=parse_positive_float, default=0.1)
@@ -427,6 +505,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=parse_positive_int,
         default=INT16_LIMIT,
         help=f"integer TSV clamp after output scaling (default: {INT16_LIMIT})",
+    )
+    parser.add_argument(
+        "--calibrate-output-scale",
+        action="store_true",
+        help="choose output_scale from --scale-grid using exact-overlap validation diagnostics",
+    )
+    parser.add_argument(
+        "--scale-grid",
+        default="1",
+        help="comma-separated positive output scales considered by --calibrate-output-scale",
     )
     parser.add_argument(
         "--candidate-pattern-table-weight",
@@ -502,6 +590,22 @@ def parse_families(text: str) -> tuple[str, ...]:
     if not families:
         raise ScriptError("--families selected no pattern families")
     return tuple(families)
+
+
+def parse_scale_grid(text: str) -> tuple[float, ...]:
+    values: list[float] = []
+    for part in parse_csv_values(text, error_label="scale grid"):
+        try:
+            value = float(part)
+        except ValueError as exc:
+            raise ScriptError(f"invalid scale grid value: {part}") from exc
+        if not math.isfinite(value) or value <= 0.0:
+            raise ScriptError("--scale-grid values must be finite positive numbers")
+        if value not in values:
+            values.append(value)
+    if not values:
+        raise ScriptError("--scale-grid selected no scales")
+    return tuple(values)
 
 
 def _line_key_value(line: str) -> tuple[str, str] | None:
@@ -612,6 +716,7 @@ def config_from_args(
         analysis_jobs=args.analysis_jobs,
         families=parse_families(args.families),
         split=args.split,
+        objective=args.objective,
         loss=args.loss,
         pair_mode=args.pair_mode,
         pair_weighting=args.pair_weighting,
@@ -630,6 +735,13 @@ def config_from_args(
         drop_teacher_exact_disagreement=args.drop_teacher_exact_disagreement,
         exact_aware_only_when_available=args.exact_aware_only_when_available,
         max_top_group_size_for_training=args.max_top_group_size_for_training,
+        tie_penalty=args.tie_penalty,
+        target_top_group_size=args.target_top_group_size,
+        top_group_margin=args.top_group_margin,
+        sign_penalty=args.sign_penalty,
+        high_confidence_margin=args.high_confidence_margin,
+        calibrate_output_scale=args.calibrate_output_scale,
+        scale_grid=parse_scale_grid(args.scale_grid),
         l2=args.l2,
         epochs=args.epochs,
         learning_rate=args.learning_rate,
@@ -802,6 +914,35 @@ def exact_best_moves(record: dict[str, Any] | None) -> tuple[str, ...]:
         return tuple(sorted(move for move in (normalize_move(value) for value in moves) if move))
     move = normalize_move(record.get("best_move"))
     return (move,) if move else ()
+
+
+def exact_root_score(record: dict[str, Any] | None) -> int | None:
+    if record is None:
+        return None
+    value = record.get("exact_score_side_to_move")
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    return None
+
+
+def exact_move_scores(record: dict[str, Any] | None) -> dict[str, int]:
+    if record is None:
+        return {}
+    scores = record.get("move_scores")
+    if not isinstance(scores, list):
+        return {}
+    parsed: dict[str, int] = {}
+    for item in scores:
+        if not isinstance(item, dict):
+            continue
+        move = normalize_move(item.get("move"))
+        score = item.get("exact_score_side_to_move")
+        if move is None or isinstance(score, bool) or not isinstance(score, int):
+            continue
+        parsed[move] = score
+    return parsed
 
 
 def board_text_from_record(record: dict[str, Any]) -> str | None:
@@ -995,6 +1136,83 @@ def preference_features(
         if value:
             delta[key] = value
     return delta
+
+
+def root_move_features(
+    *,
+    root_board_text: str,
+    child_board_text: str,
+    families: tuple[str, ...],
+) -> dict[FeatureKey, int]:
+    _, root_side = parse_board(root_board_text)
+    child_side = opponent(root_side)
+    counts = pattern_counts(child_board_text, child_side, families)
+    return {key: -value for key, value in counts.items() if value}
+
+
+def make_listwise_example(
+    *,
+    config: TrainerConfig,
+    source: LabelSource,
+    split: str,
+    board_text: str,
+    teacher_move: str,
+    engine_move: str,
+    legal_moves: set[str],
+    exact_best: tuple[str, ...],
+    exact_scores: dict[str, int],
+    exact_score: int | None,
+    root_scores: dict[str, int],
+) -> ListwiseExample | None:
+    candidates: list[CandidateMove] = []
+    for move in sorted(legal_moves):
+        try:
+            child = apply_move_to_board(board_text, move)
+        except ScriptError:
+            continue
+        features = root_move_features(
+            root_board_text=board_text,
+            child_board_text=child,
+            families=config.families,
+        )
+        candidates.append(
+            CandidateMove(
+                move=move,
+                phase=phase_for_board(child, config.phase_cutoffs),
+                features=features,
+                base_score=float(root_scores.get(move, 0)),
+                exact_score=exact_scores.get(move),
+            )
+        )
+    if len(candidates) < 2:
+        return None
+    exact_targets = tuple(move for move in exact_best if move in legal_moves)
+    if exact_targets:
+        target_moves = exact_targets
+        target_weight = config.exact_best_weight
+    elif teacher_move in legal_moves:
+        target_moves = (teacher_move,)
+        target_weight = config.teacher_weight
+    else:
+        return None
+    bucket = bucket_for_source(config, source)
+    bucket_weight = bucket_weight_for_source(config, source)
+    return ListwiseExample(
+        position_id=position_id_for_source(source),
+        source_path=source.path,
+        source_line=source.line_number,
+        split=split,
+        board_text=board_text,
+        teacher_move=teacher_move,
+        engine_move=engine_move,
+        target_moves=target_moves,
+        exact_best_moves=exact_best,
+        exact_root_score=exact_score,
+        candidates=tuple(candidates),
+        example_weight=target_weight * bucket_weight,
+        bucket=bucket,
+        bucket_weight=bucket_weight,
+    )
 
 
 def root_candidate_moves(root_scores: dict[str, int], legal_moves: set[str]) -> tuple[str, ...]:
@@ -1527,13 +1745,14 @@ def serialize_dataset_diagnostics(diagnostics: dict[str, Any]) -> dict[str, Any]
     }
 
 
-def collect_pairs(
+def collect_training_data(
     config: TrainerConfig,
     analyzer: Analyzer = run_analysis,
-) -> tuple[list[PreferencePair], list[ValidationRecord], dict[str, Any]]:
+) -> tuple[list[PreferencePair], list[ListwiseExample], list[ValidationRecord], dict[str, Any]]:
     sources = read_jsonl_sources(config.teacher_labels)
     exact_by_board = load_exact_by_board(config.exact_labels) if config.exact_labels else {}
     pairs: list[PreferencePair] = []
+    listwise_examples: list[ListwiseExample] = []
     validation_records: list[ValidationRecord] = []
     stats: collections.Counter[str] = collections.Counter()
     bucket_pair_counts: collections.Counter[str] = collections.Counter()
@@ -1668,7 +1887,10 @@ def collect_pairs(
         drop_exact_disagreement = (
             exact_best
             and teacher_move not in exact_best
-            and (config.drop_teacher_exact_disagreement or config.pair_mode != "exact-aware")
+            and (
+                config.drop_teacher_exact_disagreement
+                or (config.pair_mode != "exact-aware" and config.objective == "pairwise-logistic")
+            )
         )
         if drop_exact_disagreement:
             stats["teacher_exact_disagreements_skipped"] += 1
@@ -1684,7 +1906,9 @@ def collect_pairs(
                 )
             )
             continue
-        if exact_best and teacher_move not in exact_best and config.pair_mode == "exact-aware":
+        if exact_best and teacher_move not in exact_best and (
+            config.pair_mode == "exact-aware" or config.objective != "pairwise-logistic"
+        ):
             stats["teacher_exact_disagreements_used_by_exact_aware"] += 1
         if (
             exact_best
@@ -1730,6 +1954,7 @@ def collect_pairs(
             engine_move is None
             or config.pair_mode != "best-vs-engine"
             or config.guard_mode != "off"
+            or config.objective != "pairwise-logistic"
         )
         board_hash = sha256_text(board_key(board_text))
         cache_key = analysis_cache_key(
@@ -1818,7 +2043,11 @@ def collect_pairs(
                 )
         if engine_move == teacher_move:
             stats["already_agreed"] += 1
-            if config.pair_mode == "best-vs-engine" and config.guard_mode == "off":
+            if (
+                config.pair_mode == "best-vs-engine"
+                and config.guard_mode == "off"
+                and config.objective == "pairwise-logistic"
+            ):
                 validation_records.append(
                     make_validation_record(
                         source=source,
@@ -1856,6 +2085,26 @@ def collect_pairs(
                     bucket=bucket,
                     key="exact_best_not_in_engine_top_group",
                 )
+        if config.objective != "pairwise-logistic" or config.calibrate_output_scale:
+            exact_record = exact_by_board.get(board_key(board_text))
+            listwise_example = make_listwise_example(
+                config=config,
+                source=source,
+                split=split,
+                board_text=board_text,
+                teacher_move=teacher_move,
+                engine_move=engine_move,
+                legal_moves=legal_moves,
+                exact_best=exact_best,
+                exact_scores=exact_move_scores(exact_record),
+                exact_score=exact_root_score(exact_record),
+                root_scores=root_scores,
+            )
+            if listwise_example is not None:
+                listwise_examples.append(listwise_example)
+                stats["listwise_examples"] += 1
+                if listwise_example.exact_best_moves:
+                    stats["listwise_exact_examples"] += 1
         position_pairs, pair_stats = generate_position_pairs(
             config=config,
             source=source,
@@ -1952,6 +2201,8 @@ def collect_pairs(
         "guard_pairs_truncated",
         "guarded_positions",
         "large_exact_top_group_skipped",
+        "listwise_examples",
+        "listwise_exact_examples",
         "main_pair_weight_mass",
         "main_preference_pairs",
         "max_pairs_in_position",
@@ -1995,6 +2246,14 @@ def collect_pairs(
         bucket: float(bucket_pair_weight_mass[bucket]) for bucket in sorted(bucket_pair_weight_mass)
     }
     row_stats["dataset_diagnostics"] = serialize_dataset_diagnostics(dataset_diagnostics)
+    return pairs, listwise_examples, validation_records, row_stats
+
+
+def collect_pairs(
+    config: TrainerConfig,
+    analyzer: Analyzer = run_analysis,
+) -> tuple[list[PreferencePair], list[ValidationRecord], dict[str, Any]]:
+    pairs, _, validation_records, row_stats = collect_training_data(config, analyzer=analyzer)
     return pairs, validation_records, row_stats
 
 
@@ -2096,7 +2355,174 @@ def lazy_pair_margin(lazy_weights: dict[str, LazyPhaseWeights], pair: Preference
     return sum(phase_weights.effective_value(key) * value for key, value in pair.features.items())
 
 
-def train_weights(config: TrainerConfig, pairs: list[PreferencePair]) -> tuple[WeightsByPhase, list[dict[str, Any]]]:
+def lazy_candidate_score(
+    config: TrainerConfig,
+    lazy_weights: dict[str, LazyPhaseWeights],
+    candidate: CandidateMove,
+) -> float:
+    score = sum(
+        lazy_weights[candidate.phase].effective_value(key) * value
+        for key, value in candidate.features.items()
+    )
+    if config.include_base_margin:
+        score += candidate.base_score
+    return score
+
+
+def candidate_score(config: TrainerConfig, weights: WeightsByPhase, candidate: CandidateMove) -> float:
+    score = sum(weights.get(candidate.phase, {}).get(key, 0.0) * value for key, value in candidate.features.items())
+    if config.include_base_margin:
+        score += candidate.base_score
+    return score
+
+
+def add_sparse_update(
+    phase_weights: LazyPhaseWeights,
+    features: dict[FeatureKey, int],
+    coefficient: float,
+    maximum: float,
+) -> None:
+    if coefficient == 0.0:
+        return
+    for key, value in features.items():
+        phase_weights.add_effective_update(key, coefficient * value, maximum)
+
+
+def add_candidate_delta_update(
+    lazy_weights: dict[str, LazyPhaseWeights],
+    positive: CandidateMove,
+    negative: CandidateMove,
+    coefficient: float,
+    maximum: float,
+) -> None:
+    add_sparse_update(lazy_weights[positive.phase], positive.features, coefficient, maximum)
+    add_sparse_update(lazy_weights[negative.phase], negative.features, -coefficient, maximum)
+
+
+def softmax_probabilities(scores: list[float]) -> list[float]:
+    if not scores:
+        return []
+    maximum = max(scores)
+    exps = [math.exp(score - maximum) for score in scores]
+    total = sum(exps)
+    return [value / total for value in exps]
+
+
+def train_listwise_weights(
+    config: TrainerConfig,
+    examples: list[ListwiseExample],
+) -> tuple[WeightsByPhase, list[dict[str, Any]]]:
+    weights: WeightsByPhase = {phase: {} for phase in PHASES}
+    history: list[dict[str, Any]] = []
+    if not examples:
+        for epoch in range(1, config.epochs + 1):
+            history.append({"epoch": epoch, **evaluate_listwise_examples(config, weights, examples)})
+        return weights, history
+
+    rng = random.Random(config.seed)
+    lazy_weights = {phase: LazyPhaseWeights() for phase in PHASES}
+    shrink_factor = max(0.0, 1.0 - config.learning_rate * config.l2)
+    for epoch in range(1, config.epochs + 1):
+        shuffled = list(examples)
+        rng.shuffle(shuffled)
+        for example in shuffled:
+            if config.l2 != 0.0:
+                for phase_weights in lazy_weights.values():
+                    phase_weights.shrink(shrink_factor)
+            scores = [lazy_candidate_score(config, lazy_weights, candidate) for candidate in example.candidates]
+            probabilities = softmax_probabilities(scores)
+            target_set = set(example.target_moves)
+            target_count = max(1, len(target_set))
+            for candidate, probability in zip(example.candidates, probabilities, strict=True):
+                target_probability = (1.0 / target_count) if candidate.move in target_set else 0.0
+                coefficient = config.learning_rate * example.example_weight * (target_probability - probability)
+                add_sparse_update(
+                    lazy_weights[candidate.phase],
+                    candidate.features,
+                    coefficient,
+                    config.max_abs_weight,
+                )
+
+            if config.tie_penalty > 0.0:
+                target_candidates = [candidate for candidate in example.candidates if candidate.move in target_set]
+                if target_candidates:
+                    best_target = max(
+                        target_candidates,
+                        key=lambda candidate: lazy_candidate_score(config, lazy_weights, candidate),
+                    )
+                    best_score = max(lazy_candidate_score(config, lazy_weights, candidate) for candidate in example.candidates)
+                    top_group = [
+                        candidate
+                        for candidate in example.candidates
+                        if best_score - lazy_candidate_score(config, lazy_weights, candidate) <= config.top_group_margin
+                    ]
+                    if len(top_group) > config.target_top_group_size:
+                        for candidate in top_group:
+                            if candidate.move in target_set:
+                                continue
+                            margin = (
+                                lazy_candidate_score(config, lazy_weights, best_target)
+                                - lazy_candidate_score(config, lazy_weights, candidate)
+                            )
+                            factor = stable_sigmoid_negative_margin(margin)
+                            coefficient = (
+                                config.learning_rate
+                                * example.example_weight
+                                * config.tie_penalty
+                                * factor
+                            )
+                            add_candidate_delta_update(
+                                lazy_weights,
+                                best_target,
+                                candidate,
+                                coefficient,
+                                config.max_abs_weight,
+                            )
+
+            if config.objective == "exact-aware-listwise" and config.sign_penalty > 0.0:
+                exact_scored = [
+                    candidate for candidate in example.candidates if candidate.exact_score is not None
+                ]
+                for better in exact_scored:
+                    assert better.exact_score is not None
+                    for worse in exact_scored:
+                        assert worse.exact_score is not None
+                        exact_delta = better.exact_score - worse.exact_score
+                        if exact_delta <= 0:
+                            continue
+                        margin = (
+                            lazy_candidate_score(config, lazy_weights, better)
+                            - lazy_candidate_score(config, lazy_weights, worse)
+                        )
+                        factor = stable_sigmoid_negative_margin(margin)
+                        coefficient = (
+                            config.learning_rate
+                            * example.example_weight
+                            * config.sign_penalty
+                            * min(abs(exact_delta), 64)
+                            / 64.0
+                            * factor
+                        )
+                        add_candidate_delta_update(
+                            lazy_weights,
+                            better,
+                            worse,
+                            coefficient,
+                            config.max_abs_weight,
+                        )
+
+        weights = {phase: dict(lazy_weights[phase].materialize()) for phase in PHASES}
+        history.append({"epoch": epoch, **evaluate_listwise_examples(config, weights, examples)})
+    return weights, history
+
+
+def train_weights(
+    config: TrainerConfig,
+    pairs: list[PreferencePair],
+    listwise_examples: list[ListwiseExample] | None = None,
+) -> tuple[WeightsByPhase, list[dict[str, Any]]]:
+    if config.objective != "pairwise-logistic":
+        return train_listwise_weights(config, listwise_examples or [])
     weights: WeightsByPhase = {phase: {} for phase in PHASES}
     history: list[dict[str, Any]] = []
     if not pairs:
@@ -2182,6 +2608,256 @@ def evaluate_pairs(
     }
 
 
+def rank_from_scores(scores: dict[str, float], move: str) -> int | None:
+    if move not in scores:
+        return None
+    score = scores[move]
+    return 1 + sum(1 for other_score in scores.values() if other_score > score)
+
+
+def sign(value: float | int | None) -> int:
+    if value is None:
+        return 0
+    if value > 0:
+        return 1
+    if value < 0:
+        return -1
+    return 0
+
+
+def listwise_scores(
+    config: TrainerConfig,
+    weights: WeightsByPhase,
+    example: ListwiseExample,
+) -> dict[str, float]:
+    return {
+        candidate.move: candidate_score(config, weights, candidate)
+        for candidate in example.candidates
+    }
+
+
+def evaluate_listwise_examples(
+    config: TrainerConfig,
+    weights: WeightsByPhase,
+    examples: list[ListwiseExample],
+) -> dict[str, Any]:
+    if not examples:
+        return {
+            "pairs": 0,
+            "loss": 0.0,
+            "weighted_loss": 0.0,
+            "unweighted_loss": 0.0,
+            "accuracy": 0.0,
+            "weighted_accuracy": 0.0,
+            "avg_margin": 0.0,
+            "total_pair_weight": 0.0,
+            "avg_pair_weight": 0.0,
+        }
+    losses: list[float] = []
+    weighted_losses: list[float] = []
+    margins: list[float] = []
+    correct = 0
+    weighted_correct = 0.0
+    total_weight = 0.0
+    for example in examples:
+        scores = [candidate_score(config, weights, candidate) for candidate in example.candidates]
+        probabilities = softmax_probabilities(scores)
+        target_indexes = [
+            index
+            for index, candidate in enumerate(example.candidates)
+            if candidate.move in set(example.target_moves)
+        ]
+        target_probability = sum(probabilities[index] for index in target_indexes)
+        loss = -math.log(max(target_probability, 1.0e-300))
+        losses.append(loss)
+        weighted_losses.append(loss * example.example_weight)
+        total_weight += example.example_weight
+        best_score = max(scores)
+        best_moves = {
+            candidate.move
+            for candidate, score_value in zip(example.candidates, scores, strict=True)
+            if score_value == best_score
+        }
+        if best_moves & set(example.target_moves):
+            correct += 1
+            weighted_correct += example.example_weight
+        target_scores = [
+            score_value
+            for candidate, score_value in zip(example.candidates, scores, strict=True)
+            if candidate.move in set(example.target_moves)
+        ]
+        non_target_scores = [
+            score_value
+            for candidate, score_value in zip(example.candidates, scores, strict=True)
+            if candidate.move not in set(example.target_moves)
+        ]
+        if target_scores and non_target_scores:
+            margins.append(max(target_scores) - max(non_target_scores))
+    l2_term = 0.0
+    for phase_weights in weights.values():
+        l2_term += sum(value * value for value in phase_weights.values())
+    weighted_loss = sum(weighted_losses) / total_weight if total_weight else 0.0
+    return {
+        "pairs": len(examples),
+        "loss": weighted_loss + 0.5 * config.l2 * l2_term,
+        "weighted_loss": weighted_loss + 0.5 * config.l2 * l2_term,
+        "unweighted_loss": sum(losses) / len(losses) + 0.5 * config.l2 * l2_term,
+        "accuracy": correct / len(examples),
+        "weighted_accuracy": weighted_correct / total_weight if total_weight else 0.0,
+        "avg_margin": sum(margins) / len(margins) if margins else 0.0,
+        "total_pair_weight": total_weight,
+        "avg_pair_weight": total_weight / len(examples),
+    }
+
+
+def move_choice_metrics(
+    config: TrainerConfig,
+    weights: WeightsByPhase,
+    examples: list[ListwiseExample],
+) -> dict[str, Any]:
+    if not examples:
+        return {
+            "rows": 0,
+            "selected_teacher_agreement": 0,
+            "selected_teacher_agreement_rate": 0.0,
+            "avg_teacher_rank": None,
+            "top_tie_rate": 0.0,
+            "exact_best_top_group": 0,
+            "exact_best_top_group_rate": None,
+            "avg_exact_best_rank": None,
+            "exact_sign_agreement": 0,
+            "exact_sign_agreement_rate": None,
+            "wrong_direction": 0,
+            "high_confidence_wrong_direction": 0,
+        }
+    selected_teacher = 0
+    teacher_rank_sum = 0
+    teacher_rank_rows = 0
+    top_ties = 0
+    exact_rows = 0
+    exact_best_top_group = 0
+    exact_best_rank_sum = 0
+    exact_best_rank_rows = 0
+    sign_rows = 0
+    sign_agree = 0
+    wrong_direction = 0
+    high_conf_wrong = 0
+    for example in examples:
+        scores = listwise_scores(config, weights, example)
+        if not scores:
+            continue
+        best_score = max(scores.values())
+        selected_move = min(move for move, score_value in scores.items() if score_value == best_score)
+        if selected_move == example.teacher_move:
+            selected_teacher += 1
+        teacher_rank = rank_from_scores(scores, example.teacher_move)
+        if teacher_rank is not None:
+            teacher_rank_sum += teacher_rank
+            teacher_rank_rows += 1
+        top_group = {
+            move
+            for move, score_value in scores.items()
+            if best_score - score_value <= config.top_group_margin
+        }
+        if len(top_group) > config.target_top_group_size:
+            top_ties += 1
+        exact_best = set(example.exact_best_moves)
+        if exact_best:
+            exact_rows += 1
+            if top_group & exact_best:
+                exact_best_top_group += 1
+            ranks = [rank_from_scores(scores, move) for move in exact_best if rank_from_scores(scores, move) is not None]
+            if ranks:
+                exact_best_rank_sum += min(ranks)
+                exact_best_rank_rows += 1
+        exact_sign = sign(example.exact_root_score)
+        model_sign = sign(best_score)
+        if exact_sign != 0 and model_sign != 0:
+            sign_rows += 1
+            if exact_sign == model_sign:
+                sign_agree += 1
+            else:
+                wrong_direction += 1
+                if abs(best_score) >= config.high_confidence_margin:
+                    high_conf_wrong += 1
+    return {
+        "rows": len(examples),
+        "selected_teacher_agreement": selected_teacher,
+        "selected_teacher_agreement_rate": selected_teacher / len(examples),
+        "avg_teacher_rank": teacher_rank_sum / teacher_rank_rows if teacher_rank_rows else None,
+        "top_tie_rate": top_ties / len(examples),
+        "exact_best_top_group": exact_best_top_group,
+        "exact_best_top_group_rate": exact_best_top_group / exact_rows if exact_rows else None,
+        "avg_exact_best_rank": exact_best_rank_sum / exact_best_rank_rows if exact_best_rank_rows else None,
+        "exact_sign_rows": sign_rows,
+        "exact_sign_agreement": sign_agree,
+        "exact_sign_agreement_rate": sign_agree / sign_rows if sign_rows else None,
+        "wrong_direction": wrong_direction,
+        "high_confidence_wrong_direction": high_conf_wrong,
+    }
+
+
+def quantized_dequantized_weights(
+    weights: WeightsByPhase,
+    *,
+    output_scale: float,
+    max_abs_output_weight: int,
+) -> WeightsByPhase:
+    clamp = min(max_abs_output_weight, INT16_LIMIT)
+    calibrated: WeightsByPhase = {phase: {} for phase in PHASES}
+    for phase, phase_weights in weights.items():
+        for key, value in phase_weights.items():
+            integer = max(-clamp, min(clamp, int(round(value * output_scale))))
+            if integer != 0:
+                calibrated[phase][key] = integer / output_scale
+    return calibrated
+
+
+def calibrate_output_scale(
+    config: TrainerConfig,
+    weights: WeightsByPhase,
+    examples: list[ListwiseExample],
+) -> tuple[TrainerConfig, dict[str, Any]]:
+    if not config.calibrate_output_scale:
+        return config, {}
+    calibration_examples = [
+        example for example in examples if example.split == "validation" and example.exact_best_moves
+    ]
+    if not calibration_examples:
+        calibration_examples = [example for example in examples if example.exact_best_moves]
+    if not calibration_examples:
+        return config, {"status": "skipped", "reason": "no exact-overlap examples"}
+    best_scale = config.output_scale
+    best_metrics: dict[str, Any] | None = None
+    best_key: tuple[float, float, float, float] | None = None
+    candidates: list[dict[str, Any]] = []
+    for scale in config.scale_grid:
+        quantized = quantized_dequantized_weights(
+            weights,
+            output_scale=scale,
+            max_abs_output_weight=config.max_abs_output_weight,
+        )
+        candidate_config = replace(config, output_scale=scale)
+        metrics = move_choice_metrics(candidate_config, quantized, calibration_examples)
+        key = (
+            float(metrics["selected_teacher_agreement_rate"]),
+            float(metrics["exact_sign_agreement_rate"] or 0.0),
+            -float(metrics["top_tie_rate"]),
+            -float(metrics["avg_exact_best_rank"] or 1.0e9),
+        )
+        candidates.append({"scale": scale, "metrics": metrics, "score_key": key})
+        if best_key is None or key > best_key:
+            best_key = key
+            best_scale = scale
+            best_metrics = metrics
+    return replace(config, output_scale=best_scale), {
+        "status": "selected",
+        "selected_scale": best_scale,
+        "selected_metrics": best_metrics,
+        "candidates": candidates,
+    }
+
+
 def format_weight(value: float) -> str:
     if abs(value) < 0.0000005:
         value = 0.0
@@ -2218,6 +2894,7 @@ def render_phase_table(
         "# no_strength_claim: true",
         "# not_default_promotion: true",
         f"# loss: {config.loss}",
+        f"# objective: {config.objective}",
         f"# pair_mode: {config.pair_mode}",
         f"# pair_weighting: {config.pair_weighting}",
         f"# l2: {config.l2}",
@@ -2468,6 +3145,7 @@ def render_report(
         "",
         f"- split: `{config.split}`",
         f"- families: `{', '.join(config.families)}`",
+        f"- objective: `{config.objective}`",
         f"- loss: `{config.loss}`",
         f"- pair_mode: `{config.pair_mode}`",
         f"- pair_weighting: `{config.pair_weighting}`",
@@ -2484,11 +3162,18 @@ def render_report(
         f"- drop_teacher_exact_disagreement: `{config.drop_teacher_exact_disagreement}`",
         f"- exact_aware_only_when_available: `{config.exact_aware_only_when_available}`",
         f"- max_top_group_size_for_training: `{config.max_top_group_size_for_training}`",
+        f"- tie_penalty: `{config.tie_penalty}`",
+        f"- target_top_group_size: `{config.target_top_group_size}`",
+        f"- top_group_margin: `{config.top_group_margin}`",
+        f"- sign_penalty: `{config.sign_penalty}`",
+        f"- high_confidence_margin: `{config.high_confidence_margin}`",
         f"- l2: `{config.l2}`",
         f"- epochs: `{config.epochs}`",
         f"- learning_rate: `{config.learning_rate}`",
         f"- max_abs_weight: `{config.max_abs_weight}`",
         f"- output_scale: `{config.output_scale}`",
+        f"- calibrate_output_scale: `{config.calibrate_output_scale}`",
+        f"- scale_grid: `{', '.join(format_weight(scale) for scale in config.scale_grid)}`",
         f"- max_abs_output_weight: `{config.max_abs_output_weight}`",
         f"- candidate_pattern_table_weight: `{config.candidate_pattern_table_weight}`",
         f"- candidate_eval_shape: `{config.candidate_eval_shape}`",
@@ -2531,6 +3216,44 @@ def render_report(
             f"- final_avg_margin: `{final_metrics['avg_margin']:.6f}`",
             f"- total_pair_weight: `{final_metrics['total_pair_weight']:.6f}`",
             "",
+            "## Move Choice Diagnostics",
+            "",
+        ]
+    )
+    diagnostics = summary.get("diagnostics", {})
+    for label in ("initial", "final", "quantized_final"):
+        row = diagnostics.get(label)
+        if not row:
+            continue
+        lines.extend(
+            [
+                f"### {label}",
+                "",
+                f"- selected_teacher_agreement: `{row['selected_teacher_agreement']} / {row['rows']}`",
+                f"- selected_teacher_agreement_rate: `{row['selected_teacher_agreement_rate']:.6f}`",
+                f"- avg_teacher_rank: `{row['avg_teacher_rank'] if row['avg_teacher_rank'] is not None else 'n/a'}`",
+                f"- top_tie_rate: `{row['top_tie_rate']:.6f}`",
+                f"- exact_best_top_group: `{row['exact_best_top_group']}`",
+                f"- exact_best_top_group_rate: `{row['exact_best_top_group_rate'] if row['exact_best_top_group_rate'] is not None else 'n/a'}`",
+                f"- avg_exact_best_rank: `{row['avg_exact_best_rank'] if row['avg_exact_best_rank'] is not None else 'n/a'}`",
+                f"- exact_sign_agreement: `{row.get('exact_sign_agreement', 0)} / {row.get('exact_sign_rows', 0)}`",
+                f"- exact_sign_agreement_rate: `{row['exact_sign_agreement_rate'] if row['exact_sign_agreement_rate'] is not None else 'n/a'}`",
+                f"- wrong_direction: `{row['wrong_direction']}`",
+                f"- high_confidence_wrong_direction: `{row['high_confidence_wrong_direction']}`",
+                "",
+            ]
+        )
+    calibration = summary.get("output_scale_calibration", {})
+    if calibration:
+        lines.extend(["## Output Scale Calibration", ""])
+        lines.append(f"- status: `{calibration.get('status', 'unknown')}`")
+        if calibration.get("selected_scale") is not None:
+            lines.append(f"- selected_scale: `{calibration['selected_scale']}`")
+        if calibration.get("reason"):
+            lines.append(f"- reason: `{calibration['reason']}`")
+        lines.append("")
+    lines.extend(
+        [
             "## Outputs",
             "",
         ]
@@ -2767,12 +3490,30 @@ def train_pairwise_tables(
     table_dir = config.out_dir / "tables"
     table_dir.mkdir(parents=True, exist_ok=True)
 
-    pairs, validation_records, row_stats = collect_pairs(config, analyzer=analyzer)
+    pairs, listwise_examples, validation_records, row_stats = collect_training_data(config, analyzer=analyzer)
     initial_weights: WeightsByPhase = {phase: {} for phase in PHASES}
-    initial_metrics = evaluate_pairs(config, initial_weights, pairs)
-    weights, history = train_weights(config, pairs)
+    if config.objective == "pairwise-logistic":
+        initial_metrics = evaluate_pairs(config, initial_weights, pairs)
+    else:
+        initial_metrics = evaluate_listwise_examples(config, initial_weights, listwise_examples)
+    if config.objective == "pairwise-logistic":
+        weights, history = train_weights(config, pairs)
+    else:
+        weights, history = train_weights(config, pairs, listwise_examples)
+    initial_diagnostics = move_choice_metrics(config, initial_weights, listwise_examples)
+    final_diagnostics = move_choice_metrics(config, weights, listwise_examples)
+    config, calibration_summary = calibrate_output_scale(config, weights, listwise_examples)
+    quantized_weights = quantized_dequantized_weights(
+        weights,
+        output_scale=config.output_scale,
+        max_abs_output_weight=config.max_abs_output_weight,
+    )
+    quantized_diagnostics = move_choice_metrics(config, quantized_weights, listwise_examples)
     validation_records = validation_rows_with_margins(config, weights, pairs, validation_records)
-    final_metrics = evaluate_pairs(config, weights, pairs)
+    if config.objective == "pairwise-logistic":
+        final_metrics = evaluate_pairs(config, weights, pairs)
+    else:
+        final_metrics = evaluate_listwise_examples(config, weights, listwise_examples)
 
     table_paths = {phase: table_dir / f"{phase}.tsv" for phase in PHASES}
     weight_summary = summarize_weights(config, weights)
@@ -2828,6 +3569,7 @@ def train_pairwise_tables(
         "analysis_elapsed_seconds": row_stats.get("analysis_elapsed_seconds", 0.0),
         "families": list(config.families),
         "split": config.split,
+        "objective": config.objective,
         "loss": config.loss,
         "pair_mode": config.pair_mode,
         "pair_weighting": config.pair_weighting,
@@ -2849,11 +3591,18 @@ def train_pairwise_tables(
         "drop_teacher_exact_disagreement": config.drop_teacher_exact_disagreement,
         "exact_aware_only_when_available": config.exact_aware_only_when_available,
         "max_top_group_size_for_training": config.max_top_group_size_for_training,
+        "tie_penalty": config.tie_penalty,
+        "target_top_group_size": config.target_top_group_size,
+        "top_group_margin": config.top_group_margin,
+        "sign_penalty": config.sign_penalty,
+        "high_confidence_margin": config.high_confidence_margin,
         "l2": config.l2,
         "epochs": config.epochs,
         "learning_rate": config.learning_rate,
         "max_abs_weight": config.max_abs_weight,
         "output_scale": config.output_scale,
+        "calibrate_output_scale": config.calibrate_output_scale,
+        "scale_grid": list(config.scale_grid),
         "max_abs_output_weight": config.max_abs_output_weight,
         "candidate_pattern_table_weight": config.candidate_pattern_table_weight,
         "include_base_margin": config.include_base_margin,
@@ -2870,6 +3619,12 @@ def train_pairwise_tables(
             "final_metrics": final_metrics,
             "weights": weight_summary,
         },
+        "diagnostics": {
+            "initial": initial_diagnostics,
+            "final": final_diagnostics,
+            "quantized_final": quantized_diagnostics,
+        },
+        "output_scale_calibration": calibration_summary,
         "outputs": {
             "tables": {phase: str(path) for phase, path in table_paths.items()},
             "candidate_eval": str(candidate_eval_path),

@@ -120,6 +120,26 @@ def exact_row(board: str, best_move: str) -> dict[str, object]:
     }
 
 
+def exact_row_with_scores(
+    board: str,
+    *,
+    best_move: str,
+    move_scores: dict[str, int],
+    exact_score: int = 16,
+) -> dict[str, object]:
+    return {
+        "schema": "exact_label.v1",
+        "board": board,
+        "best_move": best_move,
+        "best_moves": [best_move],
+        "exact_score_side_to_move": exact_score,
+        "move_scores": [
+            {"move": move, "exact_score_side_to_move": score}
+            for move, score in sorted(move_scores.items())
+        ],
+    }
+
+
 def fake_analyzer(
     config: trainer.TrainerConfig, board_text: str
 ) -> trainer.AnalyzeResult:
@@ -294,6 +314,46 @@ def pair_list_for_training_comparison(
         for pair in pairs:
             repeated.append(replace(pair, pair_weight=1.0 + index * 0.25))
     return repeated
+
+
+def synthetic_listwise_example(
+    *,
+    target_move: str = "good",
+    other_move: str = "bad",
+    split: str = "validation",
+    exact_root_score: int | None = 16,
+) -> trainer.ListwiseExample:
+    return trainer.ListwiseExample(
+        position_id="synthetic-listwise",
+        source_path=Path("synthetic.jsonl"),
+        source_line=1,
+        split=split,
+        board_text=INITIAL_BOARD,
+        teacher_move=other_move,
+        engine_move=other_move,
+        target_moves=(target_move,),
+        exact_best_moves=(target_move,),
+        exact_root_score=exact_root_score,
+        candidates=(
+            trainer.CandidateMove(
+                move=target_move,
+                phase="midgame",
+                features={("edge_8", 2131): 1},
+                base_score=0.0,
+                exact_score=8,
+            ),
+            trainer.CandidateMove(
+                move=other_move,
+                phase="midgame",
+                features={("edge_8", 2179): 1},
+                base_score=0.0,
+                exact_score=-8,
+            ),
+        ),
+        example_weight=1.0,
+        bucket="__missing__",
+        bucket_weight=1.0,
+    )
 
 
 def boundary_pair_moves(
@@ -1587,6 +1647,111 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
             preferred_root_score = trainer.model_margin(config, weights, pair)
             other_root_score = 0.0
             self.assertGreater(preferred_root_score, other_root_score)
+
+    def test_listwise_softmax_overfits_synthetic_target_move(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            config = make_config(
+                temp_path,
+                labels,
+                extra_args=[
+                    "--objective",
+                    "listwise-softmax",
+                    "--no-base-margin",
+                    "--epochs",
+                    "16",
+                    "--learning-rate",
+                    "0.4",
+                    "--l2",
+                    "0",
+                ],
+            )
+            example = synthetic_listwise_example()
+            initial: trainer.WeightsByPhase = {phase: {} for phase in trainer.PHASES}
+
+            weights, history = trainer.train_weights(config, [], [example])
+
+        self.assertLess(
+            history[-1]["loss"],
+            trainer.evaluate_listwise_examples(config, initial, [example])["loss"],
+        )
+        scores = trainer.listwise_scores(config, weights, example)
+        self.assertGreater(scores["good"], scores["bad"])
+
+    def test_exact_aware_listwise_uses_exact_best_when_teacher_disagrees(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row(move="d1")])
+            exact = write_jsonl(
+                temp_path / "exact.jsonl",
+                [
+                    exact_row_with_scores(
+                        TEACHER_BOARD,
+                        best_move="b1",
+                        move_scores={"b1": 12, "d1": -4},
+                    )
+                ],
+            )
+            config = make_config(
+                temp_path,
+                labels,
+                exact_labels=exact,
+                extra_args=[
+                    "--objective",
+                    "exact-aware-listwise",
+                    "--no-base-margin",
+                    "--epochs",
+                    "12",
+                    "--learning-rate",
+                    "0.3",
+                    "--l2",
+                    "0",
+                    "--sign-penalty",
+                    "1",
+                ],
+            )
+
+            pairs, examples, records, stats = trainer.collect_training_data(
+                config,
+                analyzer=wide_fake_analyzer,
+            )
+            weights, _ = trainer.train_weights(config, pairs, examples)
+
+        self.assertEqual(len(examples), 1)
+        self.assertEqual(examples[0].target_moves, ("b1",))
+        self.assertEqual(stats["teacher_exact_disagreements_used_by_exact_aware"], 1)
+        scores = trainer.listwise_scores(config, weights, examples[0])
+        self.assertGreater(scores["b1"], scores["d1"])
+        self.assertTrue(any(record.status == "paired" for record in records))
+
+    def test_output_scale_calibration_selects_best_grid_value(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            config = make_config(
+                temp_path,
+                labels,
+                extra_args=[
+                    "--objective",
+                    "listwise-softmax",
+                    "--calibrate-output-scale",
+                    "--scale-grid",
+                    "1,10",
+                    "--no-base-margin",
+                ],
+            )
+            example = replace(synthetic_listwise_example(), teacher_move="good")
+            weights: trainer.WeightsByPhase = {phase: {} for phase in trainer.PHASES}
+            weights["midgame"] = {
+                ("edge_8", 2131): 0.06,
+                ("edge_8", 2179): 0.0,
+            }
+
+            calibrated, summary = trainer.calibrate_output_scale(config, weights, [example])
+
+        self.assertEqual(summary["status"], "selected")
+        self.assertEqual(calibrated.output_scale, 10.0)
 
     def test_same_seed_is_deterministic_for_generated_tables(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
