@@ -365,6 +365,31 @@ othello_add_help_contains_test(
     "--format"
 )
 
+othello_add_help_contains_test(
+    othello_rule_core_bench_help_includes_format
+    othello_rule_core_bench
+    "--format"
+)
+
+othello_add_help_contains_test(
+    othello_rule_core_bench_help_includes_perft_depth
+    othello_rule_core_bench
+    "--perft-depth"
+)
+
+othello_add_tool_smoke_test(
+    othello_rule_core_bench_jsonl_includes_perft
+    othello_rule_core_bench
+    --positions smoke
+    --iterations 1
+    --perft-depth 2
+    --format jsonl
+)
+set_tests_properties(
+    othello_rule_core_bench_jsonl_includes_perft
+    PROPERTIES PASS_REGULAR_EXPRESSION "\"tool\":\"othello_rule_core_bench\".*\"operation\":\"perft\".*\"nodes\""
+)
+
 othello_add_tool_smoke_test(
     othello_endgame_bench_jsonl_includes_disc_margin
     othello_endgame_bench

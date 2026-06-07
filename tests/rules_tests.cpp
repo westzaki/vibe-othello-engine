@@ -1,10 +1,11 @@
 #include "../src/search_common.hpp"
+#include "reference_rules.hpp"
 #include "test_helpers.hpp"
 
 #include <array>
 #include <catch2/catch_test_macros.hpp>
-#include <othello/othello.hpp>
 #include <optional>
+#include <othello/othello.hpp>
 #include <random>
 #include <string>
 #include <string_view>
@@ -32,8 +33,7 @@ void check_search_position_matches_public_rules(const Board& board) {
         REQUIRE(square.has_value());
 
         const Bitboard public_flips = othello::flips_for_move(board, *square);
-        const Bitboard search_flips =
-            othello::search_detail::flips_for_move(position, *square);
+        const Bitboard search_flips = othello::search_detail::flips_for_move(position, *square);
         CHECK(search_flips == public_flips);
 
         const std::optional<Board> public_next = othello::apply_move(board, *square);
@@ -54,6 +54,42 @@ void check_search_position_matches_public_rules(const Board& board) {
     } else if (search_moves == 0) {
         CHECK(othello::search_detail::legal_moves(search_pass) == 0);
     }
+}
+
+void check_public_rules_match_reference(const Board& board) {
+    const Bitboard public_moves = othello::legal_moves(board);
+    const Bitboard reference_moves = othello::test::reference::legal_moves(board);
+    CHECK(public_moves == reference_moves);
+
+    for (int index = Square::min_index; index <= Square::max_index; ++index) {
+        const std::optional<Square> square = Square::from_index(index);
+        REQUIRE(square.has_value());
+
+        const Bitboard public_flips = othello::flips_for_move(board, *square);
+        const Bitboard reference_flips = othello::test::reference::flips_for_move(board, *square);
+        CHECK(public_flips == reference_flips);
+
+        const std::optional<Board> public_next = othello::apply_move(board, *square);
+        const std::optional<Board> reference_next =
+            othello::test::reference::apply_move(board, *square);
+        CHECK(public_next.has_value() == reference_next.has_value());
+        if (public_next.has_value() && reference_next.has_value()) {
+            CHECK(othello::test::same_board(*public_next, *reference_next));
+        }
+    }
+
+    const std::optional<Board> public_pass = othello::pass_turn(board);
+    const std::optional<Board> reference_pass = othello::test::reference::pass_turn(board);
+    CHECK(public_pass.has_value() == reference_pass.has_value());
+    if (public_pass.has_value() && reference_pass.has_value()) {
+        CHECK(othello::test::same_board(*public_pass, *reference_pass));
+    }
+
+    CHECK(othello::is_game_over(board) == othello::test::reference::is_game_over(board));
+    CHECK(othello::score(board, Side::Black) ==
+          othello::test::reference::score(board, Side::Black));
+    CHECK(othello::score(board, Side::White) ==
+          othello::test::reference::score(board, Side::White));
 }
 
 } // namespace
@@ -349,6 +385,7 @@ side=B)"),
     for (const Board& board : boards) {
         CAPTURE(othello::to_string(board));
         check_search_position_matches_public_rules(board);
+        check_public_rules_match_reference(board);
     }
 }
 
@@ -369,6 +406,7 @@ TEST_CASE("Random legal playouts preserve rule-core invariants", "[rule-core]") 
 
             REQUIRE(step < max_steps);
             othello::test::require_board_invariants(board);
+            check_public_rules_match_reference(board);
             check_search_position_matches_public_rules(board);
 
             const Bitboard moves = othello::legal_moves(board);
@@ -409,5 +447,31 @@ TEST_CASE("Random legal playouts preserve rule-core invariants", "[rule-core]") 
         CHECK(othello::disc_count(board, Side::Black) + othello::disc_count(board, Side::White) <=
               64);
         CHECK(othello::score(board, Side::Black) == -othello::score(board, Side::White));
+    }
+}
+
+TEST_CASE("Random disjoint bitboards match reference rule implementation", "[rule-core]") {
+    constexpr int position_count = 200;
+
+    // Fixed seed keeps the fuzz sample deterministic and reproducible.
+    // NOLINTNEXTLINE(bugprone-random-generator-seed)
+    std::mt19937_64 random_engine{20260607};
+    std::uniform_int_distribution<std::uint64_t> distribution;
+
+    for (int position_index = 0; position_index < position_count; ++position_index) {
+        const Bitboard black = distribution(random_engine);
+        const Bitboard white = distribution(random_engine) & ~black;
+        const Side side_to_move = (position_index % 2 == 0) ? Side::Black : Side::White;
+        const Board board{
+            .black = black,
+            .white = white,
+            .side_to_move = side_to_move,
+        };
+
+        CAPTURE(position_index, othello::to_string(board));
+
+        othello::test::require_board_invariants(board);
+        check_public_rules_match_reference(board);
+        check_search_position_matches_public_rules(board);
     }
 }
