@@ -3,21 +3,32 @@
 #include "common/cli.hpp"
 #include "common/evaluator_cli.hpp"
 #include "common/evaluator_selection.hpp"
+#include "common/formatting.hpp"
+#include "common/jsonl.hpp"
+#include "common/stats.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <exception>
 #include <iostream>
+#include <map>
 #include <optional>
 #include <othello/othello.hpp>
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
 
 using Clock = std::chrono::steady_clock;
 using AnalysisMode = othello::tools::analyze::AnalysisMode;
 using AnalysisOptions = othello::tools::analyze::AnalysisOptions;
+
+struct BatchRecord {
+    std::string position_id;
+    std::string board_text;
+};
 
 void print_usage(std::string_view program_name) {
     std::cout << "usage: " << program_name
@@ -27,11 +38,14 @@ void print_usage(std::string_view program_name) {
                  " [--aspiration on|off] [--aspiration-window N]"
                  " [--aspiration-max-researches N] [--exact-endgame-threshold N]"
                  " "
-              << othello::tools::evaluator_cli_usage() << " [--root-candidates]\n"
+              << othello::tools::evaluator_cli_usage()
+              << " [--root-candidates] [--batch-jsonl]\n"
               << '\n'
               << "Options:\n"
               << "  --board-file PATH  read a board in board_from_string format\n"
               << "  --stdin            read a board in board_from_string format from stdin\n"
+              << "  --batch-jsonl      with --stdin, read JSONL rows with position_id and "
+                 "board or board_text and write JSONL analysis rows\n"
               << "  --depth N          non-negative search depth (default: 10)\n"
               << "  --mode MODE        fixed or iterative (default: fixed)\n"
               << "  --tt on|off        enable or disable transposition table (default: on)\n"
@@ -55,6 +69,247 @@ void print_usage(std::string_view program_name) {
               << othello::tools::evaluator_cli_help()
               << "  --root-candidates  analyze each legal root move separately\n"
               << "  --help             show this help text\n";
+}
+
+[[nodiscard]] bool append_utf8_escape(std::string& output, char escaped) {
+    switch (escaped) {
+    case '"':
+        output += '"';
+        return true;
+    case '\\':
+        output += '\\';
+        return true;
+    case '/':
+        output += '/';
+        return true;
+    case 'b':
+        output += '\b';
+        return true;
+    case 'f':
+        output += '\f';
+        return true;
+    case 'n':
+        output += '\n';
+        return true;
+    case 'r':
+        output += '\r';
+        return true;
+    case 't':
+        output += '\t';
+        return true;
+    default:
+        return false;
+    }
+}
+
+[[nodiscard]] bool parse_json_string(std::string_view text, std::size_t& index,
+                                     std::string& output, std::string& error) {
+    output.clear();
+    if (index >= text.size() || text[index] != '"') {
+        error = "expected JSON string";
+        return false;
+    }
+    ++index;
+    while (index < text.size()) {
+        const char ch = text[index++];
+        if (ch == '"') {
+            return true;
+        }
+        if (ch == '\\') {
+            if (index >= text.size()) {
+                error = "unterminated JSON escape";
+                return false;
+            }
+            const char escaped = text[index++];
+            if (escaped == 'u') {
+                error = "unicode escapes are not supported";
+                return false;
+            }
+            if (!append_utf8_escape(output, escaped)) {
+                error = "invalid JSON escape";
+                return false;
+            }
+            continue;
+        }
+        output += ch;
+    }
+    error = "unterminated JSON string";
+    return false;
+}
+
+void skip_json_space(std::string_view text, std::size_t& index) {
+    while (index < text.size()) {
+        const char ch = text[index];
+        if (ch != ' ' && ch != '\t' && ch != '\n' && ch != '\r') {
+            break;
+        }
+        ++index;
+    }
+}
+
+[[nodiscard]] bool skip_json_value(std::string_view text, std::size_t& index,
+                                   std::string& error) {
+    skip_json_space(text, index);
+    if (index >= text.size()) {
+        error = "missing JSON value";
+        return false;
+    }
+    if (text[index] == '"') {
+        std::string ignored;
+        return parse_json_string(text, index, ignored, error);
+    }
+    int nested = 0;
+    while (index < text.size()) {
+        const char ch = text[index];
+        if (ch == '{' || ch == '[') {
+            ++nested;
+        } else if (ch == '}' || ch == ']') {
+            if (nested == 0) {
+                return true;
+            }
+            --nested;
+        } else if (ch == ',' && nested == 0) {
+            return true;
+        }
+        ++index;
+    }
+    return true;
+}
+
+[[nodiscard]] std::optional<BatchRecord> parse_batch_record(std::string_view line,
+                                                            std::string& error) {
+    std::map<std::string, std::string> string_fields;
+    std::size_t index = 0;
+    skip_json_space(line, index);
+    if (index >= line.size() || line[index] != '{') {
+        error = "expected JSON object";
+        return std::nullopt;
+    }
+    ++index;
+    while (true) {
+        skip_json_space(line, index);
+        if (index < line.size() && line[index] == '}') {
+            ++index;
+            break;
+        }
+
+        std::string key;
+        if (!parse_json_string(line, index, key, error)) {
+            return std::nullopt;
+        }
+        skip_json_space(line, index);
+        if (index >= line.size() || line[index] != ':') {
+            error = "expected ':' after JSON object key";
+            return std::nullopt;
+        }
+        ++index;
+        skip_json_space(line, index);
+        if (index < line.size() && line[index] == '"') {
+            std::string value;
+            if (!parse_json_string(line, index, value, error)) {
+                return std::nullopt;
+            }
+            string_fields.emplace(std::move(key), std::move(value));
+        } else if (!skip_json_value(line, index, error)) {
+            return std::nullopt;
+        }
+        skip_json_space(line, index);
+        if (index < line.size() && line[index] == ',') {
+            ++index;
+            continue;
+        }
+        if (index < line.size() && line[index] == '}') {
+            ++index;
+            break;
+        }
+        error = "expected ',' or '}' after JSON object value";
+        return std::nullopt;
+    }
+    skip_json_space(line, index);
+    if (index != line.size()) {
+        error = "unexpected trailing content after JSON object";
+        return std::nullopt;
+    }
+
+    BatchRecord record;
+    if (const auto position = string_fields.find("position_id"); position != string_fields.end()) {
+        record.position_id = position->second;
+    }
+    if (const auto board = string_fields.find("board"); board != string_fields.end()) {
+        record.board_text = board->second;
+    } else if (const auto board_text = string_fields.find("board_text");
+               board_text != string_fields.end()) {
+        record.board_text = board_text->second;
+    }
+    if (record.position_id.empty()) {
+        error = "missing required field: position_id";
+        return std::nullopt;
+    }
+    if (record.board_text.empty()) {
+        error = "missing required field: board or board_text";
+        return std::nullopt;
+    }
+    return record;
+}
+
+void write_root_scores_json(const std::vector<othello::tools::analyze::RootCandidateAnalysis>&
+                                candidates) {
+    std::cout << '{';
+    bool first = true;
+    for (const auto& candidate : candidates) {
+        if (!first) {
+            std::cout << ',';
+        }
+        first = false;
+        othello::tools::write_json_string(
+            std::cout, candidate.pass ? "pass" : othello::tools::format_square(candidate.move));
+        std::cout << ':' << candidate.score;
+    }
+    std::cout << '}';
+}
+
+void write_batch_error(std::string_view position_id, std::string_view error) {
+    othello::tools::JsonObjectWriter writer{std::cout};
+    writer.begin_object();
+    writer.string_field("position_id", position_id);
+    writer.string_field("status", "error");
+    writer.string_field("error", error);
+    writer.end_object();
+    std::cout << '\n';
+}
+
+[[nodiscard]] std::string format_batch_best_move(
+    const othello::SearchResult& result,
+    const std::vector<othello::tools::analyze::RootCandidateAnalysis>& candidates) {
+    if (result.best_move.has_value()) {
+        return othello::tools::format_square(result.best_move);
+    }
+    const auto pass_candidate = std::find_if(
+        candidates.begin(), candidates.end(),
+        [](const othello::tools::analyze::RootCandidateAnalysis& candidate) {
+            return candidate.pass;
+        });
+    return pass_candidate != candidates.end() ? "pass" : "-";
+}
+
+void write_batch_result(const BatchRecord& record, const AnalysisOptions& options,
+                        const othello::SearchResult& result,
+                        const std::vector<othello::tools::analyze::RootCandidateAnalysis>&
+                            candidates,
+                        std::chrono::nanoseconds elapsed) {
+    othello::tools::JsonObjectWriter writer{std::cout};
+    writer.begin_object();
+    writer.string_field("position_id", record.position_id);
+    writer.string_field("status", "ok");
+    writer.string_field("best_move", format_batch_best_move(result, candidates));
+    writer.int_field("score", result.score);
+    writer.int_field("depth", options.depth);
+    writer.uint_field("nodes", result.nodes);
+    writer.double_field("elapsed_ms", othello::tools::elapsed_ms(elapsed));
+    writer.field_name("root_scores");
+    write_root_scores_json(candidates);
+    writer.end_object();
+    std::cout << '\n';
 }
 
 [[nodiscard]] std::optional<AnalysisMode> parse_mode(std::string_view text) noexcept {
@@ -186,6 +441,8 @@ void print_usage(std::string_view program_name) {
             }
         } else if (arg == "--root-candidates" || arg == "--root-breakdown") {
             options.root_candidates = true;
+        } else if (arg == "--batch-jsonl") {
+            options.batch_jsonl = true;
         } else {
             std::cerr << "unknown option: " << arg << '\n';
             return std::nullopt;
@@ -195,6 +452,10 @@ void print_usage(std::string_view program_name) {
     const int input_count = (options.board_file.has_value() ? 1 : 0) + (options.read_stdin ? 1 : 0);
     if (input_count != 1) {
         std::cerr << "choose exactly one input source: --board-file PATH or --stdin\n";
+        return std::nullopt;
+    }
+    if (options.batch_jsonl && !options.read_stdin) {
+        std::cerr << "--batch-jsonl requires --stdin\n";
         return std::nullopt;
     }
 
@@ -208,6 +469,50 @@ void print_usage(std::string_view program_name) {
     options.evaluator = *evaluator;
 
     return options;
+}
+
+int run_batch_analysis(const AnalysisOptions& options, std::string_view input_text) {
+    int failures = 0;
+    std::size_t line_number = 0;
+    std::size_t line_begin = 0;
+    while (line_begin <= input_text.size()) {
+        ++line_number;
+        const std::size_t newline = input_text.find('\n', line_begin);
+        const std::size_t line_end =
+            newline == std::string_view::npos ? input_text.size() : newline;
+        const std::string_view line = input_text.substr(line_begin, line_end - line_begin);
+        line_begin = newline == std::string_view::npos ? input_text.size() + 1 : newline + 1;
+        if (line.empty()) {
+            continue;
+        }
+
+        std::string error;
+        const std::optional<BatchRecord> record = parse_batch_record(line, error);
+        if (!record.has_value()) {
+            ++failures;
+            write_batch_error("line-" + std::to_string(line_number), error);
+            continue;
+        }
+        const std::optional<othello::Board> board =
+            othello::board_from_string(record->board_text);
+        if (!board.has_value()) {
+            ++failures;
+            write_batch_error(record->position_id,
+                              "invalid board input: expected 8 board rows followed by side=B or side=W");
+            continue;
+        }
+
+        const auto start = Clock::now();
+        const othello::SearchResult result = othello::tools::analyze::run_search(*board, options);
+        const std::vector<othello::tools::analyze::RootCandidateAnalysis> candidates =
+            options.root_candidates
+                ? othello::tools::analyze::analyze_root_candidates(*board, options)
+                : std::vector<othello::tools::analyze::RootCandidateAnalysis>{};
+        const auto end = Clock::now();
+        write_batch_result(*record, options, result, candidates, end - start);
+        std::cout.flush();
+    }
+    return failures == 0 ? 0 : 1;
 }
 
 int run_analysis(std::span<char* const> args) {
@@ -229,6 +534,10 @@ int run_analysis(std::span<char* const> args) {
                             : othello::tools::read_text_file(*options->board_file);
     if (!board_text.has_value()) {
         return 1;
+    }
+
+    if (options->batch_jsonl) {
+        return run_batch_analysis(*options, *board_text);
     }
 
     const std::optional<othello::Board> board = othello::board_from_string(*board_text);

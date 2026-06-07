@@ -48,6 +48,8 @@ from pattern_training.analysis_cache import (
 from pattern_training.analysis_cache import analyze_requests as shared_analyze_requests
 from pattern_training.analyzer import AnalyzerConfig
 from pattern_training.analyzer import analyze_command as shared_analyze_command
+from pattern_training.analyzer import run_batch_analysis as shared_run_batch_analysis
+from pattern_training.analyzer import run_parallel_batch_analysis as shared_run_parallel_batch_analysis
 from pattern_training.analyzer import run_analysis as shared_run_analysis
 from pattern_training.root_candidates import RootAnalysis as AnalyzeResult
 from pattern_training.root_candidates import parse_analysis_stdout
@@ -70,6 +72,7 @@ PAIR_MODES = (
 PAIR_WEIGHTINGS = ("uniform", "rank-margin", "score-margin", "exact-boost")
 GUARD_MODES = ("off", "base-agreement")
 CANDIDATE_EVAL_SHAPES = ("base-plus-delta", "pattern-only")
+ANALYSIS_RUNNERS = ("subprocess", "batch")
 FAMILY_ALIASES: dict[str, tuple[str, ...]] = {
     **COMMON_FAMILY_ALIASES,
     "all": FAMILY_ORDER,
@@ -117,6 +120,7 @@ class TrainerConfig:
     analyze_position: Path
     out_dir: Path
     analysis_cache: AnalysisCacheConfig
+    analysis_runner: str
     analysis_jobs: int
     families: tuple[str, ...]
     split: str
@@ -275,6 +279,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=parse_positive_int,
         default=1,
         help="maximum concurrent root-analysis subprocesses (default: 1)",
+    )
+    parser.add_argument(
+        "--analysis-runner",
+        choices=ANALYSIS_RUNNERS,
+        default="subprocess",
+        help="root-analysis runner implementation (default: subprocess)",
     )
     parser.add_argument("--out-dir", required=True, help="output directory under runs/")
     parser.add_argument(
@@ -566,6 +576,7 @@ def config_from_args(
             directory=analysis_cache_dir,
             mode=args.analysis_cache_mode,
         ),
+        analysis_runner=args.analysis_runner,
         analysis_jobs=args.analysis_jobs,
         families=parse_families(args.families),
         split=args.split,
@@ -634,6 +645,35 @@ def analyze_requests(
     stats: collections.Counter[str],
     eval_config_hash: str,
 ) -> dict[int, AnalyzeResult]:
+    batch_analyzer = None
+    if config.analysis_runner == "batch":
+        analyzer_config = AnalyzerConfig(
+            analyze_position=config.analyze_position,
+            eval_config=config.eval_config,
+            depth=DEFAULT_ANALYSIS_DEPTH,
+        )
+
+        def run_batch(
+            requests: list[AnalysisRequest],
+        ) -> Any:
+            request_by_key = {request.cache_key: request for request in requests}
+            batch_requests = ((request.cache_key, request.board_text) for request in requests)
+            if config.analysis_jobs <= 1:
+                results = shared_run_batch_analysis(analyzer_config, batch_requests)
+            else:
+                results = shared_run_parallel_batch_analysis(
+                    analyzer_config,
+                    batch_requests,
+                    jobs=config.analysis_jobs,
+                )
+            for cache_key, result in results:
+                request = request_by_key.get(cache_key)
+                if request is None:
+                    raise ScriptError(f"batch analyzer returned unexpected key: {cache_key}")
+                yield request, result
+
+        batch_analyzer = run_batch
+
     return shared_analyze_requests(
         config=AnalysisRunnerConfig(
             analysis_cache=config.analysis_cache,
@@ -646,6 +686,7 @@ def analyze_requests(
         analyzer=lambda board_text: analyzer(config, board_text),
         stats=stats,
         eval_config_hash=eval_config_hash,
+        batch_analyzer=batch_analyzer,
     )
 
 
@@ -2071,6 +2112,7 @@ def render_report(
         f"- eval_config: `{config.eval_config}`",
         f"- analyze_position: `{config.analyze_position}`",
         f"- analysis_depth: `{DEFAULT_ANALYSIS_DEPTH}`",
+        f"- analysis_runner: `{config.analysis_runner}`",
         f"- analysis_cache_mode: `{summary['analysis_cache_mode']}`",
         f"- analysis_cache_dir: `{summary['analysis_cache_dir'] or 'none'}`",
         f"- analysis_jobs: `{summary['analysis_jobs']}`",
@@ -2222,6 +2264,7 @@ def train_pairwise_tables(
         "eval_config_sha256": sha256_file(config.eval_config),
         "analyze_position": str(config.analyze_position),
         "analysis_depth": DEFAULT_ANALYSIS_DEPTH,
+        "analysis_runner": config.analysis_runner,
         "analysis_cache_mode": config.analysis_cache.mode,
         "analysis_cache_dir": (
             str(config.analysis_cache.directory) if config.analysis_cache.directory is not None else ""

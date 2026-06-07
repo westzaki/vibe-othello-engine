@@ -17,6 +17,7 @@ from pattern_training.analysis_cache import (  # noqa: E402
     AnalysisRunnerConfig,
     analysis_cache_key,
     analyze_requests,
+    analysis_cache_path,
     sha256_file,
 )
 from pattern_training.board9 import board_hash  # noqa: E402
@@ -310,6 +311,47 @@ class PatternTrainingAnalysisCacheTests(unittest.TestCase):
 
         self.assertEqual(list(result), [0, 1])
         self.assertEqual([result[index].best_move for index in result], ["d3", "c4"])
+
+    def test_batch_analysis_streams_cache_writes_before_full_completion(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            analyzer, eval_config = write_fixture_files(temp_path)
+            cache_dir = temp_path / "analysis-cache"
+            eval_hash = sha256_file(eval_config)
+            config = make_runner_config(
+                analyzer=analyzer,
+                eval_config=eval_config,
+                cache_dir=cache_dir,
+            )
+            requests = [
+                make_request(source_index=0, board_text=BOARD, eval_config_hash=eval_hash),
+                make_request(source_index=1, board_text=ALT_BOARD, eval_config_hash=eval_hash),
+            ]
+
+            def batch_analyzer(
+                batch_requests: list[AnalysisRequest],
+            ):
+                yield batch_requests[0], fake_root("d3", 1)
+                self.assertTrue(analysis_cache_path(cache_dir).is_file())
+                self.assertIn(
+                    '"position_id":"position-0"',
+                    analysis_cache_path(cache_dir).read_text(encoding="utf-8"),
+                )
+                raise ScriptError("simulated interruption")
+
+            with self.assertRaisesRegex(ScriptError, "simulated interruption"):
+                analyze_requests(
+                    config=config,
+                    requests=requests,
+                    analyzer=lambda _: fake_root(),
+                    stats=collections.Counter(),
+                    eval_config_hash=eval_hash,
+                    batch_analyzer=batch_analyzer,
+                )
+
+            cache_text = analysis_cache_path(cache_dir).read_text(encoding="utf-8")
+            self.assertIn('"position_id":"position-0"', cache_text)
+            self.assertNotIn('"position_id":"position-1"', cache_text)
 
 
 if __name__ == "__main__":

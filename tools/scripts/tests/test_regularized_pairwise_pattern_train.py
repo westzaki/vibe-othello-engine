@@ -746,6 +746,38 @@ class RegularizedPairwisePatternTrainTests(unittest.TestCase):
         self.assertEqual(stats["preference_pairs"], 3)
         self.assertEqual(stats["avg_pairs_per_position"], 3.0)
 
+    def test_batch_analysis_runner_feeds_collect_pairs(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row()])
+            config = make_config(
+                temp_path,
+                labels,
+                extra_args=["--pair-mode", "best-vs-all", "--analysis-runner", "batch"],
+            )
+
+            def fake_batch_analysis(
+                analyzer_config: shared_analyzer.AnalyzerConfig,
+                requests: object,
+            ):
+                self.assertEqual(analyzer_config.analyze_position, config.analyze_position)
+                rows = list(requests)
+                self.assertEqual(len(rows), 1)
+                cache_key, board_text = rows[0]
+                self.assertEqual(board_text, TEACHER_BOARD)
+                yield cache_key, wide_fake_analyzer(config, board_text)
+
+            with mock.patch.object(
+                trainer,
+                "shared_run_batch_analysis",
+                side_effect=fake_batch_analysis,
+            ) as batch:
+                pairs, _, stats = trainer.collect_pairs(config, analyzer=fake_analyzer)
+
+        self.assertEqual({pair.other_move for pair in pairs}, {"a2", "b1", "h1"})
+        self.assertEqual(stats["analysis_cache_misses"], 1)
+        batch.assert_called_once()
+
     def test_rank_weighted_pair_generation_uses_lower_ranked_candidates(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             temp_path = Path(temp)

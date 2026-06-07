@@ -32,6 +32,7 @@ struct AnalysisOptions {
     int aspiration_max_researches = SearchOptions{}.aspiration_max_researches;
     EvaluatorSelection evaluator;
     bool root_candidates = false;
+    bool batch_jsonl = false;
 };
 
 struct RootCandidateAnalysis {
