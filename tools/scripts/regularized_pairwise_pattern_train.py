@@ -9,6 +9,7 @@ choice, and writes local candidate artifacts under runs/.
 from __future__ import annotations
 
 import argparse
+import array
 import collections
 import csv
 import datetime as dt
@@ -42,6 +43,7 @@ from pattern_training.analysis_cache import (
     AnalysisRequest,
     AnalysisRunnerConfig,
     analysis_cache_key,
+    analyze_position_hash,
     collect_git_sha,
     sha256_file,
     sha256_text,
@@ -88,6 +90,8 @@ FeatureKey = tuple[str, int]
 WeightsByPhase = dict[str, dict[FeatureKey, float]]
 PHASE_TO_ID = {phase: index for index, phase in enumerate(PHASES)}
 ID_TO_PHASE = {index: phase for phase, index in PHASE_TO_ID.items()}
+PAIR_CACHE_SCHEMA = "regularized_pairwise_pair_cache.v1"
+CHECKPOINT_SCHEMA = "regularized_pairwise_checkpoint.v1"
 
 
 @dataclass(frozen=True)
@@ -126,6 +130,10 @@ class TrainerConfig:
     eval_config: Path
     analyze_position: Path
     out_dir: Path
+    pair_cache_dir: Path | None
+    pair_cache_mode: str
+    checkpoint_dir: Path | None
+    resume_checkpoint: bool
     analysis_cache: AnalysisCacheConfig
     analysis_runner: str
     analysis_jobs: int
@@ -297,6 +305,95 @@ class DiagnosticResult:
     report_path: Path
 
 
+@dataclass
+class FeatureCache:
+    families: tuple[str, ...]
+    counts_by_child: dict[tuple[str, str], collections.Counter[FeatureKey]]
+    hits: int = 0
+    misses: int = 0
+
+    def counts(self, board_text: str, side: str) -> collections.Counter[FeatureKey]:
+        key = (board_key(board_text), side)
+        cached = self.counts_by_child.get(key)
+        if cached is not None:
+            self.hits += 1
+            return cached
+        self.misses += 1
+        cached = pattern_counts(board_text, side, self.families)
+        self.counts_by_child[key] = cached
+        return cached
+
+    @property
+    def hit_rate(self) -> float:
+        total = self.hits + self.misses
+        return self.hits / total if total else 0.0
+
+
+@dataclass
+class CompactPreferencePairs:
+    feature_keys: list[FeatureKey]
+    feature_ids: array.array
+    values: array.array
+    offsets: array.array
+    phase_ids: array.array
+    pair_weights: array.array
+    base_margins: array.array
+    count: int
+    memory_bytes: int
+
+    @classmethod
+    def from_pairs(cls, pairs: list[PreferencePair]) -> "CompactPreferencePairs":
+        feature_to_id: dict[FeatureKey, int] = {}
+        feature_keys: list[FeatureKey] = []
+        feature_ids = array.array("i")
+        values = array.array("h")
+        offsets = array.array("Q", [0])
+        phase_ids = array.array("B")
+        pair_weights = array.array("d")
+        base_margins = array.array("d")
+        for pair in pairs:
+            phase_ids.append(PHASE_TO_ID[pair.phase])
+            pair_weights.append(float(pair.pair_weight))
+            base_margins.append(base_score_margin(pair))
+            for key, value in pair.features.items():
+                feature_id = feature_to_id.get(key)
+                if feature_id is None:
+                    feature_id = len(feature_keys)
+                    feature_to_id[key] = feature_id
+                    feature_keys.append(key)
+                feature_ids.append(feature_id)
+                values.append(value)
+            offsets.append(len(feature_ids))
+        memory_bytes = (
+            len(feature_ids) * feature_ids.itemsize
+            + len(values) * values.itemsize
+            + len(offsets) * offsets.itemsize
+            + len(phase_ids) * phase_ids.itemsize
+            + len(pair_weights) * pair_weights.itemsize
+            + len(base_margins) * base_margins.itemsize
+        )
+        return cls(
+            feature_keys=feature_keys,
+            feature_ids=feature_ids,
+            values=values,
+            offsets=offsets,
+            phase_ids=phase_ids,
+            pair_weights=pair_weights,
+            base_margins=base_margins,
+            count=len(pairs),
+            memory_bytes=memory_bytes,
+        )
+
+
+@dataclass
+class PairCachePayload:
+    pairs: list[PreferencePair]
+    listwise_examples: list[ListwiseExample]
+    validation_records: list[ValidationRecord]
+    row_stats: dict[str, Any]
+    compact_pairs: CompactPreferencePairs
+
+
 Analyzer = Callable[[TrainerConfig, str], AnalyzeResult]
 
 
@@ -390,6 +487,31 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument("--out-dir", required=True, help="output directory under runs/")
+    parser.add_argument(
+        "--pair-cache-dir",
+        help=(
+            "directory for generated compact pair cache pickle artifacts "
+            "(default: OUT_DIR/pair_cache; trusted local runs/ artifacts only)"
+        ),
+    )
+    parser.add_argument(
+        "--pair-cache-mode",
+        choices=("off", "read-write", "read-only", "refresh"),
+        default="read-write",
+        help="generated pair cache mode (default: read-write)",
+    )
+    parser.add_argument(
+        "--checkpoint-dir",
+        help=(
+            "directory for epoch checkpoint pickle artifacts "
+            "(default: OUT_DIR/checkpoints; trusted local runs/ artifacts only)"
+        ),
+    )
+    parser.add_argument(
+        "--resume-checkpoint",
+        action="store_true",
+        help="resume pairwise SGD from the latest matching epoch checkpoint",
+    )
     parser.add_argument(
         "--families",
         default="broad_all",
@@ -737,6 +859,16 @@ def resolve_out_dir(path_text: str) -> Path:
     return path
 
 
+def reject_source_data_dir(path: Path, *, option_name: str) -> None:
+    resolved = path.resolve(strict=False)
+    source_data = (REPO_ROOT / "data").resolve(strict=False)
+    try:
+        resolved.relative_to(source_data)
+    except ValueError:
+        return
+    raise ScriptError(f"{option_name} must not be under source-controlled data/")
+
+
 def config_from_args(
     args: argparse.Namespace,
     invocation: list[str] | None = None,
@@ -762,6 +894,14 @@ def config_from_args(
         raise ScriptError("--analysis-cache-dir is required unless --analysis-cache-mode=off")
     if args.analysis_cache_mode == "off" and analysis_cache_dir is not None:
         raise ScriptError("--analysis-cache-mode must not be off when --analysis-cache-dir is provided")
+    out_dir = resolve_out_dir(args.out_dir)
+    pair_cache_dir = Path(args.pair_cache_dir) if args.pair_cache_dir else out_dir / "pair_cache"
+    if args.pair_cache_mode == "off":
+        pair_cache_dir = None
+    else:
+        reject_source_data_dir(pair_cache_dir, option_name="--pair-cache-dir")
+    checkpoint_dir = Path(args.checkpoint_dir) if args.checkpoint_dir else out_dir / "checkpoints"
+    reject_source_data_dir(checkpoint_dir, option_name="--checkpoint-dir")
     listwise_feature_cache_dir = (
         Path(args.listwise_feature_cache_dir) if args.listwise_feature_cache_dir else None
     )
@@ -771,6 +911,8 @@ def config_from_args(
         raise ScriptError(
             "--listwise-feature-cache-mode must not be off when --listwise-feature-cache-dir is provided"
         )
+    if listwise_feature_cache_dir is not None:
+        reject_source_data_dir(listwise_feature_cache_dir, option_name="--listwise-feature-cache-dir")
     bucket_weights_path = Path(args.bucket_weights) if args.bucket_weights else None
     bucket_weights = load_bucket_weights(bucket_weights_path) if bucket_weights_path is not None else {}
     return TrainerConfig(
@@ -778,7 +920,11 @@ def config_from_args(
         exact_labels=exact_labels,
         eval_config=eval_config,
         analyze_position=Path(args.analyze_position),
-        out_dir=resolve_out_dir(args.out_dir),
+        out_dir=out_dir,
+        pair_cache_dir=pair_cache_dir,
+        pair_cache_mode=args.pair_cache_mode,
+        checkpoint_dir=checkpoint_dir,
+        resume_checkpoint=args.resume_checkpoint,
         analysis_cache=AnalysisCacheConfig(
             directory=analysis_cache_dir,
             mode=args.analysis_cache_mode,
@@ -1314,14 +1460,19 @@ def preference_features(
     teacher_child_board: str,
     engine_child_board: str,
     families: tuple[str, ...],
+    feature_cache: FeatureCache | None = None,
 ) -> dict[FeatureKey, int]:
     _, root_side = parse_board(root_board_text)
     child_side = opponent(root_side)
     # Root move scores are the negated child-position search scores. For a
     # preferred root move, increasing its root score therefore means decreasing
     # the child-side evaluation relative to the compared child.
-    teacher_counts = pattern_counts(teacher_child_board, child_side, families)
-    engine_counts = pattern_counts(engine_child_board, child_side, families)
+    if feature_cache is None:
+        teacher_counts = pattern_counts(teacher_child_board, child_side, families)
+        engine_counts = pattern_counts(engine_child_board, child_side, families)
+    else:
+        teacher_counts = feature_cache.counts(teacher_child_board, child_side)
+        engine_counts = feature_cache.counts(engine_child_board, child_side)
     delta: dict[FeatureKey, int] = {}
     for key in set(teacher_counts) | set(engine_counts):
         value = engine_counts[key] - teacher_counts[key]
@@ -1335,10 +1486,15 @@ def root_move_features(
     root_board_text: str,
     child_board_text: str,
     families: tuple[str, ...],
+    feature_cache: FeatureCache | None = None,
 ) -> dict[FeatureKey, int]:
     _, root_side = parse_board(root_board_text)
     child_side = opponent(root_side)
-    counts = pattern_counts(child_board_text, child_side, families)
+    counts = (
+        pattern_counts(child_board_text, child_side, families)
+        if feature_cache is None
+        else feature_cache.counts(child_board_text, child_side)
+    )
     return {key: -value for key, value in counts.items() if value}
 
 
@@ -1617,6 +1773,7 @@ def make_preference_pair(
     root_scores: dict[str, int],
     ranks: dict[str, int],
     objective_weight_override: float | None = None,
+    feature_cache: FeatureCache | None = None,
 ) -> PreferencePair | None:
     if preferred_move == other_move:
         return None
@@ -1635,6 +1792,7 @@ def make_preference_pair(
         teacher_child_board=preferred_child,
         engine_child_board=other_child,
         families=config.families,
+        feature_cache=feature_cache,
     )
     if not features:
         return None
@@ -1685,6 +1843,7 @@ def generate_position_pairs(
     legal_moves: set[str],
     exact_best: tuple[str, ...],
     root_scores: dict[str, int],
+    feature_cache: FeatureCache | None = None,
 ) -> tuple[list[PreferencePair], collections.Counter[str]]:
     stats: collections.Counter[str] = collections.Counter()
     candidates = root_candidate_moves(root_scores, legal_moves)
@@ -1705,6 +1864,7 @@ def generate_position_pairs(
             exact_best=exact_best,
             root_scores=root_scores,
             ranks=ranks,
+            feature_cache=feature_cache,
         )
         if pair is None:
             stats["candidate_pair_skipped"] += 1
@@ -1773,6 +1933,7 @@ def generate_guard_pairs(
     legal_moves: set[str],
     exact_best: tuple[str, ...],
     root_scores: dict[str, int],
+    feature_cache: FeatureCache | None = None,
 ) -> tuple[list[PreferencePair], collections.Counter[str]]:
     stats: collections.Counter[str] = collections.Counter()
     if config.guard_mode == "off":
@@ -1815,6 +1976,7 @@ def generate_guard_pairs(
                 root_scores=root_scores,
                 ranks=ranks,
                 objective_weight_override=config.guard_weight,
+                feature_cache=feature_cache,
             )
             if pair is None:
                 stats["guard_pair_skipped"] += 1
@@ -1964,6 +2126,7 @@ def serialize_dataset_diagnostics(diagnostics: dict[str, Any]) -> dict[str, Any]
 def collect_training_data(
     config: TrainerConfig,
     analyzer: Analyzer = run_analysis,
+    pair_feature_cache: FeatureCache | None = None,
 ) -> tuple[list[PreferencePair], list[ListwiseExample], list[ValidationRecord], dict[str, Any]]:
     total_start = time.perf_counter()
     label_start = time.perf_counter()
@@ -1972,6 +2135,7 @@ def collect_training_data(
     exact_start = time.perf_counter()
     exact_by_board = load_exact_by_board(config.exact_labels) if config.exact_labels else {}
     exact_load_seconds = time.perf_counter() - exact_start
+    pair_feature_cache = pair_feature_cache or FeatureCache(config.families, {})
     pairs: list[PreferencePair] = []
     listwise_examples: list[ListwiseExample] = []
     validation_records: list[ValidationRecord] = []
@@ -1989,7 +2153,7 @@ def collect_training_data(
     eval_config_hash = sha256_file(config.eval_config)
     teacher_manifest = _path_hash_manifest(config.teacher_labels)
     exact_manifest = _path_hash_manifest(config.exact_labels)
-    feature_cache = maybe_make_listwise_feature_cache(
+    listwise_feature_cache = maybe_make_listwise_feature_cache(
         config=config,
         teacher_manifest=teacher_manifest,
         exact_manifest=exact_manifest,
@@ -2228,6 +2392,7 @@ def collect_training_data(
     analysis_elapsed_seconds = time.perf_counter() - analysis_start
     feature_start = time.perf_counter()
 
+    pair_generation_start = time.perf_counter()
     for entry in entries:
         if isinstance(entry, ValidationRecord):
             validation_records.append(entry)
@@ -2331,7 +2496,7 @@ def collect_training_data(
                 exact_scores=exact_move_scores(exact_record),
                 exact_score=exact_root_score(exact_record),
                 root_scores=root_scores,
-                feature_cache=feature_cache,
+                feature_cache=listwise_feature_cache,
             )
             if listwise_example is not None:
                 listwise_examples.append(listwise_example)
@@ -2382,6 +2547,7 @@ def collect_training_data(
             legal_moves=legal_moves,
             exact_best=exact_best,
             root_scores=root_scores,
+            feature_cache=pair_feature_cache,
         )
         stats.update(pair_stats)
         guard_pairs, guard_stats = generate_guard_pairs(
@@ -2394,6 +2560,7 @@ def collect_training_data(
             legal_moves=legal_moves,
             exact_best=exact_best,
             root_scores=root_scores,
+            feature_cache=pair_feature_cache,
         )
         stats.update(guard_stats)
         all_position_pairs = [*position_pairs, *guard_pairs]
@@ -2453,9 +2620,10 @@ def collect_training_data(
                 )
             )
 
+    pair_generation_seconds = time.perf_counter() - pair_generation_start
     feature_construction_seconds = time.perf_counter() - feature_start
-    if feature_cache is not None:
-        feature_cache.save()
+    if listwise_feature_cache is not None:
+        listwise_feature_cache.save()
 
     for key in (
         "accepted_teacher_rows",
@@ -2520,14 +2688,14 @@ def collect_training_data(
         if feature_construction_seconds > 0.0
         else 0.0
     )
-    if feature_cache is not None:
-        row_stats["listwise_feature_cache_path"] = str(feature_cache.path)
-        row_stats["listwise_feature_cache_hits"] = feature_cache.hits
-        row_stats["listwise_feature_cache_misses"] = feature_cache.misses
-        row_stats["listwise_feature_cache_writes"] = feature_cache.writes
-        row_stats["listwise_feature_cache_entries"] = len(feature_cache.values)
-        row_stats["listwise_feature_cache_load_seconds"] = feature_cache.load_seconds
-        row_stats["listwise_feature_cache_save_seconds"] = feature_cache.save_seconds
+    if listwise_feature_cache is not None:
+        row_stats["listwise_feature_cache_path"] = str(listwise_feature_cache.path)
+        row_stats["listwise_feature_cache_hits"] = listwise_feature_cache.hits
+        row_stats["listwise_feature_cache_misses"] = listwise_feature_cache.misses
+        row_stats["listwise_feature_cache_writes"] = listwise_feature_cache.writes
+        row_stats["listwise_feature_cache_entries"] = len(listwise_feature_cache.values)
+        row_stats["listwise_feature_cache_load_seconds"] = listwise_feature_cache.load_seconds
+        row_stats["listwise_feature_cache_save_seconds"] = listwise_feature_cache.save_seconds
     else:
         row_stats["listwise_feature_cache_path"] = ""
         row_stats["listwise_feature_cache_hits"] = 0
@@ -2548,6 +2716,20 @@ def collect_training_data(
         bucket: float(bucket_pair_weight_mass[bucket]) for bucket in sorted(bucket_pair_weight_mass)
     }
     row_stats["dataset_diagnostics"] = serialize_dataset_diagnostics(dataset_diagnostics)
+    row_stats["timing"] = {
+        "label_load_seconds": round(label_load_seconds, 6),
+        "exact_load_seconds": round(exact_load_seconds, 6),
+        "analysis_seconds": round(analysis_elapsed_seconds, 6),
+        "feature_construction_seconds": round(feature_construction_seconds, 6),
+        "pair_generation_seconds": round(pair_generation_seconds, 6),
+        "collect_training_data_seconds": round(row_stats["total_collect_seconds"], 6),
+    }
+    row_stats["feature_cache"] = {
+        "hits": int(pair_feature_cache.hits),
+        "misses": int(pair_feature_cache.misses),
+        "hit_rate": pair_feature_cache.hit_rate,
+        "entries": len(pair_feature_cache.counts_by_child),
+    }
     return pairs, listwise_examples, validation_records, row_stats
 
 
@@ -3094,6 +3276,266 @@ def train_weights(
         metrics = evaluate_pairs(config, weights, pairs)
         history.append({"epoch": epoch, **metrics})
     return weights, history
+
+
+def compact_pair_margin(
+    phase_weights: dict[int, float],
+    compact: CompactPreferencePairs,
+    pair_index: int,
+) -> float:
+    start = compact.offsets[pair_index]
+    end = compact.offsets[pair_index + 1]
+    feature_ids = compact.feature_ids
+    values = compact.values
+    total = 0.0
+    for offset in range(start, end):
+        total += phase_weights.get(feature_ids[offset], 0.0) * values[offset]
+    return total
+
+
+def compact_weights_to_feature_keys(
+    weights_by_phase_id: dict[int, dict[int, float]],
+    compact: CompactPreferencePairs,
+) -> WeightsByPhase:
+    weights: WeightsByPhase = {phase: {} for phase in PHASES}
+    for phase_id, phase_weights in weights_by_phase_id.items():
+        phase = ID_TO_PHASE[phase_id]
+        weights[phase] = {
+            compact.feature_keys[feature_id]: value
+            for feature_id, value in phase_weights.items()
+            if abs(value) >= 1.0e-12
+        }
+    return weights
+
+
+def evaluate_compact_pairs(
+    config: TrainerConfig,
+    weights_by_phase_id: dict[int, dict[int, float]],
+    compact: CompactPreferencePairs,
+) -> dict[str, Any]:
+    if compact.count == 0:
+        return {
+            "pairs": 0,
+            "loss": 0.0,
+            "weighted_loss": 0.0,
+            "unweighted_loss": 0.0,
+            "accuracy": 0.0,
+            "weighted_accuracy": 0.0,
+            "avg_margin": 0.0,
+            "total_pair_weight": 0.0,
+            "avg_pair_weight": 0.0,
+        }
+    loss_sum = 0.0
+    weighted_loss_sum = 0.0
+    margin_sum = 0.0
+    correct = 0
+    weighted_correct = 0.0
+    total_weight = 0.0
+    for pair_index in range(compact.count):
+        phase_id = compact.phase_ids[pair_index]
+        margin = compact_pair_margin(weights_by_phase_id[phase_id], compact, pair_index)
+        if config.include_base_margin:
+            margin += compact.base_margins[pair_index]
+        weight = compact.pair_weights[pair_index]
+        loss = pair_loss(config.loss, margin)
+        loss_sum += loss
+        weighted_loss_sum += loss * weight
+        margin_sum += margin
+        total_weight += weight
+        if margin > 0.0:
+            correct += 1
+            weighted_correct += weight
+    l2_term = 0.0
+    for phase_weights in weights_by_phase_id.values():
+        l2_term += sum(value * value for value in phase_weights.values())
+    weighted_loss = weighted_loss_sum / total_weight if total_weight else 0.0
+    return {
+        "pairs": compact.count,
+        "loss": weighted_loss + 0.5 * config.l2 * l2_term,
+        "weighted_loss": weighted_loss + 0.5 * config.l2 * l2_term,
+        "unweighted_loss": loss_sum / compact.count + 0.5 * config.l2 * l2_term,
+        "accuracy": correct / compact.count,
+        "weighted_accuracy": weighted_correct / total_weight if total_weight else 0.0,
+        "avg_margin": margin_sum / compact.count,
+        "total_pair_weight": total_weight,
+        "avg_pair_weight": total_weight / compact.count,
+    }
+
+
+def compact_checkpoint_paths(config: TrainerConfig) -> tuple[Path | None, Path | None]:
+    if config.checkpoint_dir is None:
+        return None, None
+    return config.checkpoint_dir / "latest.pkl", config.checkpoint_dir / "latest.json"
+
+
+def load_compact_checkpoint(
+    config: TrainerConfig,
+    config_hash: str,
+) -> tuple[int, random.Random, dict[int, LazyPhaseWeights], list[dict[str, Any]]] | None:
+    if not config.resume_checkpoint:
+        return None
+    checkpoint_path, _ = compact_checkpoint_paths(config)
+    if checkpoint_path is None or not checkpoint_path.exists():
+        return None
+    try:
+        with checkpoint_path.open("rb") as input_file:
+            row = pickle.load(input_file)
+    except OSError as exc:
+        raise ScriptError(f"failed to read checkpoint {checkpoint_path}: {exc}") from exc
+    if not isinstance(row, dict) or row.get("schema") != CHECKPOINT_SCHEMA:
+        raise ScriptError(f"invalid checkpoint {checkpoint_path}")
+    if row.get("config_hash") != config_hash:
+        raise ScriptError("checkpoint config hash does not match this run")
+    rng = random.Random()
+    rng.setstate(row["rng_state"])
+    lazy_weights = {phase_id: LazyPhaseWeights() for phase_id in range(len(PHASES))}
+    for raw_phase_id, stored in row["weights"].items():
+        phase_id = int(raw_phase_id)
+        lazy_weights[phase_id].stored = dict(stored)
+        lazy_weights[phase_id].scale = 1.0
+    return int(row["epoch"]), rng, lazy_weights, list(row.get("history", []))
+
+
+def write_compact_checkpoint(
+    config: TrainerConfig,
+    *,
+    epoch: int,
+    config_hash: str,
+    rng: random.Random,
+    lazy_weights: dict[int, LazyPhaseWeights],
+    history: list[dict[str, Any]],
+) -> None:
+    checkpoint_path, metadata_path = compact_checkpoint_paths(config)
+    if checkpoint_path is None or metadata_path is None:
+        return
+    checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+    materialized = {
+        phase_id: dict(phase_weights.materialize())
+        for phase_id, phase_weights in lazy_weights.items()
+    }
+    row = {
+        "schema": CHECKPOINT_SCHEMA,
+        "epoch": epoch,
+        "config_hash": config_hash,
+        "rng_state": rng.getstate(),
+        "weights": materialized,
+        "history": history,
+    }
+    try:
+        with checkpoint_path.open("wb") as output_file:
+            pickle.dump(row, output_file, protocol=pickle.HIGHEST_PROTOCOL)
+        metadata_path.write_text(
+            json.dumps(
+                {
+                    "schema": CHECKPOINT_SCHEMA,
+                    "epoch": epoch,
+                    "config_hash": config_hash,
+                    "path": str(checkpoint_path),
+                    "generated_at": dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        raise ScriptError(f"failed to write checkpoint {checkpoint_path}: {exc}") from exc
+
+
+def train_compact_weights(
+    config: TrainerConfig,
+    compact: CompactPreferencePairs,
+) -> tuple[WeightsByPhase, list[dict[str, Any]], dict[str, Any]]:
+    if config.objective != "pairwise-logistic":
+        raise ScriptError("compact SGD only supports pairwise-logistic")
+    start = time.perf_counter()
+    updates = 0
+    config_hash = training_config_hash(config)
+    history: list[dict[str, Any]] = []
+    rng = random.Random(config.seed)
+    lazy_weights = {phase_id: LazyPhaseWeights() for phase_id in range(len(PHASES))}
+    start_epoch = 1
+    resumed_from_epoch = 0
+    checkpoint = load_compact_checkpoint(config, config_hash)
+    if checkpoint is not None:
+        resumed_from_epoch, rng, lazy_weights, history = checkpoint
+        start_epoch = resumed_from_epoch + 1
+    if compact.count == 0:
+        weights = compact_weights_to_feature_keys(
+            {phase_id: phase_weights.materialize() for phase_id, phase_weights in lazy_weights.items()},
+            compact,
+        )
+        for epoch in range(start_epoch, config.epochs + 1):
+            history.append({"epoch": epoch, **evaluate_pairs(config, weights, [])})
+        return weights, history, {
+            "sgd_seconds": round(time.perf_counter() - start, 6),
+            "updates_per_second": 0.0,
+            "updates": 0,
+            "resumed_from_epoch": resumed_from_epoch,
+        }
+
+    shrink_factor = max(0.0, 1.0 - config.learning_rate * config.l2)
+    feature_ids = compact.feature_ids
+    values = compact.values
+    offsets = compact.offsets
+    for epoch in range(start_epoch, config.epochs + 1):
+        order = list(range(compact.count))
+        rng.shuffle(order)
+        for pair_index in order:
+            phase_id = compact.phase_ids[pair_index]
+            phase_weights = lazy_weights[phase_id]
+            if config.l2 != 0.0:
+                phase_weights.shrink(shrink_factor)
+            margin = 0.0
+            start_offset = offsets[pair_index]
+            end_offset = offsets[pair_index + 1]
+            for offset in range(start_offset, end_offset):
+                margin += phase_weights.effective_value(feature_ids[offset]) * values[offset]
+            if config.include_base_margin:
+                margin += compact.base_margins[pair_index]
+            if config.loss == "hinge":
+                factor = 1.0 if margin < 1.0 else 0.0
+            else:
+                factor = stable_sigmoid_negative_margin(margin)
+            if factor == 0.0:
+                continue
+            coefficient = config.learning_rate * compact.pair_weights[pair_index] * factor
+            for offset in range(start_offset, end_offset):
+                phase_weights.add_effective_update(
+                    feature_ids[offset],
+                    coefficient * values[offset],
+                    config.max_abs_weight,
+                )
+                updates += 1
+        dense_weights_by_phase = {
+            phase_id: dict(phase_weights.materialize())
+            for phase_id, phase_weights in lazy_weights.items()
+        }
+        metrics = evaluate_compact_pairs(config, dense_weights_by_phase, compact)
+        history.append({"epoch": epoch, **metrics})
+        write_compact_checkpoint(
+            config,
+            epoch=epoch,
+            config_hash=config_hash,
+            rng=rng,
+            lazy_weights=lazy_weights,
+            history=history,
+        )
+    weights_by_phase_id = {
+        phase_id: dict(phase_weights.materialize())
+        for phase_id, phase_weights in lazy_weights.items()
+    }
+    weights = compact_weights_to_feature_keys(weights_by_phase_id, compact)
+    elapsed = time.perf_counter() - start
+    return weights, history, {
+        "sgd_seconds": round(elapsed, 6),
+        "updates_per_second": updates / elapsed if elapsed > 0.0 else 0.0,
+        "updates": updates,
+        "resumed_from_epoch": resumed_from_epoch,
+        "checkpoint_dir": str(config.checkpoint_dir) if config.checkpoint_dir is not None else "",
+        "config_hash": config_hash,
+    }
 
 
 def evaluate_pairs(
@@ -3728,6 +4170,10 @@ def render_report(
         f"- listwise_feature_cache_mode: `{summary.get('listwise_feature_cache_mode', 'off')}`",
         f"- listwise_feature_cache_dir: `{summary.get('listwise_feature_cache_dir') or 'none'}`",
         f"- analysis_jobs: `{summary['analysis_jobs']}`",
+        f"- pair_cache_mode: `{summary.get('pair_cache', {}).get('mode', 'off')}`",
+        f"- pair_cache_status: `{summary.get('pair_cache', {}).get('status', 'off')}`",
+        f"- checkpoint_dir: `{summary.get('checkpoint', {}).get('dir') or 'none'}`",
+        f"- resumed_from_epoch: `{summary.get('checkpoint', {}).get('resumed_from_epoch', 0)}`",
         "",
         "## Training",
         "",
@@ -3797,9 +4243,16 @@ def render_report(
                 f"- exact_load_seconds: `{float(timing.get('exact_load_seconds', 0.0)):.6f}`",
                 f"- analysis_seconds: `{float(timing.get('analysis_seconds', 0.0)):.6f}`",
                 f"- feature_construction_seconds: `{float(timing.get('feature_construction_seconds', 0.0)):.6f}`",
+                f"- pair_generation_seconds: `{float(timing.get('pair_generation_seconds', 0.0)):.6f}`",
                 f"- listwise_training_seconds: `{float(timing.get('listwise_training_seconds', 0.0)):.6f}`",
+                f"- pairwise_training_seconds: `{float(timing.get('pairwise_training_seconds', 0.0)):.6f}`",
+                f"- sgd_seconds: `{float(timing.get('sgd_seconds', 0.0)):.6f}`",
                 f"- examples_per_second: `{float(timing.get('examples_per_second', 0.0)):.6f}`",
                 f"- updates_per_second: `{float(timing.get('updates_per_second', 0.0)):.6f}`",
+                f"- feature_cache_hit_rate: `{float(timing.get('feature_cache_hit_rate', 0.0)):.6f}`",
+                f"- peak_pair_count: `{int(timing.get('peak_pair_count', 0))}`",
+                f"- memory_estimate_bytes: `{int(timing.get('memory_estimate_bytes', 0))}`",
+                f"- total_seconds: `{float(timing.get('total_seconds', 0.0)):.6f}`",
             ]
         )
     compact = summary.get("training", {}).get("listwise_compact", {})
@@ -4099,6 +4552,177 @@ def diagnose_dataset(
     return DiagnosticResult(summary=summary, report_path=report_path)
 
 
+def hash_file_group(paths: tuple[Path, ...]) -> str:
+    digest = hashlib.sha256()
+    for path in paths:
+        digest.update(str(path).encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(sha256_file(path).encode("ascii"))
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def training_config_hash(config: TrainerConfig) -> str:
+    pair_fingerprint, _ = pair_cache_key(config)
+    material = {
+        "schema": "regularized_pairwise_training_config.v1",
+        "pair_cache_key": pair_fingerprint,
+        "objective": config.objective,
+        "loss": config.loss,
+        "families": config.families,
+        "split": config.split,
+        "l2": config.l2,
+        "learning_rate": config.learning_rate,
+        "max_abs_weight": config.max_abs_weight,
+        "include_base_margin": config.include_base_margin,
+        "seed": config.seed,
+    }
+    return sha256_text(json.dumps(material, sort_keys=True, separators=(",", ":")))
+
+
+def pair_cache_key(config: TrainerConfig) -> tuple[str, dict[str, Any]]:
+    dataset_hash = hash_file_group(config.teacher_labels)
+    exact_hash = hash_file_group(config.exact_labels)
+    eval_hash = sha256_file(config.eval_config)
+    analyzer_hash = analyze_position_hash(config.analyze_position) or "unavailable"
+    material = {
+        "schema": PAIR_CACHE_SCHEMA,
+        "dataset_hash": dataset_hash,
+        "eval_config_hash": eval_hash,
+        "analyzer_hash": analyzer_hash,
+        "analysis_depth": DEFAULT_ANALYSIS_DEPTH,
+        "pair_mode": config.pair_mode,
+        "pair_weighting": config.pair_weighting,
+        "families": config.families,
+        "split": config.split,
+        "seed": config.seed,
+        "exact_labels_hash": exact_hash,
+        "max_pairs_per_position": config.max_pairs_per_position,
+        "guard_mode": config.guard_mode,
+        "guard_weight": config.guard_weight,
+        "guard_max_pairs_per_position": config.guard_max_pairs_per_position,
+        "bucket_weights_hash": (
+            sha256_file(config.bucket_weights_path) if config.bucket_weights_path is not None else ""
+        ),
+        "default_bucket_weight": config.default_bucket_weight,
+        "bucket_field": config.bucket_field,
+        "exact_best_weight": config.exact_best_weight,
+        "teacher_weight": config.teacher_weight,
+        "min_score_margin": config.min_score_margin,
+        "drop_teacher_exact_disagreement": config.drop_teacher_exact_disagreement,
+        "exact_aware_only_when_available": config.exact_aware_only_when_available,
+        "max_top_group_size_for_training": config.max_top_group_size_for_training,
+        "phase_cutoffs": {
+            "opening_max_occupied": config.phase_cutoffs.opening_max_occupied,
+            "midgame_max_occupied": config.phase_cutoffs.midgame_max_occupied,
+        },
+    }
+    key = sha256_text(json.dumps(material, sort_keys=True, separators=(",", ":")))
+    return key, material
+
+
+def pair_cache_paths(config: TrainerConfig, key: str) -> tuple[Path, Path]:
+    if config.pair_cache_dir is None:
+        raise ScriptError("pair cache directory is not configured")
+    return (
+        config.pair_cache_dir / f"{key}.pkl",
+        config.pair_cache_dir / f"{key}.json",
+    )
+
+
+def load_pair_cache(config: TrainerConfig, key: str) -> PairCachePayload | None:
+    if config.pair_cache_dir is None or config.pair_cache_mode in {"off", "refresh"}:
+        return None
+    start = time.perf_counter()
+    payload_path, _ = pair_cache_paths(config, key)
+    if not payload_path.exists():
+        if config.pair_cache_mode == "read-only":
+            raise ScriptError(f"pair cache missing for key {key}")
+        return None
+    try:
+        with payload_path.open("rb") as input_file:
+            payload = pickle.load(input_file)
+    except OSError as exc:
+        raise ScriptError(f"failed to read pair cache {payload_path}: {exc}") from exc
+    if not isinstance(payload, PairCachePayload):
+        if config.pair_cache_mode == "read-only":
+            raise ScriptError(f"invalid pair cache payload for key {key}")
+        return None
+    payload.row_stats["pair_cache_status"] = "hit"
+    payload.row_stats["pair_cache_key"] = key
+    payload.row_stats["timing"] = {
+        "read_labels_seconds": 0.0,
+        "preprocessing_seconds": 0.0,
+        "analysis_seconds": 0.0,
+        "pair_generation_seconds": 0.0,
+        "pair_cache_load_seconds": round(time.perf_counter() - start, 6),
+    }
+    return payload
+
+
+def write_pair_cache(
+    config: TrainerConfig,
+    *,
+    key: str,
+    material: dict[str, Any],
+    payload: PairCachePayload,
+) -> None:
+    if config.pair_cache_dir is None or config.pair_cache_mode in {"off", "read-only"}:
+        return
+    payload_path, metadata_path = pair_cache_paths(config, key)
+    payload_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with payload_path.open("wb") as output_file:
+            pickle.dump(payload, output_file, protocol=pickle.HIGHEST_PROTOCOL)
+        metadata = {
+            "schema": PAIR_CACHE_SCHEMA,
+            "key": key,
+            "material": material,
+            "pair_count": payload.compact_pairs.count,
+            "feature_count": len(payload.compact_pairs.feature_keys),
+            "nonzero_feature_values": len(payload.compact_pairs.feature_ids),
+            "memory_bytes": payload.compact_pairs.memory_bytes,
+            "generated_at": dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
+        metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    except OSError as exc:
+        raise ScriptError(f"failed to write pair cache {payload_path}: {exc}") from exc
+
+
+def collect_pairwise_training_data_cached(
+    config: TrainerConfig,
+    analyzer: Analyzer,
+) -> PairCachePayload:
+    key, material = pair_cache_key(config)
+    cached = load_pair_cache(config, key)
+    if cached is not None:
+        return cached
+    feature_cache = FeatureCache(config.families, {})
+    pairs, listwise_examples, validation_records, row_stats = collect_training_data(
+        config,
+        analyzer=analyzer,
+        pair_feature_cache=feature_cache,
+    )
+    compact_pairs = CompactPreferencePairs.from_pairs(pairs)
+    row_stats["pair_cache_status"] = "miss" if config.pair_cache_mode != "off" else "off"
+    row_stats["pair_cache_key"] = key
+    row_stats["compact_pairs"] = {
+        "pairs": compact_pairs.count,
+        "feature_count": len(compact_pairs.feature_keys),
+        "nonzero_feature_values": len(compact_pairs.feature_ids),
+        "memory_bytes": compact_pairs.memory_bytes,
+    }
+    payload = PairCachePayload(
+        pairs=pairs,
+        listwise_examples=listwise_examples,
+        validation_records=validation_records,
+        row_stats=row_stats,
+        compact_pairs=compact_pairs,
+    )
+    write_pair_cache(config, key=key, material=material, payload=payload)
+    return payload
+
+
 def train_pairwise_tables(
     config: TrainerConfig,
     analyzer: Analyzer = run_analysis,
@@ -4107,7 +4731,17 @@ def train_pairwise_tables(
     table_dir = config.out_dir / "tables"
     table_dir.mkdir(parents=True, exist_ok=True)
 
-    pairs, listwise_examples, validation_records, row_stats = collect_training_data(config, analyzer=analyzer)
+    timing_start = time.perf_counter()
+    compact_pairs: CompactPreferencePairs | None = None
+    if config.objective == "pairwise-logistic":
+        cached_payload = collect_pairwise_training_data_cached(config, analyzer)
+        pairs = cached_payload.pairs
+        listwise_examples = cached_payload.listwise_examples
+        validation_records = cached_payload.validation_records
+        row_stats = cached_payload.row_stats
+        compact_pairs = cached_payload.compact_pairs
+    else:
+        pairs, listwise_examples, validation_records, row_stats = collect_training_data(config, analyzer=analyzer)
     compact_listwise = compact_listwise_dataset(listwise_examples)
     listwise_examples = []
     initial_weights: WeightsByPhase = {phase: {} for phase in PHASES}
@@ -4115,9 +4749,11 @@ def train_pairwise_tables(
         initial_metrics = evaluate_pairs(config, initial_weights, pairs)
     else:
         initial_metrics = evaluate_listwise_examples(config, initial_weights, compact_listwise)
+    training_timing: dict[str, Any] = {}
     training_start = time.perf_counter()
     if config.objective == "pairwise-logistic":
-        weights, history = train_weights(config, pairs)
+        assert compact_pairs is not None
+        weights, history, training_timing = train_compact_weights(config, compact_pairs)
     else:
         weights, history = train_weights(config, pairs, compact_listwise)
     listwise_training_seconds = time.perf_counter() - training_start if config.objective != "pairwise-logistic" else 0.0
@@ -4136,6 +4772,22 @@ def train_pairwise_tables(
         final_metrics = evaluate_pairs(config, weights, pairs)
     else:
         final_metrics = evaluate_listwise_examples(config, weights, compact_listwise)
+    timing = dict(row_stats.get("timing", {}))
+    timing.update(training_timing)
+    timing["listwise_training_seconds"] = listwise_training_seconds
+    timing["pairwise_training_seconds"] = pairwise_training_seconds
+    timing["examples_per_second"] = row_stats.get("listwise_feature_examples_per_second", 0.0)
+    timing["updates_per_second"] = (
+        history[-1].get("updates_per_second", timing.get("updates_per_second", 0.0))
+        if history
+        else timing.get("updates_per_second", 0.0)
+    )
+    timing["total_seconds"] = round(time.perf_counter() - timing_start, 6)
+    timing["peak_pair_count"] = len(pairs)
+    timing["memory_estimate_bytes"] = (
+        compact_pairs.memory_bytes if compact_pairs is not None else 0
+    )
+    timing["feature_cache_hit_rate"] = row_stats.get("feature_cache", {}).get("hit_rate", 0.0)
 
     table_paths = {phase: table_dir / f"{phase}.tsv" for phase in PHASES}
     weight_summary = summarize_weights(config, weights)
@@ -4189,24 +4841,22 @@ def train_pairwise_tables(
         "analysis_cache_writes": row_stats.get("analysis_cache_writes", 0),
         "analysis_jobs": config.analysis_jobs,
         "analysis_elapsed_seconds": row_stats.get("analysis_elapsed_seconds", 0.0),
+        "pair_cache": {
+            "mode": config.pair_cache_mode,
+            "dir": str(config.pair_cache_dir) if config.pair_cache_dir is not None else "",
+            "status": row_stats.get("pair_cache_status", "off"),
+            "key": row_stats.get("pair_cache_key", ""),
+        },
+        "checkpoint": {
+            "dir": str(config.checkpoint_dir) if config.checkpoint_dir is not None else "",
+            "resume_requested": config.resume_checkpoint,
+            "resumed_from_epoch": training_timing.get("resumed_from_epoch", 0),
+            "config_hash": training_timing.get("config_hash", ""),
+        },
         "listwise_feature_cache_mode": config.listwise_feature_cache_mode,
         "listwise_feature_cache_dir": (
             str(config.listwise_feature_cache_dir) if config.listwise_feature_cache_dir is not None else ""
         ),
-        "timing": {
-            "label_load_seconds": row_stats.get("label_load_seconds", 0.0),
-            "exact_load_seconds": row_stats.get("exact_load_seconds", 0.0),
-            "analysis_seconds": row_stats.get("analysis_seconds", 0.0),
-            "feature_construction_seconds": row_stats.get("feature_construction_seconds", 0.0),
-            "listwise_training_seconds": listwise_training_seconds,
-            "pairwise_training_seconds": pairwise_training_seconds,
-            "examples_per_second": row_stats.get("listwise_feature_examples_per_second", 0.0),
-            "updates_per_second": (
-                history[-1].get("updates_per_second", 0.0)
-                if history and config.objective != "pairwise-logistic"
-                else 0.0
-            ),
-        },
         "families": list(config.families),
         "split": config.split,
         "objective": config.objective,
@@ -4253,6 +4903,7 @@ def train_pairwise_tables(
             "midgame_max_occupied": config.phase_cutoffs.midgame_max_occupied,
         },
         "rows": row_stats,
+        "timing": timing,
         "training": {
             "initial_metrics": initial_metrics,
             "history": history,
