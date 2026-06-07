@@ -43,6 +43,7 @@ pruned from active eval configs. Current work should use `current_default.eval`,
 | [`2026-06-07-ntest-teacher-dataset-quality-diagnostic.md`](2026-06-07-ntest-teacher-dataset-quality-diagnostic.md) | dataset/evidence infrastructure | Data-quality diagnostics for NTest teacher 300K exact-aware PatternOnly follow-up. | Use the diagnostic commands and full-300K gate before further exact-aware training. |
 | [`2026-06-07-pattern-symmetry-diagnostic.md`](2026-06-07-pattern-symmetry-diagnostic.md) | canonical trainer foundation / diagnostic | D4 and color-inversion symmetry audit for pattern specs, trainer pair features, and learned TSV entries. | Use before adding `--symmetry-augment` or table symmetrization; no trainer behavior changed. |
 | [`2026-06-07-pattern-objective-modes.md`](2026-06-07-pattern-objective-modes.md) | experimental objective foundation | Pairwise, listwise, and exact-aware-listwise PatternOnly trainer objective modes with 10K positive and exact-overlap negative evidence. | Use as objective-shape evidence only; selected agreement and top tie rate improved, but exact-best rank remains unresolved and no default promotion is implied. |
+| [`2026-06-07-pattern-listwise-speed.md`](2026-06-07-pattern-listwise-speed.md) | experimental objective infrastructure | Listwise feature cache, compact listwise training data, and 10K/50K timing evidence for exact-aware-listwise comparison runs. | Use for 50K+ PatternOnly objective comparisons; it preserves 10K metrics and does not imply default promotion. |
 | [`2026-05-31-historical-scalar-eval-rollup.md`](2026-05-31-historical-scalar-eval-rollup.md) | historical negative evidence / superseded | Compressed archive for old scalar tuning iterations and early teacher-safe scalar follow-up. | Read only to avoid repeating rejected scalar candidates; not current tuning guidance. |
 
 ## Category Notes
@@ -58,5 +59,7 @@ pruned from active eval configs. Current work should use `current_default.eval`,
   not evaluator promotion.
 - Experimental objective foundation reports document trainer objective
   capabilities and diagnostics without claiming evaluator strength.
+- Experimental objective infrastructure reports document measurement/runtime
+  plumbing that makes those objective comparisons reproducible at larger scale.
 - Historical negative evidence and superseded reports are archived to preserve
   conclusions while making clear that they are not plans.
