@@ -123,7 +123,6 @@ class PreparedPosition:
     bucket: str
     board_text: str
     teacher_move: str
-    engine_move: str | None
     legal_moves: set[str]
     exact_best: tuple[str, ...]
     needs_analysis: bool
@@ -1241,21 +1240,6 @@ def run_analysis(config: TrainerConfig, board_text: str) -> AnalyzeResult:
     )
 
 
-def precomputed_engine_move(record: dict[str, Any], legal_moves: set[str]) -> str | None:
-    for key in (
-        "selected_move",
-        "engine_move",
-        "engine_selected_move",
-        "search_best_move",
-        "vibe_move",
-        "engine_best_move",
-    ):
-        move = normalize_move(record.get(key))
-        if move is not None and move in legal_moves:
-            return move
-    return None
-
-
 def _exact_bool(move: str, exact_best: tuple[str, ...]) -> bool | None:
     if not exact_best:
         return None
@@ -1595,7 +1579,6 @@ def collect_training_data(
                 )
             )
             continue
-        engine_move = precomputed_engine_move(record, legal_moves)
         needs_analysis = True
         board_hash = sha256_text(board_key(board_text))
         cache_key = analysis_cache_key(
@@ -1622,7 +1605,6 @@ def collect_training_data(
                 bucket=bucket,
                 board_text=board_text,
                 teacher_move=teacher_move,
-                engine_move=engine_move,
                 legal_moves=legal_moves,
                 exact_best=exact_best,
                 needs_analysis=needs_analysis,
@@ -1654,7 +1636,7 @@ def collect_training_data(
         legal_moves = entry.legal_moves
         exact_best = entry.exact_best
         analysis = analysis_by_source.get(entry.source_index) if entry.needs_analysis else None
-        engine_move = analysis.best_move if analysis is not None else entry.engine_move
+        engine_move = analysis.best_move if analysis is not None else None
         if engine_move is None or engine_move not in legal_moves:
             stats["missing_engine_move_skipped"] += 1
             validation_records.append(
@@ -1837,11 +1819,6 @@ def collect_training_data(
         row_stats["listwise_feature_cache_entries"] = 0
         row_stats["listwise_feature_cache_load_seconds"] = 0.0
         row_stats["listwise_feature_cache_save_seconds"] = 0.0
-    row_stats["avg_examples_per_position"] = (
-        row_stats["training_examples"] / row_stats["training_examples"]
-        if row_stats["training_examples"]
-        else 0.0
-    )
     row_stats["bucket_example_counts"] = {
         bucket: int(bucket_example_counts[bucket]) for bucket in sorted(bucket_example_counts)
     }
