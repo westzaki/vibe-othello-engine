@@ -139,9 +139,11 @@ TEST_CASE("Search player specs parse options", "[match-runner]") {
     CHECK(strong_v1_spec.search_options.use_iterative_search);
     CHECK(strong_v1_options.max_depth == 4);
     CHECK(strong_v1_options.use_transposition_table);
+    CHECK(strong_v1_options.tt_min_probe_depth == 1);
+    CHECK(strong_v1_options.tt_min_store_depth == 1);
     CHECK(strong_v1_options.use_pvs);
     CHECK(strong_v1_options.use_aspiration_window);
-    CHECK_FALSE(strong_v1_options.use_lazy_first_move_ordering);
+    CHECK(strong_v1_options.use_lazy_first_move_ordering);
     CHECK(strong_v1_options.aspiration_profile == othello::AspirationProfile::ScoreDeltaAware);
     CHECK(strong_v1_options.exact_endgame_empty_threshold == 16);
     CHECK(strong_v1_options.exact_endgame_root_policy ==

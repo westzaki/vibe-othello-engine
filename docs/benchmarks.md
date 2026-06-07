@@ -208,7 +208,8 @@ and checksums may legitimately differ from depth-limited search.
 The current stronger preset is existing behavior, not a default policy change:
 
 - fixed plain: fixed depth, TT off, PVS off
-- stronger preset: iterative deepening, TT on, PVS on
+- stronger preset: iterative deepening, TT on, shallow TT depth gates, lazy first-move ordering,
+  PVS on
 
 Compare fixed plain with:
 
@@ -534,9 +535,10 @@ Supported search player options are `preset=default|strong-v1`, `tt=on|off`,
 `lazy_first_move_ordering=on|off`, `aspiration_profile=fixed|score-delta-aware`,
 and `eval_config=PATH`. The plain `search:depth=N` form keeps the same defaults
 as the existing fixed-depth search path. `preset=strong-v1` is an explicit
-opt-in practical play preset: iterative search, TT on, PVS on,
-score-delta-aware aspiration, adaptive16 exact root endgame, and the normal
-project-default evaluator (`data/eval/current_default.eval`) unless
+opt-in practical play preset: iterative search, TT on with
+`tt_min_probe_depth=1` and `tt_min_store_depth=1`, lazy first-move ordering,
+PVS on, score-delta-aware aspiration, adaptive16 exact root endgame, and the
+normal project-default evaluator (`data/eval/current_default.eval`) unless
 `eval_config=PATH` overrides it. `exact=N` uses the fixed root threshold, while
 `exact=adaptive16` solves roots up to 14 empties and conservatively gates
 15/16-empty roots. `tt_entries=N` only sets the transposition-table capacity;
