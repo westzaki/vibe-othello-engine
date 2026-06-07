@@ -99,6 +99,7 @@ def teacher_row(
     split: str = "train",
     position_id: str = "fixture",
     source_bucket: str | None = None,
+    training_bucket: str | None = None,
     root_scores: dict[str, int] | None = None,
 ) -> dict[str, object]:
     row: dict[str, object] = {
@@ -113,6 +114,8 @@ def teacher_row(
     }
     if source_bucket is not None:
         row["source_bucket"] = source_bucket
+    if training_bucket is not None:
+        row["training_bucket"] = training_bucket
     if root_scores is not None:
         row["root_scores"] = root_scores
     return row
@@ -380,6 +383,38 @@ class CanonicalPatternOnlyListwiseTrainerTests(unittest.TestCase):
         self.assertEqual(leakage["leaking_groups"], 1)
         self.assertEqual(leakage["leaking_rows"], 2)
         self.assertEqual(leakage["examples"][0]["split_counts"], {"train": 1, "validation": 1})
+
+    def test_qc_summary_separates_source_bucket_from_training_bucket_field(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(
+                temp_path / "labels.jsonl",
+                [
+                    teacher_row(
+                        source_bucket="provenance-bucket",
+                        training_bucket="weight-bucket",
+                    )
+                ],
+            )
+            config = make_config(
+                temp_path,
+                labels,
+                extra_args=["--bucket-field", "training_bucket"],
+            )
+
+            examples, _, stats = trainer.collect_training_data(config, analyzer=fake_analyzer)
+
+        self.assertEqual(len(examples), 1)
+        self.assertEqual(examples[0].bucket, "weight-bucket")
+        qc = stats["qc_summary"]
+        self.assertEqual(qc["source_bucket_counts"], {"provenance-bucket": 1})
+        self.assertEqual(qc["training_bucket_counts"], {"weight-bucket": 1})
+        self.assertEqual(
+            qc["root_phase_counts"]["by_source_bucket"]["provenance-bucket"]["late"],
+            1,
+        )
+        self.assertIn("provenance-bucket", stats["dataset_diagnostics"]["by_source_bucket"])
+        self.assertNotIn("weight-bucket", stats["dataset_diagnostics"]["by_source_bucket"])
 
     def test_exact_best_without_move_scores_uses_uniform_exact_target(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

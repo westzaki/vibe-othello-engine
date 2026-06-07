@@ -120,7 +120,7 @@ class PreparedPosition:
     source: LabelSource
     split: str
     phase: str
-    bucket: str
+    source_bucket: str
     board_text: str
     teacher_move: str
     legal_moves: set[str]
@@ -1334,6 +1334,13 @@ def bucket_for_source(config: TrainerConfig, source: LabelSource) -> str:
     return "__missing__"
 
 
+def source_bucket_for_source(source: LabelSource) -> str:
+    value = source.record.get("source_bucket")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return "__missing__"
+
+
 def bucket_weight_for_source(config: TrainerConfig, source: LabelSource) -> float:
     bucket = bucket_for_source(config, source)
     return config.bucket_weights.get(bucket, config.default_bucket_weight)
@@ -1673,8 +1680,8 @@ def collect_training_data(
     for source_index, source in enumerate(sources):
         record = source.record
         split = split_for_source(source, config.seed)
-        bucket = bucket_for_source(config, source)
-        qc_summary["source_bucket_counts"][bucket] += 1
+        source_bucket = source_bucket_for_source(source)
+        qc_summary["source_bucket_counts"][source_bucket] += 1
         board_text_for_phase = board_text_from_record(record)
         phase = (
             phase_for_board(board_text_for_phase, config.phase_cutoffs)
@@ -1685,7 +1692,7 @@ def collect_training_data(
             dataset_diagnostics,
             split=split,
             phase=phase,
-            bucket=bucket,
+            bucket=source_bucket,
             key="teacher_rows",
         )
         if not accepted_teacher_record(record):
@@ -1694,7 +1701,7 @@ def collect_training_data(
                 dataset_diagnostics,
                 split=split,
                 phase=phase,
-                bucket=bucket,
+                bucket=source_bucket,
                 key="illegal_skipped_rows",
             )
             continue
@@ -1703,7 +1710,7 @@ def collect_training_data(
             dataset_diagnostics,
             split=split,
             phase=phase,
-            bucket=bucket,
+            bucket=source_bucket,
             key="accepted_rows",
         )
         stats[f"{split}_rows"] += 1
@@ -1711,7 +1718,7 @@ def collect_training_data(
         board_text = board_text_from_record(record)
         assert board_text is not None
         phase = phase_for_board(board_text, config.phase_cutoffs)
-        _bump_phase_count(qc_summary["root_phase_counts"], phase=phase, split=split, bucket=bucket)
+        _bump_phase_count(qc_summary["root_phase_counts"], phase=phase, split=split, bucket=source_bucket)
         teacher_move = normalize_move(teacher_move_from_record(record))
         if teacher_move is None:
             stats["missing_teacher_move_skipped"] += 1
@@ -1719,13 +1726,13 @@ def collect_training_data(
                 dataset_diagnostics,
                 split=split,
                 phase=phase,
-                bucket=bucket,
+                bucket=source_bucket,
                 key="illegal_skipped_rows",
             )
             continue
         legal_moves = legal_moves_for_board(board_text)
         qc_summary["legal_move_count_distribution"][str(len(legal_moves))] += 1
-        for group in _diagnostic_groups(dataset_diagnostics, split=split, phase=phase, bucket=bucket):
+        for group in _diagnostic_groups(dataset_diagnostics, split=split, phase=phase, bucket=source_bucket):
             group["legal_move_count_distribution"][len(legal_moves)] += 1
         if teacher_move not in legal_moves:
             stats["illegal_teacher_move_skipped"] += 1
@@ -1733,7 +1740,7 @@ def collect_training_data(
                 dataset_diagnostics,
                 split=split,
                 phase=phase,
-                bucket=bucket,
+                bucket=source_bucket,
                 key="illegal_skipped_rows",
             )
             entries.append(
@@ -1756,27 +1763,27 @@ def collect_training_data(
             coverage=move_score_coverage(exact_move_scores(exact_record), legal_moves),
             split=split,
             phase=phase,
-            bucket=bucket,
+            bucket=source_bucket,
         )
         _bump_coverage_summary(
             qc_summary["complete_teacher_move_scores"],
             coverage=move_score_coverage(teacher_move_scores(record), legal_moves),
             split=split,
             phase=phase,
-            bucket=bucket,
+            bucket=source_bucket,
         )
         duplicate_group = qc_summary["duplicate_groups"][board_key(board_text)]
         duplicate_group["rows"] += 1
         duplicate_group["splits"][split] += 1
         if exact_best:
-            for group in _diagnostic_groups(dataset_diagnostics, split=split, phase=phase, bucket=bucket):
+            for group in _diagnostic_groups(dataset_diagnostics, split=split, phase=phase, bucket=source_bucket):
                 group["exact_best_top_group_size_distribution"][len(exact_best)] += 1
             if teacher_move in exact_best:
                 _bump_diagnostic_counter(
                     dataset_diagnostics,
                     split=split,
                     phase=phase,
-                    bucket=bucket,
+                    bucket=source_bucket,
                     key="teacher_in_exact_best",
                 )
             else:
@@ -1784,14 +1791,14 @@ def collect_training_data(
                     dataset_diagnostics,
                     split=split,
                     phase=phase,
-                    bucket=bucket,
+                    bucket=source_bucket,
                     key="teacher_not_in_exact_best",
                 )
                 _bump_diagnostic_counter(
                     dataset_diagnostics,
                     split=split,
                     phase=phase,
-                    bucket=bucket,
+                    bucket=source_bucket,
                     key="teacher_exact_disagreement",
                 )
         else:
@@ -1799,7 +1806,7 @@ def collect_training_data(
                 dataset_diagnostics,
                 split=split,
                 phase=phase,
-                bucket=bucket,
+                bucket=source_bucket,
                 key="exact_unavailable",
             )
 
@@ -1850,7 +1857,7 @@ def collect_training_data(
                 source=source,
                 split=split,
                 phase=phase,
-                bucket=bucket,
+                source_bucket=source_bucket,
                 board_text=board_text,
                 teacher_move=teacher_move,
                 legal_moves=legal_moves,
@@ -1878,7 +1885,7 @@ def collect_training_data(
         source = entry.source
         split = entry.split
         phase = entry.phase
-        bucket = entry.bucket
+        source_bucket = entry.source_bucket
         board_text = entry.board_text
         teacher_move = entry.teacher_move
         legal_moves = entry.legal_moves
@@ -1905,7 +1912,7 @@ def collect_training_data(
                     dataset_diagnostics,
                     split=split,
                     phase=phase,
-                    bucket=bucket,
+                    bucket=source_bucket,
                     key="engine_in_exact_best",
                 )
             else:
@@ -1913,7 +1920,7 @@ def collect_training_data(
                     dataset_diagnostics,
                     split=split,
                     phase=phase,
-                    bucket=bucket,
+                    bucket=source_bucket,
                     key="engine_not_in_exact_best",
                 )
         if engine_move == teacher_move:
@@ -1922,7 +1929,7 @@ def collect_training_data(
         ranks = root_score_ranks(root_scores)
         teacher_rank = ranks.get(teacher_move)
         if exact_best and teacher_rank is not None:
-            for group in _diagnostic_groups(dataset_diagnostics, split=split, phase=phase, bucket=bucket):
+            for group in _diagnostic_groups(dataset_diagnostics, split=split, phase=phase, bucket=source_bucket):
                 group["teacher_rank_distribution"][teacher_rank] += 1
         if exact_best and root_scores:
             top_score = max(root_scores.values())
@@ -1932,7 +1939,7 @@ def collect_training_data(
                     dataset_diagnostics,
                     split=split,
                     phase=phase,
-                    bucket=bucket,
+                    bucket=source_bucket,
                     key="exact_best_in_engine_top_group",
                 )
             else:
@@ -1940,7 +1947,7 @@ def collect_training_data(
                     dataset_diagnostics,
                     split=split,
                     phase=phase,
-                    bucket=bucket,
+                    bucket=source_bucket,
                     key="exact_best_not_in_engine_top_group",
                 )
         exact_record = exact_by_board.get(board_key(board_text))
@@ -1989,13 +1996,13 @@ def collect_training_data(
                 qc_summary["child_phase_counts"],
                 phase=candidate.phase,
                 split=split,
-                bucket=bucket,
+                bucket=source_bucket,
             )
             qc_summary["root_to_child_phase_counts"][phase][candidate.phase] += 1
             for family, _ in candidate.features:
                 qc_summary["training_pattern_family_counts"]["overall"][family] += 1
                 qc_summary["training_pattern_family_counts"]["by_phase"][candidate.phase][family] += 1
-        for group in _diagnostic_groups(dataset_diagnostics, split=split, phase=phase, bucket=bucket):
+        for group in _diagnostic_groups(dataset_diagnostics, split=split, phase=phase, bucket=source_bucket):
             group["example_count_distribution"][1] += 1
             group["example_weight_mass"] += listwise_example.example_weight
         validation_records.append(
@@ -3409,6 +3416,16 @@ def render_dataset_diagnostic_report(config: TrainerConfig, summary: dict[str, A
         lines.append(f"- {key}: `{rows[key]}`")
     if qc:
         lines.extend(["", "## QC Summary", ""])
+        lines.extend(
+            [
+                "- source_bucket uses the literal `source_bucket` label field for provenance.",
+                f"- training_bucket uses `--bucket-field {config.bucket_field}` and matches example weighting.",
+                "- source_bucket_counts cover all teacher rows.",
+                "- root phase, legal move, exact/teacher coverage, and duplicate leakage cover accepted legal rows before the selected split filter.",
+                "- child phase, pattern family, and training_bucket counts cover generated listwise examples after the selected split filter.",
+                "",
+            ]
+        )
         for key in (
             "root_phase_counts",
             "child_phase_counts",
