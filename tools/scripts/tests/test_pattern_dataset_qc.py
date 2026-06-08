@@ -133,12 +133,15 @@ class PatternDatasetQcTests(unittest.TestCase):
             temp_path = Path(temp)
             dataset_root = temp_path / "datasets"
             labels_dir = dataset_root / "teacher" / "fixture" / "labels" / "ntest12-local" / "shards"
+            score_dir = dataset_root / "teacher" / "fixture" / "labels" / "teacher-score"
             exact_dir = dataset_root / "teacher" / "fixture-exact-overlap-v0" / "exact-overlap"
             teacher_score_dir = dataset_root / "teacher" / "fixture-teacher-score-v0"
             labels_dir.mkdir(parents=True)
+            score_dir.mkdir(parents=True)
             exact_dir.mkdir(parents=True)
             teacher_score_dir.mkdir(parents=True)
             (labels_dir / "labels-0000.jsonl").write_text('{"row": 1}\n', encoding="utf-8")
+            (score_dir / "labels.jsonl").write_text('{"row": 1}\n', encoding="utf-8")
             (exact_dir / "labels.jsonl").write_text('{"row": 1}\n', encoding="utf-8")
             (teacher_score_dir / "labels.jsonl").write_text('{"row": 1}\n', encoding="utf-8")
             eval_config = temp_path / "base.eval"

@@ -41,6 +41,7 @@ instructions. Removed interfaces are documented only in historical reports.
 | `pattern_only_train.py` | current / canonical | Train PatternOnly phase-specific tables from teacher labels and exact-score labels. | Canonical current PatternOnly trainer for new experiments; owns the exact-aware-listwise and soft exact-score target workflow. |
 | `teacher_dataset_build.py` | current | Build reusable position shards, manifests, splits, teacher labels, and exact overlap labels under a dataset root. | Recommended durable dataset-builder entrypoint for pattern-first work. |
 | `teacher_label_mistake_mining.py` | current | Mine evaluator move-choice mistakes against validated teacher labels. | Current pattern diagnostics for teacher-vs-engine disagreement and vocabulary gaps. |
+| `teacher_score_label_workflow.py` | current | Generate `teacher_score_label.v1` JSONL from teacher labels or board9 positions. | Creates non-exact teacher search score labels with complete/partial coverage QC for PatternOnly soft teacher targets. |
 
 ## Pattern-First Evaluation Workflow
 
@@ -127,7 +128,9 @@ evaluator artifacts. `source_bucket` is treated as provenance; the reported
 training bucket is whatever label field is selected through `--bucket-field`.
 Pass `--teacher-score-labels` when a separate `teacher_score_label.v1` JSONL is
 available; those scores are teacher search scores, not exact labels, and are
-reported separately from exact-only metrics.
+reported separately from exact-only metrics. The wrapper forwards them to
+`pattern_only_train.py --teacher-score-labels` so complete teacher move-score
+coverage can be diagnosed without mixing those scores into `exact_label.v1`.
 
 Use `phase_balanced_label_sample.py` immediately before focused PatternOnly
 diagnostics when you need a smaller 10K/50K subset with opening/midgame/late
