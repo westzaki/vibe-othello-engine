@@ -81,6 +81,16 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_ANALYSIS_DEPTH = 1
 PHASES = ("opening", "midgame", "late")
 DEFAULT_PHASE_CUTOFFS = (20, 44)
+TARGET_SOURCE_EXACT_COMPLETE = "exact_complete_move_scores"
+TARGET_SOURCE_TEACHER_COMPLETE = "teacher_complete_move_scores"
+TARGET_SOURCE_EXACT_BEST = "exact_best_uniform"
+TARGET_SOURCE_TEACHER_FALLBACK = "teacher_one_hot_fallback"
+TARGET_SOURCE_ORDER = (
+    TARGET_SOURCE_EXACT_COMPLETE,
+    TARGET_SOURCE_TEACHER_COMPLETE,
+    TARGET_SOURCE_EXACT_BEST,
+    TARGET_SOURCE_TEACHER_FALLBACK,
+)
 SENTINEL_FAMILY = "corner_2x3"
 SENTINEL_ENTRY = (0, 0)
 INT16_LIMIT = 32767
@@ -132,6 +142,7 @@ class PreparedPosition:
 class TrainerConfig:
     teacher_labels: tuple[Path, ...]
     exact_labels: tuple[Path, ...]
+    teacher_score_labels: tuple[Path, ...]
     eval_config: Path
     analyze_position: Path
     out_dir: Path
@@ -193,6 +204,7 @@ class ListwiseExample:
     example_weight: float
     bucket: str
     bucket_weight: float
+    target_source: str = "teacher_one_hot_fallback"
 
 
 @dataclass(frozen=True)
@@ -218,6 +230,7 @@ class CompactListwiseDataset:
     example_exact_root_scores: tuple[int | None, ...]
     example_weights: tuple[float, ...]
     example_splits: tuple[str, ...]
+    example_target_sources: tuple[str, ...]
     feature_keys: tuple[FeatureKey, ...]
     feature_ids: tuple[int, ...]
     feature_values: tuple[int, ...]
@@ -343,6 +356,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=f"shared dataset root for dataset: references; overrides {DATASET_ROOT_ENV}",
     )
     parser.add_argument("--exact-labels", help="optional comma-separated exact-label JSONL paths")
+    parser.add_argument(
+        "--teacher-score-labels",
+        help="optional comma-separated teacher_score_label.v1 JSONL paths",
+    )
     parser.add_argument(
         "--eval-config",
         required=True,
@@ -660,9 +677,18 @@ def config_from_args(
         if args.exact_labels
         else ()
     )
+    teacher_score_labels = (
+        parse_label_paths(args.teacher_score_labels, dataset_root=args.dataset_root)
+        if args.teacher_score_labels
+        else ()
+    )
     raw_label_values = parse_csv_values(args.teacher_labels, error_label="teacher label path list")
     if args.exact_labels:
         raw_label_values.extend(parse_csv_values(args.exact_labels, error_label="exact label path list"))
+    if args.teacher_score_labels:
+        raw_label_values.extend(
+            parse_csv_values(args.teacher_score_labels, error_label="teacher score label path list")
+        )
     dataset_root = None
     if args.dataset_root or any(is_dataset_reference(value) for value in raw_label_values):
         root = resolve_dataset_root(args.dataset_root, require_exists=False)
@@ -691,6 +717,7 @@ def config_from_args(
     return TrainerConfig(
         teacher_labels=teacher_labels,
         exact_labels=exact_labels,
+        teacher_score_labels=teacher_score_labels,
         eval_config=eval_config,
         analyze_position=Path(args.analyze_position),
         out_dir=out_dir,
@@ -875,6 +902,18 @@ def load_exact_by_board(paths: tuple[Path, ...]) -> dict[str, dict[str, Any]]:
     return exact
 
 
+def load_teacher_scores_by_board(paths: tuple[Path, ...]) -> dict[str, dict[str, Any]]:
+    teacher_scores: dict[str, dict[str, Any]] = {}
+    for source in read_jsonl_sources(paths):
+        record = source.record
+        if record.get("schema") != "teacher_score_label.v1":
+            continue
+        board = board_text_from_record(record)
+        if board is not None:
+            teacher_scores[board_key(board)] = record
+    return teacher_scores
+
+
 def exact_best_moves(record: dict[str, Any] | None) -> tuple[str, ...]:
     if record is None:
         return ()
@@ -900,8 +939,11 @@ def exact_move_scores(record: dict[str, Any] | None) -> dict[str, int]:
     return move_scores_from_record(record, score_keys=("exact_score_side_to_move", "score"))
 
 
-def teacher_move_scores(record: dict[str, Any] | None) -> dict[str, int]:
-    return move_scores_from_record(record, score_keys=("score", "teacher_score", "eval_score", "root_score"))
+def teacher_score_move_scores(record: dict[str, Any] | None) -> dict[str, int]:
+    return move_scores_from_record(
+        record,
+        score_keys=("teacher_score_side_to_move", "teacher_score", "score", "root_score"),
+    )
 
 
 def move_scores_from_record(
@@ -911,16 +953,6 @@ def move_scores_from_record(
 ) -> dict[str, int]:
     if record is None:
         return {}
-    root_scores = record.get("root_scores")
-    if isinstance(root_scores, dict):
-        parsed_from_root: dict[str, int] = {}
-        for raw_move, raw_score in root_scores.items():
-            move = normalize_move(raw_move)
-            if move is None or isinstance(raw_score, bool) or not isinstance(raw_score, int):
-                continue
-            parsed_from_root[move] = raw_score
-        if parsed_from_root:
-            return parsed_from_root
     scores = record.get("move_scores")
     if not isinstance(scores, list):
         return {}
@@ -964,6 +996,7 @@ def listwise_feature_cache_key(
     config: TrainerConfig,
     teacher_manifest: list[dict[str, str]],
     exact_manifest: list[dict[str, str]],
+    teacher_score_manifest: list[dict[str, str]],
     eval_config_hash: str,
 ) -> str:
     payload = {
@@ -971,6 +1004,7 @@ def listwise_feature_cache_key(
         "dataset": {
             "teacher_labels": teacher_manifest,
             "exact_labels": exact_manifest,
+            "teacher_score_labels": teacher_score_manifest,
         },
         "eval_config_sha256": eval_config_hash,
         "families": list(config.families),
@@ -1053,6 +1087,7 @@ def maybe_make_listwise_feature_cache(
     config: TrainerConfig,
     teacher_manifest: list[dict[str, str]],
     exact_manifest: list[dict[str, str]],
+    teacher_score_manifest: list[dict[str, str]],
     eval_config_hash: str,
 ) -> ListwiseFeatureCache | None:
     if config.listwise_feature_cache_mode == "off" or config.listwise_feature_cache_dir is None:
@@ -1061,6 +1096,7 @@ def maybe_make_listwise_feature_cache(
         config=config,
         teacher_manifest=teacher_manifest,
         exact_manifest=exact_manifest,
+        teacher_score_manifest=teacher_score_manifest,
         eval_config_hash=eval_config_hash,
     )
     cache_path = config.listwise_feature_cache_dir / f"listwise-features-{cache_key}.pkl"
@@ -1107,6 +1143,32 @@ def phase_for_board(board_text: str, cutoffs: PhaseCutoffs) -> str:
     return phase_for_occupied(occupied_count(board_text), cutoffs)
 
 
+def move_score_target_probabilities(
+    *,
+    moves: tuple[str, ...],
+    scores: dict[str, int],
+    temperature: float,
+    floor: float,
+    near_best_window: int,
+) -> tuple[float, ...] | None:
+    if not moves or any(move not in scores for move in moves):
+        return None
+    if floor * len(moves) >= 1.0:
+        raise ScriptError(
+            "--exact-score-target-floor is too large for the legal move count in at least one row"
+        )
+    best_score = max(scores[move] for move in moves)
+    raw: list[float] = []
+    for move in moves:
+        gap = best_score - scores[move]
+        shaped = math.exp(-gap / temperature) if gap <= near_best_window else 0.0
+        raw.append(max(floor, shaped))
+    total = sum(raw)
+    if total <= 0.0 or not math.isfinite(total):
+        return None
+    return tuple(value / total for value in raw)
+
+
 def exact_score_target_probabilities(
     *,
     moves: tuple[str, ...],
@@ -1115,22 +1177,13 @@ def exact_score_target_probabilities(
     floor: float,
     near_best_window: int,
 ) -> tuple[float, ...] | None:
-    if not moves or any(move not in exact_scores for move in moves):
-        return None
-    if floor * len(moves) >= 1.0:
-        raise ScriptError(
-            "--exact-score-target-floor is too large for the legal move count in at least one row"
-        )
-    best_score = max(exact_scores[move] for move in moves)
-    raw: list[float] = []
-    for move in moves:
-        gap = best_score - exact_scores[move]
-        shaped = math.exp(-gap / temperature) if gap <= near_best_window else 0.0
-        raw.append(max(floor, shaped))
-    total = sum(raw)
-    if total <= 0.0 or not math.isfinite(total):
-        return None
-    return tuple(value / total for value in raw)
+    return move_score_target_probabilities(
+        moves=moves,
+        scores=exact_scores,
+        temperature=temperature,
+        floor=floor,
+        near_best_window=near_best_window,
+    )
 
 
 def make_listwise_example(
@@ -1144,6 +1197,7 @@ def make_listwise_example(
     legal_moves: set[str],
     exact_best: tuple[str, ...],
     exact_scores: dict[str, int],
+    teacher_scores: dict[str, int],
     exact_score: int | None,
     feature_cache: ListwiseFeatureCache | None = None,
 ) -> ListwiseExample | None:
@@ -1193,10 +1247,18 @@ def make_listwise_example(
         return None
     candidate_moves = tuple(candidate.move for candidate in candidates)
     target_probabilities: tuple[float, ...] | None = None
-    if exact_scores:
-        target_probabilities = exact_score_target_probabilities(
+    soft_target_source = ""
+    soft_scores: dict[str, int] = {}
+    if move_score_coverage(exact_scores, set(candidate_moves)).status == "complete":
+        soft_target_source = TARGET_SOURCE_EXACT_COMPLETE
+        soft_scores = exact_scores
+    elif move_score_coverage(teacher_scores, set(candidate_moves)).status == "complete":
+        soft_target_source = TARGET_SOURCE_TEACHER_COMPLETE
+        soft_scores = teacher_scores
+    if soft_scores:
+        target_probabilities = move_score_target_probabilities(
             moves=candidate_moves,
-            exact_scores=exact_scores,
+            scores=soft_scores,
             temperature=config.exact_score_temperature,
             floor=config.exact_score_target_floor,
             near_best_window=config.exact_score_near_best_window,
@@ -1232,12 +1294,15 @@ def make_listwise_example(
                 example_weight=bucket_weight,
                 bucket=bucket,
                 bucket_weight=bucket_weight,
+                target_source=soft_target_source,
             )
     exact_targets = tuple(move for move in exact_best if move in legal_moves)
     if exact_targets:
         target_moves = exact_targets
+        target_source = TARGET_SOURCE_EXACT_BEST
     elif teacher_move in legal_moves:
         target_moves = (teacher_move,)
+        target_source = TARGET_SOURCE_TEACHER_FALLBACK
     else:
         return None
     bucket = bucket_for_source(config, source)
@@ -1258,6 +1323,7 @@ def make_listwise_example(
         example_weight=bucket_weight,
         bucket=bucket,
         bucket_weight=bucket_weight,
+        target_source=target_source,
     )
 
 
@@ -1477,6 +1543,7 @@ def _new_qc_summary() -> dict[str, Any]:
         "complete_teacher_move_scores": _new_coverage_summary(),
         "source_bucket_counts": collections.Counter(),
         "training_bucket_counts": collections.Counter(),
+        "target_source_counts": _new_target_source_summary(),
         "duplicate_groups": collections.defaultdict(lambda: {"rows": 0, "splits": collections.Counter()}),
     }
 
@@ -1496,6 +1563,32 @@ def _new_coverage_summary() -> dict[str, Any]:
         "by_phase": collections.defaultdict(collections.Counter),
         "by_source_bucket": collections.defaultdict(collections.Counter),
     }
+
+
+def _new_target_source_summary() -> dict[str, Any]:
+    return {
+        "overall": collections.Counter(),
+        "by_split": collections.defaultdict(collections.Counter),
+        "by_phase": collections.defaultdict(collections.Counter),
+        "by_source_bucket": collections.defaultdict(collections.Counter),
+        "by_training_bucket": collections.defaultdict(collections.Counter),
+    }
+
+
+def _bump_target_source_summary(
+    summary: dict[str, Any],
+    *,
+    target_source: str,
+    split: str,
+    phase: str,
+    source_bucket: str,
+    training_bucket: str,
+) -> None:
+    summary["overall"][target_source] += 1
+    summary["by_split"][split][target_source] += 1
+    summary["by_phase"][phase][target_source] += 1
+    summary["by_source_bucket"][source_bucket][target_source] += 1
+    summary["by_training_bucket"][training_bucket][target_source] += 1
 
 
 def _bump_phase_count(
@@ -1593,6 +1686,32 @@ def _serialize_pattern_family_counts(summary: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _serialize_target_source_counter(counter: collections.Counter[str]) -> dict[str, int]:
+    return {key: int(counter.get(key, 0)) for key in TARGET_SOURCE_ORDER}
+
+
+def _serialize_target_source_summary(summary: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "overall": _serialize_target_source_counter(summary["overall"]),
+        "by_split": {
+            key: _serialize_target_source_counter(counter)
+            for key, counter in sorted(summary["by_split"].items())
+        },
+        "by_phase": {
+            key: _serialize_target_source_counter(counter)
+            for key, counter in sorted(summary["by_phase"].items())
+        },
+        "by_source_bucket": {
+            key: _serialize_target_source_counter(counter)
+            for key, counter in sorted(summary["by_source_bucket"].items())
+        },
+        "by_training_bucket": {
+            key: _serialize_target_source_counter(counter)
+            for key, counter in sorted(summary["by_training_bucket"].items())
+        },
+    }
+
+
 def _serialize_duplicate_group_check(groups: dict[str, Any], *, limit: int = 20) -> dict[str, Any]:
     duplicate_count = 0
     duplicate_rows = 0
@@ -1638,6 +1757,7 @@ def serialize_qc_summary(qc: dict[str, Any]) -> dict[str, Any]:
         "complete_teacher_move_scores": _serialize_coverage_summary(qc["complete_teacher_move_scores"]),
         "source_bucket_counts": _serialize_counter(qc["source_bucket_counts"]),
         "training_bucket_counts": _serialize_counter(qc["training_bucket_counts"]),
+        "target_source_counts": _serialize_target_source_summary(qc["target_source_counts"]),
         "duplicate_group_split_leakage_check": _serialize_duplicate_group_check(qc["duplicate_groups"]),
     }
 
@@ -1653,6 +1773,13 @@ def collect_training_data(
     exact_start = time.perf_counter()
     exact_by_board = load_exact_by_board(config.exact_labels) if config.exact_labels else {}
     exact_load_seconds = time.perf_counter() - exact_start
+    teacher_score_start = time.perf_counter()
+    teacher_scores_by_board = (
+        load_teacher_scores_by_board(config.teacher_score_labels)
+        if config.teacher_score_labels
+        else {}
+    )
+    teacher_score_load_seconds = time.perf_counter() - teacher_score_start
     listwise_examples: list[ListwiseExample] = []
     validation_records: list[ValidationRecord] = []
     stats: collections.Counter[str] = collections.Counter()
@@ -1670,10 +1797,12 @@ def collect_training_data(
     eval_config_hash = sha256_file(config.eval_config)
     teacher_manifest = _path_hash_manifest(config.teacher_labels)
     exact_manifest = _path_hash_manifest(config.exact_labels)
+    teacher_score_manifest = _path_hash_manifest(config.teacher_score_labels)
     listwise_feature_cache = maybe_make_listwise_feature_cache(
         config=config,
         teacher_manifest=teacher_manifest,
         exact_manifest=exact_manifest,
+        teacher_score_manifest=teacher_score_manifest,
         eval_config_hash=eval_config_hash,
     )
 
@@ -1756,23 +1885,31 @@ def collect_training_data(
             )
             continue
 
-        exact_record = exact_by_board.get(board_key(board_text))
+        root_board_key = board_key(board_text)
+        exact_record = exact_by_board.get(root_board_key)
+        teacher_score_record = teacher_scores_by_board.get(root_board_key)
         exact_best = exact_best_moves(exact_record)
+        exact_scores = exact_move_scores(exact_record)
+        teacher_scores = teacher_score_move_scores(teacher_score_record)
+        exact_coverage = move_score_coverage(exact_scores, legal_moves)
+        teacher_coverage = move_score_coverage(teacher_scores, legal_moves)
+        stats[f"{exact_coverage.status}_exact_score_rows"] += 1
+        stats[f"{teacher_coverage.status}_teacher_score_rows"] += 1
         _bump_coverage_summary(
             qc_summary["complete_exact_move_scores"],
-            coverage=move_score_coverage(exact_move_scores(exact_record), legal_moves),
+            coverage=exact_coverage,
             split=split,
             phase=phase,
             bucket=source_bucket,
         )
         _bump_coverage_summary(
             qc_summary["complete_teacher_move_scores"],
-            coverage=move_score_coverage(teacher_move_scores(record), legal_moves),
+            coverage=teacher_coverage,
             split=split,
             phase=phase,
             bucket=source_bucket,
         )
-        duplicate_group = qc_summary["duplicate_groups"][board_key(board_text)]
+        duplicate_group = qc_summary["duplicate_groups"][root_board_key]
         duplicate_group["rows"] += 1
         duplicate_group["splits"][split] += 1
         if exact_best:
@@ -1950,7 +2087,9 @@ def collect_training_data(
                     bucket=source_bucket,
                     key="exact_best_not_in_engine_top_group",
                 )
-        exact_record = exact_by_board.get(board_key(board_text))
+        root_board_key = board_key(board_text)
+        exact_record = exact_by_board.get(root_board_key)
+        teacher_score_record = teacher_scores_by_board.get(root_board_key)
         listwise_example = make_listwise_example(
             config=config,
             source=source,
@@ -1961,6 +2100,7 @@ def collect_training_data(
             legal_moves=legal_moves,
             exact_best=exact_best,
             exact_scores=exact_move_scores(exact_record),
+            teacher_scores=teacher_score_move_scores(teacher_score_record),
             exact_score=exact_root_score(exact_record),
             feature_cache=listwise_feature_cache,
         )
@@ -1984,13 +2124,27 @@ def collect_training_data(
         stats["training_examples"] += 1
         if listwise_example.target_probabilities is not None:
             stats["soft_target_examples"] += 1
+            if listwise_example.target_source == TARGET_SOURCE_EXACT_COMPLETE:
+                stats["exact_soft_target_examples"] += 1
+            elif listwise_example.target_source == TARGET_SOURCE_TEACHER_COMPLETE:
+                stats["teacher_soft_target_examples"] += 1
         elif listwise_example.exact_best_moves:
             stats["exact_best_examples"] += 1
         else:
             stats["teacher_fallback_examples"] += 1
+        if listwise_example.target_source == TARGET_SOURCE_TEACHER_FALLBACK:
+            stats["fallback_one_hot_examples"] += 1
         bucket_example_counts[listwise_example.bucket] += 1
         bucket_example_weight_mass[listwise_example.bucket] += listwise_example.example_weight
         qc_summary["training_bucket_counts"][listwise_example.bucket] += 1
+        _bump_target_source_summary(
+            qc_summary["target_source_counts"],
+            target_source=listwise_example.target_source,
+            split=split,
+            phase=phase,
+            source_bucket=source_bucket,
+            training_bucket=listwise_example.bucket,
+        )
         for candidate in listwise_example.candidates:
             _bump_phase_count(
                 qc_summary["child_phase_counts"],
@@ -2029,12 +2183,21 @@ def collect_training_data(
     for key in (
         "accepted_teacher_rows",
         "already_agreed",
+        "complete_exact_score_rows",
+        "complete_teacher_score_rows",
         "exact_best_examples",
+        "exact_soft_target_examples",
+        "fallback_one_hot_examples",
         "large_exact_top_group_skipped",
         "listwise_examples",
+        "missing_exact_score_rows",
+        "missing_teacher_score_rows",
         "no_example_generated_skipped",
+        "partial_exact_score_rows",
+        "partial_teacher_score_rows",
         "split_skipped",
         "soft_target_examples",
+        "teacher_soft_target_examples",
         "teacher_fallback_examples",
         "teacher_exact_disagreements_used_by_exact_aware",
         "teacher_exact_disagreements_skipped",
@@ -2061,6 +2224,7 @@ def collect_training_data(
     )
     row_stats["label_load_seconds"] = label_load_seconds
     row_stats["exact_load_seconds"] = exact_load_seconds
+    row_stats["teacher_score_load_seconds"] = teacher_score_load_seconds
     row_stats["analysis_seconds"] = analysis_elapsed_seconds
     row_stats.setdefault("analysis_elapsed_seconds", analysis_elapsed_seconds)
     row_stats["feature_construction_seconds"] = feature_construction_seconds
@@ -2097,6 +2261,7 @@ def collect_training_data(
     row_stats["timing"] = {
         "label_load_seconds": round(label_load_seconds, 6),
         "exact_load_seconds": round(exact_load_seconds, 6),
+        "teacher_score_load_seconds": round(teacher_score_load_seconds, 6),
         "analysis_seconds": round(analysis_elapsed_seconds, 6),
         "feature_construction_seconds": round(feature_construction_seconds, 6),
         "example_generation_seconds": round(example_generation_seconds, 6),
@@ -2213,6 +2378,7 @@ def compact_listwise_dataset(examples: list[ListwiseExample]) -> CompactListwise
     example_exact_root_scores: list[int | None] = []
     example_weights: list[float] = []
     example_splits: list[str] = []
+    example_target_sources: list[str] = []
     feature_keys: list[FeatureKey] = []
     feature_id_by_key: dict[FeatureKey, int] = {}
     feature_ids: list[int] = []
@@ -2252,6 +2418,7 @@ def compact_listwise_dataset(examples: list[ListwiseExample]) -> CompactListwise
         example_exact_root_scores.append(example.exact_root_score)
         example_weights.append(example.example_weight)
         example_splits.append(example.split)
+        example_target_sources.append(example.target_source)
     return CompactListwiseDataset(
         example_offsets=tuple(example_offsets),
         candidate_feature_offsets=tuple(candidate_feature_offsets),
@@ -2265,6 +2432,7 @@ def compact_listwise_dataset(examples: list[ListwiseExample]) -> CompactListwise
         example_exact_root_scores=tuple(example_exact_root_scores),
         example_weights=tuple(example_weights),
         example_splits=tuple(example_splits),
+        example_target_sources=tuple(example_target_sources),
         feature_keys=tuple(feature_keys),
         feature_ids=tuple(feature_ids),
         feature_values=tuple(feature_values),
@@ -2293,6 +2461,7 @@ def compact_listwise_dataset_subset(
     example_exact_root_scores: list[int | None] = []
     example_weights: list[float] = []
     example_splits: list[str] = []
+    example_target_sources: list[str] = []
     feature_ids: list[int] = []
     feature_values: list[int] = []
     for example_index in example_indexes:
@@ -2317,6 +2486,7 @@ def compact_listwise_dataset_subset(
         example_exact_root_scores.append(dataset.example_exact_root_scores[example_index])
         example_weights.append(dataset.example_weights[example_index])
         example_splits.append(dataset.example_splits[example_index])
+        example_target_sources.append(dataset.example_target_sources[example_index])
     return CompactListwiseDataset(
         example_offsets=tuple(example_offsets),
         candidate_feature_offsets=tuple(candidate_feature_offsets),
@@ -2330,6 +2500,7 @@ def compact_listwise_dataset_subset(
         example_exact_root_scores=tuple(example_exact_root_scores),
         example_weights=tuple(example_weights),
         example_splits=tuple(example_splits),
+        example_target_sources=tuple(example_target_sources),
         feature_keys=dataset.feature_keys,
         feature_ids=tuple(feature_ids),
         feature_values=tuple(feature_values),
@@ -3102,6 +3273,7 @@ def render_report(
         "",
         f"- teacher_labels: `{', '.join(str(path) for path in config.teacher_labels)}`",
         f"- exact_labels: `{', '.join(str(path) for path in config.exact_labels) or 'none'}`",
+        f"- teacher_score_labels: `{', '.join(str(path) for path in config.teacher_score_labels) or 'none'}`",
         f"- dataset_root: `{json.dumps(config.dataset_root, sort_keys=True)}`",
         f"- eval_config: `{config.eval_config}`",
         f"- analyze_position: `{config.analyze_position}`",
@@ -3157,6 +3329,10 @@ def render_report(
                 f"- {bucket}: count=`{bucket_counts.get(bucket, 0)}`, "
                 f"weighted_mass=`{float(bucket_mass.get(bucket, 0.0)):.6f}`"
             )
+    qc = rows.get("qc_summary", {})
+    if qc.get("target_source_counts"):
+        lines.extend([""])
+        lines.extend(_target_source_report_lines(qc.get("target_source_counts", {})))
     timing = summary.get("timing", {})
     if timing:
         lines.extend(
@@ -3166,6 +3342,7 @@ def render_report(
                 "",
                 f"- label_load_seconds: `{float(timing.get('label_load_seconds', 0.0)):.6f}`",
                 f"- exact_load_seconds: `{float(timing.get('exact_load_seconds', 0.0)):.6f}`",
+                f"- teacher_score_load_seconds: `{float(timing.get('teacher_score_load_seconds', 0.0)):.6f}`",
                 f"- analysis_seconds: `{float(timing.get('analysis_seconds', 0.0)):.6f}`",
                 f"- feature_construction_seconds: `{float(timing.get('feature_construction_seconds', 0.0)):.6f}`",
                 f"- example_generation_seconds: `{float(timing.get('example_generation_seconds', 0.0)):.6f}`",
@@ -3312,6 +3489,7 @@ def render_report(
             "- `candidate.eval` is a local experiment candidate and does not change `current_default.eval`.",
             "- The trainer learns pattern-only delta scores from exact-aware listwise examples; "
             "base scalar weights are not part of the trainer objective or generated candidate.",
+            "- teacher_score_label.v1 rows are teacher search scores, not exact labels, and are not included in exact-only metrics.",
             "- Follow-up validation must use held-out labels, search/match checks, and external sanity before any strength claim.",
         ]
     )
@@ -3380,6 +3558,22 @@ def _coverage_report_lines(title: str, summary: dict[str, Any]) -> list[str]:
     ]
 
 
+def _target_source_report_lines(summary: dict[str, Any]) -> list[str]:
+    overall = summary.get("overall", {})
+    lines = [
+        "## Target Source Counts",
+        "",
+        "teacher_score_label.v1 scores are teacher search scores, not exact scores. They are never mixed into exact-only metrics such as exact root score, exact best, or exact agreement.",
+        "",
+        "| target source | examples |",
+        "| --- | ---: |",
+    ]
+    for target_source in TARGET_SOURCE_ORDER:
+        lines.append(f"| {target_source} | {int(overall.get(target_source, 0))} |")
+    lines.append("")
+    return lines
+
+
 def render_dataset_diagnostic_report(config: TrainerConfig, summary: dict[str, Any]) -> str:
     rows = summary["rows"]
     diagnostics = rows.get("dataset_diagnostics", {})
@@ -3398,6 +3592,7 @@ def render_dataset_diagnostic_report(config: TrainerConfig, summary: dict[str, A
         "",
         f"- teacher_labels: `{', '.join(str(path) for path in config.teacher_labels)}`",
         f"- exact_labels: `{', '.join(str(path) for path in config.exact_labels) or 'none'}`",
+        f"- teacher_score_labels: `{', '.join(str(path) for path in config.teacher_score_labels) or 'none'}`",
         f"- dataset_root: `{json.dumps(config.dataset_root, sort_keys=True)}`",
         f"- eval_config: `{config.eval_config}`",
         f"- analyze_position: `{config.analyze_position}`",
@@ -3423,6 +3618,8 @@ def render_dataset_diagnostic_report(config: TrainerConfig, summary: dict[str, A
                 "- source_bucket_counts cover all teacher rows.",
                 "- root phase, legal move, exact/teacher coverage, and duplicate leakage cover accepted legal rows before the selected split filter.",
                 "- child phase, pattern family, and training_bucket counts cover generated listwise examples after the selected split filter.",
+                "- target_source_counts cover generated listwise examples after the selected split filter.",
+                "- teacher_score_label.v1 is not exact and is not included in exact-only metrics.",
                 "",
             ]
         )
@@ -3436,6 +3633,7 @@ def render_dataset_diagnostic_report(config: TrainerConfig, summary: dict[str, A
             "training_bucket_counts",
         ):
             lines.append(f"- {key}: `{json.dumps(qc.get(key, {}), sort_keys=True)}`")
+        lines.append(f"- target_source_counts: `{json.dumps(qc.get('target_source_counts', {}), sort_keys=True)}`")
         leakage = qc.get("duplicate_group_split_leakage_check", {})
         lines.append(
             "- duplicate_group_split_leakage_check: "
@@ -3446,6 +3644,7 @@ def render_dataset_diagnostic_report(config: TrainerConfig, summary: dict[str, A
         lines.extend([""])
         lines.extend(_coverage_report_lines("Complete Exact Move Scores", qc.get("complete_exact_move_scores", {})))
         lines.extend(_coverage_report_lines("Complete Teacher Move Scores", qc.get("complete_teacher_move_scores", {})))
+        lines.extend(_target_source_report_lines(qc.get("target_source_counts", {})))
     if rows.get("bucket_example_counts") or rows.get("bucket_example_weight_mass"):
         lines.extend(["", "## Bucket Example Weight Mass", ""])
         counts = rows.get("bucket_example_counts", {})
@@ -3505,6 +3704,10 @@ def diagnose_dataset(
         "teacher_label_sha256": {str(path): sha256_file(path) for path in config.teacher_labels},
         "exact_label_paths": [str(path) for path in config.exact_labels],
         "exact_label_sha256": {str(path): sha256_file(path) for path in config.exact_labels},
+        "teacher_score_label_paths": [str(path) for path in config.teacher_score_labels],
+        "teacher_score_label_sha256": {
+            str(path): sha256_file(path) for path in config.teacher_score_labels
+        },
         "dataset_root": config.dataset_root,
         "eval_config": str(config.eval_config),
         "eval_config_sha256": sha256_file(config.eval_config),
@@ -3634,6 +3837,10 @@ def train_pattern_tables(
         "teacher_label_sha256": {str(path): sha256_file(path) for path in config.teacher_labels},
         "exact_label_paths": [str(path) for path in config.exact_labels],
         "exact_label_sha256": {str(path): sha256_file(path) for path in config.exact_labels},
+        "teacher_score_label_paths": [str(path) for path in config.teacher_score_labels],
+        "teacher_score_label_sha256": {
+            str(path): sha256_file(path) for path in config.teacher_score_labels
+        },
         "dataset_root": config.dataset_root,
         "eval_config": str(config.eval_config),
         "eval_config_sha256": sha256_file(config.eval_config),

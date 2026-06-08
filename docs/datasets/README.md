@@ -97,9 +97,11 @@ of committed docs.
 ## Current Script Support
 
 - `tools/scripts/pattern_only_train.py` is the canonical current PatternOnly
-  trainer, uses exact-aware-listwise training with a soft exact-score target,
-  and supports `--dataset-root` for `--teacher-labels` and `--exact-labels`
-  entries that start with `dataset:`.
+  trainer, uses exact-aware-listwise training with soft exact/teacher-score
+  targets, and supports `--dataset-root` for `--teacher-labels`,
+  `--exact-labels`, and `--teacher-score-labels` entries that start with
+  `dataset:`. `teacher_score_label.v1` inputs are teacher search scores, not
+  exact labels.
 - `tools/scripts/phase_balanced_label_sample.py` builds diagnostic
   phase-balanced teacher/exact subsets from reusable labels, supports
   `--dataset-root` for `--teacher-labels` and `--exact-labels`, and writes only

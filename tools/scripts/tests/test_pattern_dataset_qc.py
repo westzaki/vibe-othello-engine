@@ -74,6 +74,18 @@ class PatternDatasetQcTests(unittest.TestCase):
                                 },
                                 "source_bucket_counts": {"__missing__": 2},
                                 "training_bucket_counts": {"__missing__": 1},
+                                "target_source_counts": {
+                                    "overall": {
+                                        "exact_complete_move_scores": 1,
+                                        "teacher_complete_move_scores": 0,
+                                        "exact_best_uniform": 0,
+                                        "teacher_one_hot_fallback": 0,
+                                    },
+                                    "by_split": {},
+                                    "by_phase": {},
+                                    "by_source_bucket": {},
+                                    "by_training_bucket": {},
+                                },
                                 "duplicate_group_split_leakage_check": {
                                     "duplicate_groups": 1,
                                     "leaking_groups": 1,
@@ -108,6 +120,10 @@ class PatternDatasetQcTests(unittest.TestCase):
             self.assertEqual(row["teacher_exact_disagreement"], 1)
             self.assertEqual(row["exact_complete_rows"], 1)
             self.assertEqual(row["teacher_complete_rows"], 0)
+            self.assertEqual(row["target_exact_complete_move_scores"], 1)
+            self.assertEqual(row["target_teacher_complete_move_scores"], 0)
+            self.assertEqual(row["target_exact_best_uniform"], 0)
+            self.assertEqual(row["target_teacher_one_hot_fallback"], 0)
             self.assertEqual(row["duplicate_groups"], 1)
             self.assertEqual(row["leaking_groups"], 1)
             self.assertEqual(row["exact_best_top_group_size"], '{"1": 1, "2": 3}')
@@ -118,10 +134,13 @@ class PatternDatasetQcTests(unittest.TestCase):
             dataset_root = temp_path / "datasets"
             labels_dir = dataset_root / "teacher" / "fixture" / "labels" / "ntest12-local" / "shards"
             exact_dir = dataset_root / "teacher" / "fixture-exact-overlap-v0" / "exact-overlap"
+            teacher_score_dir = dataset_root / "teacher" / "fixture-teacher-score-v0"
             labels_dir.mkdir(parents=True)
             exact_dir.mkdir(parents=True)
+            teacher_score_dir.mkdir(parents=True)
             (labels_dir / "labels-0000.jsonl").write_text('{"row": 1}\n', encoding="utf-8")
             (exact_dir / "labels.jsonl").write_text('{"row": 1}\n', encoding="utf-8")
+            (teacher_score_dir / "labels.jsonl").write_text('{"row": 1}\n', encoding="utf-8")
             eval_config = temp_path / "base.eval"
             analyze = temp_path / "analyze"
             eval_config.write_text("schema_version=eval.v1\n", encoding="utf-8")
@@ -139,6 +158,8 @@ class PatternDatasetQcTests(unittest.TestCase):
                         str(eval_config),
                         "--analyze-position",
                         str(analyze),
+                        "--teacher-score-labels",
+                        "dataset:teacher/{dataset_name}-teacher-score-v0/labels.jsonl",
                         "--out-root",
                         str(out_root),
                         "--sizes",
@@ -150,7 +171,9 @@ class PatternDatasetQcTests(unittest.TestCase):
             self.assertEqual(status, 0)
             commands = out_root / "fixture" / "qc" / "commands.md"
             self.assertTrue(commands.exists())
-            self.assertIn("--diagnose-dataset", commands.read_text(encoding="utf-8"))
+            command_text = commands.read_text(encoding="utf-8")
+            self.assertIn("--diagnose-dataset", command_text)
+            self.assertIn("--teacher-score-labels", command_text)
 
 
 if __name__ == "__main__":
