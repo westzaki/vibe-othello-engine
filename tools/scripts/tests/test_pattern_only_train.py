@@ -142,6 +142,27 @@ def exact_row(
     return row
 
 
+def teacher_score_row(
+    board: str,
+    *,
+    best_move: str,
+    move_scores: dict[str, int] | None = None,
+) -> dict[str, object]:
+    scores = move_scores if move_scores is not None else all_legal_move_scores(board, best_move)
+    return {
+        "schema": "teacher_score_label.v1",
+        "board": board,
+        "score_kind": "teacher_search_score",
+        "teacher_engine": "ntest",
+        "teacher_depth": 18,
+        "not_exact": True,
+        "move_scores": [
+            {"move": move, "teacher_score_side_to_move": score}
+            for move, score in sorted(scores.items())
+        ],
+    }
+
+
 def fake_analyzer(
     config: trainer.TrainerConfig,
     board_text: str,
@@ -159,6 +180,7 @@ def make_config(
     labels: Path,
     *,
     exact_labels: Path | None = None,
+    teacher_score_labels: Path | None = None,
     extra_args: list[str] | None = None,
 ) -> trainer.TrainerConfig:
     eval_config = write_eval_config(temp_path / "base.eval")
@@ -186,6 +208,8 @@ def make_config(
     ]
     if exact_labels is not None:
         args.extend(["--exact-labels", str(exact_labels)])
+    if teacher_score_labels is not None:
+        args.extend(["--teacher-score-labels", str(teacher_score_labels)])
     if extra_args is not None:
         args.extend(extra_args)
     return trainer.config_from_args(
@@ -221,6 +245,36 @@ class CanonicalPatternOnlyListwiseTrainerTests(unittest.TestCase):
             root.mkdir()
             with self.assertRaises(ScriptError):
                 trainer.parse_label_paths("dataset:../labels.jsonl", dataset_root=str(root))
+
+    def test_teacher_score_labels_resolve_dataset_reference(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            root = temp_path / "datasets"
+            labels = write_jsonl(root / "teacher" / "labels.jsonl", [teacher_row()])
+            teacher_scores = write_jsonl(
+                root / "scores" / "teacher_scores.jsonl",
+                [teacher_score_row(TEACHER_BOARD, best_move="b1")],
+            )
+            eval_config = write_eval_config(temp_path / "base.eval")
+            args = trainer.parse_args(
+                [
+                    "--teacher-labels",
+                    "dataset:teacher/labels.jsonl",
+                    "--teacher-score-labels",
+                    "dataset:scores/teacher_scores.jsonl",
+                    "--dataset-root",
+                    str(root),
+                    "--eval-config",
+                    str(eval_config),
+                    "--out-dir",
+                    str(temp_path / "runs" / "dataset-ref"),
+                ]
+            )
+
+            config = trainer.config_from_args(args)
+
+        self.assertEqual(config.teacher_labels, (labels.resolve(),))
+        self.assertEqual(config.teacher_score_labels, (teacher_scores.resolve(),))
 
     def test_deleted_cli_flags_are_not_accepted(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -279,6 +333,140 @@ class CanonicalPatternOnlyListwiseTrainerTests(unittest.TestCase):
         )
         self.assertGreater(probabilities["b1"], probabilities["d1"])
         self.assertEqual(stats["soft_target_examples"], 1)
+        self.assertEqual(examples[0].target_source, trainer.TARGET_SOURCE_EXACT_COMPLETE)
+
+    def test_teacher_score_label_complete_move_scores_create_soft_target(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row(move="d1")])
+            teacher_scores = write_jsonl(
+                temp_path / "teacher_scores.jsonl",
+                [
+                    teacher_score_row(
+                        TEACHER_BOARD,
+                        best_move="b1",
+                    )
+                ],
+            )
+            config = make_config(temp_path, labels, teacher_score_labels=teacher_scores)
+
+            examples, _, stats = trainer.collect_training_data(config, analyzer=fake_analyzer)
+
+        self.assertEqual(len(examples), 1)
+        self.assertEqual(examples[0].target_source, trainer.TARGET_SOURCE_TEACHER_COMPLETE)
+        self.assertIsNotNone(examples[0].target_probabilities)
+        probabilities = dict(
+            zip(
+                [candidate.move for candidate in examples[0].candidates],
+                examples[0].target_probabilities or (),
+                strict=True,
+            )
+        )
+        self.assertGreater(probabilities["b1"], probabilities["d1"])
+        self.assertTrue(all(candidate.exact_score is None for candidate in examples[0].candidates))
+        self.assertEqual(stats["teacher_soft_target_examples"], 1)
+        self.assertEqual(stats["exact_soft_target_examples"], 0)
+        self.assertEqual(
+            stats["qc_summary"]["target_source_counts"]["overall"][
+                trainer.TARGET_SOURCE_TEACHER_COMPLETE
+            ],
+            1,
+        )
+
+    def test_exact_complete_move_scores_take_priority_over_teacher_complete_move_scores(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row(move="d1")])
+            exact = write_jsonl(
+                temp_path / "exact.jsonl",
+                [
+                    exact_row(
+                        TEACHER_BOARD,
+                        best_move="b1",
+                        move_scores=all_legal_move_scores(TEACHER_BOARD, "b1"),
+                    )
+                ],
+            )
+            teacher_scores = write_jsonl(
+                temp_path / "teacher_scores.jsonl",
+                [teacher_score_row(TEACHER_BOARD, best_move="d1")],
+            )
+            config = make_config(
+                temp_path,
+                labels,
+                exact_labels=exact,
+                teacher_score_labels=teacher_scores,
+            )
+
+            examples, _, stats = trainer.collect_training_data(config, analyzer=fake_analyzer)
+
+        self.assertEqual(examples[0].target_source, trainer.TARGET_SOURCE_EXACT_COMPLETE)
+        probabilities = dict(
+            zip(
+                [candidate.move for candidate in examples[0].candidates],
+                examples[0].target_probabilities or (),
+                strict=True,
+            )
+        )
+        self.assertGreater(probabilities["b1"], probabilities["d1"])
+        self.assertEqual(stats["exact_soft_target_examples"], 1)
+        self.assertEqual(stats["teacher_soft_target_examples"], 0)
+
+    def test_teacher_complete_move_scores_take_priority_over_exact_best_uniform(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row(move="d1")])
+            exact = write_jsonl(temp_path / "exact.jsonl", [exact_row(TEACHER_BOARD, best_move="b1")])
+            teacher_scores = write_jsonl(
+                temp_path / "teacher_scores.jsonl",
+                [teacher_score_row(TEACHER_BOARD, best_move="d1")],
+            )
+            config = make_config(
+                temp_path,
+                labels,
+                exact_labels=exact,
+                teacher_score_labels=teacher_scores,
+            )
+
+            examples, _, stats = trainer.collect_training_data(config, analyzer=fake_analyzer)
+
+        self.assertEqual(examples[0].target_source, trainer.TARGET_SOURCE_TEACHER_COMPLETE)
+        self.assertIsNotNone(examples[0].target_probabilities)
+        probabilities = dict(
+            zip(
+                [candidate.move for candidate in examples[0].candidates],
+                examples[0].target_probabilities or (),
+                strict=True,
+            )
+        )
+        self.assertGreater(probabilities["d1"], probabilities["b1"])
+        self.assertEqual(stats["teacher_soft_target_examples"], 1)
+        self.assertEqual(stats["exact_best_examples"], 0)
+
+    def test_partial_teacher_score_rows_fall_back_to_teacher_one_hot(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            labels = write_jsonl(temp_path / "labels.jsonl", [teacher_row(move="d1")])
+            teacher_scores = write_jsonl(
+                temp_path / "teacher_scores.jsonl",
+                [
+                    teacher_score_row(
+                        TEACHER_BOARD,
+                        best_move="b1",
+                        move_scores={"b1": 20},
+                    )
+                ],
+            )
+            config = make_config(temp_path, labels, teacher_score_labels=teacher_scores)
+
+            examples, _, stats = trainer.collect_training_data(config, analyzer=fake_analyzer)
+
+        self.assertEqual(examples[0].target_source, trainer.TARGET_SOURCE_TEACHER_FALLBACK)
+        self.assertEqual(examples[0].target_moves, ("d1",))
+        self.assertIsNone(examples[0].target_probabilities)
+        self.assertEqual(stats["partial_teacher_score_rows"], 1)
+        self.assertEqual(stats["fallback_one_hot_examples"], 1)
+        self.assertEqual(stats["teacher_soft_target_examples"], 0)
 
     def test_qc_summary_reports_root_child_phase_boundary_coverage_and_buckets(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -359,7 +547,8 @@ class CanonicalPatternOnlyListwiseTrainerTests(unittest.TestCase):
         self.assertEqual(qc["training_bucket_counts"]["opening-boundary"], 1)
         self.assertEqual(qc["training_bucket_counts"]["late-boundary"], 1)
         self.assertEqual(qc["complete_exact_move_scores"]["overall"]["complete_rows"], 2)
-        self.assertEqual(qc["complete_teacher_move_scores"]["overall"]["complete_rows"], 2)
+        self.assertEqual(qc["complete_teacher_move_scores"]["overall"]["complete_rows"], 0)
+        self.assertEqual(qc["complete_teacher_move_scores"]["overall"]["missing_rows"], 2)
         self.assertEqual(qc["complete_exact_move_scores"]["by_phase"]["opening"]["complete_rows"], 1)
         self.assertEqual(qc["complete_exact_move_scores"]["by_phase"]["midgame"]["complete_rows"], 1)
 
@@ -410,6 +599,18 @@ class CanonicalPatternOnlyListwiseTrainerTests(unittest.TestCase):
         self.assertEqual(qc["source_bucket_counts"], {"provenance-bucket": 1})
         self.assertEqual(qc["training_bucket_counts"], {"weight-bucket": 1})
         self.assertEqual(
+            qc["target_source_counts"]["by_source_bucket"]["provenance-bucket"][
+                trainer.TARGET_SOURCE_TEACHER_FALLBACK
+            ],
+            1,
+        )
+        self.assertEqual(
+            qc["target_source_counts"]["by_training_bucket"]["weight-bucket"][
+                trainer.TARGET_SOURCE_TEACHER_FALLBACK
+            ],
+            1,
+        )
+        self.assertEqual(
             qc["root_phase_counts"]["by_source_bucket"]["provenance-bucket"]["late"],
             1,
         )
@@ -427,6 +628,7 @@ class CanonicalPatternOnlyListwiseTrainerTests(unittest.TestCase):
             compact = trainer.compact_listwise_dataset(examples)
 
         self.assertEqual(examples[0].target_moves, ("b1",))
+        self.assertEqual(examples[0].target_source, trainer.TARGET_SOURCE_EXACT_BEST)
         self.assertIsNone(examples[0].target_probabilities)
         target_probabilities = dict(
             zip(compact.candidate_moves, compact.candidate_target_probabilities, strict=True)
@@ -444,7 +646,9 @@ class CanonicalPatternOnlyListwiseTrainerTests(unittest.TestCase):
             examples, _, stats = trainer.collect_training_data(config, analyzer=fake_analyzer)
 
         self.assertEqual(examples[0].target_moves, ("d1",))
+        self.assertEqual(examples[0].target_source, trainer.TARGET_SOURCE_TEACHER_FALLBACK)
         self.assertEqual(stats["teacher_fallback_examples"], 1)
+        self.assertEqual(stats["fallback_one_hot_examples"], 1)
 
     def test_analysis_cache_modes_cover_write_hit_readonly_miss_and_refresh(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -573,6 +777,7 @@ class CanonicalPatternOnlyListwiseTrainerTests(unittest.TestCase):
                 config=config,
                 teacher_manifest=trainer._path_hash_manifest(config.teacher_labels),
                 exact_manifest=trainer._path_hash_manifest(config.exact_labels),
+                teacher_score_manifest=trainer._path_hash_manifest(config.teacher_score_labels),
                 eval_config_hash=trainer.sha256_file(config.eval_config),
             )
             self.assertEqual(cache_path.name, f"listwise-features-{expected_key}.pkl")

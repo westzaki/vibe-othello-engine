@@ -125,6 +125,9 @@ python3 tools/scripts/pattern_dataset_qc.py \
 This QC wrapper makes no strength claim and does not train, tune, or promote
 evaluator artifacts. `source_bucket` is treated as provenance; the reported
 training bucket is whatever label field is selected through `--bucket-field`.
+Pass `--teacher-score-labels` when a separate `teacher_score_label.v1` JSONL is
+available; those scores are teacher search scores, not exact labels, and are
+reported separately from exact-only metrics.
 
 Use `phase_balanced_label_sample.py` immediately before focused PatternOnly
 diagnostics when you need a smaller 10K/50K subset with opening/midgame/late
@@ -196,6 +199,7 @@ tune scalar residual weights:
 python3 tools/scripts/pattern_only_train.py \
   --teacher-labels dataset:teacher.ntest_depth26_2027:train \
   --exact-labels dataset:teacher.ntest_depth26_2027:exact_teacher2000,dataset:teacher.ntest_depth26_2027:exact_extra30 \
+  --teacher-score-labels dataset:teacher.ntest_depth26_2027:teacher_score_labels \
   --eval-config data/eval/current_default.eval \
   --analyze-position build/othello_analyze_position \
   --out-dir runs/pattern-training/listwise-v1 \
@@ -213,10 +217,16 @@ python3 tools/scripts/pattern_only_train.py \
   --seed 20260601
 ```
 
-When exact labels contain complete `move_scores`, the trainer uses a soft
-exact-score target distribution. When only exact-best moves are available, it
-uses a uniform target over those moves. Rows without exact labels fall back to
-the teacher move.
+Target source priority is:
+
+1. exact-label complete `move_scores` -> soft exact-score target
+2. `teacher_score_label.v1` complete `move_scores` -> soft teacher-score target
+3. exact-best moves without complete exact scores -> uniform exact-best target
+4. teacher move -> one-hot fallback
+
+`teacher_score_label.v1` scores are never treated as exact scores and are not
+mixed into exact-only diagnostics. Rows with partial exact or teacher
+`move_scores` are not used as complete soft targets.
 
 The standard workflow is:
 

@@ -145,6 +145,8 @@ def summarize_run(run_name: str, summary_path: Path) -> dict[str, Any]:
     teacher_complete, teacher_rows, teacher_by_split, teacher_by_phase, teacher_by_source = coverage_digest(
         qc.get("complete_teacher_move_scores", {})
     )
+    target_sources = qc.get("target_source_counts", {})
+    target_source_overall = target_sources.get("overall", {}) if isinstance(target_sources, dict) else {}
     leakage = qc.get("duplicate_group_split_leakage_check", {})
     return {
         "run": run_name,
@@ -165,6 +167,16 @@ def summarize_run(run_name: str, summary_path: Path) -> dict[str, Any]:
         "exact_coverage_rows": exact_rows,
         "teacher_complete_rows": teacher_complete,
         "teacher_coverage_rows": teacher_rows,
+        "target_exact_complete_move_scores": int(
+            target_source_overall.get("exact_complete_move_scores", 0)
+        ),
+        "target_teacher_complete_move_scores": int(
+            target_source_overall.get("teacher_complete_move_scores", 0)
+        ),
+        "target_exact_best_uniform": int(target_source_overall.get("exact_best_uniform", 0)),
+        "target_teacher_one_hot_fallback": int(
+            target_source_overall.get("teacher_one_hot_fallback", 0)
+        ),
         "duplicate_groups": leakage.get("duplicate_groups", 0),
         "leaking_groups": leakage.get("leaking_groups", 0),
         "leaking_rows": leakage.get("leaking_rows", 0),
@@ -180,6 +192,7 @@ def summarize_run(run_name: str, summary_path: Path) -> dict[str, Any]:
         "complete_teacher_move_scores_by_source_bucket": teacher_by_source,
         "source_bucket_counts": nested_json(qc.get("source_bucket_counts", {})),
         "training_bucket_counts": nested_json(qc.get("training_bucket_counts", {})),
+        "target_source_counts": nested_json(target_sources),
         "duplicate_group_split_leakage_check": nested_json(leakage),
         "dataset_diagnostics_by_split": nested_json(diagnostics.get("by_split", {})),
         "dataset_diagnostics_by_phase": nested_json(diagnostics.get("by_phase", {})),
@@ -215,12 +228,14 @@ def write_markdown_summary(path: Path, *, rows: list[dict[str, Any]], command_pa
         "- training_bucket is the weighting bucket selected by `--bucket-field`.",
         "- coverage and duplicate diagnostics are collected before the selected split filter.",
         "- child phase, pattern family, and training bucket diagnostics come from generated listwise examples.",
+        "- target source diagnostics come from generated listwise examples.",
+        "- teacher_score_label.v1 is not exact and is not included in exact-only metrics.",
         "- generated artifacts are under `runs/` only.",
         "",
         "## Runs",
         "",
-        "| run | teacher rows | accepted | examples | exact unavailable | teacher/exact disagreement | exact complete | teacher complete | duplicate groups | leaking groups |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| run | teacher rows | accepted | examples | exact unavailable | teacher/exact disagreement | exact complete | teacher complete | exact soft | teacher soft | exact-best | fallback | duplicate groups | leaking groups |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for row in rows:
         lines.append(
@@ -235,6 +250,10 @@ def write_markdown_summary(path: Path, *, rows: list[dict[str, Any]], command_pa
                     str(row["teacher_exact_disagreement"]),
                     f"{row['exact_complete_rows']} / {row['exact_coverage_rows']}",
                     f"{row['teacher_complete_rows']} / {row['teacher_coverage_rows']}",
+                    str(row["target_exact_complete_move_scores"]),
+                    str(row["target_teacher_complete_move_scores"]),
+                    str(row["target_exact_best_uniform"]),
+                    str(row["target_teacher_one_hot_fallback"]),
                     str(row["duplicate_groups"]),
                     str(row["leaking_groups"]),
                 ]
@@ -256,6 +275,7 @@ def command_for_run(
     *,
     teacher_labels: list[Path],
     exact_labels: list[Path],
+    teacher_score_labels: list[Path],
     out_dir: Path,
     args: argparse.Namespace,
 ) -> list[str]:
@@ -288,6 +308,10 @@ def command_for_run(
     ]
     if exact_labels:
         command.extend(["--exact-labels", ",".join(str(path) for path in exact_labels)])
+    if teacher_score_labels:
+        command.extend(
+            ["--teacher-score-labels", ",".join(str(path) for path in teacher_score_labels)]
+        )
     return command
 
 
@@ -299,6 +323,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--dataset-name", default="ntest-balanced300k-v0")
     parser.add_argument("--teacher-labels", default=DEFAULT_TEACHER_LABELS)
     parser.add_argument("--exact-labels", default=DEFAULT_EXACT_LABELS)
+    parser.add_argument("--teacher-score-labels", default="")
     parser.add_argument("--eval-config", required=True)
     parser.add_argument("--analyze-position", required=True)
     parser.add_argument("--out-root", default="runs/pattern-training")
@@ -327,6 +352,15 @@ def main(argv: list[str] | None = None) -> int:
         if args.exact_labels
         else []
     )
+    teacher_score_labels = (
+        expand_label_patterns(
+            args.teacher_score_labels,
+            dataset_root=dataset_root,
+            dataset_name=args.dataset_name,
+        )
+        if args.teacher_score_labels
+        else []
+    )
     sizes = [parse_size(value) for value in parse_csv_values(args.sizes, error_label="sizes")]
     out_root = Path(args.out_root) / args.dataset_name / "qc"
     inputs_dir = out_root / "inputs"
@@ -347,6 +381,7 @@ def main(argv: list[str] | None = None) -> int:
         command = command_for_run(
             teacher_labels=run_teacher_labels,
             exact_labels=exact_labels,
+            teacher_score_labels=teacher_score_labels,
             out_dir=run_dir,
             args=args,
         )

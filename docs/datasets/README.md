@@ -94,12 +94,49 @@ teacher engine name, adapter settings, legal validator, counts, and hashes of
 the raw files. Keep local NTest paths and machine-specific absolute paths out
 of committed docs.
 
+## Teacher Score Labels
+
+`teacher_score_label.v1` is a separate dataset artifact from `exact_label.v1`.
+It stores teacher search scores, not exact scores, and should not use
+`exact_score_side_to_move` or be merged into exact-only diagnostics.
+
+Minimal row shape:
+
+```json
+{
+  "schema": "teacher_score_label.v1",
+  "board": "<board9 text>",
+  "score_kind": "teacher_search_score",
+  "teacher_engine": "ntest",
+  "teacher_depth": 18,
+  "not_exact": true,
+  "move_scores": [
+    {
+      "move": "d3",
+      "teacher_score_side_to_move": 12
+    },
+    {
+      "move": "c4",
+      "teacher_score_side_to_move": 8
+    }
+  ]
+}
+```
+
+The canonical per-move score key is `teacher_score_side_to_move`. Generation
+workflows should set `not_exact` to `true` so provenance remains explicit.
+PatternOnly training may use complete teacher `move_scores` as a soft listwise
+target only when every legal move has a score. Partial `move_scores` are
+reported as partial coverage and are not used as complete soft targets.
+
 ## Current Script Support
 
 - `tools/scripts/pattern_only_train.py` is the canonical current PatternOnly
-  trainer, uses exact-aware-listwise training with a soft exact-score target,
-  and supports `--dataset-root` for `--teacher-labels` and `--exact-labels`
-  entries that start with `dataset:`.
+  trainer, uses exact-aware-listwise training with soft exact/teacher-score
+  targets, and supports `--dataset-root` for `--teacher-labels`,
+  `--exact-labels`, and `--teacher-score-labels` entries that start with
+  `dataset:`. `teacher_score_label.v1` inputs are teacher search scores, not
+  exact labels.
 - `tools/scripts/phase_balanced_label_sample.py` builds diagnostic
   phase-balanced teacher/exact subsets from reusable labels, supports
   `--dataset-root` for `--teacher-labels` and `--exact-labels`, and writes only
