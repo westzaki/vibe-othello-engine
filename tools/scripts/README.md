@@ -36,6 +36,7 @@ instructions. Removed interfaces are documented only in historical reports.
 | `external_teacher_label_workflow.py` | current | Generate teacher-label JSONL from external engines. | Current teacher-label entrypoint and a dependency of `teacher_dataset_build.py`. |
 | `match_summary.py` | current | Summarize C++ match-runner JSONL. | Shared by current evidence, match, and base/head workflows. |
 | `ntest_teacher_smoke.py` | current | Run a local NTest teacher-label smoke and estimate 300K run feasibility. | Operational preflight before overnight NTest teacher dataset generation; does not make strength claims. |
+| `pattern_dataset_qc.py` | current | Run PatternOnly dataset QC diagnostics at 1K, 10K, and full sizes under `runs/`. | Pre-training teacher/exact dataset quality report using `pattern_only_train.py --diagnose-dataset`; does not train, tune, or make strength claims. |
 | `phase_balanced_label_sample.py` | current | Build phase-balanced teacher/exact diagnostic subsets under `runs/`. | Supporting PatternOnly data-design diagnostics before 10K/50K training runs; does not train, tune, or make strength claims. |
 | `pattern_only_train.py` | current / canonical | Train PatternOnly phase-specific tables from teacher labels and exact-score labels. | Canonical current PatternOnly trainer for new experiments; owns the exact-aware-listwise and soft exact-score target workflow. |
 | `teacher_dataset_build.py` | current | Build reusable position shards, manifests, splits, teacher labels, and exact overlap labels under a dataset root. | Recommended durable dataset-builder entrypoint for pattern-first work. |
@@ -105,6 +106,25 @@ uses broad phase-specific pattern tables, and supports the exact-aware-listwise
 objective with soft exact-score targets. Start from this trainer unless the task
 is explicitly reproducing an older artifact or isolating a phase-table migration
 detail.
+
+Before a pure PatternOnly training run, use `pattern_dataset_qc.py` to run
+`pattern_only_train.py --diagnose-dataset` at 1K, 10K, and full sizes. It writes
+subset inputs, per-size reports, command provenance, `summary.tsv`, and
+`summary.md` under `runs/pattern-training/<dataset-id>/qc/`.
+
+```sh
+python3 tools/scripts/pattern_dataset_qc.py \
+  --dataset-root /path/to/vibe-othello-datasets \
+  --dataset-name ntest-balanced300k-v0 \
+  --eval-config data/eval/ntest_pairwise_full_v2.eval \
+  --analyze-position build/othello_analyze_position \
+  --bucket-field position_split \
+  --sizes 1k,10k,full
+```
+
+This QC wrapper makes no strength claim and does not train, tune, or promote
+evaluator artifacts. `source_bucket` is treated as provenance; the reported
+training bucket is whatever label field is selected through `--bucket-field`.
 
 Use `phase_balanced_label_sample.py` immediately before focused PatternOnly
 diagnostics when you need a smaller 10K/50K subset with opening/midgame/late
