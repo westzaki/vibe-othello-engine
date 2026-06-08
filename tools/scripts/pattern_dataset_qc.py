@@ -274,8 +274,8 @@ def write_markdown_summary(path: Path, *, rows: list[dict[str, Any]], command_pa
 def command_for_run(
     *,
     teacher_labels: list[Path],
-    exact_labels: list[Path],
     teacher_score_labels: list[Path],
+    exact_labels: list[Path],
     out_dir: Path,
     args: argparse.Namespace,
 ) -> list[str]:
@@ -306,12 +306,10 @@ def command_for_run(
         "read-write",
         "--diagnose-dataset",
     ]
+    if teacher_score_labels:
+        command.extend(["--teacher-score-labels", ",".join(str(path) for path in teacher_score_labels)])
     if exact_labels:
         command.extend(["--exact-labels", ",".join(str(path) for path in exact_labels)])
-    if teacher_score_labels:
-        command.extend(
-            ["--teacher-score-labels", ",".join(str(path) for path in teacher_score_labels)]
-        )
     return command
 
 
@@ -322,8 +320,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--dataset-root")
     parser.add_argument("--dataset-name", default="ntest-balanced300k-v0")
     parser.add_argument("--teacher-labels", default=DEFAULT_TEACHER_LABELS)
-    parser.add_argument("--exact-labels", default=DEFAULT_EXACT_LABELS)
     parser.add_argument("--teacher-score-labels", default="")
+    parser.add_argument("--exact-labels", default=DEFAULT_EXACT_LABELS)
     parser.add_argument("--eval-config", required=True)
     parser.add_argument("--analyze-position", required=True)
     parser.add_argument("--out-root", default="runs/pattern-training")
@@ -347,11 +345,6 @@ def main(argv: list[str] | None = None) -> int:
         dataset_root=dataset_root,
         dataset_name=args.dataset_name,
     )
-    exact_labels = (
-        expand_label_patterns(args.exact_labels, dataset_root=dataset_root, dataset_name=args.dataset_name)
-        if args.exact_labels
-        else []
-    )
     teacher_score_labels = (
         expand_label_patterns(
             args.teacher_score_labels,
@@ -359,6 +352,11 @@ def main(argv: list[str] | None = None) -> int:
             dataset_name=args.dataset_name,
         )
         if args.teacher_score_labels
+        else []
+    )
+    exact_labels = (
+        expand_label_patterns(args.exact_labels, dataset_root=dataset_root, dataset_name=args.dataset_name)
+        if args.exact_labels
         else []
     )
     sizes = [parse_size(value) for value in parse_csv_values(args.sizes, error_label="sizes")]
@@ -380,8 +378,8 @@ def main(argv: list[str] | None = None) -> int:
             run_teacher_labels = [subset_path]
         command = command_for_run(
             teacher_labels=run_teacher_labels,
-            exact_labels=exact_labels,
             teacher_score_labels=teacher_score_labels,
+            exact_labels=exact_labels,
             out_dir=run_dir,
             args=args,
         )

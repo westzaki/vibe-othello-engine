@@ -141,8 +141,8 @@ class PreparedPosition:
 @dataclass(frozen=True)
 class TrainerConfig:
     teacher_labels: tuple[Path, ...]
-    exact_labels: tuple[Path, ...]
     teacher_score_labels: tuple[Path, ...]
+    exact_labels: tuple[Path, ...]
     eval_config: Path
     analyze_position: Path
     out_dir: Path
@@ -358,7 +358,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--exact-labels", help="optional comma-separated exact-label JSONL paths")
     parser.add_argument(
         "--teacher-score-labels",
-        help="optional comma-separated teacher_score_label.v1 JSONL paths",
+        help=(
+            "optional comma-separated teacher_score_label.v1 JSONL paths used as supplemental "
+            "teacher move-score coverage by board"
+        ),
     )
     parser.add_argument(
         "--eval-config",
@@ -672,23 +675,23 @@ def config_from_args(
     if args.exact_score_target_floor >= 1.0:
         raise ScriptError("--exact-score-target-floor must be less than 1")
     teacher_labels = parse_label_paths(args.teacher_labels, dataset_root=args.dataset_root)
-    exact_labels = (
-        parse_label_paths(args.exact_labels, dataset_root=args.dataset_root)
-        if args.exact_labels
-        else ()
-    )
     teacher_score_labels = (
         parse_label_paths(args.teacher_score_labels, dataset_root=args.dataset_root)
         if args.teacher_score_labels
         else ()
     )
+    exact_labels = (
+        parse_label_paths(args.exact_labels, dataset_root=args.dataset_root)
+        if args.exact_labels
+        else ()
+    )
     raw_label_values = parse_csv_values(args.teacher_labels, error_label="teacher label path list")
-    if args.exact_labels:
-        raw_label_values.extend(parse_csv_values(args.exact_labels, error_label="exact label path list"))
     if args.teacher_score_labels:
         raw_label_values.extend(
             parse_csv_values(args.teacher_score_labels, error_label="teacher score label path list")
         )
+    if args.exact_labels:
+        raw_label_values.extend(parse_csv_values(args.exact_labels, error_label="exact label path list"))
     dataset_root = None
     if args.dataset_root or any(is_dataset_reference(value) for value in raw_label_values):
         root = resolve_dataset_root(args.dataset_root, require_exists=False)
@@ -716,8 +719,8 @@ def config_from_args(
     post_training_symmetrize_modes = parse_symmetrize_modes(args.post_training_symmetrize)
     return TrainerConfig(
         teacher_labels=teacher_labels,
-        exact_labels=exact_labels,
         teacher_score_labels=teacher_score_labels,
+        exact_labels=exact_labels,
         eval_config=eval_config,
         analyze_position=Path(args.analyze_position),
         out_dir=out_dir,
@@ -942,7 +945,7 @@ def exact_move_scores(record: dict[str, Any] | None) -> dict[str, int]:
 def teacher_score_move_scores(record: dict[str, Any] | None) -> dict[str, int]:
     return move_scores_from_record(
         record,
-        score_keys=("teacher_score_side_to_move", "teacher_score", "score", "root_score"),
+        score_keys=("teacher_score_side_to_move", "teacher_score", "score", "eval_score", "root_score"),
     )
 
 
@@ -996,15 +999,15 @@ def listwise_feature_cache_key(
     config: TrainerConfig,
     teacher_manifest: list[dict[str, str]],
     exact_manifest: list[dict[str, str]],
-    teacher_score_manifest: list[dict[str, str]],
     eval_config_hash: str,
+    teacher_score_manifest: list[dict[str, str]] | None = None,
 ) -> str:
     payload = {
         "schema": 1,
         "dataset": {
             "teacher_labels": teacher_manifest,
+            "teacher_score_labels": teacher_score_manifest or [],
             "exact_labels": exact_manifest,
-            "teacher_score_labels": teacher_score_manifest,
         },
         "eval_config_sha256": eval_config_hash,
         "families": list(config.families),
@@ -1086,8 +1089,8 @@ def maybe_make_listwise_feature_cache(
     *,
     config: TrainerConfig,
     teacher_manifest: list[dict[str, str]],
-    exact_manifest: list[dict[str, str]],
     teacher_score_manifest: list[dict[str, str]],
+    exact_manifest: list[dict[str, str]],
     eval_config_hash: str,
 ) -> ListwiseFeatureCache | None:
     if config.listwise_feature_cache_mode == "off" or config.listwise_feature_cache_dir is None:
@@ -1095,8 +1098,8 @@ def maybe_make_listwise_feature_cache(
     cache_key = listwise_feature_cache_key(
         config=config,
         teacher_manifest=teacher_manifest,
-        exact_manifest=exact_manifest,
         teacher_score_manifest=teacher_score_manifest,
+        exact_manifest=exact_manifest,
         eval_config_hash=eval_config_hash,
     )
     cache_path = config.listwise_feature_cache_dir / f"listwise-features-{cache_key}.pkl"
@@ -1796,13 +1799,13 @@ def collect_training_data(
     analysis_requests: list[AnalysisRequest] = []
     eval_config_hash = sha256_file(config.eval_config)
     teacher_manifest = _path_hash_manifest(config.teacher_labels)
-    exact_manifest = _path_hash_manifest(config.exact_labels)
     teacher_score_manifest = _path_hash_manifest(config.teacher_score_labels)
+    exact_manifest = _path_hash_manifest(config.exact_labels)
     listwise_feature_cache = maybe_make_listwise_feature_cache(
         config=config,
         teacher_manifest=teacher_manifest,
-        exact_manifest=exact_manifest,
         teacher_score_manifest=teacher_score_manifest,
+        exact_manifest=exact_manifest,
         eval_config_hash=eval_config_hash,
     )
 
@@ -3272,8 +3275,8 @@ def render_report(
         "## Inputs",
         "",
         f"- teacher_labels: `{', '.join(str(path) for path in config.teacher_labels)}`",
-        f"- exact_labels: `{', '.join(str(path) for path in config.exact_labels) or 'none'}`",
         f"- teacher_score_labels: `{', '.join(str(path) for path in config.teacher_score_labels) or 'none'}`",
+        f"- exact_labels: `{', '.join(str(path) for path in config.exact_labels) or 'none'}`",
         f"- dataset_root: `{json.dumps(config.dataset_root, sort_keys=True)}`",
         f"- eval_config: `{config.eval_config}`",
         f"- analyze_position: `{config.analyze_position}`",
@@ -3591,8 +3594,8 @@ def render_dataset_diagnostic_report(config: TrainerConfig, summary: dict[str, A
         "## Inputs",
         "",
         f"- teacher_labels: `{', '.join(str(path) for path in config.teacher_labels)}`",
-        f"- exact_labels: `{', '.join(str(path) for path in config.exact_labels) or 'none'}`",
         f"- teacher_score_labels: `{', '.join(str(path) for path in config.teacher_score_labels) or 'none'}`",
+        f"- exact_labels: `{', '.join(str(path) for path in config.exact_labels) or 'none'}`",
         f"- dataset_root: `{json.dumps(config.dataset_root, sort_keys=True)}`",
         f"- eval_config: `{config.eval_config}`",
         f"- analyze_position: `{config.analyze_position}`",
@@ -3702,12 +3705,12 @@ def diagnose_dataset(
         "command": quote_command(config.invocation) if config.invocation else "unknown",
         "teacher_label_paths": [str(path) for path in config.teacher_labels],
         "teacher_label_sha256": {str(path): sha256_file(path) for path in config.teacher_labels},
-        "exact_label_paths": [str(path) for path in config.exact_labels],
-        "exact_label_sha256": {str(path): sha256_file(path) for path in config.exact_labels},
         "teacher_score_label_paths": [str(path) for path in config.teacher_score_labels],
         "teacher_score_label_sha256": {
             str(path): sha256_file(path) for path in config.teacher_score_labels
         },
+        "exact_label_paths": [str(path) for path in config.exact_labels],
+        "exact_label_sha256": {str(path): sha256_file(path) for path in config.exact_labels},
         "dataset_root": config.dataset_root,
         "eval_config": str(config.eval_config),
         "eval_config_sha256": sha256_file(config.eval_config),
@@ -3835,12 +3838,12 @@ def train_pattern_tables(
         "command": quote_command(config.invocation) if config.invocation else "unknown",
         "teacher_label_paths": [str(path) for path in config.teacher_labels],
         "teacher_label_sha256": {str(path): sha256_file(path) for path in config.teacher_labels},
-        "exact_label_paths": [str(path) for path in config.exact_labels],
-        "exact_label_sha256": {str(path): sha256_file(path) for path in config.exact_labels},
         "teacher_score_label_paths": [str(path) for path in config.teacher_score_labels],
         "teacher_score_label_sha256": {
             str(path): sha256_file(path) for path in config.teacher_score_labels
         },
+        "exact_label_paths": [str(path) for path in config.exact_labels],
+        "exact_label_sha256": {str(path): sha256_file(path) for path in config.exact_labels},
         "dataset_root": config.dataset_root,
         "eval_config": str(config.eval_config),
         "eval_config_sha256": sha256_file(config.eval_config),
